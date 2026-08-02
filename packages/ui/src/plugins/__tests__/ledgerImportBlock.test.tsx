@@ -116,7 +116,7 @@ async function mountBlock(client: DataClient): Promise<void> {
   expect(def).toBeDefined();
   const block = {get: () => undefined} as never;
   const editor = {readOnly: false, doc: {transact: (fn: () => void) => fn()}} as never;
-  render(React.createElement(def!.render, {block, editor}));
+  render(React.createElement(def!.render, {block, editor, pageReadOnly: false}));
   await screen.findByLabelText('Bank statement CSV');
 }
 
@@ -440,7 +440,7 @@ describe('LGR-16 — a memo survives the paths where the ledger cannot answer', 
     const def = getCustomBlock('openbook.ledger/journal-entry');
     const block = {get: (k: string) => (k === 'props' ? props : undefined)} as never;
     const editor = {readOnly: false, doc: {transact: (fn: () => void) => fn()}} as never;
-    render(React.createElement(def!.render, {block, editor}));
+    render(React.createElement(def!.render, {block, editor, pageReadOnly: false}));
     await waitFor(() => expect(document.querySelectorAll('[data-ledger-memo]').length).toBeGreaterThan(0));
   };
 

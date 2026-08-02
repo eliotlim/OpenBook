@@ -32,6 +32,8 @@ interface Transaction {
   description: string;
   state: TxState;
   entryNo: number | null;
+  /** LGR-6: set on a reversal, naming the entry it undid. */
+  reverses?: string | null;
   postings: Posting[];
 }
 interface TrialBalanceRow {
@@ -81,7 +83,18 @@ interface RegisterRow {
   runningMinor: number;
   cleared: ClearedState;
   reversed: boolean;
+  state: TxState;
+  counterpart: Counterpart | null;
 }
+interface Counterpart {
+  relation: 'reversed-by' | 'reverses';
+  transactionId: string;
+  entryNo: number | null;
+  postingId: string | null;
+  where: 'visible' | 'filtered' | 'not-loaded';
+  state: TxState | null;
+}
+type CorrectionBlocker = 'already-reversed' | 'not-posted' | 'read-only' | 'correction-open';
 interface AccountRegister {
   accountId: string;
   accountName: string;
@@ -124,6 +137,14 @@ function reports(): {
   normalSideFor: (t: AccountType | null) => 'debit' | 'credit';
   isReported: (tx: {state: TxState}) => boolean;
   countDrafts: (t: readonly Transaction[]) => number;
+  describeCounterpart: (c: Counterpart) => string;
+  correctionBlocker: (row: {state: TxState}, opts: {readOnly: boolean; correctionOpen: boolean}) => CorrectionBlocker | null;
+  describeCorrectionBlocker: (b: CorrectionBlocker, c: Counterpart | null) => string;
+  describeCorrectionConfirm: (row: {entryNo: number | null; description: string; state: TxState; counterpart?: Counterpart | null}) => string;
+  describeCorrectionDone: (original: number | null, reversal: number | null, corrected: number | null) => string;
+  describeImmutability: (readOnly: boolean) => string;
+  isBlockWideBlocker: (b: CorrectionBlocker) => boolean;
+  nameEntry: (entryNo: number | null) => string;
   REPORTED_STATES: readonly TxState[];
   ALL_CLEARED_STATES: readonly ClearedState[];
   } {
@@ -585,6 +606,246 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
       const withReversal = buildAccountRegister('bank', ACCOUNTS, [...REGISTER_BOOK, original, reversal]);
       expect(withReversal.rows.slice(-2).map((r) => r.reversed)).toEqual([true, false]);
       expect(withReversal.closingMinor).toBe(112500); // the pair cancels
+    });
+
+    /**
+     * LGR-6 — the reversal pair, and the escape hatch's pure half.
+     *
+     * The store has always been able to reverse; what was missing was any way to
+     * ASK for it and any way to find the result afterwards. These are the two
+     * decisions that must not live in the view: which rows may be corrected (and
+     * the reason when they may not), and how the two halves of a pair find each
+     * other under a filter that may be hiding one of them.
+     */
+    describe('reversal pairs are navigable, and corrections are gated in the fold', () => {
+      const ORIGINAL = tx({id: 'orig', date: '2026-07-01', description: 'Oops', state: 'void', entryNo: 10, postings: [posting('bank', 4200, 'cleared'), posting('revenue', -4200)]});
+      const REVERSAL = tx({
+        id: 'rev',
+        date: '2026-07-02',
+        description: 'Reversal of Oops',
+        entryNo: 11,
+        reverses: 'orig',
+        postings: [posting('bank', -4200, 'pending'), posting('revenue', 4200)],
+      });
+      const PAIR_BOOK = [...REGISTER_BOOK, ORIGINAL, REVERSAL];
+
+      it('points each half of the pair at the other, with the posting to jump to', () => {
+        const {buildAccountRegister, describeCounterpart} = reports();
+        const reg = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK);
+        const [voided, reversal] = reg.rows.slice(-2);
+
+        expect(voided.reversed).toBe(true);
+        expect(voided.state).toBe('void');
+        expect(voided.counterpart).toEqual({relation: 'reversed-by', transactionId: 'rev', entryNo: 11, postingId: reversal.postingId, where: 'visible', state: 'posted'});
+        expect(describeCounterpart(voided.counterpart!)).toBe('Reversed by entry #11');
+
+        // …and back the other way, which is what makes an ordinary PAIR walkable
+        // rather than merely labelled: each row points at its own counterpart,
+        // and on a two-link pair that is the way home.
+        expect(reversal.reversed).toBe(false);
+        expect(reversal.counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: 10, postingId: voided.postingId, where: 'visible', state: 'void'});
+        expect(describeCounterpart(reversal.counterpart!)).toBe('Reverses entry #10');
+
+        // An ordinary entry is in no pair and claims no link.
+        expect(reg.rows[0].counterpart).toBeNull();
+      });
+
+      it('says WHERE the counterpart went when the filter or the read cannot show it', () => {
+        const {buildAccountRegister, describeCounterpart} = reports();
+        // A date window that admits the original but not its reversal.
+        const filtered = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK, {from: '2026-07-01', to: '2026-07-01'});
+        const voided = filtered.rows[filtered.rows.length - 1];
+        expect(voided.counterpart).toMatchObject({where: 'filtered', postingId: null, entryNo: 11});
+        expect(describeCounterpart(voided.counterpart!)).toBe('Reversed by entry #11 — hidden by this filter');
+
+        // A truncated read that loaded the reversal but not the entry it undid:
+        // the id is known (it is ON the reversal), the entry number is not.
+        const orphan = buildAccountRegister('bank', ACCOUNTS, [REVERSAL]);
+        expect(orphan.rows[0].counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: null, postingId: null, where: 'not-loaded', state: null});
+        expect(describeCounterpart(orphan.rows[0].counterpart!)).toBe('Reverses an unnumbered entry — outside this read');
+
+        // The mirror case cannot be linked at all — a void entry does not carry
+        // its reversal's id — so it stays marked and claims nothing.
+        const lonely = buildAccountRegister('bank', ACCOUNTS, [ORIGINAL]);
+        expect(lonely.rows[0].reversed).toBe(true);
+        expect(lonely.rows[0].counterpart).toBeNull();
+      });
+
+      it('a cleared-state filter that hides one half still reports the other honestly', () => {
+        const {buildAccountRegister} = reports();
+        // The original's leg is `cleared`, the reversal's is `pending`.
+        const reg = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK, {cleared: ['cleared']});
+        const voided = reg.rows.find((r) => r.transactionId === 'orig')!;
+        expect(reg.rows.some((r) => r.transactionId === 'rev')).toBe(false);
+        expect(voided.counterpart).toMatchObject({where: 'filtered', postingId: null});
+      });
+
+      it('damaged data cannot make one original claim two reversals', () => {
+        const {buildAccountRegister} = reports();
+        const second = tx({id: 'rev2', date: '2026-07-03', description: 'Second claim', entryNo: 12, reverses: 'orig', postings: [posting('bank', -4200), posting('revenue', 4200)]});
+        const reg = buildAccountRegister('bank', ACCOUNTS, [...PAIR_BOOK, second]);
+        const voided = reg.rows.find((r) => r.transactionId === 'orig')!;
+        // First claimant wins, deterministically — never a link that flips
+        // between renders because a Map iteration order changed.
+        expect(voided.counterpart!.transactionId).toBe('rev');
+      });
+
+      /**
+       * A CHAIN of three — the shape this feature deliberately made reachable by
+       * allowing a reversal to be reversed. Two claims used to be asserted only
+       * against a 2-link pair and are false here, so they are pinned explicitly.
+       */
+      describe('a chain of three (the entry, its reversal, and the counter-reversal)', () => {
+        // #10 posted → #11 reverses it → #12 reverses #11. #11 is now void too.
+        const MID = tx({id: 'rev', date: '2026-07-02', description: 'Reversal of Oops', state: 'void', entryNo: 11, reverses: 'orig', postings: [posting('bank', -4200), posting('revenue', 4200)]});
+        const LAST = tx({id: 'rev2', date: '2026-07-03', description: 'Reversal of the reversal', entryNo: 12, reverses: 'rev', postings: [posting('bank', 4200), posting('revenue', -4200)]});
+        const CHAIN = [ORIGINAL, MID, LAST];
+
+        it('each row points at its OWN counterpart, and no row points backwards past it', () => {
+          const {buildAccountRegister, describeCounterpart} = reports();
+          const reg = buildAccountRegister('bank', ACCOUNTS, CHAIN);
+          const [head, mid, last] = reg.rows;
+
+          // The head points forward to the entry that reversed it.
+          expect(head.counterpart).toMatchObject({relation: 'reversed-by', transactionId: 'rev', entryNo: 11, where: 'visible', state: 'void'});
+          // The MIDDLE link is void, and being void is the more urgent fact — so
+          // it shows its `reversed-by` face and points ONWARD to #12. It does not
+          // also advertise "Reverses entry #10": one row, one counterpart.
+          expect(mid.counterpart).toMatchObject({relation: 'reversed-by', transactionId: 'rev2', entryNo: 12, where: 'visible', state: 'posted'});
+          expect(describeCounterpart(mid.counterpart!)).toBe('Reversed by entry #12');
+          // The tail is the only live entry and points back at what it undid.
+          expect(last.counterpart).toMatchObject({relation: 'reverses', transactionId: 'rev', entryNo: 11, where: 'visible', state: 'void'});
+
+          // Walking from the head reaches the tail: head → mid → tail. The tail
+          // and the middle then stay mutually linked, because that is exactly
+          // what they are — an ordinary pair. Nothing points back past the head.
+          expect(head.counterpart!.postingId).toBe(mid.postingId);
+          expect(mid.counterpart!.postingId).toBe(last.postingId);
+          expect(last.counterpart!.postingId).toBe(mid.postingId);
+          expect(reg.rows.map((r) => r.counterpart!.postingId)).not.toContain(head.postingId);
+        });
+
+        it('never sends the reader to a row that is itself dead', () => {
+          const {buildAccountRegister, correctionBlocker, describeCorrectionBlocker} = reports();
+          const reg = buildAccountRegister('bank', ACCOUNTS, CHAIN);
+          const [head, mid, last] = reg.rows;
+          const open = {readOnly: false, correctionOpen: false};
+
+          // Both void links are off; only the tail can be corrected.
+          expect(correctionBlocker(head, open)).toBe('already-reversed');
+          expect(correctionBlocker(mid, open)).toBe('already-reversed');
+          expect(correctionBlocker(last, open)).toBeNull();
+
+          // The head's advice must NOT be "correct entry #11" — #11 is void, so
+          // its own Correct is off with its own redirect, and the reader is
+          // walked from one dead control to the next.
+          const advice = describeCorrectionBlocker('already-reversed', head.counterpart);
+          expect(advice).toBe('Already reversed by entry #11, which was itself reversed — correct the latest entry in the chain instead.');
+          expect(advice).not.toContain('correct entry #11 instead');
+          // The two-link case keeps the specific, more useful sentence.
+          expect(describeCorrectionBlocker('already-reversed', mid.counterpart)).toBe('Already reversed — correct entry #12 instead.');
+        });
+
+        it('the chain nets to the original position — three entries, nothing edited', () => {
+          const {accountBalances, buildAccountRegister} = reports();
+          // Negation of a negation: 42.00 is back, with all three on the books.
+          expect(accountBalances(CHAIN).get('bank')).toBe(4200);
+          expect(buildAccountRegister('bank', ACCOUNTS, CHAIN).closingMinor).toBe(4200);
+        });
+      });
+
+      it('gates the correction affordance, and every OFF state carries a reason', () => {
+        const {correctionBlocker, describeCorrectionBlocker, buildAccountRegister} = reports();
+        const reg = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK);
+        const voided = reg.rows.find((r) => r.transactionId === 'orig')!;
+        const reversal = reg.rows.find((r) => r.transactionId === 'rev')!;
+        const open = {readOnly: false, correctionOpen: false};
+
+        // A posted entry — including a REVERSAL, which is an ordinary posted
+        // entry and correctable in turn (see the confirm copy below).
+        expect(correctionBlocker(reg.rows[0], open)).toBeNull();
+        expect(correctionBlocker(reversal, open)).toBeNull();
+
+        // …and every way it can be off.
+        expect(correctionBlocker(voided, open)).toBe('already-reversed');
+        expect(correctionBlocker(reg.rows[0], {...open, readOnly: true})).toBe('read-only');
+        expect(correctionBlocker(reg.rows[0], {...open, correctionOpen: true})).toBe('correction-open');
+        expect(correctionBlocker({state: 'draft'}, open)).toBe('not-posted');
+        // read-only outranks everything: a viewer is told about the page, not
+        // about a correction they could not start anyway.
+        expect(correctionBlocker(voided, {readOnly: true, correctionOpen: true})).toBe('read-only');
+
+        // The reason is a rendered sentence in every case, and the useful half
+        // of "already reversed" is which entry to correct instead.
+        expect(describeCorrectionBlocker('already-reversed', voided.counterpart)).toBe('Already reversed — correct entry #11 instead.');
+        expect(describeCorrectionBlocker('already-reversed', null)).toMatch(/not in this read/);
+        expect(describeCorrectionBlocker('read-only', null)).toMatch(/^This page is read-only/);
+        expect(describeCorrectionBlocker('not-posted', null)).toBe('Only a posted entry can be corrected.');
+        expect(describeCorrectionBlocker('correction-open', null)).toMatch(/Finish or close/);
+      });
+
+      it('separates the reasons that belong to the BLOCK from the ones that belong to a row', () => {
+        const {isBlockWideBlocker, describeImmutability} = reports();
+        // `read-only` and `correction-open` are identical on every row, so they
+        // are stated once above the table — forty copies of one fact was forty
+        // repetitions and roughly double the row height.
+        expect(isBlockWideBlocker('read-only')).toBe(true);
+        expect(isBlockWideBlocker('correction-open')).toBe(true);
+        // These two are only true BECAUSE of the row they sit on.
+        expect(isBlockWideBlocker('already-reversed')).toBe(false);
+        expect(isBlockWideBlocker('not-posted')).toBe(false);
+
+        // …and the standing notice stops advertising a control the reader cannot
+        // press, while still stating the rule.
+        expect(describeImmutability(false)).toContain('Posted entries are permanent');
+        // Quotes the button's ACTUAL label — it said "Correct this entry" while
+        // every control on screen read "Correct".
+        expect(describeImmutability(false)).toContain('press “Correct” on its row');
+        expect(describeImmutability(false)).not.toContain('Correct this entry');
+        expect(describeImmutability(true)).toContain('Posted entries are permanent');
+        expect(describeImmutability(true)).not.toContain('Correct');
+      });
+
+      it('the confirmation states all three consequences before anything is written', () => {
+        const {describeCorrectionConfirm, describeCorrectionDone, nameEntry, buildAccountRegister} = reports();
+        const reg = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK);
+
+        const plain = describeCorrectionConfirm(reg.rows[0]);
+        expect(plain).toContain('Correct entry #1 “Opening float”?');
+        // The original SURVIVES — this is not a delete confirmation…
+        expect(plain).toContain('The original stays on the books');
+        // …and "reversal" is defined in money terms rather than assumed: a
+        // bookkeeper knows the word, the person who mistyped 42.00 may not.
+        expect(plain).toContain('an opposite entry that cancels its effect');
+        expect(plain).toContain('is posted against it');
+        // …and the user is left with something to do, not just a warning.
+        expect(plain).toContain('editable copy to correct');
+        expect(plain).toContain('The reversal is permanent too');
+
+        // Correcting a reversal is legal, and surprising enough to spell out.
+        const chained = describeCorrectionConfirm(reg.rows.find((r) => r.transactionId === 'rev')!);
+        expect(chained).toContain('This entry is itself a reversal');
+        expect(chained).toContain('puts entry #10’s effect back on the books');
+
+        // An entry with no description is still nameable.
+        expect(describeCorrectionConfirm({entryNo: 7, description: '   ', state: 'posted'})).toContain('Correct entry #7?');
+        expect(nameEntry(null)).toBe('this unnumbered entry');
+        expect(describeCorrectionDone(10, 11, 12)).toBe('Corrected — entry #10 was reversed by entry #11, and your corrected copy is posted as entry #12.');
+      });
+
+      it('a corrected book nets to the corrected position — the pair cancels and the copy stands', () => {
+        const {buildAccountRegister, accountBalances} = reports();
+        // The whole point, in numbers: 42.00 posted in error, reversed, and
+        // re-entered at 45.00. The account must read 45.00, with all three
+        // entries still on the books.
+        const corrected = tx({id: 'fixed', date: '2026-07-02', description: 'Oops (corrected)', entryNo: 12, postings: [posting('bank', 4500), posting('revenue', -4500)]});
+        const book = [ORIGINAL, REVERSAL, corrected];
+        expect(accountBalances(book).get('bank')).toBe(4500);
+        const reg = buildAccountRegister('bank', ACCOUNTS, book);
+        expect(reg.rows).toHaveLength(3);
+        expect(reg.closingMinor).toBe(4500);
+        expect(reg.closingMinor).toBe(reg.accountBalanceMinor);
+      });
     });
 
     it('answers usefully for no account, an unknown account, and an account with no postings', () => {

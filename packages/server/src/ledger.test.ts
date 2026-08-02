@@ -44,6 +44,7 @@ import {PgliteDb, type Db} from './db';
 import {runMigrations} from './migrations';
 import {PageStore} from './store';
 import {LEDGER_ENTRY_SEQ_SETTING_KEY} from './ledger';
+import {verifyLedger} from './ledgerVerify';
 
 const ACTOR: Principal = {kind: 'user', subject: 'https://iss#tester', issuer: 'https://iss', name: 'Tester', verifiedVia: 'jws'};
 
@@ -408,6 +409,54 @@ describe('LGR-3 — immutability of posted entries; drafts stay mutable', () => 
     expect(await code(store.ledger.reverse(posted.id, {}, ACTOR))).toBe('invalid-state');
     const draft2 = await store.ledger.createDraft({date: '2026-08-02'}, ACTOR);
     expect(await code(store.ledger.reverse(draft2.id, {}, ACTOR))).toBe('invalid-state');
+  });
+
+  /**
+   * LGR-6 — reversing a REVERSAL is allowed, and the decision is pinned here.
+   *
+   * The alternative (refusing it) was rejected: a reversal is an ordinary posted
+   * entry, so a rule that singled it out would have to be enforced somewhere,
+   * and the only thing it would buy is a dead end for the user who reversed the
+   * wrong entry. Allowed is also the COHERENT answer — the counter-reversal is
+   * the negation of a negation, so it puts the original entry's effect back
+   * exactly, and the chain stays legible because every link carries `reverses`.
+   *
+   * The coherence claim RESTS on the audit chain still verifying — a
+   * `transaction.reverse` event whose `beforeHash` covers a transaction that was
+   * itself produced by a reverse is a link no other test exercises — so the
+   * verifier is run over the finished chain rather than assumed.
+   */
+  it('a reversal can itself be reversed: the counter-reversal restores the original effect', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 4_200}, {accountId: income, amountMinor: -4_200}]},
+      ACTOR,
+    );
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    const reversal = await store.ledger.reverse(posted.id, {}, ACTOR);
+    expect(await store.ledger.accountPostedBalance(cash)).toBe(0);
+
+    // Correcting the correction.
+    const counter = await store.ledger.reverse(reversal.id, {}, ACTOR);
+    expect(counter.reverses).toBe(reversal.id);
+    expect(counter.state).toBe('posted');
+    expect((await store.ledger.getTransaction(reversal.id))?.state).toBe('void');
+    // The negation of the negation: the original 42.00 is back on the books,
+    // and nothing was edited or deleted to get there.
+    expect(await store.ledger.accountPostedBalance(cash)).toBe(4_200);
+    expect((await store.ledger.getTransaction(posted.id))?.state).toBe('void');
+    expect((await store.ledger.getTransaction(posted.id))?.postings.map((p) => p.amountMinor)).toEqual([4_200, -4_200]);
+    // Three entries, three numbers, one walkable chain.
+    expect([posted.entryNo, reversal.entryNo, counter.entryNo]).toEqual([1, 2, 3]);
+    // …and the now-void reversal cannot be reversed a second time.
+    expect(await code(store.ledger.reverse(reversal.id, {}, ACTOR))).toBe('invalid-state');
+
+    // The independent verifier (LGR-7) over the whole chain — including a fourth
+    // link, so the chained-reverse case is exercised more than once.
+    const fourth = await store.ledger.reverse(counter.id, {}, ACTOR);
+    expect(fourth.reverses).toBe(counter.id);
+    expect(await store.ledger.accountPostedBalance(cash)).toBe(0);
+    expect((await verifyLedger(db)).findings).toEqual([]);
   });
 
   it('entry numbers stay monotonic and gapless across failed attempts', async () => {
