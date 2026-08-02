@@ -773,8 +773,16 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                               <button type="button" data-ledger-correct-off={blocker} style={disabledButtonStyle} disabled aria-describedby={reasonId}>
                                 Correct
                               </button>
+                              {/* `minWidth` on the reason because the cell is
+                                  `nowrap` for the button — without it the column
+                                  is only as wide as "Correct" and the sentence
+                                  stacks one or two words to a line. */}
                               {rowReason !== null && (
-                                <div id={reasonId} data-ledger-correct-why={rowReason} style={{...mutedStyle, ...wrapStyle, marginTop: '0.2rem', whiteSpace: 'normal', maxWidth: '13rem'}}>
+                                <div
+                                  id={reasonId}
+                                  data-ledger-correct-why={rowReason}
+                                  style={{...mutedStyle, ...wrapStyle, marginTop: '0.2rem', whiteSpace: 'normal', minWidth: '9rem', maxWidth: '13rem'}}
+                                >
                                   {describeCorrectionBlocker(rowReason, counterpart)}
                                 </div>
                               )}
