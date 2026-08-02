@@ -624,7 +624,9 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                                     counterpartRefs.current.set(row.postingId, el);
                                   }}
                                   data-ledger-counterpart-link={jump}
-                                  style={{...buttonStyle, ...mutedStyle, padding: '0.1rem 0.4rem', cursor: 'pointer'}}
+                                  // One line: "Reversed by entry #2" broken over
+                                  // three lines reads as a paragraph, not a link.
+                                  style={{...buttonStyle, ...mutedStyle, padding: '0.1rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap'}}
                                   onClick={() => jumpToCounterpart(jump)}
                                 >
                                   {describeCounterpart(counterpart)} ↕
@@ -639,7 +641,12 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                         <td style={{...tdStyle, ...mutedStyle}}>{CLEARED_LABEL[row.cleared]}</td>
                         <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
                         <td data-ledger-running style={numericStyle}><SideAmount minor={row.runningMinor} /></td>
-                        <td style={{...tdStyle, ...wrapStyle}}>
+                        {/* The button stays on ONE line and the column takes the
+                            width it needs — the table already scrolls inside its
+                            own region, and a three-line button turned every row
+                            of the register into a paragraph. The REASON wraps,
+                            bounded, because it is a sentence. */}
+                        <td style={{...tdStyle, whiteSpace: 'nowrap'}}>
                           {blocker === null ? (
                             <button
                               type="button"
@@ -659,7 +666,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                               <button type="button" data-ledger-correct-off={blocker} style={disabledButtonStyle} disabled aria-describedby={reasonId}>
                                 Correct this entry
                               </button>
-                              <div id={reasonId} data-ledger-correct-why={blocker} style={{...mutedStyle, marginTop: '0.2rem'}}>
+                              <div id={reasonId} data-ledger-correct-why={blocker} style={{...mutedStyle, ...wrapStyle, marginTop: '0.2rem', whiteSpace: 'normal', maxWidth: '13rem'}}>
                                 {describeCorrectionBlocker(blocker, row.counterpart)}
                               </div>
                             </>
