@@ -77,6 +77,8 @@ import {
   type LedgerClearedState,
   type LedgerDraftInput,
   type LedgerDraftPatch,
+  type LedgerEvidence,
+  type LedgerEvidenceInput,
   type LedgerInfo,
   type LedgerPeriod,
   type LedgerPeriodCloseInput,
@@ -248,6 +250,26 @@ const MAX_DESCRIPTION_LENGTH = 1000;
 const MAX_RECONCILIATION_POSTINGS = 1000;
 
 /**
+ * Maximum evidence attachments on ONE journal entry (LGR-14), in the spirit of
+ * {@link MAX_POSTINGS_PER_TRANSACTION}: the manifest is copied into every audit
+ * payload the entry appears in, so an unbounded list is unbounded append-only
+ * log growth (~150 B an item). A hundred receipts on one entry is far beyond
+ * any real bookkeeping shape (a batch of receipts is a batch of entries).
+ */
+const MAX_EVIDENCE_PER_TRANSACTION = 100;
+
+/**
+ * Maximum evidence FILENAME length (LGR-14). Deliberately tighter than
+ * {@link MAX_DESCRIPTION_LENGTH}: a filename is an identifier, not prose, and
+ * every byte of it is copied into the audit payloads. 255 is the common
+ * filesystem bound, so any name a real file ever had fits.
+ */
+const MAX_EVIDENCE_FILENAME_LENGTH = 255;
+
+/** A content-hash asset id: 64 lowercase hex chars (the SHA-256 of the bytes). */
+const ASSET_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
  * Advisory-lock key serializing audit-chain appends (see
  * {@link LedgerStore.appendAuditTx}). Transaction-scoped, so it is released on
  * commit or rollback with no cleanup path to get wrong. An arbitrary but fixed
@@ -302,6 +324,50 @@ function assertFreeText(value: unknown, field: string, opts: {nullable?: boolean
 /** Validate an optional transaction description. See {@link assertFreeText}. */
 function assertDescription(description: unknown): void {
   assertFreeText(description, 'description');
+}
+
+/**
+ * Validate a draft's evidence input list (LGR-14) — SHAPE only; whether each
+ * named asset actually exists is checked inside the mutation's transaction
+ * ({@link LedgerStore.resolveEvidenceTx}). The manifest is a SET: a duplicate
+ * hash is rejected rather than silently collapsed, because two entries with
+ * one hash is a client bug the server should name, not paper over.
+ */
+function validateEvidenceInputs(evidence: LedgerEvidenceInput[] | undefined): LedgerEvidenceInput[] | undefined {
+  if (evidence === undefined) return undefined;
+  if (!Array.isArray(evidence)) {
+    throw new LedgerError('invalid-input', 'evidence must be an array of {sha256, filename}');
+  }
+  if (evidence.length > MAX_EVIDENCE_PER_TRANSACTION) {
+    throw new LedgerError(
+      'invalid-input',
+      `a journal entry may carry at most ${MAX_EVIDENCE_PER_TRANSACTION} evidence attachments, got ${evidence.length}`,
+    );
+  }
+  const seen = new Set<string>();
+  const out: LedgerEvidenceInput[] = [];
+  for (const item of evidence) {
+    const sha256 = (item as {sha256?: unknown} | null)?.sha256;
+    const filename = (item as {filename?: unknown} | null)?.filename;
+    if (typeof sha256 !== 'string' || !ASSET_ID_RE.test(sha256)) {
+      throw new LedgerError('invalid-input', `evidence sha256 must be 64 lowercase hex chars (the asset id), got ${JSON.stringify(sha256)}`);
+    }
+    if (typeof filename !== 'string' || filename.trim() === '') {
+      throw new LedgerError('invalid-input', 'every evidence attachment needs a non-empty filename');
+    }
+    if (filename.length > MAX_EVIDENCE_FILENAME_LENGTH) {
+      throw new LedgerError(
+        'invalid-input',
+        `an evidence filename must be at most ${MAX_EVIDENCE_FILENAME_LENGTH} characters, got ${filename.length}`,
+      );
+    }
+    if (seen.has(sha256)) {
+      throw new LedgerError('invalid-input', `duplicate evidence attachment ${sha256} — the manifest is a set of distinct files`);
+    }
+    seen.add(sha256);
+    out.push({sha256, filename});
+  }
+  return out;
 }
 
 /**
@@ -508,11 +574,18 @@ export class LedgerStore {
     if (!isValidCurrencyCode(currency)) {
       throw new LedgerError('invalid-input', `invalid currency code: ${JSON.stringify(currency)}`);
     }
+    if (input.evidenceRequired !== undefined && typeof input.evidenceRequired !== 'boolean') {
+      throw new LedgerError('invalid-input', `evidenceRequired must be a boolean, got ${typeof input.evidenceRequired}`);
+    }
     const id = randomUUID();
     const properties = {
       [LEDGER_PROP.account.type]: input.type,
       [LEDGER_PROP.account.status]: 'open',
       [LEDGER_PROP.account.currency]: currency,
+      // LGR-14: ONE stored representation of "off" — the key is absent. This is
+      // what keeps a new account, a toggled-off account and a pre-LGR-14
+      // account byte-identical in properties AND in the content hash.
+      ...(input.evidenceRequired === true ? {[LEDGER_PROP.account.evidenceRequired]: true} : {}),
     };
     const created = await this.db.begin(async (tx) => {
       const rows = await this.insertRowTx(tx, ids.accounts, input.name, properties, id);
@@ -546,6 +619,9 @@ export class LedgerStore {
     if (patch.status !== undefined && !['open', 'closed'].includes(patch.status)) {
       throw new LedgerError('invalid-input', `invalid account status: ${JSON.stringify(patch.status)}`);
     }
+    if (patch.evidenceRequired !== undefined && typeof patch.evidenceRequired !== 'boolean') {
+      throw new LedgerError('invalid-input', `evidenceRequired must be a boolean, got ${typeof patch.evidenceRequired}`);
+    }
     const account = await this.db.begin(async (tx) => {
       const rows = await tx.query<Row>(
         `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
@@ -561,6 +637,13 @@ export class LedgerStore {
       const before = accountFromRow(rows[0]);
       const props = parseJson<Record<string, unknown>>(rows[0].properties, {});
       if (patch.status !== undefined) props[LEDGER_PROP.account.status] = patch.status;
+      if (patch.evidenceRequired !== undefined) {
+        // LGR-14, same one-representation rule as `createAccount`: `true` is
+        // stored, `false` is the ABSENT key — so the content hash's
+        // omit-while-false rule sees exactly one shape for "off".
+        if (patch.evidenceRequired) props[LEDGER_PROP.account.evidenceRequired] = true;
+        else delete props[LEDGER_PROP.account.evidenceRequired];
+      }
       const updated = await tx.query<Row>(
         `UPDATE pages SET name = $3, properties = $4::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2
          RETURNING ${ROW_COLS}`,
@@ -698,13 +781,19 @@ export class LedgerStore {
         `a journal entry may have at most ${MAX_POSTINGS_PER_TRANSACTION} postings, got ${postings.length}`,
       );
     }
+    const evidenceInputs = validateEvidenceInputs(input.evidence);
     const txId = randomUUID();
     const created = await this.db.begin(async (tx) => {
+      // Resolve BEFORE the row insert so a bad attachment rejects with nothing
+      // written; the refs go in after the row exists (they FK onto it).
+      const evidence = evidenceInputs ? await this.resolveEvidenceTx(tx, evidenceInputs) : [];
       const row = await this.insertRowTx(tx, ids.transactions, input.description ?? null, {
         [LEDGER_PROP.transaction.date]: input.date,
         [LEDGER_PROP.transaction.description]: input.description ?? '',
         [LEDGER_PROP.transaction.state]: 'draft',
+        ...(evidence.length > 0 ? {[LEDGER_PROP.transaction.evidence]: evidence} : {}),
       }, txId);
+      if (evidence.length > 0) await this.syncEvidenceRefsTx(tx, txId, evidence, []);
       const inserted = await this.insertPostingsTx(tx, ids, txId, postings);
       const transaction = transactionFromRow(row, inserted);
       await this.appendAuditTx(
@@ -739,10 +828,20 @@ export class LedgerStore {
         `a journal entry may have at most ${MAX_POSTINGS_PER_TRANSACTION} postings, got ${replacement.length}`,
       );
     }
+    const evidenceReplacement = validateEvidenceInputs(patch.evidence);
     const updated = await this.db.begin(async (tx) => {
       const {row, props, before} = await this.lockDraftTx(tx, ids, id);
       if (patch.date !== undefined) props[LEDGER_PROP.transaction.date] = patch.date;
       if (patch.description !== undefined) props[LEDGER_PROP.transaction.description] = patch.description;
+      if (evidenceReplacement !== undefined) {
+        // Wholesale replacement, the `postings` contract (LGR-14). Sizes come
+        // from the asset store inside this same transaction; refs on the tx row
+        // page follow the manifest.
+        const evidence = await this.resolveEvidenceTx(tx, evidenceReplacement);
+        if (evidence.length > 0) props[LEDGER_PROP.transaction.evidence] = evidence;
+        else delete props[LEDGER_PROP.transaction.evidence];
+        await this.syncEvidenceRefsTx(tx, id, evidence, before.evidence);
+      }
       const updated = await tx.query<Row>(
         `UPDATE pages SET name = $3, properties = $4::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2
          RETURNING ${ROW_COLS}`,
@@ -806,15 +905,57 @@ export class LedgerStore {
   /**
    * POST a draft — the enforcement heart. ONE transaction validates every
    * invariant, assigns the monotonic entry number, stamps posted_at/posted_by
-   * (set once, never mutated), records the (empty, v1) evidence list, and
-   * appends the audit event. Any failure rolls the whole thing back.
+   * (set once, never mutated), snapshots the evidence manifest (LGR-14 — each
+   * attached asset re-checked against the content-addressed store, sizes taken
+   * from the store's own rows), and appends the audit event. Any failure rolls
+   * the whole thing back.
+   *
+   * THE EVIDENCE GATE (LGR-14): when any posting's account has
+   * `evidenceRequired` and the entry has no evidence attached, the post is
+   * REJECTED (`evidence-required`) — enforced HERE, at the store layer, so
+   * `LocalDataClient` (which bypasses HTTP entirely) is gated identically and
+   * a block that forgot to disable its own button still cannot post. Only this
+   * door is gated: a REVERSAL is exempt (its evidence is the original entry it
+   * undoes — demanding a fresh receipt to undo a mistake would make required
+   * accounts uncorrectable), and server-generated closing entries are derived
+   * arithmetic with no receipt to attach.
    */
   async post(id: string, actor?: Principal): Promise<LedgerTransaction> {
     const ids = await this.requireIds();
     const posted = await this.db.begin(async (tx) => {
       const {props, before} = await this.lockDraftTx(tx, ids, id, 'post');
       const postings = await this.postingsForTx(tx, ids, id);
-      await this.validatePostable(tx, ids, postings);
+      const accounts = await this.validatePostable(tx, ids, postings);
+      // LGR-14: the post-time SNAPSHOT. What was attached to the draft is
+      // re-resolved against the asset store inside this transaction — an asset
+      // that vanished since attach (only reachable by out-of-band surgery; the
+      // manifest itself GC-protects the bytes) rejects the post rather than
+      // freezing a manifest the store cannot honour. A plain read, no lock —
+      // asset rows are content-addressed and immutable.
+      const manifest = await this.resolveEvidenceTx(
+        tx,
+        before.evidence.map((e) => ({sha256: e.sha256, filename: e.filename})),
+      ).catch((err) => {
+        if (err instanceof LedgerError && err.code === 'not-found') {
+          throw new LedgerError(
+            'invalid-state',
+            `${err.message} — the attached file is gone from the asset store; detach it or re-upload it, then post`,
+          );
+        }
+        throw err;
+      });
+      if (manifest.length === 0) {
+        const required = [...new Set(postings.map((p) => p.accountId))]
+          .map((accountId) => accounts.get(accountId))
+          .filter((a): a is LedgerAccount => a !== undefined && a.evidenceRequired);
+        if (required.length > 0) {
+          const names = required.map((a) => a.name).join(', ');
+          throw new LedgerError(
+            'evidence-required',
+            `account ${names} requires evidence — attach a receipt (or other supporting file) to this entry before posting, or turn off "evidence required" on the account`,
+          );
+        }
+      }
       // LGR-12: the entry's DATE must not fall inside a closed period. After
       // the account locks and before the entry-number sequence — the periods
       // row sits at the `settings` slot of the lock order, ahead of
@@ -825,7 +966,9 @@ export class LedgerStore {
       props[LEDGER_PROP.transaction.postedAt] = new Date().toISOString();
       props[LEDGER_PROP.transaction.postedBy] = actor?.subject ?? '';
       props[LEDGER_PROP.transaction.entryNo] = entryNo;
-      props[LEDGER_PROP.transaction.evidence] = []; // recorded at post; LGR-14 fills it
+      // The manifest recorded at post (LGR-14): frozen with the entry from here
+      // on — it is inside `transactionContent`, so inside the audit hashes.
+      props[LEDGER_PROP.transaction.evidence] = manifest;
       const updated = await tx.query<Row>(
         `UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2 RETURNING ${ROW_COLS}`,
         [id, ids.transactions, JSON.stringify(props)],
@@ -2070,8 +2213,13 @@ export class LedgerStore {
    * UNLOCKED read let a concurrent `updateAccount(status:'closed')` commit
    * between this check and the post, producing a posting into a closed account.
    * `FOR SHARE` lets concurrent posts proceed together while blocking a close.
+   *
+   * RETURNS the locked accounts by id (LGR-14): `post` reads
+   * `evidenceRequired` off exactly these rows — the same `FOR SHARE` locks, the
+   * same ACCOUNT slot in the lock order, no second read and no new lock class —
+   * so a concurrent toggle serializes against the post exactly as a close does.
    */
-  private async validatePostable(tx: Db, ids: LedgerIds, postings: LedgerPosting[]): Promise<void> {
+  private async validatePostable(tx: Db, ids: LedgerIds, postings: LedgerPosting[]): Promise<Map<string, LedgerAccount>> {
     if (postings.length < 2) {
       throw new LedgerError('too-few-postings', `a journal entry needs at least 2 postings, got ${postings.length}`);
     }
@@ -2121,6 +2269,7 @@ export class LedgerStore {
       if (err instanceof MoneyError) throw new LedgerError('currency-mismatch', err.message);
       throw err;
     }
+    return byId;
   }
 
   /**
@@ -2498,6 +2647,77 @@ export class LedgerStore {
     return rows.map(postingFromRow);
   }
 
+  /**
+   * Resolve validated evidence inputs into the stored manifest (LGR-14), inside
+   * the caller's transaction: every named asset must EXIST in the
+   * content-addressed store, and `size` comes from the store's own row — the
+   * manifest never records a byte count the store does not hold. Order is the
+   * caller's attach order (user-meaningful, and stable because updates are
+   * wholesale replacements).
+   */
+  private async resolveEvidenceTx(tx: Db, items: readonly LedgerEvidenceInput[]): Promise<LedgerEvidence[]> {
+    if (items.length === 0) return [];
+    const rows = await tx.query<{id: string; size: number | string}>(
+      'SELECT id, size FROM assets WHERE id = ANY($1)',
+      [items.map((i) => i.sha256)],
+    );
+    const sizeById = new Map(rows.map((r) => [r.id, Number(r.size)]));
+    return items.map((i) => {
+      const size = sizeById.get(i.sha256);
+      if (size === undefined) {
+        throw new LedgerError(
+          'not-found',
+          `evidence asset ${i.sha256} ("${i.filename}") is not in the asset store — upload the file first, then attach it by its content hash`,
+        );
+      }
+      return {filename: i.filename, sha256: i.sha256, size};
+    });
+  }
+
+  /**
+   * Keep `asset_refs` in step with a draft's evidence manifest (LGR-14), inside
+   * the caller's transaction. The ref of each evidence asset to the TRANSACTION
+   * ROW page is load-bearing twice over:
+   *
+   *  - READ GATE: an asset inherits the read-gate of its referencing pages, so
+   *    this ref is what makes a receipt readable to exactly the people who can
+   *    read the ledger — not (only) to the readers of whatever page the file
+   *    happened to be uploaded from.
+   *  - DELETION: the asset GC (`gcUnreferencedAssets`) keeps any asset with a
+   *    live ref, and — independently — any asset whose 64-hex id appears in ANY
+   *    page's `properties` text, which the manifest in `lp_evidence` does from
+   *    this same transaction on. Belt and braces: evidence attached to a ledger
+   *    row is structurally un-reapable while the row lives, and a POSTED row
+   *    lives forever (posted transactions cannot be deleted). There is no other
+   *    asset-deletion path (no route or store method deletes asset rows), so
+   *    removing posted evidence takes direct SQL — which is exactly what the
+   *    verifier's evidence check exists to catch.
+   *
+   * Removal only drops the TX-ROW ref; a ref from the upload page (or anywhere
+   * else) is not this module's to manage. A draft's hard-delete needs no code
+   * here at all: `asset_refs.page_id` cascades when the row page goes.
+   */
+  private async syncEvidenceRefsTx(
+    tx: Db,
+    txRowId: string,
+    next: readonly LedgerEvidence[],
+    previous: readonly LedgerEvidence[],
+  ): Promise<void> {
+    const nextShas = new Set(next.map((e) => e.sha256));
+    const prevShas = new Set(previous.map((e) => e.sha256));
+    for (const sha of nextShas) {
+      if (prevShas.has(sha)) continue;
+      await tx.query(
+        'INSERT INTO asset_refs (asset_id, page_id) VALUES ($1, $2) ON CONFLICT (asset_id, page_id) DO NOTHING',
+        [sha, txRowId],
+      );
+    }
+    for (const sha of prevShas) {
+      if (nextShas.has(sha)) continue;
+      await tx.query('DELETE FROM asset_refs WHERE asset_id = $1 AND page_id = $2', [sha, txRowId]);
+    }
+  }
+
   private async insertPostingsTx(
     tx: Db,
     ids: LedgerIds,
@@ -2649,6 +2869,9 @@ function accountFromRow(row: Row): LedgerAccount {
     type: (str(props[LEDGER_PROP.account.type]) || 'asset') as LedgerAccount['type'],
     status: (str(props[LEDGER_PROP.account.status]) || 'open') as LedgerAccount['status'],
     currency: str(props[LEDGER_PROP.account.currency]) || 'USD',
+    // LGR-14: stored ONLY as `true` (the writer deletes the key on false), and
+    // absent on every account written before LGR-14 — both read back `false`.
+    evidenceRequired: props[LEDGER_PROP.account.evidenceRequired] === true,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -2779,9 +3002,24 @@ function auditFromRow(row: AuditRow): LedgerAuditEvent {
   return rawAuditEvent(row);
 }
 
-/** The hashable CONTENT of an account (timestamps excluded — not ledger content). */
-function accountContent(a: LedgerAccount): Record<string, unknown> {
-  return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+/**
+ * The hashable CONTENT of an account (timestamps excluded — not ledger content).
+ *
+ * `evidenceRequired` is OMITTED while false — the LGR-16/LGR-12 additive-field
+ * discipline: this projection is applied to the live row, to the verifier's
+ * independent re-read, AND to FROZEN audit payloads written before LGR-14
+ * (which have no such key and are inside the hash chain, so they can never be
+ * migrated). Emitting `evidenceRequired: false` would make every pre-LGR-14
+ * account report as diverged. Mirror in `ledgerVerify.ts`'s `accountContent`,
+ * symmetrically.
+ *
+ * Exported ONLY so the structural-parity test can compare the two projections
+ * key for key; nothing in the product calls it from outside this module.
+ */
+export function accountContent(a: LedgerAccount): Record<string, unknown> {
+  const content: Record<string, unknown> = {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+  if (a.evidenceRequired) content.evidenceRequired = true;
+  return content;
 }
 
 /**
@@ -3023,6 +3261,14 @@ function buildAccountsSchema(): DatabaseSchema {
       {id: LEDGER_PROP.account.type, name: 'Type', type: 'select', options: selectOptions(['asset', 'liability', 'equity', 'revenue', 'expense'])},
       {id: LEDGER_PROP.account.status, name: 'Status', type: 'select', options: selectOptions(['open', 'closed'])},
       {id: LEDGER_PROP.account.currency, name: 'Currency', type: 'text'},
+      // LGR-14. `checkbox` (a plain property — no seed-frozen option list to go
+      // stale, the LGR-22 lesson), and written only at SEED: a book seeded
+      // before LGR-14 simply lacks this column in its managed view. The value
+      // is still stored (properties are raw jsonb) and every ledger read goes
+      // through `accountFromRow`, so enforcement is unaffected — the stale-seed
+      // cost is an invisible column on a restricted page nobody works in (the
+      // `lp_kind` precedent in buildTransactionsSchema).
+      {id: LEDGER_PROP.account.evidenceRequired, name: 'Evidence required', type: 'checkbox'},
     ],
     'v_accounts',
     'Accounts',

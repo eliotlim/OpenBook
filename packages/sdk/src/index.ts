@@ -471,6 +471,7 @@ export {
   type LedgerClearedState,
   type LedgerReconciliationStatus,
   type LedgerEvidence,
+  type LedgerEvidenceInput,
   type LedgerAccount,
   type LedgerPosting,
   type LedgerTransaction,

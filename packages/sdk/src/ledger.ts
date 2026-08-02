@@ -36,6 +36,7 @@ export type LedgerErrorCode =
   | 'period-overlap' // closing a range that overlaps an already-closed period
   | 'period-out-of-order' // closing a range that ends before an already-closed period does
   | 'period-close-conflict' // the books changed while the close was in flight — retry
+  | 'evidence-required' // posting into an evidence-required account with no evidence attached (LGR-14)
   | 'invalid-input'; // malformed input (bad date, bad name, bad enum value)
 
 /**
@@ -58,7 +59,10 @@ export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 
     return 403;
   // The three LGR-12 period rejections are state-of-the-book conflicts too:
   // the identical call becomes legal once the period is reopened (or, for a
-  // close conflict, simply retried against the settled book).
+  // close conflict, simply retried against the settled book). So is the LGR-14
+  // evidence rejection: the identical post becomes legal once evidence is
+  // attached to the draft (or the account's evidence-required toggle is turned
+  // off) — re-read and retry, don't fix the payload.
   case 'invalid-state':
   case 'nonzero-balance':
   case 'reconciliation-exists':
@@ -69,6 +73,7 @@ export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 
   case 'period-overlap':
   case 'period-out-of-order':
   case 'period-close-conflict':
+  case 'evidence-required':
     return 409;
   default:
     return 400;
@@ -114,6 +119,7 @@ export const LEDGER_ERROR_CODES: readonly LedgerErrorCode[] = [
   'period-overlap',
   'period-out-of-order',
   'period-close-conflict',
+  'evidence-required',
   'invalid-input',
 ];
 
@@ -189,7 +195,15 @@ export const LEDGER_DEFAULT_TRANSACTION_LIMIT = 500;
 
 /** Stable property ids for the seeded ledger database schemas. */
 export const LEDGER_PROP = {
-  account: {type: 'lp_type', status: 'lp_status', currency: 'lp_currency'},
+  account: {
+    type: 'lp_type',
+    status: 'lp_status',
+    currency: 'lp_currency',
+    /** LGR-14: `true` on an account that refuses to accept a posting from an
+     *  entry with no evidence attached; absent everywhere else (additive — no
+     *  migration, pre-LGR-14 accounts read back `false`). */
+    evidenceRequired: 'lp_evidence_required',
+  },
   transaction: {
     date: 'lp_date',
     description: 'lp_description',
@@ -220,12 +234,35 @@ export const LEDGER_PROP = {
 
 // ── Entities ───────────────────────────────────────────────────────────────────
 
-/** One piece of evidence attached to a posted transaction (LGR-14 fills these;
- *  v1 always records an empty list at post time). */
+/**
+ * One piece of evidence attached to a transaction (LGR-14): the post-time
+ * manifest entry. `sha256` IS the asset-store id (assets are content-addressed
+ * — the id is the SHA-256 hex of the bytes), so "which file" and "which bytes"
+ * are one fact: replacing the stored bytes without changing this hash is
+ * impossible through any API, and detecting a direct-SQL replacement is one
+ * re-hash (the verifier's evidence check). `filename` is the display name the
+ * uploader gave it; `size` is the asset store's byte count, resolved
+ * server-side at attach time — never client-supplied.
+ *
+ * On a POSTED transaction the manifest is frozen with the rest of the entry
+ * (it is inside `transactionContent`, so inside the audit before/after hashes).
+ */
 export interface LedgerEvidence {
   filename: string;
   sha256: string;
   size: number;
+}
+
+/**
+ * One evidence attachment as a CLIENT names it (LGR-14): the content-hash id
+ * of an already-uploaded asset plus a display filename. No `size` — the server
+ * resolves it from the asset store, so a manifest can never claim a byte count
+ * the store does not hold.
+ */
+export interface LedgerEvidenceInput {
+  /** The asset-store id: 64 lowercase hex chars — the SHA-256 of the bytes. */
+  sha256: string;
+  filename: string;
 }
 
 /** A ledger account. `name` is hierarchical, colon-delimited (`Assets:Bank:Checking`). */
@@ -236,6 +273,15 @@ export interface LedgerAccount {
   status: LedgerAccountStatus;
   /** ISO-4217-shaped currency code. Defaults to `USD`. */
   currency: string;
+  /**
+   * LGR-14: when `true`, posting an entry with a leg on this account is
+   * REJECTED (`evidence-required`) unless the entry has evidence attached.
+   * `false` is what every account written before LGR-14 reads back as (the
+   * stored key is simply absent — additive, no migration). Reversals and
+   * server-generated closing entries are exempt: a reversal's evidence is the
+   * original entry it undoes, and a closing entry is derived arithmetic.
+   */
+  evidenceRequired: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -283,7 +329,13 @@ export interface LedgerTransaction {
    * out of income-statement arithmetic.
    */
   kind: 'closing' | null;
-  /** Evidence recorded at post time (empty in v1; LGR-14 fills it). */
+  /**
+   * The evidence manifest (LGR-14). On a DRAFT: what is attached so far, live.
+   * On a POSTED entry: the manifest snapshotted at post time — frozen with the
+   * entry (it is part of the audited content), never mutated afterwards.
+   * Empty on every entry written before LGR-14, on reversals, and on
+   * server-generated closing entries.
+   */
   evidence: LedgerEvidence[];
   postings: LedgerPosting[];
   createdAt: string;
@@ -481,12 +533,20 @@ export interface LedgerAccountInput {
   type: LedgerAccountType;
   /** ISO-4217-shaped code; defaults to `USD`. */
   currency?: string;
+  /** LGR-14: refuse postings from entries with no evidence. Default `false`. */
+  evidenceRequired?: boolean;
 }
 
 export interface LedgerAccountPatch {
   name?: string;
   /** `closed` is rejected while the account's posted balance is nonzero. */
   status?: LedgerAccountStatus;
+  /**
+   * LGR-14: turn the evidence requirement on or off. Forward-looking only —
+   * flipping it on does not (and cannot) retro-flag entries already posted;
+   * the gate runs at post time.
+   */
+  evidenceRequired?: boolean;
 }
 
 export interface LedgerPostingInput {
@@ -508,6 +568,13 @@ export interface LedgerDraftInput {
   date: string;
   description?: string;
   postings?: LedgerPostingInput[];
+  /**
+   * Evidence to attach at creation (LGR-14). Each named asset must already be
+   * in the content-addressed asset store (upload first, attach by hash);
+   * `size` is resolved server-side. Duplicate hashes are rejected — the
+   * manifest is a set.
+   */
+  evidence?: LedgerEvidenceInput[];
 }
 
 export interface LedgerDraftPatch {
@@ -515,6 +582,9 @@ export interface LedgerDraftPatch {
   description?: string;
   /** When present, REPLACES the draft's postings wholesale. */
   postings?: LedgerPostingInput[];
+  /** When present, REPLACES the draft's evidence wholesale (LGR-14) — the
+   *  same replacement contract `postings` uses. `[]` detaches everything. */
+  evidence?: LedgerEvidenceInput[];
 }
 
 export interface LedgerReverseOptions {
