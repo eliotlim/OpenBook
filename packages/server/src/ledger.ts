@@ -44,6 +44,8 @@
 
 import {
   LEDGER_AUDIT_ACTIONS,
+  LEDGER_DEFAULT_TRANSACTION_LIMIT,
+  LEDGER_MAX_TRANSACTION_LIMIT,
   LEDGER_PROP,
   LedgerError,
   MoneyError,
@@ -564,7 +566,11 @@ export class LedgerStore {
     const ids = await this.requireIds();
     let out = await this.loadTransactionsWithPostings(ids, 'ORDER BY created_at DESC, id DESC');
     if (opts.state) out = out.filter((t) => t.state === opts.state);
-    const limit = Math.max(1, Math.min(1000, Math.floor(opts.limit ?? 500)));
+    // The cap is the SDK's exported constant, not a literal: the ledger plugin's
+    // reports compare their page size against the same value to decide whether
+    // they read the whole book, and a drifting literal would let a truncated
+    // read render as a complete total.
+    const limit = Math.max(1, Math.min(LEDGER_MAX_TRANSACTION_LIMIT, Math.floor(opts.limit ?? LEDGER_DEFAULT_TRANSACTION_LIMIT)));
     return out.slice(0, limit);
   }
 

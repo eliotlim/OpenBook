@@ -27,6 +27,8 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {beforeEach, describe, expect, it} from 'vitest';
 import {
+  LEDGER_DEFAULT_TRANSACTION_LIMIT,
+  LEDGER_MAX_TRANSACTION_LIMIT,
   LedgerError,
   emptyPageSnapshot,
   ledgerAuditEventHash,
@@ -165,6 +167,46 @@ describe('LGR-3 — setup', () => {
   it('reports not-initialized before setup', async () => {
     expect(await code(store.ledger.listAccounts())).toBe('not-initialized');
     expect((await store.ledger.info()).exists).toBe(false);
+  });
+});
+
+describe('LGR-8 — listTransactions paging bounds', () => {
+  /**
+   * The ledger plugin's reports request exactly {@link LEDGER_MAX_TRANSACTION_LIMIT}
+   * and treat a FULL page as "there may be more" — so a cap that silently drops
+   * below the requested number would make a truncated read look complete, and a
+   * partial trial balance would render as a whole one. Both sides now read the
+   * one SDK constant; this pins that the store's clamp actually honours it.
+   *
+   * Detection bound: a lowered cap is caught here for any cap below the seeded
+   * book size (asserted explicitly), which is what a regression would look like.
+   */
+  it('honours the requested page size and never clamps a request below the exported cap', async () => {
+    const {cash, income} = await seedWithAccounts();
+    for (let i = 0; i < 6; i += 1) {
+      const draft = await store.ledger.createDraft(
+        {date: '2026-08-01', description: `Entry ${i}`, postings: [{accountId: cash, amountMinor: 100}, {accountId: income, amountMinor: -100}]},
+        ACTOR,
+      );
+      await store.ledger.post(draft.id, ACTOR);
+    }
+
+    // A page size below the book is honoured exactly (the slice works)…
+    expect(await store.ledger.listTransactions({limit: 3})).toHaveLength(3);
+    // …and asking for the cap (what the reports do) returns the WHOLE book, not
+    // a smaller clamp. If the cap were lowered under 6, this returns fewer.
+    expect(LEDGER_MAX_TRANSACTION_LIMIT).toBeGreaterThan(6);
+    expect(await store.ledger.listTransactions({limit: LEDGER_MAX_TRANSACTION_LIMIT})).toHaveLength(6);
+    // A request ABOVE the cap is clamped to it — never an error, and never more
+    // than the cap's worth of rows.
+    const over = await store.ledger.listTransactions({limit: LEDGER_MAX_TRANSACTION_LIMIT * 10});
+    expect(over.length).toBeLessThanOrEqual(LEDGER_MAX_TRANSACTION_LIMIT);
+    expect(over).toHaveLength(6);
+    // Degenerate sizes floor at one row rather than returning an empty page.
+    expect(await store.ledger.listTransactions({limit: 0})).toHaveLength(1);
+    expect(await store.ledger.listTransactions({limit: -5})).toHaveLength(1);
+    // The default page size is the exported default, not a literal.
+    expect(LEDGER_DEFAULT_TRANSACTION_LIMIT).toBeLessThanOrEqual(LEDGER_MAX_TRANSACTION_LIMIT);
   });
 });
 

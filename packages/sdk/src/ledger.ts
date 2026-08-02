@@ -99,6 +99,24 @@ export type LedgerClearedState = (typeof LEDGER_CLEARED_STATES)[number];
 export const LEDGER_RECONCILIATION_STATUSES = ['open', 'finished'] as const;
 export type LedgerReconciliationStatus = (typeof LEDGER_RECONCILIATION_STATUSES)[number];
 
+// ── Read bounds ────────────────────────────────────────────────────────────────
+
+/**
+ * The server's HARD CAP on one `listTransactions` page: a larger `limit` is
+ * clamped to this, silently.
+ *
+ * Exported because a reader that totals what it fetched — a report — cannot
+ * tell a full page from a complete book without it, and a duplicated literal
+ * would rot: if this cap ever dropped, a report asking for the old number would
+ * be clamped, conclude it had read everything, and render a PARTIAL total as a
+ * complete one. Both the server clamp and the ledger plugin's report read this
+ * one constant, and `ledger.test.ts` asserts the clamp actually holds.
+ */
+export const LEDGER_MAX_TRANSACTION_LIMIT = 1000;
+
+/** The page size `listTransactions` uses when the caller names none. */
+export const LEDGER_DEFAULT_TRANSACTION_LIMIT = 500;
+
 // ── Property ids (stable — the seeded database schemas key rows by these) ──────
 
 /** Stable property ids for the seeded ledger database schemas. */

@@ -1,14 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
-// The REAL first-party ledger plugin, byte-for-byte (vite `?raw`): every test
-// below runs the shipped sources through the real loader — never a copy.
-import ledgerManifestJson from '../../../../../examples/plugins/ledger/openbook.json?raw';
-import ledgerIndexTs from '../../../../../examples/plugins/ledger/src/index.ts?raw';
-import ledgerModelTs from '../../../../../examples/plugins/ledger/src/model.ts?raw';
-import ledgerSetupTs from '../../../../../examples/plugins/ledger/src/setup.ts?raw';
-import ledgerBlockTsx from '../../../../../examples/plugins/ledger/src/block.tsx?raw';
-import {PLUGIN_API_VERSION, type DataClient, type LedgerAccount, type PluginManifest, type StoredPlugin} from '@book.dev/sdk';
-import {executePlugin} from '../loader';
-import {buildPluginApi, hostModulesFor, type PluginApi} from '../api';
+import {PLUGIN_API_VERSION, type DataClient, type LedgerAccount} from '@book.dev/sdk';
+import {ledgerManifest as manifest, loadLedgerPlugin as loadModule, storedLedgerPlugin as storedPlugin} from './ledgerPluginFixture';
 import {syncPlugins, pluginStatuses} from '../host';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
@@ -33,32 +25,6 @@ interface JournalEntryStatus {
 }
 type StarterChart = ReadonlyArray<{name: string; type: LedgerAccount['type']}>;
 
-const FILES: Record<string, string> = {
-  'src/index.ts': ledgerIndexTs,
-  'src/model.ts': ledgerModelTs,
-  'src/setup.ts': ledgerSetupTs,
-  'src/block.tsx': ledgerBlockTsx,
-};
-
-const manifest = JSON.parse(ledgerManifestJson) as PluginManifest;
-
-const storedPlugin = (): StoredPlugin => ({
-  manifest,
-  files: FILES,
-  enabled: true,
-  installedAt: new Date(0).toISOString(),
-});
-
-/** The plugin's module exports, loaded through the REAL loader + host modules. */
-function loadModule(client: DataClient = {} as DataClient): {
-  exports: Record<string, unknown>;
-  api: PluginApi;
-} {
-  const api = buildPluginApi({id: manifest.id, name: manifest.name, version: manifest.version}, client, () => {});
-  const exports = executePlugin({manifest, files: FILES}, hostModulesFor(api));
-  return {exports, api};
-}
-
 type ComputeEntryStatus = (rows: JournalRow[], date?: string) => JournalEntryStatus;
 type RowsToPostings = (rows: JournalRow[]) => Array<{accountId: string; amountMinor: number}>;
 type Describe = (status: JournalEntryStatus) => string | null;
@@ -68,7 +34,7 @@ type NormalizeCell = (raw: string) => string;
 const row = (accountId: string, debit = '', credit = '', memo = ''): JournalRow => ({accountId, debit, credit, memo});
 
 describe('ledger plugin (real source through the real loader)', () => {
-  it('declares apiVersion 2 and registers the journal-entry block + setup command', async () => {
+  it('declares apiVersion 2 and registers the journal-entry + report blocks and the setup command', async () => {
     expect(manifest.apiVersion).toBe(2);
     expect(manifest.apiVersion).toBe(PLUGIN_API_VERSION);
 
@@ -77,11 +43,23 @@ describe('ledger plugin (real source through the real loader)', () => {
     expect(pluginStatuses().find((s) => s.plugin.manifest.id === 'openbook.ledger')?.state).toBe('active');
     expect(getCustomBlock('openbook.ledger/journal-entry')).toBeDefined();
     expect(getCustomBlock('openbook.ledger/journal-entry')?.slash?.label).toBe('Journal entry');
+    // LGR-8: the two read-only report blocks ship in the same plugin, each with
+    // a slash entry and NON-EMPTY seed props (an empty object would leave the
+    // block without a props CRDT map, so its controls could not persist).
+    expect(getCustomBlock('openbook.ledger/trial-balance')?.slash?.label).toBe('Trial balance');
+    expect(getCustomBlock('openbook.ledger/account-register')?.slash?.label).toBe('Account register');
+    for (const type of ['trial-balance', 'account-register']) {
+      const made = getCustomBlock(`openbook.ledger/${type}`)?.slash?.make();
+      expect(made?.type).toBe(`openbook.ledger/${type}`);
+      expect(Object.keys(made?.props ?? {}).length).toBeGreaterThan(0);
+    }
     expect(pluginCommands().some((c) => c.id === 'openbook.ledger/setup-books' && c.title === 'Ledger: set up books')).toBe(true);
 
-    // Disable → the block and command tear down with the plugin.
+    // Disable → every block and the command tear down with the plugin.
     await syncPlugins({listPlugins: async () => []} as unknown as DataClient);
     expect(getCustomBlock('openbook.ledger/journal-entry')).toBeUndefined();
+    expect(getCustomBlock('openbook.ledger/trial-balance')).toBeUndefined();
+    expect(getCustomBlock('openbook.ledger/account-register')).toBeUndefined();
     expect(pluginCommands().some((c) => c.id === 'openbook.ledger/setup-books')).toBe(false);
   });
 

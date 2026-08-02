@@ -18,6 +18,7 @@ import type {
   StoredPage,
 } from '@book.dev/sdk';
 import {
+  LEDGER_MAX_TRANSACTION_LIMIT,
   LedgerError,
   MoneyCurrencyError,
   MoneyError,
@@ -263,8 +264,8 @@ export function buildPluginApi(
 /**
  * Host modules importable from plugin code. Besides the per-plugin `api`,
  * `@book.dev/plugin-sdk` exposes the money core (LGR-2) and the typed
- * {@link LedgerError}: pure helpers/classes a ledger-touching plugin MUST
- * share with the host — user amount input is only ever parsed by
+ * {@link LedgerError} + the ledger's read bounds: pure helpers/classes/constants
+ * a ledger-touching plugin MUST share with the host — user amount input is only ever parsed by
  * `parseAmount`, and a plugin can only `instanceof`-match the host's error
  * class, not a bundled copy.
  */
@@ -282,5 +283,9 @@ export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
     MoneyRangeError,
     MoneyCurrencyError,
     LedgerError,
+    // The server's transaction-page cap. A plugin that TOTALS what it fetched
+    // (a report) must be able to tell a full page from a complete book, and a
+    // hard-coded copy would rot silently the day the cap changed.
+    LEDGER_MAX_TRANSACTION_LIMIT,
   },
 });

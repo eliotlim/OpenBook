@@ -107,8 +107,18 @@ never touch floats. For live updates, subscribe to the seeded databases
 `api.databases.subscribeRows` — automatically torn down with the plugin.
 
 `examples/plugins/ledger` is the reference: the journal entry block (the
-books' only human write surface) plus an idempotent "Ledger: set up books"
+books' only human write surface), the two read-only report blocks (trial
+balance and account register), and an idempotent "Ledger: set up books"
 command.
+
+Reports are **plugin-rendered**, not formula-driven: `expr`/rollup cannot
+aggregate across database rows (`docs/ledger/platform-audit.md`), so the
+plugin reads transactions through `api.ledger.listTransactions` and folds
+them in JS. Keep that arithmetic in a pure, dependency-free module —
+`src/reports.ts` is the pattern — and let the block render only what the fold
+returns. That is what makes it unit-testable, and it is the only way the
+money rule ("no `Number()`, `parseFloat`, `Math.*` or `+`/`-` on an amount
+outside the fold") stays enforceable.
 
 ## API versioning
 

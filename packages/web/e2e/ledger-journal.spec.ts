@@ -1,8 +1,6 @@
-import {readFileSync} from 'node:fs';
-import {join} from 'node:path';
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
-import {zipSync, strToU8} from 'fflate';
+import {ensureLedgerPlugin} from './ledgerPlugin';
 
 /**
  * LGR-5: the journal entry block, end to end — the REAL first-party plugin
@@ -15,27 +13,10 @@ import {zipSync, strToU8} from 'fflate';
  * surviving reload, and typed LedgerError surfacing.
  */
 
-const PLUGIN_DIR = join(__dirname, '..', '..', '..', 'examples', 'plugins', 'ledger');
-
-const pluginZip = (): Buffer => {
-  const entries: Record<string, Uint8Array> = {};
-  for (const file of ['openbook.json', 'src/index.ts', 'src/model.ts', 'src/setup.ts', 'src/block.tsx']) {
-    entries[file] = strToU8(readFileSync(join(PLUGIN_DIR, file), 'utf8'));
-  }
-  return Buffer.from(zipSync(entries));
-};
-
 const ledgerAccounts = async (): Promise<Array<{id: string; name: string}>> => {
   const res = await fetch(`${SERVER}/api/ledger/accounts`);
   return res.ok ? ((await res.json()) as Array<{id: string; name: string}>) : [];
 };
-
-async function openExtensions(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
-  await page.keyboard.press('ControlOrMeta+,');
-  await page.getByRole('button', {name: 'Extensions', exact: true}).click();
-}
 
 async function runPaletteCommand(page: import('@playwright/test').Page, title: string): Promise<void> {
   await page.keyboard.press('ControlOrMeta+k');
@@ -79,11 +60,9 @@ const row = (page: import('@playwright/test').Page, n: number) => ({
 });
 
 test('install the real plugin, set up books (idempotent), post a 3-row compound entry — gate flips disabled → enabled at Σ=0, integers on the wire', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
-  // Install the shipped sources through Settings → Extensions.
-  await openExtensions(page);
-  await page.locator('[data-extension-file]').setInputFiles({name: 'ledger.zip', mimeType: 'application/zip', buffer: pluginZip()});
-  await expect(page.locator('[data-extension="openbook.ledger"]')).toHaveAttribute('data-extension-state', 'active');
-  await page.keyboard.press('Escape');
+  // Install the shipped sources through Settings → Extensions (the whole
+  // package, walked from disk — see ./ledgerPlugin).
+  await ensureLedgerPlugin(page);
 
   // "Ledger: set up books" seeds the ledger + the 10-account starter chart…
   await runPaletteCommand(page, 'Ledger: set up books');
