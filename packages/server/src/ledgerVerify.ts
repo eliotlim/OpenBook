@@ -43,6 +43,8 @@ import {
   type LedgerAccount,
   type LedgerAuditEvent,
   type LedgerPosting,
+  type LedgerReconciliation,
+  type LedgerReconciliationPostingChange,
   type LedgerTransaction,
 } from '@book.dev/sdk';
 import type {Db} from './dbCore';
@@ -178,6 +180,20 @@ function postingFromRaw(row: RawRow): LedgerPosting {
   };
 }
 
+function reconciliationFromRaw(row: RawRow): LedgerReconciliation {
+  const props = parseJson<Record<string, unknown>>(row.properties, {});
+  const balance = props[LEDGER_PROP.reconciliation.statementBalance];
+  return {
+    id: row.id,
+    accountId: str(props[LEDGER_PROP.reconciliation.account]),
+    statementDate: str(props[LEDGER_PROP.reconciliation.statementDate]),
+    statementBalanceMinor: typeof balance === 'number' ? balance : Number(balance ?? 0),
+    status: (str(props[LEDGER_PROP.reconciliation.status]) || 'open') as LedgerReconciliation['status'],
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
 function transactionFromRaw(row: RawRow, postings: LedgerPosting[]): LedgerTransaction {
   const props = parseJson<Record<string, unknown>>(row.properties, {});
   const entryNo = props[LEDGER_PROP.transaction.entryNo];
@@ -245,6 +261,24 @@ export function transactionContent(t: LedgerTransaction): Record<string, unknown
       if (p.memo != null) o.memo = p.memo;
       return o;
     }),
+  };
+}
+
+/**
+ * The audited CONTENT of a reconciliation (LGR-11) — the independent mirror of
+ * `ledger.ts`'s `reconciliationContent`. Same discipline as the transaction
+ * projection above: a field present on one side only turns every clean
+ * reconciliation into an `audit-hash-forged` finding.
+ *
+ * Exported ONLY so the structural-parity test can compare the two key for key.
+ */
+export function reconciliationContent(r: LedgerReconciliation): Record<string, unknown> {
+  return {
+    id: r.id,
+    accountId: r.accountId,
+    statementDate: r.statementDate,
+    statementBalanceMinor: r.statementBalanceMinor,
+    status: r.status,
   };
 }
 
@@ -367,6 +401,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
   // tip (the replay comparison below still covers the content).
   const lastTxHash = new Map<string, string | null>();
   const lastAccountHash = new Map<string, string | null>();
+  const lastReconciliationHash = new Map<string, string | null>();
   const chain = (
     map: Map<string, string | null>,
     entityId: string,
@@ -413,6 +448,8 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       postingId?: string;
       cleared?: string;
       path?: string | null;
+      reconciliation?: LedgerReconciliation;
+      postings?: LedgerReconciliationPostingChange[];
     };
     switch (ev.action) {
     case 'account.create':
@@ -469,6 +506,25 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       // invalidate its chain tip (the replay comparison still covers content).
       if (p.transactionId) lastTxHash.set(p.transactionId, null);
       break;
+    case 'reconciliation.start':
+      if (p.reconciliation) {
+        await derived(p.reconciliation.id, reconciliationContent(p.reconciliation), ev);
+        lastReconciliationHash.set(p.reconciliation.id, ev.afterHash);
+      }
+      break;
+    case 'reconciliation.finish':
+    case 'reconciliation.reopen':
+      if (p.reconciliation) {
+        await derived(p.reconciliation.id, reconciliationContent(p.reconciliation), ev);
+        chain(lastReconciliationHash, p.reconciliation.id, ev);
+        lastReconciliationHash.set(p.reconciliation.id, ev.afterHash);
+      }
+      // The postings this event froze or unfroze changed content WITHOUT a
+      // transaction-level hash, exactly as a `posting.cleared` flip does —
+      // invalidate each parent's chain tip and let the replay comparison below
+      // carry the content check.
+      for (const change of p.postings ?? []) lastTxHash.set(change.transactionId, null);
+      break;
     case 'ledger.autoExportPath':
       // Policy, not ledger content — it touches no entity, so there is no chain
       // to extend, but the recorded hash is still re-derived from its payload.
@@ -521,6 +577,36 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
   for (const id of accounts.keys()) {
     if (!replayed.accounts[id]) {
       flag('replay-divergence', `raw account ${id} has no audit trail (never created through the ledger)`, id);
+    }
+  }
+  // Reconciliations (LGR-11) get the same treatment. `ids.reconciliations` is
+  // optional purely because the settings row is untrusted input here — a real
+  // seeded ledger always records all four.
+  const reconciliations = new Map<string, LedgerReconciliation>(
+    ids.reconciliations
+      ? (
+        await db.query<RawRow>(
+          `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+          [ids.reconciliations],
+        )
+      ).map((r) => [r.id, reconciliationFromRaw(r)])
+      : [],
+  );
+  for (const [id, expected] of Object.entries(replayed.reconciliations)) {
+    const raw = reconciliations.get(id);
+    if (!raw) {
+      flag('replay-divergence', `audit replay expects reconciliation ${id} (${expected.status}) but raw storage has no such row`, id);
+      continue;
+    }
+    const rawHash = await sha256Hex(canonicalLedgerJson(reconciliationContent(raw)));
+    const expectedHash = await sha256Hex(canonicalLedgerJson(reconciliationContent(expected)));
+    if (rawHash !== expectedHash) {
+      flag('replay-divergence', `reconciliation ${id} diverges from the audit-derived content`, id);
+    }
+  }
+  for (const id of reconciliations.keys()) {
+    if (!replayed.reconciliations[id]) {
+      flag('replay-divergence', `raw reconciliation ${id} has no audit trail (never created through the ledger)`, id);
     }
   }
 

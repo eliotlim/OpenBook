@@ -29,6 +29,7 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  LEDGER_RECONCILIATION_STATUSES,
   LedgerError,
   MoneyError,
   ledgerErrorStatus,
@@ -37,6 +38,8 @@ import {
   type LedgerClearedState,
   type LedgerDraftInput,
   type LedgerDraftPatch,
+  type LedgerReconciliationInput,
+  type LedgerReconciliationStatus,
   type LedgerReverseOptions,
   type LedgerTransactionState,
   localPrincipal,
@@ -2084,12 +2087,81 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const ids = await requireLedger(c, 'write');
     const {cleared} = await c.req.json<{cleared?: LedgerClearedState}>();
     if (!cleared) return c.json({error: 'a cleared state is required', code: 'invalid-input'}, 400);
-    // The `via: 'reconciliation'` hook is server-internal (LGR-11); the HTTP
-    // surface can only move a posting between pending and cleared.
-    const posting = await store.ledger.setPostingCleared(c.req.param('id'), cleared, {}, c.get('principal'));
+    // `reconciled` is unreachable from here in either direction — it is reached
+    // only by finishing a reconciliation and left only by reopening one (LGR-11).
+    const posting = await store.ledger.setPostingCleared(c.req.param('id'), cleared, c.get('principal'));
     await broadcastRows(ids.postings);
     logEdit(c, posting.id, 'ledger.posting.cleared', cleared);
     return c.json(posting);
+  });
+
+  // ── Statement reconciliation (LGR-11) ─────────────────────────────────────
+  // Every write goes through `LedgerStore`, which is where the zero-difference
+  // gate lives: these routes add authentication and live-view broadcasts, never
+  // a second copy of the rule.
+
+  app.get(API.ledgerReconciliations, async (c) => {
+    await requireLedger(c, 'read');
+    // VALIDATED, not cast: an unrecognised `?status=` must be a 400, never a
+    // silent filter that matches nothing and reads as "this account has never
+    // been reconciled".
+    const raw = c.req.query('status');
+    if (raw !== undefined && !(LEDGER_RECONCILIATION_STATUSES as readonly string[]).includes(raw)) {
+      return c.json({error: `invalid reconciliation status: ${JSON.stringify(raw)}`, code: 'invalid-input'}, 400);
+    }
+    const status = raw as LedgerReconciliationStatus | undefined;
+    return c.json(await store.ledger.listReconciliations({accountId: c.req.query('accountId'), status}));
+  });
+
+  app.post(API.ledgerReconciliations, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const input = await c.req.json<LedgerReconciliationInput>();
+    const reconciliation = await store.ledger.startReconciliation(input, c.get('principal'));
+    await broadcastRows(ids.reconciliations);
+    logEdit(c, reconciliation.id, 'ledger.reconciliation.start', reconciliation.statementDate);
+    return c.json(reconciliation, 201);
+  });
+
+  app.get(`${API.ledgerReconciliations}/:id`, async (c) => {
+    await requireLedger(c, 'read');
+    const summary = await store.ledger.getReconciliation(c.req.param('id'));
+    if (!summary) return c.json({error: 'reconciliation not found', code: 'not-found'}, 404);
+    return c.json(summary);
+  });
+
+  app.put(`${API.ledgerReconciliations}/:id/postings/:postingId`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const {cleared} = await c.req.json<{cleared?: 'pending' | 'cleared'}>();
+    if (!cleared) return c.json({error: 'a cleared state is required', code: 'invalid-input'}, 400);
+    const summary = await store.ledger.setReconciliationPostingCleared(
+      c.req.param('id'),
+      c.req.param('postingId'),
+      cleared,
+      c.get('principal'),
+    );
+    await broadcastRows(ids.postings);
+    logEdit(c, c.req.param('postingId'), 'ledger.reconciliation.match', cleared);
+    return c.json(summary);
+  });
+
+  app.post(`${API.ledgerReconciliations}/:id/finish`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const summary = await store.ledger.finishReconciliation(c.req.param('id'), c.get('principal'));
+    await broadcastRows(ids.reconciliations);
+    // The postings' projected cleared state changed too — an open register or
+    // reconcile view would otherwise keep showing them as merely `cleared`.
+    await broadcastRows(ids.postings);
+    logEdit(c, summary.reconciliation.id, 'ledger.reconciliation.finish', summary.reconciliation.statementDate);
+    return c.json(summary);
+  });
+
+  app.post(`${API.ledgerReconciliations}/:id/reopen`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const summary = await store.ledger.reopenReconciliation(c.req.param('id'), c.get('principal'));
+    await broadcastRows(ids.reconciliations);
+    await broadcastRows(ids.postings);
+    logEdit(c, summary.reconciliation.id, 'ledger.reconciliation.reopen', summary.reconciliation.statementDate);
+    return c.json(summary);
   });
 
   // Canonical postings CSV (LGR-7). Read-gated like every other ledger read;

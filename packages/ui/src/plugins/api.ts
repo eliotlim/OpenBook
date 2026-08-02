@@ -10,6 +10,10 @@ import type {
   LedgerDraftPatch,
   LedgerInfo,
   LedgerPosting,
+  LedgerReconciliation,
+  LedgerReconciliationInput,
+  LedgerReconciliationStatus,
+  LedgerReconciliationSummary,
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
@@ -127,6 +131,21 @@ export interface PluginApi {
     post(id: string): Promise<LedgerTransaction>;
     reverse(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction>;
     setPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
+    /**
+     * Statement reconciliation (LGR-11) — matching an account's postings to a
+     * bank statement until the difference is exactly zero, and freezing them
+     * when it is. `finishReconciliation` rejects `reconciliation-unbalanced` at
+     * any other difference: the rule is enforced in the store, so a block that
+     * forgot to disable its own button still cannot finish a broken match.
+     */
+    listReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]>;
+    /** One reconciliation with its live cleared balance + difference, or `null`. */
+    getReconciliation(id: string): Promise<LedgerReconciliationSummary | null>;
+    startReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation>;
+    /** Tick (`cleared`) or untick (`pending`) one posting inside an OPEN one. */
+    toggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
+    finishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+    reopenReconciliation(id: string): Promise<LedgerReconciliationSummary>;
   };
   /**
    * The content-addressed binary asset store (same ambient credentials/read
@@ -237,6 +256,12 @@ export function buildPluginApi(
       post: (id) => client.ledgerPostTransaction(id),
       reverse: (id, opts) => client.ledgerReverseTransaction(id, opts),
       setPostingCleared: (postingId, cleared) => client.ledgerSetPostingCleared(postingId, cleared),
+      listReconciliations: (opts) => client.ledgerListReconciliations(opts),
+      getReconciliation: (id) => client.ledgerGetReconciliation(id),
+      startReconciliation: (input) => client.ledgerStartReconciliation(input),
+      toggleReconciliationPosting: (id, postingId, cleared) => client.ledgerToggleReconciliationPosting(id, postingId, cleared),
+      finishReconciliation: (id) => client.ledgerFinishReconciliation(id),
+      reopenReconciliation: (id) => client.ledgerReopenReconciliation(id),
     },
     assets: {
       get: (id) => client.getAsset(id),

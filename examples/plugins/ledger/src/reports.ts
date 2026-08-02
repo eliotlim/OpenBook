@@ -50,6 +50,14 @@ export interface ReportPosting {
   accountId: string;
   amountMinor: number;
   cleared: ReportClearedState;
+  /**
+   * The statement reconciliation that froze this leg (LGR-11), when it is
+   * `reconciled`. OPTIONAL because it is additive: every fixture and every
+   * caller written before LGR-11 omits it, and a missing value reads as "not
+   * reconciled to any statement this report knows about" — which is exactly
+   * what a book with no reconciliations should show.
+   */
+  reconciliationId?: string | null;
 }
 
 /** The transaction fields a report needs (a structural slice of `LedgerTransaction`). */
@@ -60,6 +68,16 @@ export interface ReportTransaction {
   state: ReportTransactionState;
   entryNo: number | null;
   postings: ReportPosting[];
+}
+
+/**
+ * The reconciliation fields a report needs (a structural slice of
+ * `LedgerReconciliation`) — just enough to turn a frozen posting's id into the
+ * statement date a human recognises.
+ */
+export interface ReportReconciliation {
+  id: string;
+  statementDate: string;
 }
 
 /** The transaction states a report counts. Drafts are NEVER in here. */
@@ -406,6 +424,13 @@ export interface RegisterRow {
   /** Balance after this posting, including the opening balance. */
   runningMinor: number;
   cleared: ReportClearedState;
+  /**
+   * The statement this leg was reconciled to (LGR-11), or `null`. `cleared` says
+   * a posting is frozen; this says to WHAT — and a reconciled posting whose
+   * statement the register cannot name is an assurance with no evidence behind
+   * it, which is precisely what reconciliation exists to stop being.
+   */
+  reconciledStatementDate: string | null;
   /** The entry was reversed (its state is `void`); its reversal is in here too. */
   reversed: boolean;
 }
@@ -496,10 +521,13 @@ export function buildAccountRegister(
   accounts: readonly ReportAccount[],
   transactions: readonly ReportTransaction[],
   filter: RegisterFilter = {},
+  reconciliations: readonly ReportReconciliation[] = [],
 ): AccountRegister {
   const account = accounts.find((a) => a.id === accountId) ?? null;
   const nameById = new Map<string, string>();
   for (const a of accounts) nameById.set(a.id, a.name);
+  const statementDateById = new Map<string, string>();
+  for (const r of reconciliations) statementDateById.set(r.id, r.statementDate);
 
   const from = filter.from !== undefined && filter.from !== '' ? filter.from : null;
   const to = filter.to !== undefined && filter.to !== '' ? filter.to : null;
@@ -540,6 +568,10 @@ export function buildAccountRegister(
       amountMinor: hit.posting.amountMinor,
       runningMinor,
       cleared: hit.posting.cleared,
+      reconciledStatementDate:
+        hit.posting.cleared === 'reconciled' && typeof hit.posting.reconciliationId === 'string'
+          ? statementDateById.get(hit.posting.reconciliationId) ?? null
+          : null,
       reversed: hit.tx.state === 'void',
     });
   }

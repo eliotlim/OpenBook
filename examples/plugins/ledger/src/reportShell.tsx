@@ -1,6 +1,7 @@
 import React from 'react';
 import {api, LEDGER_MAX_TRANSACTION_LIMIT} from '@book.dev/plugin-sdk';
 import {formatWithSide, type ReportAccount, type ReportTransaction} from './reports';
+import type {ReconcileStatement} from './reconcile';
 import {setUpBooks} from './setup';
 
 /**
@@ -76,6 +77,13 @@ export interface LedgerReportData {
   state: 'loading' | 'uninitialized' | 'ready' | 'error';
   accounts: ReportAccount[];
   transactions: ReportTransaction[];
+  /**
+   * Every statement reconciliation the book holds (LGR-11). Read alongside the
+   * accounts and transactions, and subscribed to, because a `reconciled`
+   * posting is only legible if the report can name the statement that froze it
+   * — an id in a cell explains nothing.
+   */
+  reconciliations: ReconcileStatement[];
   /** The server returned a full page — older entries are NOT in these figures. */
   truncated: boolean;
   error: string | null;
@@ -111,6 +119,7 @@ export function useLedgerReport(): LedgerReportData {
   const [state, setState] = React.useState<LedgerReportData['state']>('loading');
   const [accounts, setAccounts] = React.useState<ReportAccount[]>([]);
   const [transactions, setTransactions] = React.useState<ReportTransaction[]>([]);
+  const [reconciliations, setReconciliations] = React.useState<ReconcileStatement[]>([]);
   const [truncated, setTruncated] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [generation, setGeneration] = React.useState(0);
@@ -123,12 +132,17 @@ export function useLedgerReport(): LedgerReportData {
     const load = async (): Promise<void> => {
       const token = (issued += 1);
       try {
-        const [accountList, txList] = await Promise.all([api.ledger.listAccounts(), api.ledger.listTransactions({limit: REPORT_TX_LIMIT})]);
+        const [accountList, txList, reconciliationList] = await Promise.all([
+          api.ledger.listAccounts(),
+          api.ledger.listTransactions({limit: REPORT_TX_LIMIT}),
+          api.ledger.listReconciliations(),
+        ]);
         // Torn down, or a newer load was issued while this one was in flight:
         // this answer is stale and must never reach the screen.
         if (cancelled || token !== issued) return;
         setAccounts(accountList as unknown as ReportAccount[]);
         setTransactions(txList as unknown as ReportTransaction[]);
+        setReconciliations(reconciliationList as unknown as ReconcileStatement[]);
         setTruncated(txList.length >= REPORT_TX_LIMIT);
         setError(null);
         setState('ready');
@@ -174,7 +188,15 @@ export function useLedgerReport(): LedgerReportData {
         }
         await load();
         if (cancelled) return;
-        for (const databaseId of [info.databases.accounts, info.databases.transactions, info.databases.postings]) {
+        for (const databaseId of [
+          info.databases.accounts,
+          info.databases.transactions,
+          info.databases.postings,
+          // LGR-11: finishing or reopening a statement changes what the register
+          // shows about a posting without touching the posting rows in a way the
+          // other three subscriptions would report on their own.
+          info.databases.reconciliations,
+        ]) {
           subscribe(databaseId);
         }
       } catch (err) {
@@ -193,6 +215,7 @@ export function useLedgerReport(): LedgerReportData {
     state,
     accounts,
     transactions,
+    reconciliations,
     truncated,
     error,
     reload: React.useCallback(() => setGeneration((n) => n + 1), []),
@@ -336,19 +359,27 @@ export const numericHeadStyle: React.CSSProperties = {
  * is the same device the deleted-account row already uses, one step down in
  * colour: a caveat is not an alarm.
  */
-export const noticeStyle = (tone: 'alarm' | 'info' | 'quiet'): React.CSSProperties => ({
-  padding: '0.4rem 0.6rem',
-  borderRadius: 6,
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: tone === 'alarm' ? 'hsl(var(--destructive))' : 'hsl(var(--border))',
-  background: tone === 'alarm' ? 'hsl(var(--destructive) / 0.1)' : tone === 'info' ? 'hsl(var(--muted))' : 'transparent',
-  color: 'hsl(var(--foreground))',
-  fontSize: '0.85rem',
-  fontWeight: tone === 'alarm' ? 600 : 400,
-  // Last: this shorthand must win over the `borderWidth`/`borderColor` above.
-  ...(tone === 'info' ? {borderLeft: '3px solid hsl(var(--foreground) / 0.35)'} : {}),
-});
+export const noticeStyle = (tone: 'alarm' | 'info' | 'quiet'): React.CSSProperties => {
+  const edge = tone === 'alarm' ? 'hsl(var(--destructive))' : 'hsl(var(--border))';
+  return {
+    padding: '0.4rem 0.6rem',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: edge,
+    background: tone === 'alarm' ? 'hsl(var(--destructive) / 0.1)' : tone === 'info' ? 'hsl(var(--muted))' : 'transparent',
+    color: 'hsl(var(--foreground))',
+    fontSize: '0.85rem',
+    fontWeight: tone === 'alarm' ? 600 : 400,
+    // The leading rule is set as LONGHANDS, never a `borderLeft` shorthand
+    // beside `borderWidth`/`borderColor`. A notice whose tone CHANGES between
+    // renders (the LGR-11 difference readout flips quiet ⇄ info on every tick)
+    // makes React remove the shorthand while the longhands remain, which it
+    // warns about and which leaves the edge in an indeterminate state.
+    borderLeftWidth: tone === 'info' ? 3 : 1,
+    borderLeftColor: tone === 'info' ? 'hsl(var(--foreground) / 0.35)' : edge,
+  };
+};
 
 /**
  * Text for screen readers only. The reports carry a few marks that are visually

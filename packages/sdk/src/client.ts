@@ -49,6 +49,10 @@ import type {
   LedgerDraftPatch,
   LedgerInfo,
   LedgerPosting,
+  LedgerReconciliation,
+  LedgerReconciliationInput,
+  LedgerReconciliationStatus,
+  LedgerReconciliationSummary,
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
@@ -361,6 +365,25 @@ export interface DataClient {
   ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction>;
   /** Flip a posting between `pending`/`cleared` (`reconciled` is locked, LGR-11). */
   ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
+
+  // ── Statement reconciliation (LGR-11) ───────────────────────────────────────
+  // The workflow that catches the entries an import missed, doubled, or got
+  // wrong. Every step is one atomic, audited store mutation; `finish` is the
+  // gate — it is impossible at a nonzero difference over BOTH transports,
+  // because the check lives in the store, not in the caller.
+  /** List reconciliations, newest statement first. Filters are ANDed. */
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]>;
+  /** One reconciliation with its live cleared balance + difference, or `null`. */
+  ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null>;
+  /** START a reconciliation. Rejects `reconciliation-exists` if one is open. */
+  ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation>;
+  /** Match (`cleared`) or unmatch (`pending`) one posting inside an OPEN one. */
+  ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
+  /** FINISH — only at a difference of exactly 0; freezes the matched postings. */
+  ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+  /** REOPEN a finished reconciliation (explicit, audited); unfreezes its postings. */
+  ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+
   /** Read the append-only audit log, newest first (`before` = seq cursor). */
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]>;
   /** The whole ledger as the canonical postings CSV (LGR-7) — byte-stable:
@@ -1450,6 +1473,41 @@ export class HttpDataClient implements DataClient {
 
   ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
     return this.ledgerRequest<LedgerPosting>('PUT', API.ledgerPostingCleared(postingId), {cleared});
+  }
+
+  // ── Statement reconciliation (LGR-11) ───────────────────────────────────────
+
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]> {
+    const params = new URLSearchParams();
+    if (opts?.accountId != null) params.set('accountId', opts.accountId);
+    if (opts?.status != null) params.set('status', opts.status);
+    const query = params.toString();
+    return this.ledgerRequest<LedgerReconciliation[]>('GET', `${API.ledgerReconciliations}${query ? `?${query}` : ''}`);
+  }
+
+  async ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null> {
+    try {
+      return await this.ledgerRequest<LedgerReconciliationSummary>('GET', API.ledgerReconciliation(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
+    return this.ledgerRequest<LedgerReconciliation>('POST', API.ledgerReconciliations, input);
+  }
+
+  ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('PUT', API.ledgerReconciliationPosting(id, postingId), {cleared});
+  }
+
+  ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('POST', API.ledgerReconciliationFinish(id));
+  }
+
+  ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('POST', API.ledgerReconciliationReopen(id));
   }
 
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {

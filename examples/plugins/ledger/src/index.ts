@@ -5,6 +5,7 @@ import {BalanceSheetBlock} from './balanceSheet';
 import {IncomeStatementBlock} from './incomeStatement';
 import {TrialBalanceBlock} from './trialBalance';
 import {BankImportBlock} from './importBlock';
+import {ReconcileBlock} from './reconcileBlock';
 import {setUpBooks} from './setup';
 
 /**
@@ -12,8 +13,9 @@ import {setUpBooks} from './setup';
  * the sole human write surface for the double-entry books), the four read-only
  * REPORT blocks (LGR-8: trial balance, account register; LGR-9: balance sheet,
  * income statement), the BANK IMPORT block (LGR-10 — the surface that keeps the
- * books being used past month two), and the idempotent "Ledger: set up books"
- * palette command.
+ * books being used past month two), the RECONCILE block (LGR-11 — the surface
+ * that proves the books agree with the bank), and the idempotent "Ledger: set
+ * up books" palette command.
  *
  * The pure Σ/validity logic, the report and statement folds, the import model
  * and the setup routine are all re-exported so the host test-suite can drive
@@ -89,6 +91,26 @@ export {
   transactionsBefore,
   transactionsInRange,
 } from './statements';
+// The LGR-11 reconciliation fold: the statement-matching arithmetic, the
+// normal-side balance parser, and the sentences that narrate the difference.
+export {
+  RECONCILIATION_STATUS_LABEL,
+  RECONCILE_STATES,
+  buildReconcileSheet,
+  describeBalanceEcho,
+  describeBalanceSide,
+  describeDifference,
+  describeFinishBlock,
+  describeFrozenElsewhere,
+  describeGap,
+  describeReconcileSummary,
+  describeRowLabel,
+  describeSingleCulprit,
+  describeUnmatchedCaveat,
+  formatOnNormalSide,
+  isRowLocked,
+  parseStatementBalance,
+} from './reconcile';
 export {parseCollapsed, serializeCollapsed} from './statementShell';
 export {defaultAsOf} from './balanceSheet';
 export {defaultPeriod} from './incomeStatement';
@@ -178,6 +200,20 @@ export default function activate(a: typeof api) {
       // plugin storage (per source) and the drafts live in the ledger — but the
       // props map must still be non-empty for the host to create one.
       make: () => ({type: 'openbook.ledger/bank-import', props: {ledgerImport: '1'}}),
+    },
+  });
+
+  // The reconcile surface (LGR-11). Not a report: it is the one place the books
+  // are checked AGAINST something outside them, which is what makes a month's
+  // bookkeeping finished rather than merely entered.
+  a.blocks.register({
+    type: 'reconcile',
+    render: ReconcileBlock,
+    slash: {
+      label: 'Reconcile',
+      hint: 'Match an account against a bank statement, down to a 0.00 difference',
+      keywords: 'ledger reconcile reconciliation bank statement match difference clear cleared balance books',
+      make: () => ({type: 'openbook.ledger/reconcile', props: {ledgerRecId: ''}}),
     },
   });
 

@@ -23,13 +23,27 @@
 
 import {randomUUID} from 'node:crypto';
 import {beforeEach, describe, expect, it} from 'vitest';
-import {API, canonicalLedgerJson, emptyPageSnapshot, type LedgerPosting, type LedgerTransaction, type Principal} from '@book.dev/sdk';
+import {
+  API,
+  canonicalLedgerJson,
+  emptyPageSnapshot,
+  type LedgerPosting,
+  type LedgerReconciliation,
+  type LedgerTransaction,
+  type Principal,
+} from '@book.dev/sdk';
 import {PgliteDb, type Db} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp} from './app';
-import {transactionContent as writerContent} from './ledger';
-import {verifyLedger, transactionContent as verifierContent, type LedgerVerifyCode, type LedgerVerifyReport} from './ledgerVerify';
+import {transactionContent as writerContent, reconciliationContent as writerReconciliation} from './ledger';
+import {
+  verifyLedger,
+  transactionContent as verifierContent,
+  reconciliationContent as verifierReconciliation,
+  type LedgerVerifyCode,
+  type LedgerVerifyReport,
+} from './ledgerVerify';
 
 const ACTOR: Principal = {kind: 'user', subject: 'https://iss#tester', issuer: 'https://iss', name: 'Tester', verifiedVia: 'jws'};
 
@@ -83,7 +97,7 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     // Exercise every audited mutation shape so the chain/replay logic is pinned
     // against false positives: update+repost, cleared flip, reverse, account
     // rename, draft edit + delete.
-    await store.ledger.setPostingCleared(posted.postings[0].id, 'cleared', {}, ACTOR);
+    await store.ledger.setPostingCleared(posted.postings[0].id, 'cleared', ACTOR);
     const d2 = await store.ledger.createDraft(
       {
         date: '2026-08-02',
@@ -462,6 +476,27 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     // pre-LGR-16 compatibility guarantee, so pin it here too.
     expect(postingKeys(writer)[1]).toEqual(['accountId', 'amountMinor', 'cleared', 'id', 'reconciliationId']);
     // …and the bytes the digest is taken over are identical.
+    expect(canonicalLedgerJson(writer)).toBe(canonicalLedgerJson(verifier));
+  });
+
+  /** The same drift guard for the LGR-11 reconciliation projection. */
+  it('the writer and verifier RECONCILIATION projections agree key for key (drift guard)', () => {
+    const full: Required<LedgerReconciliation> = {
+      id: 'r-1',
+      accountId: 'a-1',
+      statementDate: '2026-08-31',
+      statementBalanceMinor: 12_500,
+      status: 'finished',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    };
+    const writer = writerReconciliation(full);
+    const verifier = verifierReconciliation(full);
+    expect(Object.keys(writer).sort()).toEqual(Object.keys(verifier).sort());
+    // The explicit set: timestamps are NOT ledger content (a re-read must hash
+    // identically to the frozen audit payload, which carries the row's
+    // `updatedAt` from the moment it was written).
+    expect(Object.keys(writer).sort()).toEqual(['accountId', 'id', 'statementBalanceMinor', 'statementDate', 'status']);
     expect(canonicalLedgerJson(writer)).toBe(canonicalLedgerJson(verifier));
   });
 });

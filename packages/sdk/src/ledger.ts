@@ -28,9 +28,21 @@ export type LedgerErrorCode =
   | 'invalid-state' // operation not valid for the entity's current state
   | 'nonzero-balance' // closing an account whose posted balance is not zero
   | 'reconciled-locked' // cleared-state change on a reconciled posting
+  | 'reconciliation-exists' // a second OPEN reconciliation on the same account
+  | 'reconciliation-unbalanced' // finishing while the difference is not exactly 0
+  | 'posting-not-reconcilable' // a draft posting, or one on another account
+  | 'reconciliation-too-large' // more postings on the account than one match may cover
   | 'invalid-input'; // malformed input (bad date, bad name, bad enum value)
 
-/** HTTP status the API maps each {@link LedgerErrorCode} to. */
+/**
+ * HTTP status the API maps each {@link LedgerErrorCode} to.
+ *
+ * The three LGR-11 reconciliation rejections are 409, not 400: they are all
+ * "not valid for the CURRENT state of the book" rather than malformed requests.
+ * The identical call becomes legal once the open reconciliation is finished,
+ * once the difference reaches zero, or once the posting is posted — which is
+ * what tells a client to re-read and retry instead of fixing its payload.
+ */
 export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 {
   switch (code) {
   case 'not-initialized':
@@ -42,6 +54,10 @@ export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 
     return 403;
   case 'invalid-state':
   case 'nonzero-balance':
+  case 'reconciliation-exists':
+  case 'reconciliation-unbalanced':
+  case 'posting-not-reconcilable':
+  case 'reconciliation-too-large':
     return 409;
   default:
     return 400;
@@ -79,6 +95,10 @@ export const LEDGER_ERROR_CODES: readonly LedgerErrorCode[] = [
   'invalid-state',
   'nonzero-balance',
   'reconciled-locked',
+  'reconciliation-exists',
+  'reconciliation-unbalanced',
+  'posting-not-reconcilable',
+  'reconciliation-too-large',
   'invalid-input',
 ];
 
@@ -211,6 +231,57 @@ export interface LedgerTransaction {
   updatedAt: string;
 }
 
+/**
+ * One statement reconciliation (LGR-11): an account, the statement it is being
+ * matched against, and whether that match has been FINISHED.
+ *
+ * `finished` is only reachable at a difference of exactly zero (statement
+ * balance − cleared balance = 0), and finishing FREEZES the postings it matched
+ * (`cleared: 'reconciled'` + `reconciliationId` set — invariant 4). Reopening is
+ * an explicit, audited step that unfreezes them again.
+ */
+export interface LedgerReconciliation {
+  id: string;
+  accountId: string;
+  /** ISO date (`YYYY-MM-DD`) the statement closes on. */
+  statementDate: string;
+  /**
+   * The statement's closing balance in SIGNED INTEGER MINOR UNITS, on the
+   * ledger's debit-positive convention (LGR-2) — the same convention every
+   * posting amount uses, so the difference is one subtraction and never a
+   * re-signing. A UI that asks for it on the account's NORMAL side is
+   * responsible for converting before it gets here.
+   */
+  statementBalanceMinor: number;
+  status: LedgerReconciliationStatus;
+  createdAt: string;
+  /** Bumped by every start/toggle-free mutation — finish and reopen included. */
+  updatedAt: string;
+}
+
+export interface LedgerReconciliationInput {
+  accountId: string;
+  /** ISO date (`YYYY-MM-DD`). */
+  statementDate: string;
+  /** Signed integer minor units, debit-positive. Never a parsed string. */
+  statementBalanceMinor: number;
+}
+
+/**
+ * What a reconciliation looks like once its postings are counted — the exact
+ * arithmetic a bookkeeper checks, computed server-side so the Finish gate and
+ * the on-screen readout can never disagree.
+ */
+export interface LedgerReconciliationSummary {
+  reconciliation: LedgerReconciliation;
+  /** Σ of every `cleared`/`reconciled` posting on the account, debit-positive. */
+  clearedBalanceMinor: number;
+  /** `statementBalanceMinor − clearedBalanceMinor`. Finish requires exactly 0. */
+  differenceMinor: number;
+  /** The postings this reconciliation matched (only meaningful once finished). */
+  matchedPostingIds: string[];
+}
+
 /** The seeded ledger database ids + host page. */
 export interface LedgerDatabases {
   accounts: string;
@@ -288,6 +359,17 @@ export type LedgerAuditAction =
   | 'transaction.post'
   | 'transaction.reverse'
   | 'posting.cleared'
+  /** A statement reconciliation was opened on an account (LGR-11). */
+  | 'reconciliation.start'
+  /**
+   * A reconciliation reached a zero difference and was FINISHED (LGR-11): its
+   * matched postings froze at `reconciled`. ONE event covers the reconciliation
+   * row and every posting it froze — the `transaction.reverse` precedent, and
+   * for the same reason: they commit together or not at all.
+   */
+  | 'reconciliation.finish'
+  /** A finished reconciliation was explicitly REOPENED, unfreezing its postings. */
+  | 'reconciliation.reopen'
   /** The ledger auto-export target was set or cleared (LGR-7). Policy, not
    *  ledger content — it touches no entity, so a replay ignores it, but it is
    *  recorded here so the book itself carries evidence of where copies go. */
@@ -312,6 +394,9 @@ export const LEDGER_AUDIT_ACTIONS = [
   'transaction.post',
   'transaction.reverse',
   'posting.cleared',
+  'reconciliation.start',
+  'reconciliation.finish',
+  'reconciliation.reopen',
   'ledger.autoExportPath',
 ] as const satisfies readonly LedgerAuditAction[];
 
@@ -362,6 +447,22 @@ export interface LedgerReplayState {
   initialized: boolean;
   accounts: Record<string, LedgerAccount>;
   transactions: Record<string, LedgerTransaction>;
+  /** Statement reconciliations (LGR-11), keyed by id. */
+  reconciliations: Record<string, LedgerReconciliation>;
+}
+
+/**
+ * One posting's cleared state as a `reconciliation.finish` / `.reopen` event
+ * records it. The event carries the FULL after-state of every posting it
+ * touched, because that is what makes the stream replayable: a reader that only
+ * knew "these ids were frozen" could not reconstruct the `reconciliationId` a
+ * reopen must clear again.
+ */
+export interface LedgerReconciliationPostingChange {
+  postingId: string;
+  transactionId: string;
+  cleared: LedgerClearedState;
+  reconciliationId: string | null;
 }
 
 /**
@@ -371,7 +472,18 @@ export interface LedgerReplayState {
  * record of every ledger mutation.
  */
 export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerReplayState {
-  const state: LedgerReplayState = {initialized: false, accounts: {}, transactions: {}};
+  const state: LedgerReplayState = {initialized: false, accounts: {}, transactions: {}, reconciliations: {}};
+  /** Apply one recorded posting change to the replayed transaction holding it. */
+  const applyPostingChange = (change: LedgerReconciliationPostingChange): void => {
+    const tx = state.transactions[change.transactionId];
+    if (!tx) return;
+    state.transactions[change.transactionId] = {
+      ...tx,
+      postings: tx.postings.map((p) =>
+        p.id === change.postingId ? {...p, cleared: change.cleared, reconciliationId: change.reconciliationId} : p,
+      ),
+    };
+  };
   for (const ev of events) {
     // An action this reducer does not know about means the log records a
     // mutation the replay cannot account for — so the reconstruction would be
@@ -386,6 +498,8 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
       originalState?: LedgerTransactionState;
       postingId?: string;
       cleared?: LedgerClearedState;
+      reconciliation?: LedgerReconciliation;
+      postings?: LedgerReconciliationPostingChange[];
     };
     switch (ev.action) {
     case 'ledger.init':
@@ -430,6 +544,18 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
           postings: tx.postings.map((post) => (post.id === p.postingId ? {...post, cleared: p.cleared as LedgerClearedState} : post)),
         };
       }
+      break;
+    case 'reconciliation.start':
+      if (p.reconciliation) state.reconciliations[p.reconciliation.id] = p.reconciliation;
+      break;
+    case 'reconciliation.finish':
+    case 'reconciliation.reopen':
+      // ONE event, TWO effects: the reconciliation's new status, and the
+      // cleared/reconciliationId state of every posting it froze or unfroze.
+      // Both must land, or the replayed postings drift from the book and the
+      // verifier's content-hash comparison reports a clean ledger as tampered.
+      if (p.reconciliation) state.reconciliations[p.reconciliation.id] = p.reconciliation;
+      for (const change of p.postings ?? []) applyPostingChange(change);
       break;
     default:
       throw new LedgerError(

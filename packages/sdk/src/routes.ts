@@ -305,6 +305,35 @@ export const API = {
   /** A posting's cleared state: `PUT` `{cleared}` (pending ↔ cleared only;
    *  anything touching `reconciled` is locked until reconciliation flows, LGR-11). */
   ledgerPostingCleared: (id: string): string => `/api/ledger/postings/${encodeURIComponent(id)}/cleared`,
+  /**
+   * Statement reconciliations (LGR-11): `GET` lists them (`?accountId=&status=`),
+   * `POST` STARTS one (`{accountId, statementDate, statementBalanceMinor}`).
+   * Starting a second OPEN reconciliation on the same account is rejected —
+   * two open matches against one account cannot both be the truth.
+   */
+  ledgerReconciliations: '/api/ledger/reconciliations',
+  /** One reconciliation with its live arithmetic: `GET` returns the
+   *  {@link LedgerReconciliationSummary} (cleared balance + difference). */
+  ledgerReconciliation: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}`,
+  /**
+   * Match/unmatch ONE posting inside an OPEN reconciliation: `PUT` `{cleared}`
+   * (`pending` ↔ `cleared`). Unlike {@link API.ledgerPostingCleared} this route
+   * additionally enforces that the posting belongs to the reconciliation's
+   * account, is on a POSTED entry, and is not frozen under another finished
+   * reconciliation.
+   */
+  ledgerReconciliationPosting: (id: string, postingId: string): string =>
+    `/api/ledger/reconciliations/${encodeURIComponent(id)}/postings/${encodeURIComponent(postingId)}`,
+  /**
+   * FINISH a reconciliation: `POST`. Rejects (`reconciliation-unbalanced`)
+   * unless the difference is EXACTLY zero — the whole point of the workflow, and
+   * enforced in the store so bypassing the UI changes nothing. On success every
+   * matched posting freezes at `reconciled` (invariant 4).
+   */
+  ledgerReconciliationFinish: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/finish`,
+  /** REOPEN a finished reconciliation: `POST`. Explicit and audited; unfreezes
+   *  every posting it had frozen (back to `cleared`, `reconciliationId` null). */
+  ledgerReconciliationReopen: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/reopen`,
   /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
    *  newest first). Read-only — no mutation route exists. */
   ledgerAudit: '/api/ledger/audit',

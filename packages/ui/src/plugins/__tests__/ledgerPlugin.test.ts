@@ -35,6 +35,22 @@ type NormalizeCell = (raw: string) => string;
 
 const row = (accountId: string, debit = '', credit = '', memo = ''): JournalRow => ({accountId, debit, credit, memo});
 
+/**
+ * EVERY block the ledger plugin registers, named once. The teardown assertion
+ * walks this list, so adding a block without adding it here leaves a
+ * registration nobody checks is released — which surfaces later as a phantom
+ * block in an unrelated document.
+ */
+const ALL_LEDGER_BLOCKS = [
+  'journal-entry',
+  'trial-balance',
+  'account-register',
+  'bank-import',
+  'reconcile',
+  'balance-sheet',
+  'income-statement',
+] as const;
+
 describe('ledger plugin (real source through the real loader)', () => {
   it('declares apiVersion 2 and registers the journal-entry + report blocks and the setup command', async () => {
     expect(manifest.apiVersion).toBe(2);
@@ -53,7 +69,10 @@ describe('ledger plugin (real source through the real loader)', () => {
     // LGR-9: the two statements ship in the same plugin, on the same terms.
     expect(getCustomBlock('openbook.ledger/balance-sheet')?.slash?.label).toBe('Balance sheet');
     expect(getCustomBlock('openbook.ledger/income-statement')?.slash?.label).toBe('Income statement');
-    for (const type of ['trial-balance', 'account-register', 'balance-sheet', 'income-statement']) {
+    // LGR-11: the reconcile surface — a write surface, not a report, but it
+    // ships and tears down on exactly the same terms as the rest.
+    expect(getCustomBlock('openbook.ledger/reconcile')?.slash?.label).toBe('Reconcile');
+    for (const type of ['trial-balance', 'account-register', 'balance-sheet', 'income-statement', 'reconcile']) {
       const made = getCustomBlock(`openbook.ledger/${type}`)?.slash?.make();
       expect(made?.type).toBe(`openbook.ledger/${type}`);
       expect(Object.keys(made?.props ?? {}).length).toBeGreaterThan(0);
@@ -61,15 +80,17 @@ describe('ledger plugin (real source through the real loader)', () => {
     expect(getCustomBlock('openbook.ledger/bank-import')).toBeDefined();
     expect(getCustomBlock('openbook.ledger/bank-import')?.slash?.label).toBe('Bank import');
     expect(pluginCommands().some((c) => c.id === 'openbook.ledger/setup-books' && c.title === 'Ledger: set up books')).toBe(true);
+    // …and the enumeration is complete in the other direction too: every block
+    // named above is live, and there are exactly this many.
+    for (const type of ALL_LEDGER_BLOCKS) expect(getCustomBlock(`openbook.ledger/${type}`), type).toBeDefined();
+    expect(ALL_LEDGER_BLOCKS).toHaveLength(7);
 
-    // Disable → every block and the command tear down with the plugin.
+    // Disable → every block and the command tear down with the plugin. This
+    // list must stay EXHAUSTIVE: a block registered but never torn down leaks
+    // into whatever renders next, and the only thing that catches it is naming
+    // every single one here.
     await syncPlugins({listPlugins: async () => []} as unknown as DataClient);
-    expect(getCustomBlock('openbook.ledger/journal-entry')).toBeUndefined();
-    expect(getCustomBlock('openbook.ledger/trial-balance')).toBeUndefined();
-    expect(getCustomBlock('openbook.ledger/account-register')).toBeUndefined();
-    expect(getCustomBlock('openbook.ledger/balance-sheet')).toBeUndefined();
-    expect(getCustomBlock('openbook.ledger/income-statement')).toBeUndefined();
-    expect(getCustomBlock('openbook.ledger/bank-import')).toBeUndefined();
+    for (const type of ALL_LEDGER_BLOCKS) expect(getCustomBlock(`openbook.ledger/${type}`), type).toBeUndefined();
     expect(pluginCommands().some((c) => c.id === 'openbook.ledger/setup-books')).toBe(false);
   });
 

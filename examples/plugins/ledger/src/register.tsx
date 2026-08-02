@@ -108,7 +108,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
   let register: AccountRegister | null = null;
   let foldError: string | null = null;
   try {
-    register = accountId === '' ? null : buildAccountRegister(accountId, data.accounts, data.transactions, {from, to, cleared});
+    register = accountId === '' ? null : buildAccountRegister(accountId, data.accounts, data.transactions, {from, to, cleared}, data.reconciliations);
   } catch (err) {
     foldError = err instanceof Error ? err.message : String(err);
   }
@@ -278,7 +278,34 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                         )}
                       </td>
                       <td data-ledger-contra style={{...tdStyle, ...wrapStyle}}><AccountName name={row.contra} /></td>
-                      <td style={{...tdStyle, ...mutedStyle}}>{CLEARED_LABEL[row.cleared]}</td>
+                      <td data-ledger-cleared-cell={row.cleared} style={{...tdStyle, ...mutedStyle}}>
+                        {CLEARED_LABEL[row.cleared]}
+                        {/* A reconciled posting is frozen against a SPECIFIC
+                            statement (LGR-11). Naming it is what turns "you
+                            cannot change this" into "this was matched to the
+                            2026-03-31 statement" — the difference between a
+                            locked cell and an auditable one. */}
+                        {row.cleared === 'reconciled' && (
+                          // `nowrap`: an ISO date broken across lines as
+                          // `2026-03-` / `31` reads as two fragments.
+                          <span
+                            data-ledger-reconciled-statement={row.reconciledStatementDate ?? ''}
+                            style={{display: 'block', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums'}}
+                          >
+                            {row.reconciledStatementDate !== null ? (
+                              <>
+                                {row.reconciledStatementDate}
+                                <SrOnly> — matched to the statement dated {row.reconciledStatementDate}.</SrOnly>
+                              </>
+                            ) : (
+                              <>
+                                (statement unknown)
+                                <SrOnly> — this posting is reconciled, but the statement it was matched to is not in this read.</SrOnly>
+                              </>
+                            )}
+                          </span>
+                        )}
+                      </td>
                       <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
                       <td data-ledger-running style={numericStyle}><SideAmount minor={row.runningMinor} /></td>
                     </tr>

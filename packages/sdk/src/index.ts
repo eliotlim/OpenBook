@@ -481,5 +481,9 @@ export {
   type LedgerAuditChainResult,
   type LedgerAuditEvent,
   type LedgerReplayState,
+  type LedgerReconciliation,
+  type LedgerReconciliationInput,
+  type LedgerReconciliationSummary,
+  type LedgerReconciliationPostingChange,
 } from './ledger';
 export {buildLedgerPostingsCsv, LEDGER_CSV_COLUMNS} from './ledgerCsv';

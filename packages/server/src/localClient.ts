@@ -33,6 +33,10 @@ import type {
   LedgerDraftPatch,
   LedgerInfo,
   LedgerPosting,
+  LedgerReconciliation,
+  LedgerReconciliationInput,
+  LedgerReconciliationStatus,
+  LedgerReconciliationSummary,
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
@@ -505,11 +509,48 @@ export class LocalDataClient implements DataClient {
   }
 
   async ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
-    // The `via: 'reconciliation'` hook stays server-internal (LGR-11) — this
-    // public surface only moves a posting between pending and cleared.
-    const posting = await this.store.ledger.setPostingCleared(postingId, cleared, {}, localPrincipal());
+    // `reconciled` is unreachable from here in either direction — it is reached
+    // only by finishing a reconciliation and left only by reopening one (LGR-11).
+    const posting = await this.store.ledger.setPostingCleared(postingId, cleared, localPrincipal());
     await this.broadcastLedgerRows('postings');
     return posting;
+  }
+
+  // ── Statement reconciliation (LGR-11) ────────────────────────────────────────
+  // Same `LedgerStore` methods the HTTP routes call, so the zero-difference
+  // gate, the freeze and the reopen behave identically in browser-local mode —
+  // there is no second implementation for this transport to drift from.
+
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]> {
+    return this.store.ledger.listReconciliations(opts);
+  }
+
+  ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null> {
+    return this.store.ledger.getReconciliation(id);
+  }
+
+  async ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
+    const reconciliation = await this.store.ledger.startReconciliation(input, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations');
+    return reconciliation;
+  }
+
+  async ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.setReconciliationPostingCleared(id, postingId, cleared, localPrincipal());
+    await this.broadcastLedgerRows('postings');
+    return summary;
+  }
+
+  async ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.finishReconciliation(id, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations', 'postings');
+    return summary;
+  }
+
+  async ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.reopenReconciliation(id, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations', 'postings');
+    return summary;
   }
 
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
@@ -522,7 +563,7 @@ export class LocalDataClient implements DataClient {
   }
 
   /** Refresh the named ledger databases' live row views (mirrors app.ts). */
-  private async broadcastLedgerRows(...keys: Array<'accounts' | 'transactions' | 'postings'>): Promise<void> {
+  private async broadcastLedgerRows(...keys: Array<'accounts' | 'transactions' | 'postings' | 'reconciliations'>): Promise<void> {
     const ids = await this.store.ledgerIds();
     if (!ids) return;
     for (const key of keys) await this.broadcastRows(ids[key]);

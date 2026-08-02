@@ -28,8 +28,10 @@ import {randomUUID} from 'node:crypto';
 import {beforeEach, describe, expect, it} from 'vitest';
 import {
   LEDGER_DEFAULT_TRANSACTION_LIMIT,
+  LEDGER_ERROR_CODES,
   LEDGER_MAX_TRANSACTION_LIMIT,
   LedgerError,
+  ledgerErrorStatus,
   emptyPageSnapshot,
   ledgerAuditEventHash,
   replayLedgerAudit,
@@ -634,23 +636,41 @@ describe('LGR-3 — store-level managed guards (local-mode parity)', () => {
   });
 });
 
-describe('LGR-3 — cleared-state workflow + the reconciliation hook (invariant 4)', () => {
-  it('pending↔cleared is open; anything touching reconciled is hook-gated', async () => {
+describe('LGR-3 — cleared-state workflow + invariant 4', () => {
+  it('pending↔cleared is open; `reconciled` is unreachable from this surface, both ways', async () => {
     const {cash, income} = await seedWithAccounts();
     const draft = await store.ledger.createDraft(
       {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 100}, {accountId: income, amountMinor: -100}]},
       ACTOR,
     );
+    // A DRAFT leg has no cleared-state workflow: the entry is not on the books,
+    // so "has it cleared the bank" is not a question about it. (It may still be
+    // BORN cleared through LedgerPostingInput — that is the bank import
+    // carrying a statement line's settled state in.)
+    expect(await code(store.ledger.setPostingCleared(draft.postings[0].id, 'cleared', ACTOR))).toBe('posting-not-reconcilable');
+
     const posted = await store.ledger.post(draft.id, ACTOR);
     const pid = posted.postings[0].id;
-    expect((await store.ledger.setPostingCleared(pid, 'cleared', {}, ACTOR)).cleared).toBe('cleared');
-    expect((await store.ledger.setPostingCleared(pid, 'pending', {}, ACTOR)).cleared).toBe('pending');
-    // Locking rung: reaching `reconciled` needs the reconciliation hook…
-    expect(await code(store.ledger.setPostingCleared(pid, 'reconciled', {}, ACTOR))).toBe('reconciled-locked');
-    expect((await store.ledger.setPostingCleared(pid, 'reconciled', {via: 'reconciliation'}, ACTOR)).cleared).toBe('reconciled');
-    // …and LEAVING it does too (the LGR-11 reopen seam).
-    expect(await code(store.ledger.setPostingCleared(pid, 'cleared', {}, ACTOR))).toBe('reconciled-locked');
-    expect((await store.ledger.setPostingCleared(pid, 'cleared', {via: 'reconciliation'}, ACTOR)).cleared).toBe('cleared');
+    expect((await store.ledger.setPostingCleared(pid, 'cleared', ACTOR)).cleared).toBe('cleared');
+    expect((await store.ledger.setPostingCleared(pid, 'pending', ACTOR)).cleared).toBe('pending');
+    // LGR-11 removed the `via: 'reconciliation'` opt-out this guard shipped
+    // with: no product code ever passed it, and any caller who did could
+    // unfreeze a reconciled posting with no audited reopen. `reconciled` is now
+    // reachable ONLY by finishing a reconciliation and leavable ONLY by
+    // reopening one, so BOTH directions reject here unconditionally.
+    expect(await code(store.ledger.setPostingCleared(pid, 'reconciled', ACTOR))).toBe('reconciled-locked');
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 100},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, pid, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(rec.id, ACTOR);
+    expect((await store.ledger.getPosting(pid))?.cleared).toBe('reconciled');
+    expect(await code(store.ledger.setPostingCleared(pid, 'cleared', ACTOR))).toBe('reconciled-locked');
+    expect(await code(store.ledger.setPostingCleared(pid, 'pending', ACTOR))).toBe('reconciled-locked');
+    // Only the reopen releases it.
+    await store.ledger.reopenReconciliation(rec.id, ACTOR);
+    expect((await store.ledger.setPostingCleared(pid, 'pending', ACTOR)).cleared).toBe('pending');
   });
 });
 
@@ -696,7 +716,7 @@ describe('LGR-3 — audit log (append-only, exactly one event per mutation, repl
     expect(await auditCount()).toBe(6);
     const reversal = await store.ledger.reverse(posted.id, {}, ACTOR); // ONE event for the pair
     expect(await auditCount()).toBe(7);
-    await store.ledger.setPostingCleared(posted.postings[0].id, 'cleared', {}, ACTOR);
+    await store.ledger.setPostingCleared(posted.postings[0].id, 'cleared', ACTOR);
     expect(await auditCount()).toBe(8);
     const gone = await store.ledger.createDraft({date: '2026-08-02'}, ACTOR);
     await store.ledger.deleteDraft(gone.id, ACTOR);
@@ -1262,4 +1282,499 @@ describe('LGR-16 — per-posting memo', () => {
     expect(header.split(',')).toContain('memo');
     expect(lines.some((l) => l.endsWith(',BLUE BOTTLE #12'))).toBe(true);
   });
+});
+
+/**
+ * LGR-11 — statement reconciliation, at the STORE layer.
+ *
+ * The workflow's whole reason to exist is that books drift silently when nobody
+ * matches them against a statement, so these tests pin the rules that make a
+ * FINISHED reconciliation mean something:
+ *  - finishing is impossible at a nonzero difference, and the refusal lives in
+ *    the store — bypassing the UI changes nothing (this IS the acceptance);
+ *  - a finished reconciliation FREEZES its postings; only its own reopen thaws
+ *    them, and that reopen is explicit and audited;
+ *  - one account never has two open reconciliations;
+ *  - drafts and other accounts' postings are not reconcilable;
+ *  - concurrency cannot corrupt any of it, and the chain still verifies.
+ */
+describe('LGR-11 — statement reconciliation lifecycle', () => {
+  /** Post `amountMinor` into `cash` (contra `income`) and hand back the cash leg. */
+  const postLeg = async (cash: string, income: string, amountMinor: number, date = '2026-08-01') => {
+    const draft = await store.ledger.createDraft(
+      {date, description: `entry ${amountMinor}`, postings: [{accountId: cash, amountMinor}, {accountId: income, amountMinor: -amountMinor}]},
+      ACTOR,
+    );
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    return posted.postings.find((p) => p.accountId === cash)!;
+  };
+
+  /** The postings a `reconciliation.finish` event says it froze. */
+  const frozenByFinish = async (): Promise<string[]> => {
+    const event = (await store.ledger.listAudit({limit: 200})).find((e) => e.action === 'reconciliation.finish');
+    const changes = (event?.payload as {postings?: Array<{postingId: string}>} | undefined)?.postings ?? [];
+    return changes.map((c) => c.postingId).sort();
+  };
+
+  it('start → match → finish at exactly zero freezes the matched postings', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const b = await postLeg(cash, income, 2_500);
+    const uncleared = await postLeg(cash, income, 999); // on the books, NOT on the statement
+
+    // The bank says 125.00 cleared on this account.
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 12_500},
+      ACTOR,
+    );
+    expect(rec.status).toBe('open');
+    expect((await store.ledger.getReconciliation(rec.id))?.differenceMinor).toBe(12_500); // nothing matched yet
+
+    const afterA = await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    expect(afterA.clearedBalanceMinor).toBe(10_000);
+    expect(afterA.differenceMinor).toBe(2_500);
+
+    const afterB = await store.ledger.setReconciliationPostingCleared(rec.id, b.id, 'cleared', ACTOR);
+    expect(afterB.differenceMinor).toBe(0);
+    expect(afterB.matchedPostingIds).toEqual([a.id, b.id].sort());
+
+    const finished = await store.ledger.finishReconciliation(rec.id, ACTOR);
+    expect(finished.reconciliation.status).toBe('finished');
+    expect(finished.differenceMinor).toBe(0);
+    // The matched legs froze and carry the statement they belong to…
+    for (const id of [a.id, b.id]) {
+      const posting = await store.ledger.getPosting(id);
+      expect(posting?.cleared).toBe('reconciled');
+      expect(posting?.reconciliationId).toBe(rec.id);
+    }
+    // …and the one that was never on the statement is untouched and still free.
+    expect((await store.ledger.getPosting(uncleared.id))?.cleared).toBe('pending');
+    expect((await store.ledger.getPosting(uncleared.id))?.reconciliationId).toBeNull();
+    // The list read finds it, filtered both ways.
+    expect((await store.ledger.listReconciliations({accountId: cash})).map((r) => r.id)).toEqual([rec.id]);
+    expect(await store.ledger.listReconciliations({status: 'open'})).toEqual([]);
+    // THE SET IT FROZE IS THE SET IT COUNTED — never a superset.
+    expect(await frozenByFinish()).toEqual([a.id, b.id].sort());
+    expect(finished.matchedPostingIds).toEqual(expect.arrayContaining(await frozenByFinish()));
+  });
+
+  it('never freezes a posting it did not count — a DRAFT leg born `cleared` is neither', async () => {
+    // The exact hole: `LedgerPostingInput` permits `cleared: 'cleared'` on a
+    // draft leg (the bank import relies on it), the difference correctly
+    // EXCLUDES it because its entry is not on the books — and a freeze filtered
+    // on `cleared === 'cleared'` alone would stamp it anyway. Reachable with no
+    // concurrency at all, through the documented createDraft contract.
+    const {cash, income} = await seedWithAccounts();
+    const onBooks = await postLeg(cash, income, 10_000);
+    const draft = await store.ledger.createDraft(
+      {
+        date: '2026-08-02',
+        description: 'not on the books',
+        postings: [{accountId: cash, amountMinor: 50_000, cleared: 'cleared'}, {accountId: income, amountMinor: -50_000}],
+      },
+      ACTOR,
+    );
+    const draftLeg = draft.postings.find((p) => p.accountId === cash)!;
+    expect(draftLeg.cleared).toBe('cleared'); // …and it really is stored that way
+
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, onBooks.id, 'cleared', ACTOR);
+    const summary = await store.ledger.getReconciliation(rec.id);
+    expect(summary!.differenceMinor).toBe(0); // the draft leg is NOT counted
+    expect(summary!.matchedPostingIds).toEqual([onBooks.id]);
+
+    const finished = await store.ledger.finishReconciliation(rec.id, ACTOR);
+    // Frozen set ⊆ counted set. The draft leg is untouched and unstamped.
+    expect(await frozenByFinish()).toEqual([onBooks.id]);
+    expect(finished.matchedPostingIds).toEqual([onBooks.id]);
+    const afterDraftLeg = await store.ledger.getPosting(draftLeg.id);
+    expect(afterDraftLeg?.cleared).toBe('cleared');
+    expect(afterDraftLeg?.reconciliationId).toBeNull();
+
+    // The three consequences that made this a corruption rather than a cosmetic
+    // slip, each now impossible:
+    //  1. posting the draft later must not move a FINISHED statement…
+    await store.ledger.post(draft.id, ACTOR);
+    const afterPost = await store.ledger.getReconciliation(rec.id);
+    expect(afterPost!.reconciliation.status).toBe('finished');
+    expect(afterPost!.differenceMinor).toBe(0);
+    //  2. …the draft's leg is still freely mutable (it was never frozen)…
+    expect((await store.ledger.setPostingCleared(draftLeg.id, 'pending', ACTOR)).cleared).toBe('pending');
+    //  3. …and the book still verifies.
+    expect((await store.verifyLedger()).findings).toEqual([]);
+    expect((await store.ledger.verifyAuditChain()).ok).toBe(true);
+  });
+
+  it('a FINISHED reconciliation reports the history it committed, not a live recomputation', async () => {
+    // A finished statement was, by definition, at exactly zero when it was
+    // finished. Recomputing it live let a posting cleared afterwards — on an
+    // entry this statement never matched — drag the figure off zero, so a
+    // historical statement reported ITSELF out of balance.
+    const {cash, income} = await seedWithAccounts();
+    const matched = await postLeg(cash, income, 10_000);
+    const later = await postLeg(cash, income, 5_000);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, matched.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(rec.id, ACTOR);
+
+    // Clear a LATER posting through the generic surface — legitimate, and
+    // nothing to do with the August statement.
+    await store.ledger.setPostingCleared(later.id, 'cleared', ACTOR);
+
+    const summary = await store.ledger.getReconciliation(rec.id);
+    expect(summary!.reconciliation.status).toBe('finished');
+    expect(summary!.differenceMinor).toBe(0);
+    expect(summary!.clearedBalanceMinor).toBe(10_000);
+    // …and it claims ONLY the postings it actually froze, read off their own
+    // `reconciliationId` rather than off "whatever is cleared right now".
+    expect(summary!.matchedPostingIds).toEqual([matched.id]);
+  });
+
+  it('REFUSES to finish at a nonzero difference — the gate is in the store, not the UI', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 12_500},
+      ACTOR,
+    );
+    // Out by 125.00 with nothing matched, and by 25.00 with the one entry matched.
+    expect(await code(store.ledger.finishReconciliation(rec.id, ACTOR))).toBe('reconciliation-unbalanced');
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    expect(await code(store.ledger.finishReconciliation(rec.id, ACTOR))).toBe('reconciliation-unbalanced');
+    // A rejected finish leaves NOTHING behind: still open, nothing frozen, and
+    // the failed attempts wrote no audit event at all.
+    expect((await store.ledger.getReconciliation(rec.id))?.reconciliation.status).toBe('open');
+    expect((await store.ledger.getPosting(a.id))?.cleared).toBe('cleared');
+    expect((await store.ledger.listAudit({limit: 100})).filter((e) => e.action === 'reconciliation.finish')).toHaveLength(0);
+    // …and once the books actually agree, the very same call succeeds.
+    const b = await postLeg(cash, income, 2_500);
+    await store.ledger.setReconciliationPostingCleared(rec.id, b.id, 'cleared', ACTOR);
+    expect((await store.ledger.finishReconciliation(rec.id, ACTOR)).reconciliation.status).toBe('finished');
+  });
+
+  it('a reconciled posting is immutable except through ITS OWN reopen', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(rec.id, ACTOR);
+
+    // The generic workflow surface — what the HTTP route and LocalDataClient
+    // both expose — cannot touch it in either direction.
+    expect(await code(store.ledger.setPostingCleared(a.id, 'pending', ACTOR))).toBe('reconciled-locked');
+    expect(await code(store.ledger.setPostingCleared(a.id, 'cleared', ACTOR))).toBe('reconciled-locked');
+    // Nor can a NEW reconciliation on the same account claim it.
+    const next = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-09-30', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    expect(await code(store.ledger.setReconciliationPostingCleared(next.id, a.id, 'pending', ACTOR))).toBe('reconciled-locked');
+    // A frozen posting still counts as cleared money, so September opens at zero
+    // difference against the same balance — that is what makes the freeze safe.
+    expect((await store.ledger.getReconciliation(next.id))?.differenceMinor).toBe(0);
+
+    // Reopening August is blocked while September is open (two open matches on
+    // one account cannot both be the truth) …
+    expect(await code(store.ledger.reopenReconciliation(rec.id, ACTOR))).toBe('reconciliation-exists');
+    // … and works once September is finished.
+    await store.ledger.finishReconciliation(next.id, ACTOR);
+    const reopened = await store.ledger.reopenReconciliation(rec.id, ACTOR);
+    expect(reopened.reconciliation.status).toBe('open');
+    const thawed = await store.ledger.getPosting(a.id);
+    expect(thawed?.cleared).toBe('cleared'); // it DID match — the freeze lifts, not the match
+    expect(thawed?.reconciliationId).toBeNull();
+    // …and it is mutable again through the ordinary surface.
+    expect((await store.ledger.setPostingCleared(a.id, 'pending', ACTOR)).cleared).toBe('pending');
+  });
+
+  it('rejects a second open reconciliation, a draft posting, and another account’s posting', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const other = await store.ledger.createAccount({name: 'Assets:Bank:Savings', type: 'asset'}, ACTOR);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 0},
+      ACTOR,
+    );
+    expect(
+      await code(store.ledger.startReconciliation({accountId: cash, statementDate: '2026-09-30', statementBalanceMinor: 0}, ACTOR)),
+    ).toBe('reconciliation-exists');
+
+    // A DRAFT is not on the books, so it cannot be on a statement.
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-02', postings: [{accountId: cash, amountMinor: 50}, {accountId: income, amountMinor: -50}]},
+      ACTOR,
+    );
+    const draftLeg = draft.postings.find((p) => p.accountId === cash)!;
+    expect(await code(store.ledger.setReconciliationPostingCleared(rec.id, draftLeg.id, 'cleared', ACTOR))).toBe('posting-not-reconcilable');
+
+    // Another account's leg belongs to another statement.
+    const elsewhere = await postLeg(other.id, income, 700);
+    expect(await code(store.ledger.setReconciliationPostingCleared(rec.id, elsewhere.id, 'cleared', ACTOR))).toBe('posting-not-reconcilable');
+
+    // Input validation, typed rather than 500'd.
+    expect(await code(store.ledger.startReconciliation({accountId: other.id, statementDate: '2026-02-30', statementBalanceMinor: 0}, ACTOR))).toBe('invalid-input');
+    expect(await code(store.ledger.startReconciliation({accountId: other.id, statementDate: '2026-08-31', statementBalanceMinor: 1.5}, ACTOR))).toBe('invalid-amount');
+    expect(
+      await code(
+        store.ledger.startReconciliation({accountId: '00000000-0000-4000-8000-000000000000', statementDate: '2026-08-31', statementBalanceMinor: 0}, ACTOR),
+      ),
+    ).toBe('account-not-found');
+    expect(await code(store.ledger.setReconciliationPostingCleared(rec.id, draftLeg.id, 'reconciled' as never, ACTOR))).toBe('invalid-input');
+    expect(await code(store.ledger.finishReconciliation('00000000-0000-4000-8000-000000000000', ACTOR))).toBe('not-found');
+    // Status guards, both ways round.
+    expect(await code(store.ledger.reopenReconciliation(rec.id, ACTOR))).toBe('invalid-state'); // still open
+    await store.ledger.finishReconciliation(rec.id, ACTOR); // its difference is already 0
+    expect(await code(store.ledger.setReconciliationPostingCleared(rec.id, draftLeg.id, 'cleared', ACTOR))).toBe('invalid-state');
+    expect(await code(store.ledger.finishReconciliation(rec.id, ACTOR))).toBe('invalid-state');
+  });
+
+  it('a full start → finish → reopen cycle stays audited, replayable and chain-verified', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const before = await auditCount();
+
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(rec.id, ACTOR);
+    await store.ledger.reopenReconciliation(rec.id, ACTOR);
+    // FOUR mutations, four events — the finish and the reopen each cover their
+    // whole posting set in ONE event (the `transaction.reverse` precedent).
+    expect(await auditCount()).toBe(before + 4);
+    const actions = (await store.ledger.listAudit({limit: 10})).map((e) => e.action).reverse().slice(-4);
+    expect(actions).toEqual(['reconciliation.start', 'posting.cleared', 'reconciliation.finish', 'reconciliation.reopen']);
+
+    // The chain still verifies…
+    expect((await store.ledger.verifyAuditChain()).ok).toBe(true);
+    // …the independent verifier finds nothing…
+    expect((await store.verifyLedger()).findings).toEqual([]);
+    // …and a replay reconstructs both the reconciliation AND the posting states
+    // it froze and thawed, which is exactly what the verifier's content check
+    // rests on: a replay that modelled only the status would report this clean
+    // book as mutated outside the ledger.
+    const ascending = [...(await store.ledger.listAudit({limit: 200}))].reverse();
+    const replayed = replayLedgerAudit(ascending);
+    expect(replayed.reconciliations[rec.id].status).toBe('open');
+    const replayedPosting = Object.values(replayed.transactions)
+      .flatMap((t) => t.postings)
+      .find((p) => p.id === a.id);
+    expect(replayedPosting?.cleared).toBe('cleared');
+    expect(replayedPosting?.reconciliationId).toBeNull();
+  });
+
+  /**
+   * CONCURRENCY — and what this test can and cannot prove.
+   *
+   * READ THIS BEFORE TRUSTING A GREEN RESULT. It runs on PGlite, which
+   * serializes every `Db.begin` through a process-wide FIFO mutex. That means
+   * the interleavings the row locks exist to prevent CANNOT BE PRODUCED HERE:
+   * hoisting the difference recomputation entirely outside the transaction was
+   * measured to leave this file 6/6 green, five runs in a row, including this
+   * test. `FOR UPDATE`/`FOR SHARE` are no-ops for correctness on this backend.
+   *
+   * So what is pinned here is the OUTCOME CONTRACT — after two racing calls the
+   * store is in one of the admissible states, the audit chain is well formed,
+   * and the verifier is clean — not the locking that delivers it on real
+   * Postgres, where READ COMMITTED lets these transactions genuinely interleave.
+   * The locking itself is code-review-verified only, exactly as the audit
+   * advisory lock's docstring records for the same reason. A Postgres-backed
+   * concurrency harness is what would close the gap; there is none in this
+   * repo today.
+   *
+   * Do not weaken a lock on the strength of this test staying green.
+   */
+  it('CONCURRENCY (see the note above — PGlite cannot produce the interleavings): racing calls leave an admissible state', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const b = await postLeg(cash, income, 2_500);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+
+    // (1) Two clients ticking the SAME posting in opposite directions. Both are
+    // legal, so both must succeed; the ledger serializes them, so the posting
+    // lands on exactly one of the two states and the summary agrees with it.
+    const auditBefore = await auditCount();
+    const results = await Promise.allSettled([
+      store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR),
+      store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'pending', ACTOR),
+    ]);
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    const settled = await store.ledger.getPosting(a.id);
+    expect(['pending', 'cleared']).toContain(settled!.cleared);
+    // At most one event per write, and never a torn state: what the posting says
+    // now is exactly what the summary counts.
+    expect(await auditCount()).toBeLessThanOrEqual(auditBefore + 2);
+    const summary = await store.ledger.getReconciliation(rec.id);
+    expect(summary!.clearedBalanceMinor).toBe(settled!.cleared === 'cleared' ? 10_000 : 0);
+    expect(summary!.matchedPostingIds).toEqual(settled!.cleared === 'cleared' ? [a.id] : []);
+
+    // (2) FINISH racing a TOGGLE that would break the zero. Reach the balanced
+    // state, then fire a finish and a tick of `b` (which is NOT on the
+    // statement) together. Exactly two outcomes are admissible, and a `finished`
+    // reconciliation whose books do not add up is neither of them.
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    expect((await store.ledger.getReconciliation(rec.id))?.differenceMinor).toBe(0);
+    const race = await Promise.allSettled([
+      store.ledger.finishReconciliation(rec.id, ACTOR),
+      store.ledger.setReconciliationPostingCleared(rec.id, b.id, 'cleared', ACTOR),
+    ]);
+    const final = await store.ledger.getReconciliation(rec.id);
+    if (final!.reconciliation.status === 'finished') {
+      // It finished, so it finished BALANCED — and `b` either never landed, or
+      // was refused because the reconciliation had already closed.
+      expect(final!.clearedBalanceMinor).toBe(10_000);
+      expect(final!.differenceMinor).toBe(0);
+      expect((await store.ledger.getPosting(a.id))?.reconciliationId).toBe(rec.id);
+      expect((await store.ledger.getPosting(b.id))?.cleared).toBe('pending');
+      if (race[1].status === 'rejected') expect((race[1].reason as LedgerError).code).toBe('invalid-state');
+    } else {
+      // The tick won: the finish saw the new, nonzero difference and refused.
+      expect(race[0].status).toBe('rejected');
+      expect(((race[0] as PromiseRejectedResult).reason as LedgerError).code).toBe('reconciliation-unbalanced');
+      expect(final!.differenceMinor).not.toBe(0);
+      expect((await store.ledger.getPosting(a.id))?.cleared).toBe('cleared'); // nothing froze
+    }
+    // Whichever way it went, the log is still a well-formed chain and the book
+    // still passes the independent verifier.
+    expect((await store.ledger.verifyAuditChain()).ok).toBe(true);
+    expect((await store.verifyLedger()).findings).toEqual([]);
+  });
+
+  it('one account never ends up with two open reconciliations, by either door', async () => {
+    // `reopen` CREATES an open reconciliation, so it owes the same
+    // one-per-account serialization `start` does — it used to run that check
+    // holding only its own reconciliation row, which on real Postgres does not
+    // block a concurrent `start` or a reopen of a different finished statement.
+    // Both doors now run that check holding the ACCOUNT row.
+    //
+    // READ THE CONCURRENCY NOTE ABOVE BEFORE TRUSTING THIS: PGlite serializes
+    // every transaction, so this pins the OUTCOME (one open at the end, every
+    // other door shut) and CANNOT exercise the row lock that delivers it on real
+    // Postgres. Deleting that lock leaves this test green.
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const b = await postLeg(cash, income, 2_500);
+
+    const august = await store.ledger.startReconciliation({accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000}, ACTOR);
+    await store.ledger.setReconciliationPostingCleared(august.id, a.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(august.id, ACTOR);
+    const september = await store.ledger.startReconciliation({accountId: cash, statementDate: '2026-09-30', statementBalanceMinor: 12_500}, ACTOR);
+    await store.ledger.setReconciliationPostingCleared(september.id, b.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(september.id, ACTOR);
+
+    // Two finished statements and nothing open. Fire all THREE doors that can
+    // produce an open reconciliation at once — two reopens of different
+    // statements and a fresh start. Exactly one may win.
+    expect(await store.ledger.listReconciliations({accountId: cash, status: 'open'})).toHaveLength(0);
+    await Promise.allSettled([
+      store.ledger.reopenReconciliation(august.id, ACTOR),
+      store.ledger.reopenReconciliation(september.id, ACTOR),
+      store.ledger.startReconciliation({accountId: cash, statementDate: '2026-10-31', statementBalanceMinor: 0}, ACTOR),
+    ]);
+    expect(await store.ledger.listReconciliations({accountId: cash, status: 'open'})).toHaveLength(1);
+
+    // …and with one open, every other door is shut, whichever one won.
+    expect(await code(store.ledger.startReconciliation({accountId: cash, statementDate: '2026-11-30', statementBalanceMinor: 0}, ACTOR))).toBe(
+      'reconciliation-exists',
+    );
+    for (const finished of await store.ledger.listReconciliations({accountId: cash, status: 'finished'})) {
+      expect(await code(store.ledger.reopenReconciliation(finished.id, ACTOR))).toBe('reconciliation-exists');
+    }
+    expect(await store.ledger.listReconciliations({accountId: cash, status: 'open'})).toHaveLength(1);
+    expect((await store.verifyLedger()).findings).toEqual([]);
+    expect((await store.ledger.verifyAuditChain()).ok).toBe(true);
+  });
+
+  it('caps the set a FINISH writes, at the real boundary — and the cap always has a way out', async () => {
+    // THE REAL 1001 BOUNDARY, not a lowered stand-in. Built as compound entries
+    // (500 legs on the bank account each) rather than 1001 separate posts, which
+    // keeps it seconds rather than minutes.
+    //
+    // What this pins is the difference between a BOUND and a BRICK. Capping the
+    // account's CARDINALITY produced a permanent dead end: start on a small
+    // account, post ordinarily until it passes the cap, and finish then refused
+    // forever — reopen needs `finished`, start answers `reconciliation-exists`,
+    // and there is no cancel. Capping what the write actually TOUCHES always
+    // leaves the user a remedy: untick a row.
+    const {cash, income} = await seedWithAccounts();
+    /** One compound entry with `legs` cleared +1 legs on cash, offset on income. */
+    const bulk = async (legs: number): Promise<void> => {
+      const draft = await store.ledger.createDraft(
+        {
+          date: '2026-08-01',
+          description: `bulk ${legs}`,
+          postings: [
+            ...Array.from({length: legs}, () => ({accountId: cash, amountMinor: 1, cleared: 'cleared' as const})),
+            ...Array.from({length: legs}, () => ({accountId: income, amountMinor: -1})),
+          ],
+        },
+        ACTOR,
+      );
+      await store.ledger.post(draft.id, ACTOR);
+    };
+    await bulk(500);
+    await bulk(499); // 999 cleared legs on cash, worth 999 in total
+    // The 1000th and 1001st cleared legs. One is worth ZERO, so unticking it
+    // later changes the COUNT without touching the balance — which is what makes
+    // the capacity refusal and the imbalance refusal provably independent.
+    const tail = await store.ledger.createDraft(
+      {
+        date: '2026-08-02',
+        description: 'the 1000th and 1001st',
+        postings: [
+          {accountId: cash, amountMinor: 0, cleared: 'cleared'},
+          {accountId: cash, amountMinor: 1, cleared: 'cleared'},
+          {accountId: income, amountMinor: -1},
+        ],
+      },
+      ACTOR,
+    );
+    const posted = await store.ledger.post(tail.id, ACTOR);
+    const zeroLeg = posted.postings.find((p) => p.accountId === cash && p.amountMinor === 0)!;
+
+    // START succeeds on an account past the cap — cardinality never bars it.
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 1_000},
+      ACTOR,
+    );
+    const summary = await store.ledger.getReconciliation(rec.id);
+    expect(summary!.matchedPostingIds).toHaveLength(1_001);
+    expect(summary!.differenceMinor).toBe(0); // balanced — and still unfinishable
+
+    // FINISH refuses on CAPACITY while the difference is already zero, so the
+    // refusal is unambiguously about the write set, and it names the remedy.
+    expect(await code(store.ledger.finishReconciliation(rec.id, ACTOR))).toBe('reconciliation-too-large');
+    expect((await store.ledger.getReconciliation(rec.id))?.reconciliation.status).toBe('open');
+
+    // THE WAY OUT — one untick, and it is a remedy the user can actually reach.
+    await store.ledger.setReconciliationPostingCleared(rec.id, zeroLeg.id, 'pending', ACTOR);
+    const trimmed = (await store.ledger.getReconciliation(rec.id))!;
+    expect(trimmed.matchedPostingIds).toHaveLength(1_000); // exactly AT the cap
+    expect(trimmed.differenceMinor).toBe(0); // …and the balance never moved
+    const finished = await store.ledger.finishReconciliation(rec.id, ACTOR);
+    expect(finished.reconciliation.status).toBe('finished');
+
+    // The freeze wrote exactly the cap, in ONE bounded audit event, and the
+    // reopen releases the same set without tripping its own guard.
+    const event = (await store.ledger.listAudit({limit: 5})).find((e) => e.action === 'reconciliation.finish')!;
+    expect((event.payload as {postings: unknown[]}).postings).toHaveLength(1_000);
+    expect(event.entityIds).toHaveLength(2); // the reconciliation and its account
+    expect((await store.ledger.reopenReconciliation(rec.id, ACTOR)).reconciliation.status).toBe('open');
+
+    // The cap is a typed 409 the client can branch on, never a 500.
+    expect(LEDGER_ERROR_CODES).toContain('reconciliation-too-large');
+    expect(ledgerErrorStatus('reconciliation-too-large')).toBe(409);
+  }, 180_000);
 });

@@ -70,6 +70,12 @@ function harness() {
       return {exists: true, hostPageId: 'host', databases: {accounts: 'db_a', transactions: 'db_t', postings: 'db_p', reconciliations: 'db_r'}};
     },
     ledgerListAccounts: async () => [account('a1')],
+    // LGR-11: the hook reads reconciliations alongside the accounts so a
+    // `reconciled` posting can name the statement that froze it. It settles
+    // immediately here — the token/staleness behaviour under test is driven
+    // through the transaction read, which is the one that can outlive its
+    // effect generation.
+    ledgerListReconciliations: async () => [],
     ledgerListTransactions: (opts?: {limit?: number}) => {
       requestedLimits.push(opts?.limit);
       const d = deferred<LedgerTransaction[]>();
@@ -269,10 +275,12 @@ describe('LGR-8 — useLedgerReport (real plugin source, real loader)', () => {
     await act(async () => h.settle(0, ['A']));
     await waitFor(() => expect(result.current.state).toBe('ready'));
 
-    // Accounts, transactions AND postings — a cleared-state flip only touches
-    // the postings database, and it must still refresh the report.
-    expect(h.subscriptions.map((s) => s.databaseId).sort()).toEqual(['db_a', 'db_p', 'db_t']);
-    expect(h.liveSubscriptions()).toHaveLength(3);
+    // Accounts, transactions, postings AND reconciliations. Each one earns its
+    // place: a cleared-state flip only touches the postings database, and
+    // finishing or reopening a statement (LGR-11) only touches the
+    // reconciliations database — yet both change what the register shows.
+    expect(h.subscriptions.map((s) => s.databaseId).sort()).toEqual(['db_a', 'db_p', 'db_r', 'db_t']);
+    expect(h.liveSubscriptions()).toHaveLength(4);
     unmount();
     expect(h.liveSubscriptions()).toHaveLength(0);
   });

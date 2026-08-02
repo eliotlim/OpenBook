@@ -136,6 +136,43 @@ describe('LGR-3 — generic mutation routes answer 403 managed on ledger rows', 
     expect((await edit.json()).code).toBe('immutable');
   });
 
+  it('surfaces the LGR-11 reconciliation statuses: 201 start, 409 unbalanced finish, 404 unknown', async () => {
+    const accountId = ((await (await req(app, 'GET', API.ledgerAccounts)).json()) as Array<{id: string}>)[0].id;
+    const start = await req(app, 'POST', API.ledgerReconciliations, {
+      accountId,
+      statementDate: '2026-08-31',
+      statementBalanceMinor: 999,
+    });
+    expect(start.status).toBe(201);
+    const rec = (await start.json()) as {id: string};
+
+    // A second open one on the same account: 409, not a duplicate row.
+    const second = await req(app, 'POST', API.ledgerReconciliations, {accountId, statementDate: '2026-09-30', statementBalanceMinor: 0});
+    expect(second.status).toBe(409);
+    expect((await second.json()).code).toBe('reconciliation-exists');
+
+    // THE gate, over HTTP: 999 minor units of statement against nothing matched.
+    const finish = await req(app, 'POST', API.ledgerReconciliationFinish(rec.id));
+    expect(finish.status).toBe(409);
+    expect((await finish.json()).code).toBe('reconciliation-unbalanced');
+
+    // A tick with no body value is a 400, and an unknown reconciliation is a 404.
+    const noBody = await req(app, 'PUT', API.ledgerReconciliationPosting(rec.id, postingId), {});
+    expect(noBody.status).toBe(400);
+    // An unrecognised `?status=` is a 400, never a silent empty filter — that
+    // would read to a client as "this account has never been reconciled".
+    const badFilter = await req(app, 'GET', `${API.ledgerReconciliations}?status=nonsense`);
+    expect(badFilter.status).toBe(400);
+    expect((await badFilter.json()).code).toBe('invalid-input');
+    expect(((await (await req(app, 'GET', `${API.ledgerReconciliations}?status=open`)).json()) as unknown[]).length).toBe(1);
+    const unknown = await req(app, 'GET', API.ledgerReconciliation('00000000-0000-4000-8000-000000000000'));
+    expect(unknown.status).toBe(404);
+    // Reopening one that is still open is a state error, not a silent no-op.
+    const reopen = await req(app, 'POST', API.ledgerReconciliationReopen(rec.id));
+    expect(reopen.status).toBe(409);
+    expect((await reopen.json()).code).toBe('invalid-state');
+  });
+
   it('audit log reads paginated over HTTP; no mutation route exists for it', async () => {
     const all = await (await req(app, 'GET', `${API.ledgerAudit}?limit=100`)).json();
     expect(all.length).toBeGreaterThanOrEqual(4); // init + 2 accounts + create + post
@@ -278,6 +315,93 @@ describe.each(factories)('LGR-3 — transport parity via %s', (_name, factory) =
     expect(page.map((e) => e.seq)).toEqual(audit.slice(1, 4).map((e) => e.seq));
   });
 
+  /**
+   * LGR-11 — the reconciliation workflow, driven identically over both
+   * transports. Two properties are load-bearing here and neither may be a
+   * property of the HTTP layer alone: `finish` refuses a nonzero difference,
+   * and a `reconciled` posting cannot change cleared state except via reopen.
+   * Browser-local mode bypasses HTTP entirely, so if either lived in a route
+   * handler the whole guarantee would evaporate in the webview.
+   */
+  it('reconciles a statement to zero, refuses a nonzero finish, and freezes what it matched', async () => {
+    await client.ledgerInit();
+    const bank = await client.ledgerCreateAccount({name: 'Assets:Bank:Checking', type: 'asset'});
+    const income = await client.ledgerCreateAccount({name: 'Revenue:Sales', type: 'revenue'});
+    const post = async (amountMinor: number) => {
+      const draft = await client.ledgerCreateDraft({
+        date: '2026-08-01',
+        description: `entry ${amountMinor}`,
+        postings: [{accountId: bank.id, amountMinor}, {accountId: income.id, amountMinor: -amountMinor}],
+      });
+      const posted = await client.ledgerPostTransaction(draft.id);
+      return posted.postings.find((p) => p.accountId === bank.id)!;
+    };
+    const onStatement = await post(10_000);
+    const notOnStatement = await post(2_500);
+
+    const rec = await client.ledgerStartReconciliation({
+      accountId: bank.id,
+      statementDate: '2026-08-31',
+      statementBalanceMinor: 10_000,
+    });
+    expect(rec.status).toBe('open');
+    expect(await ledgerCode(client.ledgerStartReconciliation({accountId: bank.id, statementDate: '2026-09-30', statementBalanceMinor: 0}))).toBe(
+      'reconciliation-exists',
+    );
+
+    // Nothing matched yet → out by the whole statement, and finish is refused.
+    expect((await client.ledgerGetReconciliation(rec.id))?.differenceMinor).toBe(10_000);
+    expect(await ledgerCode(client.ledgerFinishReconciliation(rec.id))).toBe('reconciliation-unbalanced');
+
+    // Match the wrong one → still refused (the difference moved, not vanished).
+    const wrong = await client.ledgerToggleReconciliationPosting(rec.id, notOnStatement.id, 'cleared');
+    expect(wrong.differenceMinor).toBe(7_500);
+    expect(await ledgerCode(client.ledgerFinishReconciliation(rec.id))).toBe('reconciliation-unbalanced');
+    await client.ledgerToggleReconciliationPosting(rec.id, notOnStatement.id, 'pending');
+
+    // Match the right one → exactly zero, and only now does finish succeed.
+    const matched = await client.ledgerToggleReconciliationPosting(rec.id, onStatement.id, 'cleared');
+    expect(matched.differenceMinor).toBe(0);
+    const finished = await client.ledgerFinishReconciliation(rec.id);
+    expect(finished.reconciliation.status).toBe('finished');
+
+    // FROZEN: the generic cleared-state surface refuses it in both directions…
+    const frozen = (await client.ledgerGetTransaction(onStatement.transactionId))!.postings.find((p) => p.id === onStatement.id)!;
+    expect(frozen.cleared).toBe('reconciled');
+    expect(frozen.reconciliationId).toBe(rec.id);
+    expect(await ledgerCode(client.ledgerSetPostingCleared(onStatement.id, 'pending'))).toBe('reconciled-locked');
+    expect(await ledgerCode(client.ledgerSetPostingCleared(onStatement.id, 'cleared'))).toBe('reconciled-locked');
+    // …a draft leg is not reconcilable at all…
+    const draft = await client.ledgerCreateDraft({
+      date: '2026-08-02',
+      postings: [{accountId: bank.id, amountMinor: 5}, {accountId: income.id, amountMinor: -5}],
+    });
+    const next = await client.ledgerStartReconciliation({accountId: bank.id, statementDate: '2026-09-30', statementBalanceMinor: 10_000});
+    expect(await ledgerCode(client.ledgerToggleReconciliationPosting(next.id, draft.postings[0].id, 'cleared'))).toBe('posting-not-reconcilable');
+    // …and a frozen one cannot be claimed by the next statement either.
+    expect(await ledgerCode(client.ledgerToggleReconciliationPosting(next.id, onStatement.id, 'pending'))).toBe('reconciled-locked');
+
+    // REOPEN is the one door out, and it unfreezes.
+    await client.ledgerFinishReconciliation(next.id); // its difference is already 0
+    const reopened = await client.ledgerReopenReconciliation(rec.id);
+    expect(reopened.reconciliation.status).toBe('open');
+    expect((await client.ledgerSetPostingCleared(onStatement.id, 'pending')).cleared).toBe('pending');
+
+    // The list read agrees over both transports, newest statement first.
+    expect((await client.ledgerListReconciliations({accountId: bank.id})).map((r) => r.id)).toEqual([next.id, rec.id]);
+    expect(await client.ledgerGetReconciliation('00000000-0000-4000-8000-000000000000')).toBeNull();
+
+    // One audit event per mutation, in order, and the whole cycle is in the log.
+    const actions = (await client.ledgerListAudit({limit: 100})).map((e) => e.action);
+    expect(actions.filter((a) => a.startsWith('reconciliation.'))).toEqual([
+      'reconciliation.reopen',
+      'reconciliation.finish',
+      'reconciliation.start',
+      'reconciliation.finish',
+      'reconciliation.start',
+    ]);
+  });
+
   it('keeps the generic client surface fenced off ledger rows (managed)', async () => {
     await client.ledgerInit();
     const cash = await client.ledgerCreateAccount({name: 'Assets:Cash', type: 'asset'});
@@ -323,6 +447,11 @@ describe('LGR-3 — agent PATs can never reach the ledger surface', () => {
     API.ledgerTransactionPost('t'),
     API.ledgerTransactionReverse('t'),
     API.ledgerPostingCleared('p'),
+    API.ledgerReconciliations,
+    API.ledgerReconciliation('r'),
+    API.ledgerReconciliationPosting('r', 'p'),
+    API.ledgerReconciliationFinish('r'),
+    API.ledgerReconciliationReopen('r'),
     API.ledgerAudit,
   ];
 

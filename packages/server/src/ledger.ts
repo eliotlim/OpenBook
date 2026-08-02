@@ -22,8 +22,10 @@
  *     new reversing transaction (`reverses` set); void happens only via the
  *     reversal pair (the original flips to `void` inside the reverse).
  *  3. Draft mutation/deletion is allowed (deletion is permanent + audited).
- *  4. `reconciled` postings can't change cleared state except via reconciliation
- *     reopen (the `via: 'reconciliation'` hook; flows arrive in LGR-11).
+ *  4. `reconciled` postings can't change cleared state except through a
+ *     reconciliation finish/reopen (LGR-11). There is no opt-out parameter:
+ *     `setPostingCleared` refuses every transition touching `reconciled`, and
+ *     the two reconciliation writers are the only code that reaches that state.
  *  5. Every ledger mutation appends exactly ONE audit event (who / when /
  *     action / entity ids / before-after content hash) to the append-only
  *     `ledger_audit` table — in the SAME transaction as the mutation. Each event
@@ -58,6 +60,7 @@ import {
   isValidLedgerDate,
   isValidMinor,
   ledgerAuditEventHash,
+  negateAmount,
   sumAmounts,
   verifyLedgerAuditChain,
   type DatabaseProperty,
@@ -74,6 +77,11 @@ import {
   type LedgerInfo,
   type LedgerPosting,
   type LedgerPostingInput,
+  type LedgerReconciliation,
+  type LedgerReconciliationInput,
+  type LedgerReconciliationPostingChange,
+  type LedgerReconciliationStatus,
+  type LedgerReconciliationSummary,
   type LedgerReverseOptions,
   type LedgerTransaction,
   type LedgerTransactionState,
@@ -117,6 +125,17 @@ interface Row {
   properties: Record<string, unknown> | string | null;
   created_at: Date | string;
   updated_at: Date | string;
+}
+
+/**
+ * One of an account's postings as the reconciliation paths carry it: the
+ * projected entity, its RAW row (so a write can patch the stored properties
+ * without a second read of a row it already holds a lock on), and the state of
+ * the entry it belongs to.
+ */
+interface AccountPostingRow {
+  posting: LedgerPosting & {row: Row};
+  state: LedgerTransactionState | null;
 }
 
 interface AuditRow {
@@ -168,6 +187,32 @@ const MAX_POSTINGS_PER_TRANSACTION = 1000;
  *  bound). Long values are copied into EVERY audit payload, so this bounds the
  *  log's growth too. */
 const MAX_DESCRIPTION_LENGTH = 1000;
+
+/**
+ * Maximum postings ONE reconciliation may freeze or release (LGR-11), mirroring
+ * {@link MAX_POSTINGS_PER_TRANSACTION}.
+ *
+ * WHAT IT BOUNDS, and why that is the whole design: a freeze writes ONE audit
+ * event carrying the after-state of every posting it froze, so the payload grows
+ * linearly with the WRITTEN set (~190 B a posting measured). At this cap the
+ * worst case is a ~190 KB row; unbounded, a 20k-posting account would write
+ * ~3.8 MB into a single append-only row that can never be pruned.
+ *
+ * WHAT IT MUST NOT BOUND: how many postings the account HOLDS. The first version
+ * capped that, and it was a brick, not a bound — `start` on a small account,
+ * ordinary posting until the account passes the cap, and `finish` then refused
+ * forever with no cancel and no reopen. Every long-lived current account reaches
+ * a thousand postings eventually, with no adversary involved, so a cardinality
+ * cap makes reconciliation permanently unavailable on exactly the accounts that
+ * need it most. A cap on the WRITTEN set always has a remedy the user can reach:
+ * untick rows, or reconcile in more than one pass.
+ *
+ * The lock hold on a very large account is a real cost and is deliberately NOT
+ * capped: `finish`/`reopen` lock every posting on the account inside one
+ * `Db.begin`. That is a performance concern with a bounded blast radius, and
+ * paying it beats refusing to reconcile the account at all.
+ */
+const MAX_RECONCILIATION_POSTINGS = 1000;
 
 /**
  * Advisory-lock key serializing audit-chain appends (see
@@ -869,16 +914,30 @@ export class LedgerStore {
   }
 
   /**
-   * Change a posting's cleared state. `pending ↔ cleared` is the open workflow;
-   * ANY transition touching `reconciled` (to it or from it) is locked behind the
-   * `via: 'reconciliation'` hook — the enforcement seam the LGR-11 reconciliation
-   * flows (finish / reopen) will call. Cleared state is workflow metadata, so it
-   * remains mutable on posted transactions (the financial content does not).
+   * Change a posting's cleared state — the generic `pending ↔ cleared` workflow
+   * flip. Cleared state is workflow metadata, so it stays mutable on a posted
+   * transaction (the financial content does not).
+   *
+   * `reconciled` is UNREACHABLE from here, in either direction. It is reached
+   * only by {@link finishReconciliation} and left only by
+   * {@link reopenReconciliation} — invariant 4, with no escape hatch.
+   *
+   * (LGR-3 shipped this guard with a `via: 'reconciliation'` opt-out, expecting
+   * LGR-11 to call it per posting. LGR-11 does not: a freeze writes ONE audit
+   * event covering its whole set, so it goes through the shared
+   * {@link writePostingClearedTx} writer instead. That left `via` as a
+   * parameter no product code passed and any caller could — an unaudited way to
+   * unfreeze a reconciled posting. It is gone.)
+   *
+   * A leg on a DRAFT entry is rejected too: "has it cleared the bank" is not a
+   * meaningful question about an entry that is not on the books. A draft may
+   * still be BORN `cleared` through {@link LedgerPostingInput} — that is how the
+   * bank import carries a statement line's settled state into the entry it
+   * creates — but it cannot be flipped afterwards.
    */
   async setPostingCleared(
     id: string,
     cleared: LedgerClearedState,
-    opts: {via?: 'reconciliation'} = {},
     actor?: Principal,
   ): Promise<LedgerPosting> {
     const ids = await this.requireIds();
@@ -891,20 +950,22 @@ export class LedgerStore {
         [id, ids.postings],
       );
       if (rows.length === 0) throw new LedgerError('not-found', 'posting not found');
-      const props = parseJson<Record<string, unknown>>(rows[0].properties, {});
-      const current = (str(props[LEDGER_PROP.posting.cleared]) || 'pending') as LedgerClearedState;
-      if ((current === 'reconciled' || cleared === 'reconciled') && opts.via !== 'reconciliation') {
+      const existing = postingFromRow(rows[0]);
+      const current = existing.cleared;
+      if (current === 'reconciled' || cleared === 'reconciled') {
         throw new LedgerError(
           'reconciled-locked',
-          'a reconciled posting can only change cleared state through a reconciliation reopen (LGR-11)',
+          'a reconciled posting can only change cleared state through a reconciliation finish or reopen (LGR-11)',
         );
       }
-      props[LEDGER_PROP.posting.cleared] = cleared;
-      const updated = await tx.query<Row>(
-        `UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2 RETURNING ${ROW_COLS}`,
-        [id, ids.postings, JSON.stringify(props)],
-      );
-      const posting = postingFromRow(updated[0]);
+      const state = await this.entryStateOn(tx, ids, existing.transactionId);
+      if (state !== 'posted' && state !== 'void') {
+        throw new LedgerError(
+          'posting-not-reconcilable',
+          `posting ${id} belongs to a ${state ?? 'missing'} entry — cleared state is a question about money that has reached the books`,
+        );
+      }
+      const posting = postingFromRow(await this.writePostingClearedTx(tx, ids, rows[0], cleared, existing.reconciliationId));
       await this.appendAuditTx(
         tx,
         actor,
@@ -918,6 +979,320 @@ export class LedgerStore {
     });
     this.notifyMutation();
     return changed;
+  }
+
+  // ── Statement reconciliation (LGR-11) ────────────────────────────────────────
+  //
+  // The workflow that catches what an import missed, doubled, or fat-fingered:
+  // match the account's postings against a bank statement until
+  //
+  //     statement balance − cleared balance = 0
+  //
+  // and only then FINISH, which freezes the matched postings at `reconciled`
+  // (invariant 4 — the only writers that may reach it) and stamps them with the
+  // reconciliation's id. Reopening is explicit and audited and unfreezes them.
+  //
+  // THE GATE LIVES HERE, not in the UI. `finish` recomputes the difference from
+  // storage INSIDE its own transaction, holding the reconciliation row and every
+  // one of the account's posting rows — so a toggle that lands between a
+  // client's read and its finish makes the finish REJECT rather than commit a
+  // reconciliation that was never actually balanced. A client that bypasses the
+  // block entirely gets exactly the same answer.
+
+  /** Reconciliations, newest statement first. Filters are ANDed. */
+  async listReconciliations(opts: {accountId?: string; status?: LedgerReconciliationStatus} = {}): Promise<LedgerReconciliation[]> {
+    const ids = await this.requireIds();
+    const rows = await this.db.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+      [ids.reconciliations],
+    );
+    let out = rows.map(reconciliationFromRow);
+    if (opts.accountId !== undefined) out = out.filter((r) => r.accountId === opts.accountId);
+    if (opts.status !== undefined) out = out.filter((r) => r.status === opts.status);
+    // A TOTAL order: statement date, then creation, then id — two statements
+    // recorded on the same day must not swap between reads.
+    return out.sort((a, b) => {
+      if (a.statementDate !== b.statementDate) return a.statementDate < b.statementDate ? 1 : -1;
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+  }
+
+  /** One reconciliation with its LIVE arithmetic, or `null` when it is unknown. */
+  async getReconciliation(id: string): Promise<LedgerReconciliationSummary | null> {
+    const ids = await this.requireIds();
+    const rows = await this.db.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL`,
+      [id, ids.reconciliations],
+    );
+    if (rows.length === 0) return null;
+    return this.summarizeOn(this.db, ids, reconciliationFromRow(rows[0]));
+  }
+
+  /**
+   * START a reconciliation: an account, the statement's closing date, and its
+   * closing balance in debit-positive minor units.
+   *
+   * A second OPEN reconciliation on the same account is REJECTED
+   * (`reconciliation-exists`). Two open matches against one account cannot both
+   * be true — they would share the same `cleared` postings, so finishing either
+   * one would silently freeze postings the other was still counting, and the
+   * loser's difference would move without anyone touching it. The check runs
+   * inside the transaction with the ACCOUNT row locked `FOR UPDATE`, because
+   * check-then-act on an unlocked read lets two concurrent starts both find
+   * nothing open and both insert.
+   */
+  async startReconciliation(input: LedgerReconciliationInput, actor?: Principal): Promise<LedgerReconciliation> {
+    const ids = await this.requireIds();
+    if (typeof input?.accountId !== 'string' || input.accountId.trim() === '') {
+      throw new LedgerError('invalid-input', 'a reconciliation needs an accountId');
+    }
+    if (!isValidLedgerDate(input.statementDate)) {
+      throw new LedgerError('invalid-input', `statementDate must be an ISO YYYY-MM-DD date, got ${JSON.stringify(input.statementDate)}`);
+    }
+    if (!isValidMinor(input.statementBalanceMinor)) {
+      throw new LedgerError(
+        'invalid-amount',
+        `statementBalanceMinor must be a safe signed integer of minor units, got ${String(input.statementBalanceMinor)}`,
+      );
+    }
+    const id = randomUUID();
+    const created = await this.db.begin(async (tx) => {
+      const account = await this.lockAccountTx(tx, ids, input.accountId);
+      const open = await this.openReconciliationOn(tx, ids, input.accountId);
+      if (open) {
+        throw new LedgerError(
+          'reconciliation-exists',
+          `account ${account.name} already has an open reconciliation (${open.id}, statement ${open.statementDate}) — finish or reopen that one first`,
+        );
+      }
+      // NO cap probe here, deliberately — see {@link MAX_RECONCILIATION_POSTINGS}.
+      // The cap is on the set `finish`/`reopen` WRITE, not on how many postings
+      // the account happens to hold, because every long-lived current account
+      // outgrows any fixed bound: barring `start` on cardinality would make
+      // reconciliation permanently unavailable on exactly the accounts that
+      // need it most. It also kept `start` walking the postings and their
+      // parent entries while already holding the ACCOUNT row, which is the
+      // lock-order inversion that deadlocked against `post`.
+      const row = await this.insertRowTx(tx, ids.reconciliations, null, {
+        [LEDGER_PROP.reconciliation.account]: input.accountId,
+        [LEDGER_PROP.reconciliation.statementDate]: input.statementDate,
+        [LEDGER_PROP.reconciliation.statementBalance]: input.statementBalanceMinor,
+        [LEDGER_PROP.reconciliation.status]: 'open',
+      }, id);
+      const reconciliation = reconciliationFromRow(row);
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'reconciliation.start',
+        [id, input.accountId],
+        {reconciliation},
+        null,
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(reconciliation))),
+      );
+      return reconciliation;
+    });
+    this.notifyMutation();
+    return created;
+  }
+
+  /**
+   * Match (`cleared`) or unmatch (`pending`) ONE posting inside an OPEN
+   * reconciliation — the checklist tick.
+   *
+   * This is deliberately NOT {@link setPostingCleared} with extra arguments: the
+   * generic surface is an account-agnostic workflow flip, whereas a tick inside
+   * a reconciliation additionally asserts that the posting is on THIS
+   * reconciliation's account and is a real posted leg. Rejections:
+   *  - the reconciliation is finished → `invalid-state` (reopen it first);
+   *  - the posting is on another account → `posting-not-reconcilable`;
+   *  - the posting belongs to a DRAFT entry → `posting-not-reconcilable` (a
+   *    draft is not on the books, so it cannot be on a statement either);
+   *  - the posting is already `reconciled` → `reconciled-locked`. By
+   *    construction that means a DIFFERENT, finished reconciliation owns it:
+   *    this call requires an open reconciliation, and finishing is the only
+   *    thing that freezes. Its own reconciliation's id is named so the caller
+   *    knows which statement to reopen.
+   */
+  async setReconciliationPostingCleared(
+    reconciliationId: string,
+    postingId: string,
+    cleared: 'pending' | 'cleared',
+    actor?: Principal,
+  ): Promise<LedgerReconciliationSummary> {
+    const ids = await this.requireIds();
+    if (cleared !== 'pending' && cleared !== 'cleared') {
+      throw new LedgerError(
+        'invalid-input',
+        `a reconciliation tick is pending or cleared, got ${JSON.stringify(cleared)} (reconciled is reached by finishing, never by ticking)`,
+      );
+    }
+    const summary = await this.db.begin(async (tx) => {
+      const {reconciliation} = await this.lockReconciliationTx(tx, ids, reconciliationId, 'open');
+      const rows = await tx.query<Row>(
+        `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [postingId, ids.postings],
+      );
+      if (rows.length === 0) throw new LedgerError('not-found', 'posting not found');
+      const posting = postingFromRow(rows[0]);
+      if (posting.accountId !== reconciliation.accountId) {
+        throw new LedgerError(
+          'posting-not-reconcilable',
+          `posting ${postingId} is on another account — a reconciliation only matches postings on ${reconciliation.accountId}`,
+        );
+      }
+      const state = await this.entryStateOn(tx, ids, posting.transactionId);
+      if (state !== 'posted' && state !== 'void') {
+        throw new LedgerError(
+          'posting-not-reconcilable',
+          `posting ${postingId} belongs to a ${state ?? 'missing'} entry — only an entry that has reached the books (posted, or voided by a reversal) can appear on a statement`,
+        );
+      }
+      const current = posting.cleared;
+      if (current === 'reconciled') {
+        throw new LedgerError(
+          'reconciled-locked',
+          `posting ${postingId} is frozen by finished reconciliation ${posting.reconciliationId ?? '(unknown)'} — reopen that reconciliation to change it`,
+        );
+      }
+      if (current !== cleared) {
+        // A tick never touches `reconciliationId`: it is an OPEN match, and
+        // only `finish` stamps ownership.
+        await this.writePostingClearedTx(tx, ids, rows[0], cleared, posting.reconciliationId);
+        // The SAME action the generic flip records, so the replay reducer and
+        // the verifier need no new case for a tick: it is the same state change,
+        // reached through a narrower door. The reconciliation id rides along in
+        // the payload so the trail says which statement the tick belonged to.
+        await this.appendAuditTx(
+          tx,
+          actor,
+          'posting.cleared',
+          [postingId, posting.transactionId, reconciliationId],
+          {postingId, transactionId: posting.transactionId, cleared, reconciliationId},
+          await sha256Hex(canonicalLedgerJson({id: postingId, cleared: current})),
+          await sha256Hex(canonicalLedgerJson({id: postingId, cleared})),
+        );
+      }
+      return this.summarizeOn(tx, ids, reconciliation);
+    });
+    this.notifyMutation();
+    return summary;
+  }
+
+  /**
+   * FINISH a reconciliation — allowed ONLY at a difference of exactly zero.
+   *
+   * The difference is recomputed here, from storage, inside this transaction,
+   * with the reconciliation row and every one of the account's posting rows
+   * locked `FOR UPDATE`. That is what makes the zero real rather than reported:
+   * a caller cannot hand in a difference, and a concurrent tick either lands
+   * before this transaction (and is counted) or blocks until it commits.
+   *
+   * On success every posting currently ticked `cleared` freezes at `reconciled`
+   * carrying this reconciliation's id. Postings already `reconciled` under an
+   * EARLIER statement are left exactly as they are — they still count towards
+   * the cleared balance (they are cleared money), but they belong to the
+   * reconciliation that froze them and only its reopen may release them.
+   */
+  async finishReconciliation(id: string, actor?: Principal): Promise<LedgerReconciliationSummary> {
+    const ids = await this.requireIds();
+    const summary = await this.db.begin(async (tx) => {
+      const {reconciliation: before, row} = await this.lockReconciliationTx(tx, ids, id, 'open');
+      const postings = await this.loadAccountPostingsOn(tx, ids, before.accountId, 'write');
+      const {summary: current, matched} = this.reconcileState(before, postings);
+      // EXACTLY the rows that were counted, never a re-derived superset (see
+      // `reconcileState`). Rows already `reconciled` under an earlier statement
+      // are counted but belong to that statement, so they are left alone.
+      const toFreeze = matched.filter(({posting}) => posting.cleared === 'cleared');
+      // CAPACITY before BALANCE: "this statement matched more postings than one
+      // audit row may carry" is true whatever the difference reads, and the
+      // remedy (untick some rows) differs from the remedy for an imbalance.
+      this.assertWritableSet(toFreeze.length, 'finish');
+      if (current.differenceMinor !== 0) {
+        throw new LedgerError(
+          'reconciliation-unbalanced',
+          `a reconciliation can only be finished at a difference of exactly 0.00 — this one is out by ${current.differenceMinor} minor units (statement ${before.statementBalanceMinor}, cleared ${current.clearedBalanceMinor})`,
+        );
+      }
+      const changes: LedgerReconciliationPostingChange[] = [];
+      for (const {posting} of toFreeze) {
+        await this.writePostingClearedTx(tx, ids, posting.row, 'reconciled', id);
+        changes.push({postingId: posting.id, transactionId: posting.transactionId, cleared: 'reconciled', reconciliationId: id});
+      }
+      const after = await this.setReconciliationStatusTx(tx, ids, {id, row}, 'finished');
+      // ONE event for the whole freeze — the `transaction.reverse` precedent:
+      // the reconciliation's new status and every posting it froze commit
+      // together, so the audit log must record them together too.
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'reconciliation.finish',
+        [id, before.accountId],
+        {reconciliation: after, postings: changes},
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(before))),
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(after))),
+      );
+      return this.summarizeOn(tx, ids, after);
+    });
+    this.notifyMutation();
+    return summary;
+  }
+
+  /**
+   * REOPEN a finished reconciliation: explicit, audited, and the ONLY thing that
+   * unfreezes what it froze. Its postings go back to `cleared` (they did match
+   * the statement — reopening reverses the freeze, not the match) with their
+   * `reconciliationId` cleared.
+   *
+   * Rejected while ANOTHER reconciliation on the same account is open
+   * (`reconciliation-exists`), for the same reason `start` is: two open matches
+   * against one account cannot both be the truth.
+   */
+  async reopenReconciliation(id: string, actor?: Principal): Promise<LedgerReconciliationSummary> {
+    const ids = await this.requireIds();
+    const summary = await this.db.begin(async (tx) => {
+      const {reconciliation: before, row} = await this.lockReconciliationTx(tx, ids, id, 'finished');
+      // POSTINGS + their entries BEFORE the account row. Reopening creates an
+      // open reconciliation, so it owes `start`'s serialization — but taking the
+      // ACCOUNT row first inverted the lock order against `post`, which holds a
+      // transaction row and waits on the account. Acquiring the account LAST
+      // keeps RECONCILIATION → POSTING → TRANSACTION → ACCOUNT → advisory, and
+      // the one-open-per-account check still runs holding the account row, so
+      // nothing about F2's serialization changes.
+      const postings = await this.loadAccountPostingsOn(tx, ids, before.accountId, 'write');
+      const owned = postings.filter(({posting}) => posting.reconciliationId === id);
+      // Defensive: `finish` already refused to freeze more than the cap, so a
+      // set larger than it can only come from a raw-SQL edit or a book written
+      // before the cap existed. Refusing is still better than writing an audit
+      // row of unbounded size.
+      this.assertWritableSet(owned.length, 'reopen');
+      await this.lockAccountTx(tx, ids, before.accountId);
+      const other = await this.openReconciliationOn(tx, ids, before.accountId);
+      if (other) {
+        throw new LedgerError(
+          'reconciliation-exists',
+          `reconciliation ${other.id} (statement ${other.statementDate}) is already open on this account — finish it before reopening an earlier statement`,
+        );
+      }
+      const changes: LedgerReconciliationPostingChange[] = [];
+      for (const {posting} of owned) {
+        await this.writePostingClearedTx(tx, ids, posting.row, 'cleared', null);
+        changes.push({postingId: posting.id, transactionId: posting.transactionId, cleared: 'cleared', reconciliationId: null});
+      }
+      const after = await this.setReconciliationStatusTx(tx, ids, {id, row}, 'open');
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'reconciliation.reopen',
+        [id, before.accountId],
+        {reconciliation: after, postings: changes},
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(before))),
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(after))),
+      );
+      return this.summarizeOn(tx, ids, after);
+    });
+    this.notifyMutation();
+    return summary;
   }
 
   // ── Canonical export (LGR-7) ─────────────────────────────────────────────────
@@ -1083,6 +1458,332 @@ export class LedgerStore {
     const n = Number(rows[0]?.n);
     if (!Number.isSafeInteger(n) || n < 1) throw new LedgerError('invalid-state', 'entry-number sequence corrupted');
     return n;
+  }
+
+  // ── Reconciliation internals (LGR-11) ────────────────────────────────────────
+
+  /**
+   * Lock the ACCOUNT row `FOR UPDATE`, so the "one open reconciliation per
+   * account" check is not a check-then-act race.
+   *
+   * BOTH writers that can create an open reconciliation take this: `start`, and
+   * `reopen` (which turns a finished one back into an open one). Holding only
+   * the reconciliation row is not enough — a start and a reopen, or two reopens
+   * of DIFFERENT finished statements, touch disjoint rows, so on real Postgres
+   * neither blocks the other, both read "nothing open", and both commit. The
+   * advisory audit lock does not save it: it is taken after both checks. The
+   * account row is the one row every path on this account shares.
+   */
+  private async lockAccountTx(tx: Db, ids: LedgerIds, accountId: string): Promise<LedgerAccount> {
+    const rows = await tx.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [accountId, ids.accounts],
+    );
+    if (rows.length === 0) {
+      throw new LedgerError('account-not-found', `reconciliation references a nonexistent account: ${accountId}`);
+    }
+    return accountFromRow(rows[0]);
+  }
+
+  /** The account's OPEN reconciliation, or `null`. Read on the caller's tx. */
+  private async openReconciliationOn(q: Db, ids: LedgerIds, accountId: string): Promise<LedgerReconciliation | null> {
+    const rows = await q.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages
+        WHERE database_id = $1 AND deleted_at IS NULL
+          AND properties->>'${LEDGER_PROP.reconciliation.account}' = $2
+          AND properties->>'${LEDGER_PROP.reconciliation.status}' = 'open'
+        ORDER BY created_at ASC, id ASC`,
+      [ids.reconciliations, accountId],
+    );
+    return rows.length > 0 ? reconciliationFromRow(rows[0]) : null;
+  }
+
+  /**
+   * Lock a reconciliation row and require the named status. The RAW row comes
+   * back with the entity so a status flip can patch the properties it already
+   * holds a lock on instead of reading the row a second time.
+   */
+  private async lockReconciliationTx(
+    tx: Db,
+    ids: LedgerIds,
+    id: string,
+    required: LedgerReconciliationStatus,
+  ): Promise<{reconciliation: LedgerReconciliation; row: Row}> {
+    const rows = await tx.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [id, ids.reconciliations],
+    );
+    if (rows.length === 0) throw new LedgerError('not-found', 'reconciliation not found');
+    const reconciliation = reconciliationFromRow(rows[0]);
+    if (reconciliation.status !== required) {
+      throw new LedgerError(
+        'invalid-state',
+        required === 'open'
+          ? `reconciliation ${id} is finished — reopen it before changing what it matched`
+          : `reconciliation ${id} is still open — only a finished reconciliation can be reopened`,
+      );
+    }
+    return {reconciliation, row: rows[0]};
+  }
+
+  /**
+   * The ONE writer of a posting's cleared state + reconciliation id.
+   *
+   * {@link setPostingCleared} (the public pending ⇄ cleared flip) and the
+   * reconciliation freeze/thaw both go through here, so there is exactly one
+   * place that knows how those two properties are stored. The caller is
+   * responsible for the guard that makes the write legal and for the audit
+   * event — the freeze writes ONE event for its whole set, so it cannot borrow
+   * the per-posting event `setPostingCleared` appends.
+   */
+  private async writePostingClearedTx(
+    tx: Db,
+    ids: LedgerIds,
+    row: Row,
+    cleared: LedgerClearedState,
+    reconciliationId: string | null,
+  ): Promise<Row> {
+    const props = parseJson<Record<string, unknown>>(row.properties, {});
+    props[LEDGER_PROP.posting.cleared] = cleared;
+    props[LEDGER_PROP.posting.reconciliation] = reconciliationId;
+    const updated = await tx.query<Row>(
+      `UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2 RETURNING ${ROW_COLS}`,
+      [row.id, ids.postings, JSON.stringify(props)],
+    );
+    return updated[0];
+  }
+
+  /**
+   * Flip a reconciliation's status, returning the stored-after entity. The
+   * caller already holds this row `FOR UPDATE` via {@link lockReconciliationTx}
+   * and hands its RAW row straight in — re-SELECTing it would be a second read
+   * of a row we are already holding, and the version that did so also dropped
+   * the `deleted_at IS NULL` predicate the lock read applies.
+   */
+  private async setReconciliationStatusTx(
+    tx: Db,
+    ids: LedgerIds,
+    before: {id: string; row: Row},
+    status: LedgerReconciliationStatus,
+  ): Promise<LedgerReconciliation> {
+    const props = parseJson<Record<string, unknown>>(before.row.properties, {});
+    props[LEDGER_PROP.reconciliation.status] = status;
+    const updated = await tx.query<Row>(
+      `UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2 RETURNING ${ROW_COLS}`,
+      [before.id, ids.reconciliations, JSON.stringify(props)],
+    );
+    return reconciliationFromRow(updated[0]);
+  }
+
+  /**
+   * Every posting on one account, paired with the state of the entry it belongs
+   * to — in TWO queries, never one per posting.
+   *
+   * BATCHED, not N+1 (LGR-3 F6's lesson, re-learned): the per-posting state read
+   * this replaces cost 2·N round trips on every checkbox tick and every read of
+   * a reconciliation, all of them inside a `Db.begin` that holds the embedded
+   * backend's process-wide FIFO mutex. On a 2,000-posting current account one
+   * tick measured 2,008 queries and stalled every other database call in the
+   * process for ~300 ms. `validatePostable` already says this in its own
+   * docstring; the same `= ANY($1)` shape is used here.
+   *
+   * LOCKING, when `lock` is `'write'` (finish / reopen):
+   *  - postings `FOR UPDATE`, in id order. {@link setPostingCleared} takes no
+   *    reconciliation lock, so without this a generic cleared-state flip could
+   *    commit between the difference check and the freeze.
+   *  - parent transactions `FOR SHARE`, in id order. This one is not optional
+   *    either: `post` locks the TRANSACTION row and never the posting rows, so
+   *    an unlocked state read let a draft-but-cleared leg — excluded from the
+   *    difference — be POSTED between the read and the commit, at which point it
+   *    counts, and the reconciliation is finished and out of balance. `FOR
+   *    SHARE` blocks the post without blocking a concurrent finish.
+   *
+   * LOCK ORDER — the whole graph, because getting it wrong here deadlocked
+   * against `post` once already. Every writer acquires in this order and no
+   * other:
+   *
+   *     RECONCILIATION → POSTING → TRANSACTION → ACCOUNT → advisory (leaf)
+   *
+   * `post` sits on the same spine (`lockDraftTx` takes TRANSACTION, then
+   * `validatePostable` takes ACCOUNT `FOR SHARE`), which is why `start` and
+   * `reopen` must NOT take the account row before walking postings: T1 `post`
+   * holding a transaction row and waiting on account A, against T2 holding A and
+   * waiting `FOR SHARE` on that same transaction row — which is in its set
+   * precisely because it has a leg on A — is a cycle Postgres breaks with a
+   * `40P01` abort surfacing as an untyped 500. `start` therefore takes no
+   * posting locks at all, and `reopen` acquires the account row LAST.
+   *
+   * Both row locks here are taken in id order, so two writers on overlapping
+   * accounts cannot deadlock against each other either. PGlite serializes every
+   * transaction, so NONE of this is reachable in the test suite — it is
+   * code-review-verified, exactly like the audit advisory lock.
+   */
+  private async loadAccountPostingsOn(
+    q: Db,
+    ids: LedgerIds,
+    accountId: string,
+    lock: 'none' | 'write',
+  ): Promise<AccountPostingRow[]> {
+    const rows = await q.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages
+        WHERE database_id = $1 AND deleted_at IS NULL
+          AND properties->>'${LEDGER_PROP.posting.account}' = $2
+        ORDER BY id ASC
+        ${lock === 'write' ? 'FOR UPDATE' : ''}`,
+      [ids.postings, accountId],
+    );
+    const postings = rows.map((row) => ({row, posting: postingFromRow(row)}));
+    const txIds = [...new Set(postings.map(({posting}) => posting.transactionId).filter((id) => id !== ''))];
+    const stateById = new Map<string, LedgerTransactionState>();
+    if (txIds.length > 0) {
+      const txRows = await q.query<{id: string; properties: Record<string, unknown> | string | null}>(
+        `SELECT id, properties FROM pages
+          WHERE id = ANY($1) AND database_id = $2 AND deleted_at IS NULL
+          ORDER BY id
+          ${lock === 'write' ? 'FOR SHARE' : ''}`,
+        [txIds, ids.transactions],
+      );
+      for (const txRow of txRows) {
+        const state = str(parseJson<Record<string, unknown>>(txRow.properties, {})[LEDGER_PROP.transaction.state]);
+        if (state !== '') stateById.set(txRow.id, state as LedgerTransactionState);
+      }
+    }
+    return postings.map(({row, posting}) => ({
+      posting: {...posting, row},
+      state: stateById.get(posting.transactionId) ?? null,
+    }));
+  }
+
+  /**
+   * The cap, applied to the set a writer is about to MUTATE — never to how many
+   * postings the account holds. See {@link MAX_RECONCILIATION_POSTINGS} for why
+   * that distinction is the difference between a bound and a brick.
+   */
+  private assertWritableSet(size: number, op: 'finish' | 'reopen'): void {
+    if (size <= MAX_RECONCILIATION_POSTINGS) return;
+    throw new LedgerError(
+      'reconciliation-too-large',
+      op === 'finish'
+        ? `this reconciliation matched ${size} postings, and one statement may freeze at most ${MAX_RECONCILIATION_POSTINGS} — untick the postings that belong to another statement, or reconcile this account in more than one pass`
+        : `this reconciliation holds ${size} postings, and one reopen may release at most ${MAX_RECONCILIATION_POSTINGS}`,
+    );
+  }
+
+  /**
+   * ONE entry's state, or `null` when it does not exist. Used only where a
+   * single posting is in hand (the tick, and the generic cleared-state flip) —
+   * anything that walks a whole account batches the read instead (see
+   * {@link loadAccountPostingsOn}).
+   */
+  private async entryStateOn(q: Db, ids: LedgerIds, txId: string): Promise<LedgerTransactionState | null> {
+    if (txId === '') return null;
+    const rows = await q.query<{properties: Record<string, unknown> | string | null}>(
+      'SELECT properties FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL',
+      [txId, ids.transactions],
+    );
+    if (rows.length === 0) return null;
+    const state = str(parseJson<Record<string, unknown>>(rows[0].properties, {})[LEDGER_PROP.transaction.state]);
+    return state === '' ? null : (state as LedgerTransactionState);
+  }
+
+  /**
+   * {@link summarizeFrom} over an unlocked read of the account.
+   *
+   * NOT capped, and deliberately so: a tick and a read neither lock the set nor
+   * write it, and refusing to SHOW a reconciliation on a large account would be
+   * the same brick the cardinality cap was. It does build one in-memory array of
+   * every posting on the account per tick and per read, which is bounded only by
+   * the account's size — acceptable at the two-query cost this now runs at, and
+   * the thing to revisit first if very large accounts ever become the norm.
+   */
+  private async summarizeOn(q: Db, ids: LedgerIds, reconciliation: LedgerReconciliation): Promise<LedgerReconciliationSummary> {
+    return this.summarizeFrom(reconciliation, await this.loadAccountPostingsOn(q, ids, reconciliation.accountId, 'none'));
+  }
+
+  /**
+   * The bookkeeper's arithmetic, in one place: statement balance − cleared
+   * balance = the difference to explain.
+   *
+   * The CLEARED BALANCE is Σ of every `cleared` or `reconciled` posting on the
+   * account that reaches the books (posted or void — a void original is offset
+   * exactly by its posted reversal, which is how `accountPostedBalance` counts
+   * too, so the two agree by construction). Drafts contribute nothing: they are
+   * not on the books, so they cannot be on a statement.
+   *
+   * `reconciled` postings from EARLIER statements are counted, deliberately:
+   * they are cleared money sitting in the account, and a statement's closing
+   * balance includes every one of them. Excluding them would make the very first
+   * reconciliation the only one that could ever reach zero.
+   */
+  private summarizeFrom(reconciliation: LedgerReconciliation, postings: readonly AccountPostingRow[]): LedgerReconciliationSummary {
+    return this.reconcileState(reconciliation, postings).summary;
+  }
+
+  /**
+   * {@link summarizeFrom}, plus the matched rows themselves.
+   *
+   * `finish` freezes EXACTLY the rows this returns, rather than re-deriving the
+   * set from a second predicate. That is structural, not stylistic: the version
+   * that filtered the freeze on `cleared === 'cleared'` alone froze a strict
+   * SUPERSET of what it had counted — a draft leg born `cleared: 'cleared'`
+   * (which {@link validatePostingInput} permits, and the bank import relies on)
+   * was excluded from the difference by the `posted | void` test here, yet
+   * frozen and stamped by the writer. Posting that draft afterwards then made a
+   * FINISHED reconciliation report a nonzero difference, and deleting it
+   * destroyed a frozen posting with no `reconciled-locked`, no event, and a
+   * clean verifier report. One predicate, one set, no drift.
+   */
+  private reconcileState(
+    reconciliation: LedgerReconciliation,
+    postings: readonly AccountPostingRow[],
+  ): {summary: LedgerReconciliationSummary; matched: AccountPostingRow[]} {
+    const matched = postings.filter(
+      ({posting, state}) => (state === 'posted' || state === 'void') && posting.cleared !== 'pending',
+    );
+    for (const {posting} of matched) {
+      if (!isValidMinor(posting.amountMinor)) {
+        throw new LedgerError('invalid-amount', `stored amount is not a safe integer: ${String(posting.amountMinor)}`);
+      }
+    }
+    const clearedBalanceMinor = sumMinorOrThrow(matched.map(({posting}) => posting.amountMinor), 'cleared balance');
+    // Through the money core, never a bare `-x`: `negateAmount` is what keeps
+    // the sign out of the arithmetic and `-0` out of the stored difference.
+    const differenceMinor = sumMinorOrThrow(
+      [reconciliation.statementBalanceMinor, negateAmount(clearedBalanceMinor)],
+      'reconciliation difference',
+    );
+    // A FINISHED reconciliation is HISTORY, not a live sum. Its difference was
+    // exactly zero at the moment it was finished — that is the only condition
+    // under which it could have been finished at all — and it is frozen there.
+    //
+    // Recomputing it live let a posting cleared AFTER the fact (through the
+    // generic surface, on an entry this statement never matched) drag the
+    // figure off zero, so a historical statement reported ITSELF out of balance
+    // and claimed postings it had never touched. What a finished reconciliation
+    // owns is written on the postings: `reconciliationId === its own id`.
+    if (reconciliation.status === 'finished') {
+      return {
+        summary: {
+          reconciliation,
+          clearedBalanceMinor: reconciliation.statementBalanceMinor,
+          differenceMinor: 0,
+          matchedPostingIds: postings
+            .filter(({posting}) => posting.reconciliationId === reconciliation.id)
+            .map(({posting}) => posting.id)
+            .sort(),
+        },
+        matched,
+      };
+    }
+    return {
+      summary: {
+        reconciliation,
+        clearedBalanceMinor,
+        differenceMinor,
+        matchedPostingIds: matched.map(({posting}) => posting.id).sort(),
+      },
+      matched,
+    };
   }
 
   private async postingsForTx(q: Db, ids: LedgerIds, txId: string): Promise<LedgerPosting[]> {
@@ -1266,6 +1967,20 @@ function postingFromRow(row: Row): LedgerPosting {
   };
 }
 
+function reconciliationFromRow(row: Row): LedgerReconciliation {
+  const props = parseJson<Record<string, unknown>>(row.properties, {});
+  const balance = props[LEDGER_PROP.reconciliation.statementBalance];
+  return {
+    id: row.id,
+    accountId: str(props[LEDGER_PROP.reconciliation.account]),
+    statementDate: str(props[LEDGER_PROP.reconciliation.statementDate]),
+    statementBalanceMinor: typeof balance === 'number' ? balance : Number(balance ?? 0),
+    status: (str(props[LEDGER_PROP.reconciliation.status]) || 'open') as LedgerReconciliationStatus,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
 function transactionFromRow(row: Row, postings: LedgerPosting[]): LedgerTransaction {
   const props = parseJson<Record<string, unknown>>(row.properties, {});
   const entryNo = props[LEDGER_PROP.transaction.entryNo];
@@ -1336,6 +2051,23 @@ function auditFromRow(row: AuditRow): LedgerAuditEvent {
 /** The hashable CONTENT of an account (timestamps excluded — not ledger content). */
 function accountContent(a: LedgerAccount): Record<string, unknown> {
   return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+}
+
+/**
+ * The hashable CONTENT of a reconciliation (LGR-11; timestamps excluded).
+ *
+ * Mirror this in `ledgerVerify.ts` for any new field, symmetrically — it is the
+ * shape the verifier independently re-derives from the frozen audit payload, so
+ * a field on one side only makes every reconciliation report as tampered with.
+ */
+export function reconciliationContent(r: LedgerReconciliation): Record<string, unknown> {
+  return {
+    id: r.id,
+    accountId: r.accountId,
+    statementDate: r.statementDate,
+    statementBalanceMinor: r.statementBalanceMinor,
+    status: r.status,
+  };
 }
 
 /**
