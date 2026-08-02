@@ -1,4 +1,4 @@
-import {MoneyError, formatAmount, negateAmount, parseAmount, sumAmounts} from '@book.dev/plugin-sdk';
+import {MoneyError, compareAmounts, formatAmount, negateAmount, parseAmount, sumAmounts} from '@book.dev/plugin-sdk';
 import {
   ALL_CLEARED_STATES,
   describeContra,
@@ -47,13 +47,21 @@ import {
  * catch, and it must not be filtered out of view.
  */
 
+/**
+ * A reconciliation's lifecycle, mirroring the server's
+ * `LEDGER_RECONCILIATION_STATUSES`. `abandoned` (LGR-22) is terminal: the
+ * statement was given up on rather than balanced, nothing was frozen, and
+ * nothing about it can be changed again.
+ */
+export type ReconcileStatus = 'open' | 'finished' | 'abandoned';
+
 /** The reconciliation fields the fold needs (a slice of `LedgerReconciliation`). */
 export interface ReconcileStatement {
   id: string;
   accountId: string;
   statementDate: string;
   statementBalanceMinor: number;
-  status: 'open' | 'finished';
+  status: ReconcileStatus;
 }
 
 /** One candidate posting on the reconcile checklist. */
@@ -87,7 +95,7 @@ export interface ReconcileSheet {
   /** False when the reconciliation names an account this book does not have. */
   exists: boolean;
   statementDate: string;
-  status: 'open' | 'finished';
+  status: ReconcileStatus;
   /** Signed, debit-positive — already converted from the normal side. */
   statementBalanceMinor: number;
   /** Every posted leg on the account, oldest first. */
@@ -146,6 +154,21 @@ export function parseStatementBalance(raw: string, normalSide: NormalSide): Stat
 }
 
 /**
+ * The stored statement balance as EDITABLE TEXT on the normal side — what the
+ * amend form (LGR-22) prefills its box with, and the exact inverse of
+ * {@link parseStatementBalance}.
+ *
+ * NOT {@link formatOnNormalSide}: that renders an abnormal balance as
+ * `250.00 Cr`, which is right for a readout and unparseable as input — the box
+ * would be born holding a value its own parser rejects. `formatAmount` of the
+ * normal-side figure round-trips exactly (a money-core guarantee), so what the
+ * field shows is what re-reading it yields.
+ */
+export function statementBalanceInput(minor: number, normalSide: NormalSide): string {
+  return formatAmount(normalSide === 'debit' ? minor : negateAmount(minor));
+}
+
+/**
  * Render a debit-positive amount as the statement would show it — on the
  * account's normal side, so what goes into the box and what comes out of it are
  * the same number.
@@ -164,18 +187,32 @@ export function formatOnNormalSide(minor: number, normalSide: NormalSide): strin
 }
 
 /**
- * What the closing-balance box wants, in a sentence — the thing that actually
- * prevents the error, rather than the property name that describes it.
+ * The closing-balance box's LABEL — an instruction, not a property of the
+ * account.
  *
- * "Closing balance (credit-normal account)" names a fact about the account and
- * leaves the user to derive what to type from it. Getting this wrong is the
- * highest-consequence mistake on the screen: the sign flips, and the difference
- * comes out at exactly twice the balance with no hint as to why.
+ * "Closing balance (credit-normal account)" states a true fact about the account
+ * and leaves the reader to derive what to type from it, which is backwards: the
+ * label is read at the moment of typing, and it is the one place that can stop
+ * the highest-consequence mistake on the screen. Getting the side wrong flips
+ * the sign, and the difference then comes out at exactly twice the balance —
+ * see {@link describeGap}, which recognises that signature but only after the
+ * damage is on screen.
  */
-export function describeBalanceSide(normalSide: NormalSide): string {
-  return normalSide === 'debit'
-    ? 'Enter it as the statement shows it — a positive number means money in the account.'
-    : 'Enter it as the statement shows it — a positive number means money owed.';
+export function describeBalanceLabel(normalSide: NormalSide): string {
+  return `Closing balance — as the statement prints it (${describePositiveMeans(normalSide)})`;
+}
+
+/**
+ * What a POSITIVE number in the closing-balance box means on this account —
+ * the clause, without a sentence around it.
+ *
+ * ONE fact, used in two sentences that read very differently: the label above
+ * (before anything is typed) and {@link describeGap}'s 2× hint (after it has
+ * gone wrong). Phrased to sit inside either, so neither has to keep its own
+ * wording of the account's normal side and drift from the other.
+ */
+export function describePositiveMeans(normalSide: NormalSide): string {
+  return normalSide === 'debit' ? 'a positive number is money in the account' : 'a positive number is a balance you owe';
 }
 
 /**
@@ -254,8 +291,8 @@ export function buildReconcileSheet(
   }
   rows.sort(compareRows);
 
-  const matched = rows.filter((r) => r.matched);
-  const unmatched = rows.filter((r) => !r.matched);
+  const matched = rows.filter((r) => !isOutstanding(r));
+  const unmatched = rows.filter(isOutstanding);
   const clearedBalanceMinor = sumAmounts(matched.map((r) => r.amountMinor));
   const differenceMinor = sumAmounts([statement.statementBalanceMinor, negateAmount(clearedBalanceMinor)]);
 
@@ -278,6 +315,29 @@ export function buildReconcileSheet(
     draftCount: transactions.filter((tx) => tx.state === 'draft' && tx.postings.some((p) => p.accountId === statement.accountId)).length,
     frozenElsewhereCount: rows.filter((r) => r.frozenElsewhere).length,
   };
+}
+
+/**
+ * On the books, not on this statement — the ONE predicate behind
+ * `unmatchedCount`, `unmatchedMinor`, {@link describeUnmatchedCaveat} and the
+ * "Outstanding items" section.
+ *
+ * Exported rather than re-typed at the call sites: a view that filtered on its
+ * own copy of `!row.matched` would be a second definition of "outstanding", and
+ * a heading that counts one set while the list below it renders another is
+ * precisely the kind of two-places-one-fact bug this codebase keeps paying for.
+ */
+export function isOutstanding(row: ReconcileRow): boolean {
+  return !row.matched;
+}
+
+/**
+ * The size of an amount, without its side. Through `negateAmount` — a bare `-x`
+ * on money is the arithmetic this module exists to keep out, and it is also how
+ * `-0` gets into a formatted figure.
+ */
+function magnitudeOf(minor: number): number {
+  return minor < 0 ? negateAmount(minor) : minor;
 }
 
 /**
@@ -343,11 +403,35 @@ export function describeDifference(sheet: ReconcileSheet): string {
  * fix was to untick a row already on screen. At the exact moment this screen
  * exists for, that is worse than saying nothing.
  *
- * `null` when there is nothing to explain.
+ * THE 2× CASE IS CALLED OUT BY NAME, because it is not one of those two causes
+ * at all and the generic advice sends the reader hunting through the books for
+ * an entry that is not the problem. A balance typed on the WRONG SIDE — the
+ * error this screen's own hint exists to prevent, and the easiest one to make —
+ * lands the difference at exactly twice the balance: the target is out by 2S
+ * (from +S to −S) while the books are right. Any product with a normal-side
+ * convention produces this signature, and nothing else produces it as reliably,
+ * so when the arithmetic matches, say so before offering the general advice.
+ *
+ * OPEN SHEETS ONLY. Every sentence here is an instruction — tick, untick, amend
+ * — and on a finished or abandoned sheet none of those controls exist, so the
+ * advice would point at buttons the screen does not have (the exact
+ * instruction-pointing-at-a-missing-control antipattern the server's own state
+ * refusals were rewritten to avoid). An abandoned sheet is unbalanced almost by
+ * definition and reachable through View, so this is not a theoretical state.
+ *
+ * `null` when there is nothing to explain, or nothing the reader can do here.
  */
 export function describeGap(sheet: ReconcileSheet): string | null {
-  if (sheet.balanced) return null;
-  const magnitude = formatAmount(sheet.differenceMinor > 0 ? sheet.differenceMinor : negateAmount(sheet.differenceMinor));
+  if (sheet.status !== 'open' || sheet.balanced) return null;
+  const magnitude = formatAmount(magnitudeOf(sheet.differenceMinor));
+  const twice = twiceOrNull(sheet.statementBalanceMinor);
+  // A zero balance doubles to zero, and "twice nothing" matches every zero
+  // difference — but a zero difference is balanced and never reaches here, so
+  // the guard is really against a zero BALANCE, where the coincidence carries
+  // no signal.
+  if (twice !== null && twice !== 0 && compareAmounts(magnitudeOf(sheet.differenceMinor), twice) === 0) {
+    return `The difference is ${magnitude} — exactly twice the closing balance you typed. That is the signature of a balance entered on the wrong side, so check the statement before you check the books: on this account ${describePositiveMeans(sheet.normalSide)}. Correct it with “Amend statement” — you do not have to start again.`;
+  }
   // Phrased in terms of the SIDE rather than the sign, so it reads the same way
   // on a credit card as on a current account.
   const statementHasMore = (sheet.normalSide === 'debit' && sheet.differenceMinor > 0) || (sheet.normalSide === 'credit' && sheet.differenceMinor < 0);
@@ -356,9 +440,36 @@ export function describeGap(sheet: ReconcileSheet): string | null {
   // advice the screen itself disproves — a smaller version of the bug this
   // whole sentence exists to fix.
   const untickedClause = sheet.unmatchedCount > 0 ? ', one you have not ticked yet' : '';
+  // The TYPED BALANCE is always a suspect, not only at the 2× signature: a
+  // transposed digit (1,250.00 → 1,205.00) produces an arbitrary difference,
+  // and advice that pointed only at the books sent the reader searching entries
+  // that were already right. Last, because the books ARE the more common cause.
+  const typedClause = ' If the books check out, re-check the closing balance you typed — “Amend statement” corrects it.';
   return statementHasMore
-    ? `The statement is ${magnitude} ahead of what you have ticked — look for an entry on the statement that is missing from the books${untickedClause}, or a ticked entry the books recorded twice on the other side.`
-    : `The books are ${magnitude} ahead of the statement — look for an entry that was recorded twice${sheet.unmatchedCount > 0 ? ', one that has not cleared the bank yet' : ''}, or an entry missing from the books on the other side.`;
+    ? `The statement is ${magnitude} ahead of what you have ticked — look for an entry on the statement that is missing from the books${untickedClause}, or a ticked entry the books recorded twice on the other side.${typedClause}`
+    : `The books are ${magnitude} ahead of the statement — look for an entry that was recorded twice${sheet.unmatchedCount > 0 ? ', one that has not cleared the bank yet' : ''}, or an entry missing from the books on the other side.${typedClause}`;
+}
+
+/**
+ * Twice the magnitude of an amount, or `null` when doubling would leave the
+ * money core's safe range.
+ *
+ * `parseAmount` accepts balances all the way to the ±(2^53 − 1) ceiling, so any
+ * legally typed balance past HALF the ceiling made the unguarded `sumAmounts`
+ * doubling throw `MoneyRangeError` — and {@link describeGap} is evaluated
+ * outside the block's fold try/catch, so the throw took the whole block down on
+ * a legal input. When the double does not exist, neither can the 2× signature:
+ * the difference is itself range-bounded, so nothing can equal an out-of-range
+ * double, and skipping the hint is exact rather than approximate.
+ */
+function twiceOrNull(balanceMinor: number): number | null {
+  const magnitude = magnitudeOf(balanceMinor);
+  try {
+    return sumAmounts([magnitude, magnitude]);
+  } catch (err) {
+    if (err instanceof MoneyError) return null;
+    throw err;
+  }
 }
 
 /**
@@ -372,12 +483,50 @@ export function describeGap(sheet: ReconcileSheet): string | null {
  * 0.75rem footnote below the table, and "unmatched" reads as *excluded* rather
  * than *unexplained*.
  *
+ * BOTH POSSIBILITIES, NEITHER RANKED. An unticked posting is either money that
+ * has not reached the bank yet — completely normal, and the reason this is a
+ * notice and not a gate — or an entry the books hold twice, in which case the
+ * account is wrong by that amount and finishing will not make it right. The
+ * screen cannot tell which, and guessing would send half the readers to the
+ * wrong place; naming both, with the amount, is what lets the person who has the
+ * statement in front of them decide in one look.
+ *
+ * ONE STRING, TWO PLACES: the standing notice above the checklist and the
+ * confirm shown when Finish is pressed (LGR-22) render exactly this. A confirm
+ * that restated the same fact in its own words would be a second copy free to
+ * drift from the first — and the confirm is the one people actually read.
+ *
  * `null` when everything on the books is on the statement.
  */
 export function describeUnmatchedCaveat(sheet: ReconcileSheet): string | null {
   if (!sheet.balanced || sheet.unmatchedCount === 0) return null;
   const n = sheet.unmatchedCount;
-  return `${n} posting${n === 1 ? '' : 's'} (${formatWithSide(sheet.unmatchedMinor)}) ${n === 1 ? 'is' : 'are'} on the books but not on this statement. Finishing reconciles the statement; it does not correct the books — check whether ${n === 1 ? 'it is a duplicate' : 'any of them are duplicates'}.`;
+  const one = n === 1;
+  return `${n} posting${one ? '' : 's'} totalling ${formatWithSide(sheet.unmatchedMinor)} ${one ? 'is' : 'are'} on the books but not on this statement. If ${one ? 'it has' : 'they have'} not cleared the bank yet that is expected — ${one ? 'it' : 'they'} will appear on a later statement. If ${one ? 'it was' : 'any were'} recorded twice, this account is still out by ${formatAmount(magnitudeOf(sheet.unmatchedMinor))} and finishing here will not correct it.`;
+}
+
+/**
+ * The heading of the "Outstanding items" section a FINISHED statement carries:
+ * how many postings the books hold that this statement never accounted for, and
+ * what they come to.
+ *
+ * Only after finishing, and only when there are any. Before that the difference
+ * readout and {@link describeUnmatchedCaveat} are doing this job on a live
+ * number; afterwards the number stops moving and the leftovers become a standing
+ * to-do — which is a named section with the rows in it, not a grey count in a
+ * footer that reads as bookkeeping exhaust.
+ *
+ * `null` when the section should not be shown at all.
+ */
+export function describeOutstandingHeading(sheet: ReconcileSheet): string | null {
+  if (sheet.status !== 'finished' || sheet.unmatchedCount === 0) return null;
+  return `Outstanding items (${sheet.unmatchedCount} · ${formatWithSide(sheet.unmatchedMinor)})`;
+}
+
+/** What the "Outstanding items" section is for, under its heading. */
+export function describeOutstandingIntro(sheet: ReconcileSheet): string {
+  const one = sheet.unmatchedCount === 1;
+  return `On the books, not on the ${sheet.statementDate} statement. ${one ? 'It is' : 'They are'} either still to reach the bank or ${one ? 'a duplicate' : 'duplicates'} — carry ${one ? 'it' : 'them'} into the next statement, or reverse ${one ? 'it' : 'them'}.`;
 }
 
 /**
@@ -397,10 +546,13 @@ export function describeUnmatchedCaveat(sheet: ReconcileSheet): string | null {
  * direction keeps the strict single-row rule, where two candidates genuinely are
  * two different entries and pointing at one would be a guess.
  *
- * `null` when balanced, or when nothing accounts for the gap exactly.
+ * OPEN SHEETS ONLY, for {@link describeGap}'s reason: "untick this row" is an
+ * instruction, and on a finished or abandoned sheet every checkbox is locked.
+ *
+ * `null` when balanced, not open, or when nothing accounts for the gap exactly.
  */
 export function describeSingleCulprit(sheet: ReconcileSheet): string | null {
-  if (sheet.balanced) return null;
+  if (sheet.status !== 'open' || sheet.balanced) return null;
   const where = (row: ReconcileRow): string => {
     const label = row.description.trim() === '' ? '' : ` “${row.description}”`;
     return `${row.date}${label}, ${formatWithSide(row.amountMinor)}`;
@@ -468,6 +620,15 @@ export function describeFinishBlock(sheet: ReconcileSheet): FinishBlock | null {
   if (sheet.status === 'finished') {
     return {rule: 'This statement is already reconciled. Reopen it to change what it matched.', live: null};
   }
+  if (sheet.status === 'abandoned') {
+    // No Reopen either: an abandoned statement froze nothing, so there is
+    // nothing to release — the way on is a new reconciliation, and the sentence
+    // says that rather than leaving a dead screen with no exit named.
+    return {
+      rule: 'This statement was abandoned. Nothing was reconciled and no posting was changed — start a new reconciliation on this account when you are ready.',
+      live: null,
+    };
+  }
   if (!sheet.balanced) {
     return {
       rule: 'Finish is available once the difference reads exactly 0.00.',
@@ -477,9 +638,16 @@ export function describeFinishBlock(sheet: ReconcileSheet): FinishBlock | null {
   return null;
 }
 
-/** Whether this row's tick may be changed at all (frozen rows may not). */
+/**
+ * Whether this row's tick may be changed at all (frozen rows may not).
+ *
+ * Keyed on "not open" rather than on `finished`: the server's tick surface
+ * requires an OPEN reconciliation, so an `abandoned` sheet's checkboxes are
+ * refused just as a finished one's are, and a UI that left them live would offer
+ * a control whose every use is a rejection.
+ */
 export function isRowLocked(sheet: ReconcileSheet, row: ReconcileRow): boolean {
-  return sheet.status === 'finished' || row.frozen;
+  return sheet.status !== 'open' || row.frozen;
 }
 
 /**
@@ -497,18 +665,40 @@ export function isRowLocked(sheet: ReconcileSheet, row: ReconcileRow): boolean {
 export function describeRowLabel(sheet: ReconcileSheet, row: ReconcileRow): string {
   const entry = row.entryNo === null ? 'unnumbered entry' : `entry #${row.entryNo}`;
   const label = row.description.trim() === '' ? 'no description' : row.description;
-  const locked = isRowLocked(sheet, row)
-    ? row.frozenStatementDate !== null
+  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${describeRowLock(sheet, row)}`;
+}
+
+/**
+ * WHY this row's checkbox is dead, from the reason it actually is.
+ *
+ * A FROZEN row is locked by the finished reconciliation that froze it, whatever
+ * sheet it is being viewed on. A non-frozen row on a non-open sheet is locked by
+ * the SHEET's state — and the two states must not share a sentence: the
+ * fall-through that said "Locked by a finished reconciliation" on an ABANDONED
+ * sheet asserted the opposite of the truth on every checkbox, in exactly the
+ * place a screen-reader user goes to learn whether this statement certified
+ * anything.
+ */
+function describeRowLock(sheet: ReconcileSheet, row: ReconcileRow): string {
+  if (!isRowLocked(sheet, row)) return '';
+  if (row.frozen) {
+    return row.frozenStatementDate !== null
       ? ` Locked by the reconciliation of the ${row.frozenStatementDate} statement.`
-      : ' Locked by a finished reconciliation.'
-    : '';
-  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${locked}`;
+      : ' Locked by a finished reconciliation.';
+  }
+  return sheet.status === 'abandoned'
+    ? ' This statement was abandoned — nothing here was reconciled, and this list can no longer be changed.'
+    : ' This statement is reconciled — reopen it to change what it matched.';
 }
 
 /** Display labels for the reconciliation statuses (never the raw enum ids). */
-export const RECONCILIATION_STATUS_LABEL: Record<'open' | 'finished', string> = {
+export const RECONCILIATION_STATUS_LABEL: Record<ReconcileStatus, string> = {
   open: 'In progress',
   finished: 'Reconciled',
+  // "Abandoned", not "Cancelled" or "Deleted": the record is still here, on
+  // purpose, and the word has to say that the attempt ended without saying the
+  // attempt was erased.
+  abandoned: 'Abandoned',
 };
 
 /** Every cleared state the checklist can show, in workflow order. */

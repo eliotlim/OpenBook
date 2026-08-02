@@ -1826,4 +1826,220 @@ describe('LGR-11 — statement reconciliation lifecycle', () => {
     expect(LEDGER_ERROR_CODES).toContain('reconciliation-too-large');
     expect(ledgerErrorStatus('reconciliation-too-large')).toBe(409);
   }, 180_000);
+
+  // ── LGR-22 — a mistyped statement balance must not brick the account ─────────
+  //
+  // THE DEAD END THIS CLOSES, stated as the sequence that produced it: type
+  // 1,250.00 as 1,205.00; the difference can then never be driven to zero, so
+  // `finish` is unreachable at any tick; `reopen` applies only to a FINISHED
+  // record; `start` answers `reconciliation-exists`; and no PATCH or DELETE
+  // existed. The account could never be reconciled again except by posting a
+  // fake entry to force the difference to zero — corrupting the books to escape
+  // a UI dead end — or by editing the database by hand.
+  //
+  // Both new writers are tested at the STORE, not the route: `LocalDataClient`
+  // calls these methods directly, so a rule that lived in the HTTP layer would
+  // not exist in browser-local mode at all.
+
+  it('AMENDS an open statement to a reachable target, without touching one posting', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const b = await postLeg(cash, income, 2_500);
+
+    // The typo: 1,205.00 where 1,250.00 was meant.
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 120_500},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    await store.ledger.setReconciliationPostingCleared(rec.id, b.id, 'cleared', ACTOR);
+    // Everything on the account is ticked and it is STILL out — there is no tick
+    // left to make, which is precisely why this was terminal.
+    const stuck = (await store.ledger.getReconciliation(rec.id))!;
+    expect(stuck.clearedBalanceMinor).toBe(12_500);
+    expect(stuck.differenceMinor).toBe(108_000);
+    expect(await code(store.ledger.finishReconciliation(rec.id, ACTOR))).toBe('reconciliation-unbalanced');
+
+    const amended = await store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 12_500}, ACTOR);
+    expect(amended.reconciliation.statementBalanceMinor).toBe(12_500);
+    expect(amended.reconciliation.status).toBe('open');
+    // RECOMPUTED, not carried over from the read that preceded it.
+    expect(amended.differenceMinor).toBe(0);
+    expect(amended.clearedBalanceMinor).toBe(12_500);
+
+    // NOT ONE POSTING MOVED — the ticks are observations about the bank, and a
+    // typo in the target does not un-observe them. This is what makes amending
+    // the cheap fix: the checklist survives.
+    for (const id of [a.id, b.id]) {
+      const posting = await store.ledger.getPosting(id);
+      expect(posting?.cleared).toBe('cleared');
+      expect(posting?.reconciliationId).toBeNull();
+    }
+    // …and the reconciliation that was unfinishable now finishes.
+    expect((await store.ledger.finishReconciliation(rec.id, ACTOR)).reconciliation.status).toBe('finished');
+  });
+
+  it('amends the DATE alone, both fields together, and refuses what start would have refused', async () => {
+    const {cash} = await seedWithAccounts();
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 100},
+      ACTOR,
+    );
+    // Date only: the balance is untouched, not defaulted to zero.
+    const dated = await store.ledger.amendReconciliation(rec.id, {statementDate: '2026-09-30'}, ACTOR);
+    expect(dated.reconciliation.statementDate).toBe('2026-09-30');
+    expect(dated.reconciliation.statementBalanceMinor).toBe(100);
+    // Balance only: the date is untouched.
+    const rebalanced = await store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 250}, ACTOR);
+    expect(rebalanced.reconciliation.statementDate).toBe('2026-09-30');
+    expect(rebalanced.reconciliation.statementBalanceMinor).toBe(250);
+    // Both at once.
+    const both = await store.ledger.amendReconciliation(rec.id, {statementDate: '2026-10-31', statementBalanceMinor: 7}, ACTOR);
+    expect(both.reconciliation.statementDate).toBe('2026-10-31');
+    expect(both.reconciliation.statementBalanceMinor).toBe(7);
+
+    // THE SAME PREDICATES `start` USES. A date or an amount that could not have
+    // been started with must not be reachable by amending into it.
+    expect(await code(store.ledger.amendReconciliation(rec.id, {statementDate: '31/10/2026'}, ACTOR))).toBe('invalid-input');
+    expect(await code(store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 1.5}, ACTOR))).toBe('invalid-amount');
+    expect(await code(store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: Number.NaN}, ACTOR))).toBe('invalid-amount');
+    // An EMPTY patch is refused rather than writing an audit event for a
+    // mutation that never happened.
+    expect(await code(store.ledger.amendReconciliation(rec.id, {}, ACTOR))).toBe('invalid-input');
+    expect(await code(store.ledger.amendReconciliation('00000000-0000-4000-8000-000000000000', {statementBalanceMinor: 1}, ACTOR))).toBe('not-found');
+    // Every rejection left the row exactly as the last SUCCESSFUL amend did.
+    const now = (await store.ledger.getReconciliation(rec.id))!.reconciliation;
+    expect([now.statementDate, now.statementBalanceMinor]).toEqual(['2026-10-31', 7]);
+  });
+
+  it('refuses to amend a FINISHED reconciliation, and says which door to use', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+    await store.ledger.finishReconciliation(rec.id, ACTOR);
+
+    // A finished statement's target is history: moving it would silently
+    // invalidate the zero it was finished at, and the postings it froze.
+    const refusal = await store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 1}, ACTOR).catch((e: Error) => e);
+    expect((refusal as {code?: string}).code).toBe('invalid-state');
+    expect((refusal as Error).message).toMatch(/is finished — reopen it/);
+    expect(await code(store.ledger.abandonReconciliation(rec.id, ACTOR))).toBe('invalid-state');
+    // Reopening makes both legal again.
+    await store.ledger.reopenReconciliation(rec.id, ACTOR);
+    expect((await store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 10_000}, ACTOR)).differenceMinor).toBe(0);
+  });
+
+  it('ABANDONS an open statement: terminal, posting-neutral, and the account is free again', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const b = await postLeg(cash, income, 2_500);
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 999_999},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(rec.id, a.id, 'cleared', ACTOR);
+
+    const abandoned = await store.ledger.abandonReconciliation(rec.id, ACTOR);
+    expect(abandoned.status).toBe('abandoned');
+
+    // A STATUS TRANSITION, NOT A DELETE: the attempt is still on record, which
+    // is what tells a later reader "someone tried and gave up" apart from "this
+    // account has never been reconciled".
+    expect((await store.ledger.listReconciliations({accountId: cash})).map((r) => r.id)).toEqual([rec.id]);
+    expect((await store.ledger.listReconciliations({status: 'abandoned'})).map((r) => r.id)).toEqual([rec.id]);
+    expect(await store.ledger.listReconciliations({status: 'open'})).toEqual([]);
+
+    // POSTING-NEUTRAL, in both directions: the ticked leg keeps `cleared` and
+    // the untouched one keeps `pending`. Nothing was frozen, so nothing is
+    // released; nothing was posted to force a balance.
+    expect((await store.ledger.getPosting(a.id))?.cleared).toBe('cleared');
+    expect((await store.ledger.getPosting(a.id))?.reconciliationId).toBeNull();
+    expect((await store.ledger.getPosting(b.id))?.cleared).toBe('pending');
+
+    // THE POINT: the account is immediately reconcilable again, with the ticks
+    // still in place, and the new statement finishes on the right target.
+    const fresh = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 10_000},
+      ACTOR,
+    );
+    expect((await store.ledger.getReconciliation(fresh.id))?.differenceMinor).toBe(0);
+    expect((await store.ledger.finishReconciliation(fresh.id, ACTOR)).reconciliation.status).toBe('finished');
+
+    // TERMINAL: nothing reaches an abandoned record again — not a tick, not an
+    // amend, not a reopen — and each refusal names the way forward rather than
+    // pointing at a control that does not apply.
+    for (const p of [
+      store.ledger.abandonReconciliation(rec.id, ACTOR),
+      store.ledger.amendReconciliation(rec.id, {statementBalanceMinor: 1}, ACTOR),
+      store.ledger.setReconciliationPostingCleared(rec.id, b.id, 'cleared', ACTOR),
+      store.ledger.reopenReconciliation(rec.id, ACTOR),
+    ]) {
+      expect(await code(p)).toBe('invalid-state');
+    }
+    const reopenRefusal = await store.ledger.reopenReconciliation(rec.id, ACTOR).catch((e: Error) => e);
+    expect((reopenRefusal as Error).message).toMatch(/was abandoned .* nothing to reopen/);
+    expect((reopenRefusal as Error).message).toMatch(/start a new reconciliation/);
+  });
+
+  it('an amended-and-abandoned book stays audited, replayable and verifiable', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const a = await postLeg(cash, income, 10_000);
+    const before = await auditCount();
+
+    // Statement one: mistyped, amended to the right target, finished.
+    const one = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-08-31', statementBalanceMinor: 100_00},
+      ACTOR,
+    );
+    await store.ledger.setReconciliationPostingCleared(one.id, a.id, 'cleared', ACTOR);
+    await store.ledger.amendReconciliation(one.id, {statementDate: '2026-09-30', statementBalanceMinor: 10_000}, ACTOR);
+    await store.ledger.finishReconciliation(one.id, ACTOR);
+    // Statement two: started and given up on.
+    const two = await store.ledger.startReconciliation(
+      {accountId: cash, statementDate: '2026-10-31', statementBalanceMinor: 5},
+      ACTOR,
+    );
+    await store.ledger.abandonReconciliation(two.id, ACTOR);
+
+    // SIX mutations, six events — an amend and an abandon are each exactly one.
+    expect(await auditCount()).toBe(before + 6);
+    const actions = (await store.ledger.listAudit({limit: 20})).map((e) => e.action).reverse().slice(-6);
+    expect(actions).toEqual([
+      'reconciliation.start',
+      'posting.cleared',
+      'reconciliation.amend',
+      'reconciliation.finish',
+      'reconciliation.start',
+      'reconciliation.abandon',
+    ]);
+
+    // The amend event carries the AFTER-state and both content hashes, so a
+    // reader learns what the target became — the whole reason this is an event
+    // and not a silent property write.
+    const amend = (await store.ledger.listAudit({limit: 20})).find((e) => e.action === 'reconciliation.amend')!;
+    expect(amend.payload).toMatchObject({reconciliation: {id: one.id, statementDate: '2026-09-30', statementBalanceMinor: 10_000}});
+    expect(amend.beforeHash).not.toBe(amend.afterHash);
+    expect(amend.beforeHash).not.toBeNull();
+    expect(amend.entityIds).toEqual([one.id, cash]);
+    // …and NEITHER new event carries a posting change, which is the machine-
+    // readable form of "this touched no posting".
+    for (const action of ['reconciliation.amend', 'reconciliation.abandon'] as const) {
+      const event = (await store.ledger.listAudit({limit: 20})).find((e) => e.action === action)!;
+      expect((event.payload as {postings?: unknown[]}).postings).toBeUndefined();
+    }
+
+    // The chain verifies, the independent verifier is clean, and the replay
+    // reconstructs both statuses — including the one the reducer would have
+    // thrown on had the new actions not been modelled.
+    expect((await store.ledger.verifyAuditChain()).ok).toBe(true);
+    expect((await store.verifyLedger()).findings).toEqual([]);
+    const replayed = replayLedgerAudit([...(await store.ledger.listAudit({limit: 200}))].reverse());
+    expect(replayed.reconciliations[one.id].status).toBe('finished');
+    expect(replayed.reconciliations[one.id].statementBalanceMinor).toBe(10_000);
+    expect(replayed.reconciliations[two.id].status).toBe('abandoned');
+  });
 });

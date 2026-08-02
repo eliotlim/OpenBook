@@ -59,6 +59,7 @@ import {
   isValidLedgerAccountName,
   isValidLedgerDate,
   isValidMinor,
+  LEDGER_RECONCILIATION_STATUSES,
   ledgerAuditEventHash,
   negateAmount,
   sumAmounts,
@@ -79,6 +80,7 @@ import {
   type LedgerPostingInput,
   type LedgerReconciliation,
   type LedgerReconciliationInput,
+  type LedgerReconciliationPatch,
   type LedgerReconciliationPostingChange,
   type LedgerReconciliationStatus,
   type LedgerReconciliationSummary,
@@ -1239,6 +1241,124 @@ export class LedgerStore {
   }
 
   /**
+   * AMEND an OPEN reconciliation's statement (LGR-22): a new closing date, a new
+   * closing balance, or both. The difference is recomputed against the new
+   * target and returned.
+   *
+   * THIS IS THE RECOVERY PATH FOR A MISTYPED TARGET, and without it the account
+   * was bricked: `finish` demands a difference of exactly zero, a wrong target
+   * cannot reach zero at any tick, `reopen` applies only to a FINISHED
+   * reconciliation, and `start` refuses a second open one. The only remaining
+   * exits were posting a fake entry to force the difference to zero — corrupting
+   * the books to escape a dead end — or editing the database by hand.
+   *
+   * IT TOUCHES NO POSTING, in either direction. The ticks already made are
+   * observations about the bank ("this leg is on the statement"), and correcting
+   * a typo in the target does not un-observe any of them — which is also what
+   * makes this the cheap fix rather than the expensive one: the checklist
+   * survives. `finishReconciliation` remains the only writer that can reach
+   * `reconciled` (invariant 4), and it is untouched by this.
+   *
+   * LOCKS: the reconciliation row and nothing else. The account is not locked
+   * because the identity of the open reconciliation on it does not change (a
+   * `start` racing this one still finds this row open and is still rejected),
+   * and the postings are not locked because none are read or written — so this
+   * writer sits at the head of the RECONCILIATION → POSTING → TRANSACTION →
+   * ACCOUNT order and can deadlock against nothing.
+   */
+  async amendReconciliation(
+    id: string,
+    patch: LedgerReconciliationPatch,
+    actor?: Principal,
+  ): Promise<LedgerReconciliationSummary> {
+    const ids = await this.requireIds();
+    const hasDate = patch?.statementDate !== undefined;
+    const hasBalance = patch?.statementBalanceMinor !== undefined;
+    if (!hasDate && !hasBalance) {
+      throw new LedgerError(
+        'invalid-input',
+        'an amend must change the statement date, the statement balance, or both — an empty patch would write an audit event for a mutation that never happened',
+      );
+    }
+    // Validated with the SAME predicates `start` uses, and deliberately so: a
+    // date or a balance that could not have been started with must not be
+    // reachable by amending into it.
+    if (hasDate && !isValidLedgerDate(patch.statementDate)) {
+      throw new LedgerError('invalid-input', `statementDate must be an ISO YYYY-MM-DD date, got ${JSON.stringify(patch.statementDate)}`);
+    }
+    if (hasBalance && !isValidMinor(patch.statementBalanceMinor)) {
+      throw new LedgerError(
+        'invalid-amount',
+        `statementBalanceMinor must be a safe signed integer of minor units, got ${String(patch.statementBalanceMinor)}`,
+      );
+    }
+    const summary = await this.db.begin(async (tx) => {
+      const {reconciliation: before, row} = await this.lockReconciliationTx(tx, ids, id, 'open');
+      const props = parseJson<Record<string, unknown>>(row.properties, {});
+      if (hasDate) props[LEDGER_PROP.reconciliation.statementDate] = patch.statementDate;
+      if (hasBalance) props[LEDGER_PROP.reconciliation.statementBalance] = patch.statementBalanceMinor;
+      const updated = await tx.query<Row>(
+        `UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2 RETURNING ${ROW_COLS}`,
+        [id, ids.reconciliations, JSON.stringify(props)],
+      );
+      const after = reconciliationFromRow(updated[0]);
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'reconciliation.amend',
+        [id, before.accountId],
+        {reconciliation: after},
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(before))),
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(after))),
+      );
+      return this.summarizeOn(tx, ids, after);
+    });
+    this.notifyMutation();
+    return summary;
+  }
+
+  /**
+   * ABANDON an OPEN reconciliation (LGR-22): end it without balancing it.
+   *
+   * A STATUS TRANSITION, NOT A DELETE. The attempt happened; a book that simply
+   * loses the row cannot tell a later reader (or an auditor) the difference
+   * between "this account has never been reconciled" and "someone tried, could
+   * not make it agree, and gave up" — and the second is the one worth knowing
+   * about. The audit log would carry the abandonment either way, but the LIST
+   * a bookkeeper actually reads is the reconciliations, not the audit stream.
+   *
+   * TERMINAL. `abandoned` is not reopenable: reopening exists to unfreeze what a
+   * finish froze, and an abandoned reconciliation froze nothing. Resuming an
+   * abandoned match is `start`, which is now unblocked — `openReconciliationOn`
+   * asks for `open`, so the account is free the moment this commits.
+   *
+   * POSTING-NEUTRAL, which is the requirement that makes it safe to offer at
+   * all: not one posting's `cleared` state or `reconciliationId` is read or
+   * written here. An open reconciliation owns no frozen postings by construction
+   * (only `finish` stamps ownership), so there is nothing to release, and the
+   * ticks stay exactly as the user left them — ready for the next statement.
+   */
+  async abandonReconciliation(id: string, actor?: Principal): Promise<LedgerReconciliation> {
+    const ids = await this.requireIds();
+    const abandoned = await this.db.begin(async (tx) => {
+      const {reconciliation: before, row} = await this.lockReconciliationTx(tx, ids, id, 'open');
+      const after = await this.setReconciliationStatusTx(tx, ids, {id, row}, 'abandoned');
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'reconciliation.abandon',
+        [id, before.accountId],
+        {reconciliation: after},
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(before))),
+        await sha256Hex(canonicalLedgerJson(reconciliationContent(after))),
+      );
+      return after;
+    });
+    this.notifyMutation();
+    return abandoned;
+  }
+
+  /**
    * REOPEN a finished reconciliation: explicit, audited, and the ONLY thing that
    * unfreezes what it froze. Its postings go back to `cleared` (they did match
    * the statement — reopening reverses the freeze, not the match) with their
@@ -1502,6 +1622,13 @@ export class LedgerStore {
    * Lock a reconciliation row and require the named status. The RAW row comes
    * back with the entity so a status flip can patch the properties it already
    * holds a lock on instead of reading the row a second time.
+   *
+   * The rejection names the status the row IS IN, derived from the row rather
+   * than inferred from the status the caller wanted. The version that branched
+   * on `required` alone had only two answers for three statuses, so amending an
+   * ABANDONED reconciliation was met with "is finished — reopen it before
+   * changing what it matched": an instruction that does not apply, pointing at a
+   * control that is not offered, for a state the row is not in.
    */
   private async lockReconciliationTx(
     tx: Db,
@@ -1516,12 +1643,7 @@ export class LedgerStore {
     if (rows.length === 0) throw new LedgerError('not-found', 'reconciliation not found');
     const reconciliation = reconciliationFromRow(rows[0]);
     if (reconciliation.status !== required) {
-      throw new LedgerError(
-        'invalid-state',
-        required === 'open'
-          ? `reconciliation ${id} is finished — reopen it before changing what it matched`
-          : `reconciliation ${id} is still open — only a finished reconciliation can be reopened`,
-      );
+      throw new LedgerError('invalid-state', reconciliationStateRefusal(id, reconciliation.status, required));
     }
     return {reconciliation, row: rows[0]};
   }
@@ -1756,6 +1878,14 @@ export class LedgerStore {
     // exactly zero at the moment it was finished — that is the only condition
     // under which it could have been finished at all — and it is frozen there.
     //
+    // An ABANDONED one (LGR-22) is deliberately NOT in this branch. The freeze
+    // above is justified by a fact abandonment does not supply: a finished
+    // statement was provably at zero, an abandoned one was provably never
+    // balanced, and pinning a figure it never held would be inventing history
+    // rather than preserving it. It owns no postings either (only `finish`
+    // stamps ownership), so it falls through to the live sum, which is the
+    // honest answer to "how does this account stand against that target".
+    //
     // Recomputing it live let a posting cleared AFTER the fact (through the
     // generic surface, on an entry this statement never matched) drag the
     // figure off zero, so a historical statement reported ITSELF out of balance
@@ -1979,6 +2109,31 @@ function reconciliationFromRow(row: Row): LedgerReconciliation {
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
+}
+
+/**
+ * Why a reconciliation writer refused, phrased from the status the row IS IN and
+ * naming the way forward from THERE.
+ *
+ * One function rather than a message per call site, because the three writers
+ * that need it (amend, abandon, tick — all `required: 'open'`) would otherwise
+ * each carry their own copy of the same three-way case and drift apart the first
+ * time a status is added.
+ */
+function reconciliationStateRefusal(
+  id: string,
+  actual: LedgerReconciliationStatus,
+  required: LedgerReconciliationStatus,
+): string {
+  if (required === 'finished') {
+    return actual === 'abandoned'
+      ? `reconciliation ${id} was abandoned — an abandoned statement froze nothing, so there is nothing to reopen; start a new reconciliation on this account instead`
+      : `reconciliation ${id} is still open — only a finished reconciliation can be reopened`;
+  }
+  // required === 'open': the amend / abandon / tick surface.
+  return actual === 'finished'
+    ? `reconciliation ${id} is finished — reopen it before changing what it matched`
+    : `reconciliation ${id} was abandoned and cannot be changed — start a new reconciliation on this account instead`;
 }
 
 function transactionFromRow(row: Row, postings: LedgerPosting[]): LedgerTransaction {
@@ -2226,7 +2381,21 @@ function buildReconciliationsSchema(): DatabaseSchema {
       {id: LEDGER_PROP.reconciliation.account, name: 'Account', type: 'text'},
       {id: LEDGER_PROP.reconciliation.statementDate, name: 'Statement date', type: 'date'},
       {id: LEDGER_PROP.reconciliation.statementBalance, name: 'Statement balance (minor)', type: 'number'},
-      {id: LEDGER_PROP.reconciliation.status, name: 'Status', type: 'select', options: selectOptions(['open', 'finished'])},
+      // From the exported constant, not a second hand-written list: LGR-22 added
+      // `abandoned` and a literal here would have silently kept the old two.
+      //
+      // These options are written only at SEED, so a book seeded before LGR-22
+      // keeps the two-option list — and on such a book the managed database
+      // view renders an abandoned row's Status cell as BLANK, not as unstyled
+      // text: the view resolves a select by option id, and an id with no
+      // option resolves to nothing. Correctness is unaffected (the store
+      // writes the property as raw jsonb and never validates it against the
+      // schema; every ledger read goes through `reconciliationFromRow`, not
+      // the view), and that view is on a restricted page nobody works in, so
+      // this ships without a schema backfill — but anyone adding a FOURTH
+      // status should know the stale-seed cost is a blank cell, not a cosmetic
+      // one, and weigh an ensure-options write then.
+      {id: LEDGER_PROP.reconciliation.status, name: 'Status', type: 'select', options: selectOptions(LEDGER_RECONCILIATION_STATUSES)},
     ],
     'v_reconciliations',
     'Reconciliations',

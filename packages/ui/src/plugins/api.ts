@@ -12,6 +12,7 @@ import type {
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
+  LedgerReconciliationPatch,
   LedgerReconciliationStatus,
   LedgerReconciliationSummary,
   LedgerReverseOptions,
@@ -29,6 +30,7 @@ import {
   MoneyError,
   MoneyParseError,
   MoneyRangeError,
+  compareAmounts,
   formatAmount,
   isValidMinor,
   negateAmount,
@@ -142,6 +144,17 @@ export interface PluginApi {
     /** One reconciliation with its live cleared balance + difference, or `null`. */
     getReconciliation(id: string): Promise<LedgerReconciliationSummary | null>;
     startReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation>;
+    /**
+     * AMEND an OPEN reconciliation's statement date/balance (LGR-22), and
+     * ABANDON one outright. Together these are the way back from a mistyped
+     * closing balance, which is otherwise unrecoverable: a wrong target can
+     * never reach a zero difference, so `finishReconciliation` is out of reach,
+     * `reopenReconciliation` applies only to a finished one, and
+     * `startReconciliation` refuses a second open one on the account. Neither
+     * call touches a posting's cleared state.
+     */
+    amendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary>;
+    abandonReconciliation(id: string): Promise<LedgerReconciliation>;
     /** Tick (`cleared`) or untick (`pending`) one posting inside an OPEN one. */
     toggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
     finishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
@@ -259,6 +272,8 @@ export function buildPluginApi(
       listReconciliations: (opts) => client.ledgerListReconciliations(opts),
       getReconciliation: (id) => client.ledgerGetReconciliation(id),
       startReconciliation: (input) => client.ledgerStartReconciliation(input),
+      amendReconciliation: (id, patch) => client.ledgerAmendReconciliation(id, patch),
+      abandonReconciliation: (id) => client.ledgerAbandonReconciliation(id),
       toggleReconciliationPosting: (id, postingId, cleared) => client.ledgerToggleReconciliationPosting(id, postingId, cleared),
       finishReconciliation: (id) => client.ledgerFinishReconciliation(id),
       reopenReconciliation: (id) => client.ledgerReopenReconciliation(id),
@@ -306,6 +321,10 @@ export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
     formatAmount,
     sumAmounts,
     negateAmount,
+    // Ordering/equality on money. A plugin that compares two amounts otherwise
+    // reaches for `===` or `<`, which is arithmetic on money by another name and
+    // is exactly what the rest of this surface exists to keep out of plugins.
+    compareAmounts,
     isValidMinor,
     MoneyError,
     MoneyParseError,

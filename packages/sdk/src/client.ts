@@ -51,6 +51,7 @@ import type {
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
+  LedgerReconciliationPatch,
   LedgerReconciliationStatus,
   LedgerReconciliationSummary,
   LedgerReverseOptions,
@@ -377,6 +378,14 @@ export interface DataClient {
   ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null>;
   /** START a reconciliation. Rejects `reconciliation-exists` if one is open. */
   ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation>;
+  /** AMEND an OPEN reconciliation's statement date/balance (LGR-22) — the fix
+   *  for a mistyped target, which no amount of ticking can reach zero. Touches
+   *  no posting; returns the summary with the difference recomputed. */
+  ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary>;
+  /** ABANDON an OPEN reconciliation (LGR-22): end it without balancing it and
+   *  without posting anything. Terminal, audited, posting-neutral — every tick
+   *  keeps its cleared state, and the account is free to start a new one. */
+  ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation>;
   /** Match (`cleared`) or unmatch (`pending`) one posting inside an OPEN one. */
   ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
   /** FINISH — only at a difference of exactly 0; freezes the matched postings. */
@@ -1496,6 +1505,14 @@ export class HttpDataClient implements DataClient {
 
   ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
     return this.ledgerRequest<LedgerReconciliation>('POST', API.ledgerReconciliations, input);
+  }
+
+  ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('PATCH', API.ledgerReconciliation(id), patch);
+  }
+
+  ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation> {
+    return this.ledgerRequest<LedgerReconciliation>('POST', API.ledgerReconciliationAbandon(id));
   }
 
   ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary> {

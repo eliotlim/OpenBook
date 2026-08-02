@@ -105,10 +105,11 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   await expect(page.locator('[data-ledger-start-hint]')).toContainText('date the statement closes');
   await page.locator('[data-ledger-statement-date]').fill('2026-03-31');
   await expect(page.locator('[data-ledger-start-hint]')).toContainText('closing balance');
-  // The box names the side it is read on, and — the part that actually
-  // prevents the error — says what to TYPE rather than naming a property.
-  await expect(page.getByText('Closing balance (debit-normal account)')).toBeVisible();
-  await expect(page.locator('[data-ledger-balance-hint]')).toContainText('a positive number means money in the account');
+  // THE LABEL IS THE INSTRUCTION (LGR-22). It used to read "Closing balance
+  // (debit-normal account)" — a true property of the account, and useless at
+  // the moment of typing. It now says what to type, before anything is typed.
+  await expect(page.getByText('Closing balance — as the statement prints it (a positive number is money in the account)')).toBeVisible();
+  await expect(page.locator('[data-ledger-reconcile]')).not.toContainText('-normal account');
   await page.locator('[data-ledger-statement-balance-input]').fill(STATEMENT_BALANCE);
   // …and it echoes the MEANING before anything is committed. Reprinting the
   // digits would be a round-trip identity, silent about the side — which is the
@@ -233,8 +234,12 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   // …and the duplicate left on the books is stated as UNRESOLVED, not merely
   // excluded, right where the completeness claim is made.
   const caveat = page.locator('[data-ledger-unmatched-caveat]');
-  await expect(caveat).toContainText('1 posting (950.00 Cr) is on the books but not on this statement');
-  await expect(caveat).toContainText('does not correct the books');
+  await expect(caveat).toContainText('1 posting totalling 950.00 Cr is on the books but not on this statement');
+  // BOTH readings, named — the innocent one (not cleared yet) and the one this
+  // fixture actually holds (recorded twice). Naming only one sends half the
+  // readers to the wrong place at the moment the books are being certified.
+  await expect(caveat).toContainText('not cleared the bank yet that is expected');
+  await expect(caveat).toContainText('recorded twice, this account is still out by 950.00');
   await expect(finish).toBeEnabled();
   await expect(page.locator('[data-ledger-finish-hint]')).toHaveCount(0);
   // The live button is visually distinct from the dead one it replaced.
@@ -253,7 +258,34 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   await rentRows.nth(1).locator('input[type="checkbox"]').uncheck();
   await expect(page.locator('[data-ledger-difference-amount]')).toHaveText('0.00');
 
+  // FINISHING WITH SOMETHING UNACCOUNTED FOR ASKS FIRST (LGR-22). A step, not a
+  // gate: the confirm names the amount and both readings, and "Finish anyway"
+  // is right there. "Go back and check" returns without finishing, which is
+  // what makes it a real choice rather than a speed bump.
   await finish.click();
+  const confirm = page.locator('[data-ledger-finish-confirm]');
+  await expect(confirm).toContainText('1 posting totalling 950.00 Cr');
+  await expect(confirm).toContainText('not cleared the bank yet that is expected');
+  await expect(confirm).toContainText('recorded twice');
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Focus moves to the confirm's primary — a real browser is the environment
+  // where the alternative (focus dumped on <body>) actually happens, so the
+  // after-press focus target is asserted HERE as well as in the unit tests.
+  await expect(page.locator('[data-ledger-finish-confirm-yes]')).toBeFocused();
+  // THE DOUBLE PRESS. The second click of a habitual double-click lands on the
+  // still-enabled Finish button — it must NOT certify the books with the
+  // confirm unread. This is the press that used to finish for real.
+  await finish.click();
+  await expect(confirm).toBeVisible();
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  await page.locator('[data-ledger-finish-confirm-no]').click();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Declining hands focus back to the Finish button it took it from.
+  await expect(finish).toBeFocused();
+
+  await finish.click();
+  await page.locator('[data-ledger-finish-confirm-yes]').click();
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'finished');
   await expect(page.locator('[data-ledger-reopen]')).toBeVisible();
   await expect(finish).toHaveCount(0);
@@ -262,6 +294,17 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   for (const box of await rows.locator('input[type="checkbox"]').all()) {
     await expect(box).toBeDisabled();
   }
+  // …and what the statement did NOT account for is promoted from a grey count
+  // in a footer to a named section that lists the actual rows (LGR-22). After
+  // finishing, the leftovers stop being a live figure and become a to-do.
+  const outstanding = page.locator('[data-ledger-outstanding]');
+  await expect(page.locator('[data-ledger-outstanding-heading]')).toHaveText('Outstanding items (1 · 950.00 Cr)');
+  await expect(outstanding.locator('[data-ledger-outstanding-row]')).toHaveCount(1);
+  await expect(outstanding).toContainText('Rent — February');
+  await expect(outstanding).toContainText('950.00 Cr');
+  // The heading's count and the list's length are the same fact; a section that
+  // said "1" over two rows would be the two-places-one-fact bug in the open.
+  await expect(page.locator('[data-ledger-outstanding="1"]')).toBeVisible();
 
   // The server agrees, and it is the server that decides.
   const reconciliations = (await (await request.get(`${SERVER}/api/ledger/reconciliations?accountId=${bank}`)).json()) as Array<{
@@ -337,4 +380,153 @@ test('Finish is impossible while the difference is not zero — the UI says so, 
   // …and the block still shows an open, unfinished reconciliation.
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
   await expect(page.locator('[data-ledger-finish]')).toBeDisabled();
+});
+
+/**
+ * LGR-22 — the recovery path, through the UI alone.
+ *
+ * THE DEAD END THIS CLOSES: type the closing balance on the wrong side (the
+ * single easiest mistake on this screen) and the difference lands at exactly
+ * twice the balance. No tick can move it, because the books are already right;
+ * Finish needs a zero it can never reach; Reopen applies only to a FINISHED
+ * statement; and Start refuses a second open one. Before this the only exits
+ * were posting a fake entry to force the difference to zero — corrupting the
+ * books to escape a UI dead end — or editing the database by hand.
+ */
+test('a mistyped closing balance is correctable, and a bad statement abandonable, without posting anything', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
+  const uniq = `${Date.now()}`;
+  const bankName = `RA${uniq}:Assets:Bank`;
+  const bank = await ensureAccount(request, bankName, 'asset');
+  const income = await ensureAccount(request, `RA${uniq}:Income:Revenue`, 'revenue');
+  await postEntry(request, {
+    date: '2026-05-01',
+    description: 'Customer payment',
+    postings: [{accountId: bank, amountMinor: 100_000}, {accountId: income, amountMinor: -100_000}],
+  });
+  /** Every posted entry in the book right now — the "nothing was posted" probe. */
+  const entryCount = async (): Promise<number> =>
+    ((await (await request.get(`${SERVER}/api/ledger/transactions?limit=500`)).json()) as unknown[]).length;
+  const before = await entryCount();
+
+  await ensureLedgerPlugin(page);
+  await pageWithBlock(page, request, `Amend ${uniq}`, '/reconcile', 'Reconcile', '[data-ledger-reconcile]');
+  await page.locator('[data-ledger-reconcile-account]').selectOption({label: bankName});
+  await page.locator('[data-ledger-statement-date]').fill('2026-05-31');
+  // THE MISTAKE: 1,000.00 in the account, typed as -1,000.00.
+  await page.locator('[data-ledger-statement-balance-input]').fill('-1,000.00');
+  // The echo names it as overdrawn before anything is committed — the meaning,
+  // not the digits, because the digits round-trip and prove nothing.
+  await expect(page.locator('[data-ledger-balance-echo]')).toHaveText('Reading it as 1,000.00 overdrawn.');
+  await page.locator('[data-ledger-reconcile-start]').click();
+  await expect(page.locator('[data-ledger-arithmetic]')).toBeVisible();
+
+  await page.locator('[data-ledger-reconcile-row] input[type="checkbox"]').check();
+  // Everything on the account is ticked and it is out by exactly twice — the
+  // signature of the wrong side, and the state that used to be terminal.
+  await expect(page.locator('[data-ledger-difference-amount]')).toHaveText('2,000.00 Cr');
+  await expect(page.locator('[data-ledger-reconcile-summary]')).toContainText('nothing unmatched');
+  await expect(page.locator('[data-ledger-finish]')).toBeDisabled();
+  const gap = page.locator('[data-ledger-gap]');
+  await expect(gap).toContainText('exactly twice the closing balance you typed');
+  await expect(gap).toContainText('a positive number is money in the account');
+  // It names the control that fixes it rather than sending the reader into
+  // books that are already correct.
+  await expect(gap).toContainText('Amend statement');
+  await expect(gap).not.toContainText('missing from the books');
+
+  // ── AMEND ─────────────────────────────────────────────────────────────────
+  await page.locator('[data-ledger-amend]').click();
+  const amendBalance = page.locator('[data-ledger-amend-balance]');
+  // Prefilled with the value as it stands, in a form its own parser reads back.
+  await expect(amendBalance).toHaveValue('-1,000.00');
+  await expect(page.locator('[data-ledger-amend-date]')).toHaveValue('2026-05-31');
+  // Opening the form DISABLED the invoker — the element that was focused. In a
+  // real browser that dumps focus on <body> unless the block moves it, so the
+  // after-press target is asserted here, at the transition.
+  await expect(page.locator('[data-ledger-amend]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-amend-date]')).toBeFocused();
+  await amendBalance.fill('1,000.00');
+  await expect(page.locator('[data-ledger-amend-echo]')).toHaveText('Reading it as 1,000.00 in the account.');
+  await page.locator('[data-ledger-amend-save]').click();
+  await expect(page.locator('[data-ledger-amend-form]')).toHaveCount(0);
+
+  // Zero — reached by correcting the TARGET, with the tick untouched.
+  await expect(page.locator('[data-ledger-difference-amount]')).toHaveText('0.00');
+  await expect(page.locator('[data-ledger-reconcile-row] input[type="checkbox"]')).toBeChecked();
+  await expect(page.locator('[data-ledger-finish]')).toBeEnabled();
+  // Nothing unaccounted for, so Finish goes straight through — the confirm is
+  // for leftovers, not a standing speed bump.
+  await page.locator('[data-ledger-finish]').click();
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'finished');
+  await expect(page.locator('[data-ledger-finish-confirm]')).toHaveCount(0);
+  await expect(page.locator('[data-ledger-outstanding]')).toHaveCount(0);
+
+  // ── ABANDON ───────────────────────────────────────────────────────────────
+  // A second statement started on the wrong account balance and given up on.
+  await page.locator('[data-ledger-reconcile-close]').click();
+  await page.locator('[data-ledger-reconcile-account]').selectOption({label: bankName});
+  await page.locator('[data-ledger-statement-date]').fill('2026-06-30');
+  await page.locator('[data-ledger-statement-balance-input]').fill('4,242.00');
+  await page.locator('[data-ledger-reconcile-start]').click();
+  await expect(page.locator('[data-ledger-arithmetic]')).toBeVisible();
+
+  await page.locator('[data-ledger-abandon]').click();
+  const abandonConfirm = page.locator('[data-ledger-abandon-confirm]');
+  // The confirm states the two guarantees the person deciding cannot read off
+  // the store: nothing is posted, and no tick is undone.
+  await expect(abandonConfirm).toContainText('nothing is posted to the books');
+  await expect(abandonConfirm).toContainText('keeps the cleared state it has now');
+  await expect(page.locator('[data-ledger-abandon-confirm-yes]')).toBeFocused();
+  await page.locator('[data-ledger-abandon-confirm-no]').click();
+  await expect(abandonConfirm).toHaveCount(0);
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Declining re-enabled the invoker and handed focus back to it — the exit
+  // button the user pressed no longer exists, so anywhere else is <body>.
+  await expect(page.locator('[data-ledger-abandon]')).toBeFocused();
+
+  await page.locator('[data-ledger-abandon]').click();
+  await page.locator('[data-ledger-abandon-confirm-yes]').click();
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'abandoned');
+  // Neither Finish nor Reopen — an abandoned statement froze nothing, so there
+  // is nothing to release; the screen names the way forward instead.
+  await expect(page.locator('[data-ledger-finish]')).toHaveCount(0);
+  await expect(page.locator('[data-ledger-reopen]')).toHaveCount(0);
+  await expect(page.locator('[data-ledger-finish-hint]')).toContainText('start a new reconciliation');
+  // Amend and Abandon are gone too — every write surface on this record is
+  // closed. (That the CHECKBOXES are locked is pinned in the fold's unit test,
+  // on rows that are not also frozen by an earlier statement; asserting it here
+  // would pass on the freeze rather than on the abandonment.)
+  await expect(page.locator('[data-ledger-amend]')).toHaveCount(0);
+  await expect(page.locator('[data-ledger-abandon]')).toHaveCount(0);
+
+  // THE POINT: the account is reconcilable again, immediately, through the UI.
+  await page.locator('[data-ledger-reconcile-close]').click();
+  await page.locator('[data-ledger-reconcile-account]').selectOption({label: bankName});
+  await page.locator('[data-ledger-statement-date]').fill('2026-06-30');
+  await page.locator('[data-ledger-statement-balance-input]').fill('1,000.00');
+  await page.locator('[data-ledger-reconcile-start]').click();
+  await expect(page.locator('[data-ledger-arithmetic]')).toBeVisible();
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+
+  // ── The server agrees, and NOTHING was posted to the books ────────────────
+  // The whole point of a recovery path is that it does not require corrupting
+  // the ledger to escape a UI dead end, so this is the assertion that matters
+  // most: not one entry was created across the amend and the abandon.
+  expect(await entryCount()).toBe(before);
+  const list = (await (await request.get(`${SERVER}/api/ledger/reconciliations?accountId=${bank}`)).json()) as Array<{
+    id: string;
+    status: string;
+    statementBalanceMinor: number;
+  }>;
+  expect(list.map((r) => r.status).sort()).toEqual(['abandoned', 'finished', 'open']);
+  // The abandoned one is still ON RECORD, not deleted: a reader can tell "someone
+  // tried and gave up" from "this account has never been reconciled".
+  expect(list.filter((r) => r.status === 'abandoned')).toHaveLength(1);
+  // The amend corrected the target rather than leaving a second statement behind.
+  expect(list.find((r) => r.status === 'finished')!.statementBalanceMinor).toBe(100_000);
+  // …and the postings are exactly where the workflow put them: the one leg is
+  // frozen by the finished statement, never touched by the abandon.
+  const audit = (await (await request.get(`${SERVER}/api/ledger/audit?limit=200`)).json()) as Array<{action: string}>;
+  expect(audit.map((e) => e.action)).toContain('reconciliation.amend');
+  expect(audit.map((e) => e.action)).toContain('reconciliation.abandon');
 });

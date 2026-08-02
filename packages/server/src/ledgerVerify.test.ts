@@ -299,6 +299,52 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     expect(forged.every((f) => f.message.includes('afterHash NULL'))).toBe(true);
   });
 
+  it('CONSISTENT surgery on a reconciliation.abandon event → audit-hash-forged (LGR-22)', async () => {
+    // The same sophisticated attack as the transaction test above, aimed at the
+    // one event class where it would otherwise go UNDETECTED: abandon is
+    // TERMINAL, so no later event ever extends that reconciliation's hash chain
+    // — delete the verifier's `reconciliation.abandon` case and every other
+    // suite stays green, because nothing downstream re-reads the digest. This
+    // test is the thing that fails: the surgery keeps the raw row and the
+    // payload consistent (so the replay comparison agrees by construction, on
+    // BOTH sides of the doctoring) and leaves the hash columns alone, which
+    // makes re-deriving the abandon event's own recorded digest the ONLY
+    // detector left standing.
+    const rec = await store.ledger.startReconciliation(
+      {accountId: cashId, statementDate: '2026-08-31', statementBalanceMinor: 5},
+      ACTOR,
+    );
+    await store.ledger.abandonReconciliation(rec.id, ACTOR);
+    expect(await codes()).toEqual([]); // clean before the surgery
+
+    // Doctor the raw reconciliation row AND the abandon event's payload to the
+    // same forged balance. The start event keeps the true 5 — replay applies
+    // events in order, so the doctored abandon payload (the LAST writer) is
+    // what the replayed state carries, and it equals the doctored row.
+    const FORGED_BALANCE = 777;
+    await corruptProps(rec.id, (props) => {
+      props.lp_statement_balance_minor = FORGED_BALANCE;
+    });
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit WHERE action = \'reconciliation.abandon\' ORDER BY seq ASC',
+    );
+    expect(auditRows).toHaveLength(1);
+    const payload = (typeof auditRows[0].payload === 'string' ? JSON.parse(auditRows[0].payload) : auditRows[0].payload) as {
+      reconciliation: {statementBalanceMinor: number};
+    };
+    payload.reconciliation.statementBalanceMinor = FORGED_BALANCE;
+    await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [auditRows[0].seq, JSON.stringify(payload)]);
+
+    const report = await verifyLedger(db);
+    const forged = report.findings.filter((f) => f.code === 'audit-hash-forged');
+    expect(forged).toHaveLength(1);
+    expect(forged[0].entityId).toBe(rec.id);
+    // Consistent on purpose: replay must NOT be what catches this, or the test
+    // would stay green with the verifier's abandon case deleted (the replay
+    // reducer lives in the SDK and models the action either way).
+    expect(report.findings.map((f) => f.code)).not.toContain('replay-divergence');
+  });
+
   it('a non-missing-table read failure PROPAGATES (never a false "clean")', async () => {
     // A verifier that reports "clean" because its read failed is worse than one
     // that crashes: narrow the swallow to the missing-relation case only.

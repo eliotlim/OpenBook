@@ -35,16 +35,20 @@ interface ReportTransaction {
   entryNo: number | null;
   postings: ReportPosting[];
 }
+/** Mirrors the plugin's `ReconcileStatus` — `abandoned` is LGR-22's terminal state. */
+type ReconcileStatus = 'open' | 'finished' | 'abandoned';
 interface Statement {
   id: string;
   accountId: string;
   statementDate: string;
   statementBalanceMinor: number;
-  status: 'open' | 'finished';
+  status: ReconcileStatus;
 }
 interface ReconcileRow {
   postingId: string;
   date: string;
+  description: string;
+  entryNo: number | null;
   amountMinor: number;
   cleared: string;
   matched: boolean;
@@ -57,7 +61,8 @@ interface ReconcileSheet {
   accountName: string;
   normalSide: 'debit' | 'credit';
   exists: boolean;
-  status: 'open' | 'finished';
+  status: ReconcileStatus;
+  statementDate: string;
   statementBalanceMinor: number;
   rows: ReconcileRow[];
   clearedBalanceMinor: number;
@@ -269,11 +274,39 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
       expect(describeDifference(overdrawn)).not.toContain('-');
     });
 
-    it('says what to TYPE, not what the account is', () => {
-      const describeBalanceSide = mod().describeBalanceSide as (s: 'debit' | 'credit') => string;
-      expect(describeBalanceSide('debit')).toMatch(/positive number means money in the account/);
-      expect(describeBalanceSide('credit')).toMatch(/positive number means money owed/);
-      for (const side of ['debit', 'credit'] as const) expect(describeBalanceSide(side)).toMatch(/as the statement shows it/);
+    it('says what to TYPE, not what the account is — in the LABEL', () => {
+      // LGR-22: the instruction moved into the label itself. "Closing balance
+      // (credit-normal account)" stated a property and left the reader to
+      // derive what to type from it, at the one moment where the wrong answer
+      // costs a difference of exactly twice the balance.
+      const describeBalanceLabel = mod().describeBalanceLabel as (s: 'debit' | 'credit') => string;
+      expect(describeBalanceLabel('debit')).toBe('Closing balance — as the statement prints it (a positive number is money in the account)');
+      expect(describeBalanceLabel('credit')).toBe('Closing balance — as the statement prints it (a positive number is a balance you owe)');
+      // What it must NOT do is name the account's normal side as a property and
+      // stop there — the exact shape of the copy this replaced.
+      for (const side of ['debit', 'credit'] as const) expect(describeBalanceLabel(side)).not.toMatch(/-normal account/);
+    });
+
+    it('the label and the 2× hint read the account’s side from ONE source', () => {
+      // Two sentences carrying the same fact in different words is how they
+      // drift. `describePositiveMeans` is the fact; both are framings of it, so
+      // a reworded label cannot leave the diagnostic describing a credit card
+      // as a current account.
+      const describePositiveMeans = mod().describePositiveMeans as (s: 'debit' | 'credit') => string;
+      const describeBalanceLabel = mod().describeBalanceLabel as (s: 'debit' | 'credit') => string;
+      const describeGap = mod().describeGap as (s: ReconcileSheet) => string | null;
+      for (const [side, accounts] of [['debit', ACCOUNTS], ['credit', CARD_ACCOUNTS]] as Array<['debit' | 'credit', ReportAccount[]]>) {
+        const clause = describePositiveMeans(side);
+        expect(describeBalanceLabel(side)).toContain(clause);
+        // A sign-flipped balance: typed −1,000.00 where +1,000.00 was meant,
+        // with the books right, puts the difference at exactly twice.
+        const flipped = build(
+          statement({statementBalanceMinor: side === 'debit' ? -100_000 : 100_000}),
+          [entry('2026-03-01', side === 'debit' ? 100_000 : -100_000, 'cleared')],
+          accounts,
+        );
+        expect(describeGap(flipped)).toContain(clause);
+      }
     });
 
     it('echoes the MEANING, not the digits — the round trip proves nothing', () => {
@@ -416,9 +449,14 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
       ]);
       expect(withDupe.balanced).toBe(true);
       const caveat = describeUnmatchedCaveat(withDupe)!;
-      expect(caveat).toMatch(/^1 posting \(950\.00 Cr\) is on the books but not on this statement\./);
-      expect(caveat).toMatch(/does not correct the books/);
-      expect(caveat).toMatch(/check whether it is a duplicate/);
+      // The AMOUNT, and BOTH possibilities — LGR-22. Naming only the duplicate
+      // reading sends the (much more common) "it just hasn't cleared yet" case
+      // hunting for an error that is not there; naming only the innocent one is
+      // silence at the moment the books are being certified.
+      expect(caveat).toMatch(/^1 posting totalling 950\.00 Cr is on the books but not on this statement\./);
+      expect(caveat).toMatch(/not cleared the bank yet that is expected/);
+      expect(caveat).toMatch(/recorded twice, this account is still out by 950\.00/);
+      expect(caveat).toMatch(/finishing here will not correct it/);
       expect(caveat).not.toMatch(/\(s\)/);
       // Plural reads as a sentence too.
       const two = build(statement({statementBalanceMinor: 100_000}), [
@@ -426,8 +464,8 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
         entry('2026-03-02', -95_000),
         entry('2026-03-03', -1_000),
       ]);
-      expect(describeUnmatchedCaveat(two)).toMatch(/^2 postings \(960\.00 Cr\) are on the books/);
-      expect(describeUnmatchedCaveat(two)).toMatch(/any of them are duplicates/);
+      expect(describeUnmatchedCaveat(two)).toMatch(/^2 postings totalling 960\.00 Cr are on the books/);
+      expect(describeUnmatchedCaveat(two)).toMatch(/If any were recorded twice/);
       // Nothing unmatched, or not balanced yet ⇒ silence.
       expect(describeUnmatchedCaveat(build(statement({statementBalanceMinor: 100_000}), [entry('2026-03-01', 100_000, 'cleared')]))).toBeNull();
       expect(describeUnmatchedCaveat(build(statement({statementBalanceMinor: 1}), [entry('2026-03-01', 100_000)]))).toBeNull();
@@ -526,6 +564,209 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
       const locked = build(march, [entry('2026-01-10', 50_000, 'reconciled', {reconciliationId: 'rec-0'})], ACCOUNTS, [january, march]);
       expect(describeFrozenElsewhere(locked)).toMatch(/^1 posting is locked by an earlier finished statement\./);
       expect(describeFrozenElsewhere(locked)).not.toMatch(/\(s\)/);
+    });
+  });
+
+  describe('LGR-22 — recovering from a statement that can never balance', () => {
+    const describeGap = (s: ReconcileSheet): string | null => (mod().describeGap as (x: ReconcileSheet) => string | null)(s);
+
+    it('recognises the 2× signature of a balance typed on the wrong side', () => {
+      // The mechanism: 1,000.00 held, typed as −1,000.00. The books are RIGHT
+      // and every row is ticked, so no amount of ticking can move this — the
+      // target is out by 2,000.00 and the difference reads exactly twice the
+      // balance. Generic advice ("look for a missing entry") sends the reader
+      // into books that are already correct.
+      const flipped = build(statement({statementBalanceMinor: -100_000}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(flipped.differenceMinor).toBe(-200_000);
+      const gap = describeGap(flipped)!;
+      expect(gap).toMatch(/^The difference is 2,000\.00 — exactly twice the closing balance you typed\./);
+      expect(gap).toMatch(/signature of a balance entered on the wrong side/);
+      // …and it points at the control that fixes it, which is the whole point.
+      expect(gap).toMatch(/Amend statement/);
+      // It must NOT also serve the generic two-causes advice: that sentence
+      // tells the reader to search the books, and here the books are right.
+      expect(gap).not.toMatch(/missing from the books/);
+
+      // Same on a credit-normal account, where the signs invert.
+      const card = build(statement({statementBalanceMinor: 24_000}), [entry('2026-03-01', -24_000, 'cleared')], CARD_ACCOUNTS);
+      expect(describeGap(card)).toMatch(/exactly twice the closing balance you typed/);
+      expect(describeGap(card)).toMatch(/a positive number is a balance you owe/);
+    });
+
+    it('does NOT fire on an ordinary gap that merely happens to be large', () => {
+      // 1,125.00 statement, 1,000.00 cleared: a 125.00 gap. Twice the balance
+      // would be 2,250.00 — the heuristic has to be arithmetic, not a vibe.
+      const ordinary = build(statement({statementBalanceMinor: 112_500}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(describeGap(ordinary)).not.toMatch(/twice the closing balance/);
+      expect(describeGap(ordinary)).toMatch(/missing from the books/);
+
+      // A ZERO statement balance doubles to zero, which would "equal" every
+      // difference if the guard were missing — and "twice nothing" is no signal.
+      const emptyTarget = build(statement({statementBalanceMinor: 0}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(emptyTarget.differenceMinor).toBe(-100_000);
+      expect(describeGap(emptyTarget)).not.toMatch(/twice the closing balance/);
+    });
+
+    it('survives a balance too large to DOUBLE — generic advice, never a throw', () => {
+      // `parseAmount` accepts balances all the way to ±(2^53 − 1) minor units,
+      // so any legally typed balance past HALF that ceiling made the unguarded
+      // doubling throw MoneyRangeError — and `describeGap` runs OUTSIDE the
+      // block's fold try/catch, so the throw took the whole block down on a
+      // legal input. The guard must fall through to the generic advice, not
+      // crash and not stay silent.
+      const HUGE = Number.MAX_SAFE_INTEGER - 1; // typeable, un-doubleable
+      const extreme = build(statement({statementBalanceMinor: HUGE}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(extreme.balanced).toBe(false);
+      let gap: string | null = null;
+      expect(() => {
+        gap = describeGap(extreme);
+      }).not.toThrow();
+      expect(gap).toMatch(/missing from the books/);
+      expect(gap).not.toMatch(/twice the closing balance/);
+    });
+
+    it('the generic advice also suspects the TYPED balance, and names the control that fixes it', () => {
+      // Parker's transposed-digits case: 1,250.00 typed as 1,205.00 produces an
+      // arbitrary 45.00 gap — not the 2× signature — while the books are
+      // exactly right. Advice that pointed only at the books sent the reader
+      // searching entries that were already correct; the typed target is the
+      // third suspect, in BOTH directions, and the sentence points at Amend.
+      const transposed = build(statement({statementBalanceMinor: 120_500}), [entry('2026-03-01', 125_000, 'cleared')]);
+      expect(transposed.differenceMinor).toBe(-4_500);
+      expect(describeGap(transposed)).toMatch(/re-check the closing balance you typed — “Amend statement” corrects it/);
+      const otherWay = build(statement({statementBalanceMinor: 125_000}), [entry('2026-03-01', 120_500, 'cleared')]);
+      expect(describeGap(otherWay)).toMatch(/re-check the closing balance you typed/);
+    });
+
+    it('gap and culprit guidance render ONLY on an open sheet — instructions need their controls', () => {
+      // An abandoned sheet is unbalanced almost by definition and reachable
+      // through View. Every sentence these two produce is an instruction —
+      // tick, untick, amend — and on a non-open sheet none of those controls
+      // exist. Worst case before the guard: the 2× hint said "Correct it with
+      // 'Amend statement'" on a screen with no Amend button.
+      const describeSingleCulprit = mod().describeSingleCulprit as (s: ReconcileSheet) => string | null;
+      const rows = [entry('2026-03-01', 100_000, 'cleared'), entry('2026-03-02', 5_000, 'pending', {description: 'Late payment'})];
+      // Sanity: the SAME sheet, open, produces both sentences…
+      const open = build(statement({statementBalanceMinor: 105_000}), rows);
+      const ticked = open.rows.find((r) => !r.matched)!;
+      expect(open.differenceMinor).toBe(5_000);
+      expect(describeGap(open)).not.toBeNull();
+      expect(describeSingleCulprit(open)).toContain(ticked.description);
+      // …and abandoned, it produces neither — including the 2× signature.
+      const abandoned = build(statement({statementBalanceMinor: 105_000, status: 'abandoned'}), rows);
+      expect(describeGap(abandoned)).toBeNull();
+      expect(describeSingleCulprit(abandoned)).toBeNull();
+      const flippedAbandoned = build(statement({statementBalanceMinor: -100_000, status: 'abandoned'}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(describeGap(flippedAbandoned)).toBeNull();
+    });
+
+    it('a locked row names the REAL reason: frozen, finished sheet, or abandoned sheet', () => {
+      const describeRowLabel = mod().describeRowLabel as (s: ReconcileSheet, r: ReconcileRow) => string;
+      const rows = [entry('2026-03-01', 100_000, 'cleared')];
+      // On an ABANDONED sheet the row is locked because the SHEET is dead, not
+      // because anything was reconciled — the fall-through that said "Locked by
+      // a finished reconciliation" here asserted the opposite of the truth on
+      // every checkbox, exactly where abandon-vs-finish confusion matters most.
+      const abandoned = build(statement({statementBalanceMinor: 100_000, status: 'abandoned'}), rows);
+      expect(abandoned.rows[0].frozen).toBe(false);
+      const abandonedLabel = describeRowLabel(abandoned, abandoned.rows[0]);
+      expect(abandonedLabel).toMatch(/This statement was abandoned — nothing here was reconciled/);
+      expect(abandonedLabel).not.toMatch(/finished reconciliation/);
+      // A finished sheet's own frozen row still names the freezing statement…
+      const finished = build(statement({statementBalanceMinor: 100_000, status: 'finished'}), [
+        entry('2026-03-01', 100_000, 'reconciled', {reconciliationId: 'rec-1'}),
+        entry('2026-03-02', -450, 'pending', {description: 'Bank fee'}),
+      ]);
+      expect(describeRowLabel(finished, finished.rows[0])).toMatch(/Locked by the reconciliation of the 2026-03-31 statement\.$/);
+      // …and its NON-frozen (unmatched) row is locked by the sheet's state,
+      // with the reopen path named rather than a frozen-row sentence borrowed.
+      expect(finished.rows[1].frozen).toBe(false);
+      expect(describeRowLabel(finished, finished.rows[1])).toMatch(/This statement is reconciled — reopen it to change what it matched\.$/);
+    });
+
+    it('an ABANDONED sheet offers neither Finish nor Reopen, and locks every row', () => {
+      interface FinishBlock {rule: string; live: string | null}
+      const describeFinishBlock = mod().describeFinishBlock as (s: ReconcileSheet) => FinishBlock | null;
+      const isRowLocked = mod().isRowLocked as (s: ReconcileSheet, r: ReconcileRow) => boolean;
+      const LABEL = mod().RECONCILIATION_STATUS_LABEL as Record<string, string>;
+
+      // Balanced by coincidence AND abandoned: `canFinish` must be false on the
+      // status alone, because the server's finish requires an OPEN record and a
+      // live-looking button here would be a control whose every use is a 409.
+      const gone = build(statement({statementBalanceMinor: 100_000, status: 'abandoned'}), [
+        entry('2026-03-01', 100_000, 'cleared'),
+        entry('2026-03-02', -450),
+      ]);
+      expect(gone.balanced).toBe(true);
+      expect(gone.canFinish).toBe(false);
+      const block = describeFinishBlock(gone)!;
+      expect(block.rule).toMatch(/was abandoned/);
+      // It names the way FORWARD. Reopen does not apply (nothing was frozen),
+      // so a screen that only said "abandoned" would be a dead end with no exit.
+      expect(block.rule).toMatch(/start a new reconciliation/i);
+      expect(block.rule).not.toMatch(/reopen/i);
+      expect(block.live).toBeNull();
+      // Ticking is refused server-side on a non-open record: every checkbox is
+      // locked, including the ones this statement never froze.
+      expect(gone.rows.every((r) => isRowLocked(gone, r))).toBe(true);
+      expect(gone.rows.every((r) => !r.frozen)).toBe(true); // …and none of them are frozen
+      expect(LABEL.abandoned).toBe('Abandoned');
+    });
+
+    it('the outstanding-items section is a FINISHED-statement affordance, counted by ONE predicate', () => {
+      const heading = mod().describeOutstandingHeading as (s: ReconcileSheet) => string | null;
+      const isOutstanding = mod().isOutstanding as (r: ReconcileRow) => boolean;
+
+      const open = build(statement({statementBalanceMinor: 100_000}), [
+        entry('2026-03-01', 100_000, 'cleared'),
+        entry('2026-03-02', -95_000, 'pending', {description: 'Rent — February'}),
+      ]);
+      // While open, the live difference and the caveat are already saying this
+      // against a number that moves — a second standing section would be noise.
+      expect(heading(open)).toBeNull();
+
+      const done = build(statement({statementBalanceMinor: 100_000, status: 'finished'}), [
+        entry('2026-03-01', 100_000, 'reconciled', {reconciliationId: 'rec-1'}),
+        entry('2026-03-02', -95_000, 'pending', {description: 'Rent — February'}),
+      ]);
+      expect(heading(done)).toBe('Outstanding items (1 · 950.00 Cr)');
+      // THE HEADING AND THE LIST MUST DESCRIBE THE SAME SET. They are computed
+      // in two places — the fold's counters and the section's row filter — so
+      // this pins them to the one exported predicate rather than to two copies
+      // of `!row.matched` free to drift.
+      const listed = done.rows.filter(isOutstanding);
+      expect(listed).toHaveLength(done.unmatchedCount);
+      expect(listed.map((r) => r.description)).toEqual(['Rent — February']);
+
+      // Nothing left over ⇒ no section at all.
+      const clean = build(statement({statementBalanceMinor: 100_000, status: 'finished'}), [
+        entry('2026-03-01', 100_000, 'reconciled', {reconciliationId: 'rec-1'}),
+      ]);
+      expect(heading(clean)).toBeNull();
+    });
+
+    it('the amend form prefills a value its OWN parser can read back', () => {
+      // `formatOnNormalSide` renders an abnormal balance as `250.00 Cr`, which
+      // `parseStatementBalance` rejects — a box born holding a value the Save
+      // button refuses. The editable form must round-trip on both sides,
+      // including overdrawn/in-credit.
+      const toInput = mod().statementBalanceInput as (m: number, s: 'debit' | 'credit') => string;
+      const parse = mod().parseStatementBalance as (raw: string, s: 'debit' | 'credit') => BalanceResult;
+      for (const [minor, side] of [
+        [125_000, 'debit'],
+        [-32_055, 'debit'], // overdrawn current account
+        [-125_000, 'credit'],
+        [32_055, 'credit'], // credit card in credit
+        [0, 'debit'],
+      ] as Array<[number, 'debit' | 'credit']>) {
+        const text = toInput(minor, side);
+        const back = parse(text, side);
+        expect(back.ok).toBe(true);
+        if (back.ok) expect(back.minor).toBe(minor);
+      }
+      // …and the ordinary case is the plain number the statement prints.
+      expect(toInput(125_000, 'debit')).toBe('1,250.00');
+      expect(toInput(-125_000, 'credit')).toBe('1,250.00');
     });
   });
 

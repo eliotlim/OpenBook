@@ -35,6 +35,7 @@ import type {
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
+  LedgerReconciliationPatch,
   LedgerReconciliationStatus,
   LedgerReconciliationSummary,
   LedgerReverseOptions,
@@ -531,6 +532,21 @@ export class LocalDataClient implements DataClient {
 
   async ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
     const reconciliation = await this.store.ledger.startReconciliation(input, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations');
+    return reconciliation;
+  }
+
+  async ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.amendReconciliation(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations');
+    return summary;
+  }
+
+  async ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation> {
+    const reconciliation = await this.store.ledger.abandonReconciliation(id, localPrincipal());
+    // `reconciliations` only: abandoning writes no posting row (LGR-22's
+    // posting-neutrality), so broadcasting `postings` would announce a change
+    // that never happened.
     await this.broadcastLedgerRows('reconciliations');
     return reconciliation;
   }
