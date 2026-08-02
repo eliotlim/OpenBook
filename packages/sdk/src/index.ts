@@ -388,6 +388,7 @@ export {
   isDataUrlRef,
   IMAGE_BLOCK_TYPE,
   DEFAULT_MAX_ASSET_BYTES,
+  ASSET_IMAGE_MIMES,
   type RehydrateUrlOptions,
   type RehydrateStoredClient,
   type RehydrateStoredOptions,

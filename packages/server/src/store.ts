@@ -46,13 +46,13 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
-import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP} from '@book.dev/sdk';
+import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
-import {LEDGER_DB_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
+import {LEDGER_AUDIT_CHAIN_LOCK, LEDGER_DB_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
 import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
 
 /**
@@ -699,9 +699,13 @@ export class PageStore {
    * the round trip), and the evidence assets any transaction manifest names
    * (drafts included: a restored draft must still be able to post).
    *
-   * Asset bytes are read ONE ASSET PER QUERY on purpose — peak memory stays one
-   * asset (the upload cap), never the whole receipt corpus. Same bounded-memory
-   * discipline as the verifier's evidence check.
+   * Asset bytes are read ONE ASSET PER QUERY, which bounds the QUERY-SIDE peak
+   * (no `bytes = ANY(...)` materializing every receipt at once, plus its driver
+   * copy) — but be honest about the ceiling: the returned section still holds
+   * the whole corpus base64-encoded, because the export IS the corpus (the
+   * bundle is one JSON document; streaming it means restructuring the export
+   * wire format, out of scope here and noted in the runbook). The verifier's
+   * evidence check, which returns only findings, is the truly O(1)-memory one.
    */
   private async exportLedgerSection(): Promise<LedgerBackupSection | undefined> {
     const ids = await this.ledgerIds();
@@ -757,8 +761,13 @@ export class PageStore {
    * databases as fresh copies — new ids (via {@link remapBundle}), names suffixed
    * `" (imported)"` on clash, appended below existing pages. `overwrite` upserts
    * by id, replacing pages in place. Returns counts + the old→new id map.
+   *
+   * `opts.actor` is recorded on the `ledger.restore` provenance event when the
+   * bundle carries a ledger section; `opts.assetBudgetBytes` applies the
+   * instance's asset-storage budget to restored evidence bytes (same cap the
+   * upload door enforces).
    */
-  async importBundle(req: ImportRequest): Promise<ImportResult> {
+  async importBundle(req: ImportRequest, opts: {actor?: Principal; assetBudgetBytes?: number} = {}): Promise<ImportResult> {
     // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
@@ -827,7 +836,11 @@ export class PageStore {
             ? 'skipped-copy-mode'
             : ledgerIds
               ? 'skipped-existing-ledger'
-              : await this.restoreLedgerSectionTx(tx, req.ledger);
+              : await this.restoreLedgerSectionTx(tx, req.ledger, pages, databases, {
+                actor: opts.actor,
+                assetBudgetBytes: opts.assetBudgetBytes,
+                bundleSha: key,
+              });
         result = {...result, ledger: outcome};
       }
       // OB-170: a page may carry verified per-block authorship from the instance it
@@ -969,55 +982,75 @@ export class PageStore {
 
   /**
    * Apply a bundle's {@link LedgerBackupSection} inside the import transaction
-   * (LGR-15). Preconditions already held by the caller: overwrite mode, and the
-   * target had NO seeded ledger when the import began.
+   * (LGR-15). Precondition held by the caller: overwrite mode (plus a fast-path
+   * no-existing-ledger check — RE-VERIFIED in here, see below).
    *
    * The section is UNTRUSTED input (instance-admin gated, but a crafted file is
-   * still a crafted file), so:
-   *  - the claimed ids must resolve to pages/databases the SELECTION actually
-   *    imported — a section without its own entity rows is skipped, never
-   *    half-applied (`skipped-incomplete`);
-   *  - only the three ledger settings keys are ever written — this method is
-   *    not a generic settings writer;
-   *  - every audit row's action must be one this build can interpret, and the
-   *    stream must carry unique ascending seqs — anything else REJECTS the
-   *    whole import (one transaction: no half-restored history can commit);
-   *  - every asset's bytes are re-hashed and must equal the claimed id — the
-   *    content-addressed store's invariant holds at the door, so a bundle can
-   *    never plant bytes under a hash they do not answer to.
+   * still a crafted file), so the door is checked in this order:
    *
-   * What it deliberately does NOT do: judge the restored history's truth. The
-   * audit hashes are restored verbatim; whether they hold against the restored
-   * rows is the LGR-7 verifier's job (`GET /api/ledger/verify` — the restore
-   * runbook's mandatory last step, and what the restore CI asserts).
+   *  1. MEMBERSHIP, not mere existence (S2): every id the section claims must
+   *     be a page/database THIS request's post-strip bundle carried — checked
+   *     against the arrays, never against the target's tables, so a section can
+   *     never conscript a victim's existing database into "being the ledger"
+   *     (arming the write guards against its owner). A section without its own
+   *     rows is `skipped-incomplete`, never half-applied.
+   *  2. STREAM SHAPE: non-empty, strictly-ascending unique seqs, every action
+   *     interpretable by this build, and the FIRST event `ledger.init` — a
+   *     history with no genesis is not a history.
+   *  3. CHAIN VERIFICATION (S4): `verifyLedgerAuditChain` over the whole
+   *     stream, REFUSED when broken — the restore door must not install a
+   *     stream the documented tamper check would reject.
+   *  4. CLAIM, in-transaction (S3): the caller's no-existing-ledger check reads
+   *     pre-transaction state (TOCTOU); here the `ledgerDb` settings row is
+   *     CLAIMED (`ON CONFLICT DO NOTHING RETURNING` — the `import_log` shape),
+   *     then the audit-chain advisory lock is taken (same order as `doSeed`:
+   *     settings first, then lock — one order everywhere, no deadlock cycle)
+   *     and `ledger_audit` must be EMPTY. Losing either check is a typed
+   *     `skipped-existing-ledger`, never a unique-index 500.
+   *  5. VISIBILITY (S1): the five ledger host pages are re-asserted
+   *     `restricted`, mirroring `doSeed` — `visibility` is a column, not part
+   *     of `StoredPage`, so without this a restored ledger landed `inherit`
+   *     and any member could read the books the source library denied them.
+   *  6. ASSETS through the upload door's controls (S5): mime sanitized against
+   *     the SAME allowlist as `safeAssetMime`, the per-asset byte cap enforced,
+   *     the storage budget applied via the same guarded insert as `putAsset`,
+   *     bytes re-hashed against the claimed id, and refs attached ONLY to pages
+   *     this bundle carried.
+   *  7. PROVENANCE (S6): a `ledger.restore` event is appended ON TOP of the
+   *     restored tail — chained from it — naming the actor and the bundle's
+   *     content hash, so an installed history is bracketed by an attributable
+   *     event. Its afterHash derives from its own payload (the verifier
+   *     re-derives it, like `ledger.autoExportPath`).
+   *
+   * What it deliberately does NOT do: judge the restored history's TRUTH. The
+   * hashes are internally consistent or the door refuses; whether they match
+   * the restored rows is the LGR-7 verifier's job (`GET /api/ledger/verify` —
+   * the runbook's mandatory last step, and what the restore CI asserts). A
+   * consistent forger with a fabricated-but-well-formed history is undetectable
+   * by construction — restoring a bundle is trusting its author (runbook).
    */
-  private async restoreLedgerSectionTx(tx: Db, section: LedgerBackupSection): Promise<LedgerRestoreOutcome> {
+  private async restoreLedgerSectionTx(
+    tx: Db,
+    section: LedgerBackupSection,
+    pages: StoredPage[],
+    databases: StoredDatabase[],
+    opts: {actor?: Principal; assetBudgetBytes?: number; bundleSha: string},
+  ): Promise<LedgerRestoreOutcome> {
+    // 1. Shape + MEMBERSHIP (against this request's post-strip bundle arrays).
     const rawIds = section.settings?.[LEDGER_DB_SETTING_KEY] as Partial<LedgerIds> | undefined;
     const hostPages = rawIds?.hostPages;
     const pageIds = [rawIds?.hostPageId, hostPages?.accounts, hostPages?.transactions, hostPages?.postings, hostPages?.reconciliations];
     const dbIds = [rawIds?.accounts, rawIds?.transactions, rawIds?.postings, rawIds?.reconciliations];
     const allStrings = [...pageIds, ...dbIds].every((id): id is string => typeof id === 'string' && id.length > 0);
     if (!rawIds || !allStrings) return 'skipped-incomplete';
-    for (const id of pageIds) {
-      const rows = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1 AND deleted_at IS NULL', [id]);
-      if (rows.length === 0) return 'skipped-incomplete';
-    }
-    for (const id of dbIds) {
-      const rows = await tx.query<{id: string}>('SELECT id FROM databases WHERE id = $1', [id]);
-      if (rows.length === 0) return 'skipped-incomplete';
-    }
+    const bundlePageIds = new Set(pages.map((p) => p.id));
+    const bundleDbIds = new Set(databases.map((d) => d.id));
+    if (!pageIds.every((id) => bundlePageIds.has(id as string))) return 'skipped-incomplete';
+    if (!dbIds.every((id) => bundleDbIds.has(id as string))) return 'skipped-incomplete';
 
-    for (const key of [LEDGER_DB_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
-      const value = section.settings[key];
-      if (value == null) continue;
-      await tx.query(
-        `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-        [key, JSON.stringify(value)],
-      );
-    }
-
+    // 2. Stream shape. A ledger's history opens with its genesis event.
     const events = [...section.audit].sort((a, b) => Number(a.seq) - Number(b.seq));
+    if (events.length === 0 || events[0].action !== 'ledger.init') return 'skipped-incomplete';
     let prevSeq = 0;
     for (const ev of events) {
       const seq = Number(ev.seq);
@@ -1031,11 +1064,44 @@ export class PageStore {
       if (typeof ev.id !== 'string' || ev.id.length === 0) {
         throw new Error(`invalid ledger backup: audit seq ${seq} has no event id`);
       }
+    }
+
+    // 3. The tamper-evidence chain must verify BEFORE anything is installed.
+    const chain = await verifyLedgerAuditChain(events);
+    if (!chain.ok) {
+      throw new Error(
+        `invalid ledger backup: audit hash chain broken at seq ${chain.brokenAtSeq ?? '?'} — ${chain.reason ?? 'unverifiable'}; refusing to install a stream the tamper check rejects`,
+      );
+    }
+
+    // 4. CLAIM the ledger in-transaction (settings row first, then the chain
+    // lock — doSeed's order), and require an EMPTY audit table.
+    const claim = await tx.query<{key: string}>(
+      `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO NOTHING RETURNING key`,
+      [LEDGER_DB_SETTING_KEY, JSON.stringify(section.settings[LEDGER_DB_SETTING_KEY])],
+    );
+    if (claim.length === 0) return 'skipped-existing-ledger';
+    await tx.query('SELECT pg_advisory_xact_lock($1)', [LEDGER_AUDIT_CHAIN_LOCK]);
+    const existingAudit = await tx.query<{seq: number}>('SELECT seq FROM ledger_audit LIMIT 1');
+    if (existingAudit.length > 0) return 'skipped-existing-ledger';
+
+    for (const key of [LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
+      const value = section.settings[key];
+      if (value == null) continue;
+      await tx.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [key, JSON.stringify(value)],
+      );
+    }
+
+    for (const ev of events) {
       await tx.query(
         `INSERT INTO ledger_audit (seq, id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash, created_at)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)`,
         [
-          seq,
+          Number(ev.seq),
           ev.id,
           typeof ev.actorSubject === 'string' ? ev.actorSubject : '',
           typeof ev.actorName === 'string' ? ev.actorName : '',
@@ -1055,25 +1121,70 @@ export class PageStore {
       'SELECT setval(pg_get_serial_sequence(\'ledger_audit\', \'seq\'), (SELECT COALESCE(MAX(seq), 1) FROM ledger_audit))',
     );
 
+    // 5. Re-assert the seed-time visibility posture (mirrors doSeed): the five
+    // ledger host pages are `restricted`, always — the bundle does not carry
+    // the `visibility` column, and `inherit` would hand the books to `members`.
+    await tx.query('UPDATE pages SET visibility = \'restricted\' WHERE id = ANY($1)', [pageIds]);
+
+    // 6. Evidence assets, through the upload door's controls.
     for (const asset of section.assets ?? []) {
       if (typeof asset.id !== 'string' || !/^[0-9a-f]{64}$/.test(asset.id) || typeof asset.bytesBase64 !== 'string') {
         throw new Error('invalid ledger backup: malformed evidence asset entry');
       }
       const bytes = Uint8Array.from(Buffer.from(asset.bytesBase64, 'base64'));
+      if (bytes.byteLength > DEFAULT_MAX_ASSET_BYTES) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} is ${bytes.byteLength} bytes — over the ${DEFAULT_MAX_ASSET_BYTES}-byte asset cap the upload door enforces`);
+      }
       const actual = await assetHash(bytes);
       if (actual !== asset.id) {
         throw new Error(`invalid ledger backup: asset ${asset.id} bytes hash to ${actual} — refusing to store bytes under a hash they do not answer to`);
       }
-      const mime = typeof asset.mime === 'string' && asset.mime.length > 0 && asset.mime.length <= 255 ? asset.mime : 'application/octet-stream';
-      await tx.query(
-        `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (id) DO NOTHING`,
-        [asset.id, Buffer.from(bytes), mime, bytes.byteLength],
-      );
+      // The SAME mime discipline as the upload door's `safeAssetMime` (app.ts),
+      // against the same sdk allowlist: control characters refuse the bundle
+      // (header-injection shape — nothing legitimate produces one); anything
+      // not an allowlisted image stores as octet-stream, which nosniff +
+      // attachment disposition can never execute. Without this, a bundle could
+      // plant `text/html` bytes an image block then serves from the app origin.
+      const rawMime = typeof asset.mime === 'string' ? asset.mime : '';
+      // eslint-disable-next-line no-control-regex -- intentionally rejecting control chars (CR/LF/NUL/etc)
+      if (/[\u0000-\u001f\u007f]/.test(rawMime)) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} carries a control character in its mime`);
+      }
+      const base = rawMime.split(';', 1)[0].trim().toLowerCase();
+      const mime = ASSET_IMAGE_MIMES.has(base) ? base : 'application/octet-stream';
+      // The budget-guarded insert `putAsset` uses, on THIS transaction: the row
+      // lands only if the content already exists (dedup) or the running total
+      // plus this asset stays within budget. See putAsset for the $5/$6 note.
+      const budget = opts.assetBudgetBytes;
+      if (budget != null && budget >= 0) {
+        const inserted = await tx.query<{id: string}>(
+          `INSERT INTO assets (id, bytes, mime, size)
+           SELECT $1, $2, $3, $4
+           WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
+              OR COALESCE((SELECT SUM(size) FROM assets), 0) + $5::bigint <= $6::bigint
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength, bytes.byteLength, budget],
+        );
+        if (inserted.length === 0) {
+          const exists = await tx.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [asset.id]);
+          if (exists.length === 0) {
+            throw new Error(`invalid ledger backup restore: storing evidence asset ${asset.id} (${bytes.byteLength} bytes) would exceed the ${budget}-byte asset storage budget`);
+          }
+        }
+      } else {
+        await tx.query(
+          `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength],
+        );
+      }
       for (const pageId of asset.refs ?? []) {
-        if (typeof pageId !== 'string') continue;
-        // Ref only pages that exist post-import (a partial selection must not
-        // create dangling FK rows); ON CONFLICT keeps re-restores idempotent.
+        // Refs attach ONLY to pages THIS bundle carried (S5) — a section must
+        // not be able to hang its assets off a victim's existing pages — and
+        // only where the row exists post-import (no dangling FK); ON CONFLICT
+        // keeps re-restores idempotent.
+        if (typeof pageId !== 'string' || !bundlePageIds.has(pageId)) continue;
         await tx.query(
           `INSERT INTO asset_refs (asset_id, page_id)
            SELECT $1, id FROM pages WHERE id = $2
@@ -1082,6 +1193,23 @@ export class PageStore {
         );
       }
     }
+
+    // 7. Provenance: bracket the installed history with an attributable event,
+    // chained from the restored tail. afterHash derives from the payload (the
+    // verifier re-derives it); prev_hash is the tail event's canonical hash —
+    // the same digest `appendAuditTx` computes from the raw row.
+    const restorePayload = {
+      bundleSha: opts.bundleSha,
+      auditEvents: events.length,
+      assets: (section.assets ?? []).length,
+    };
+    const afterHash = await assetHash(new TextEncoder().encode(canonicalLedgerJson(restorePayload)));
+    const prevHash = await ledgerAuditEventHash(events[events.length - 1]);
+    await tx.query(
+      `INSERT INTO ledger_audit (id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash)
+       VALUES ($1, $2, $3, 'ledger.restore', '[]'::jsonb, $4::jsonb, NULL, $5, $6)`,
+      [randomUUID(), opts.actor?.subject ?? '', opts.actor?.name ?? '', JSON.stringify(restorePayload), afterHash, prevHash],
+    );
     return 'restored';
   }
 

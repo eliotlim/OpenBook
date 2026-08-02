@@ -304,9 +304,15 @@ const EVIDENCE_FILENAME_FORBIDDEN_RE =
  * {@link LedgerStore.appendAuditTx}). Transaction-scoped, so it is released on
  * commit or rollback with no cleanup path to get wrong. An arbitrary but fixed
  * 64-bit constant — it only has to be distinct from any other advisory lock the
- * application takes (today: none).
+ * application takes.
+ *
+ * Exported since LGR-15: the backup-restore door (`store.ts`) takes the SAME
+ * lock while installing a bundle's audit stream, so a restore can never
+ * interleave with a live append computing its `prev_hash` from a moving tail.
+ * LOCK ORDER there mirrors {@link LedgerStore.doSeed}: settings-row claim
+ * first, then this lock — one order everywhere, no cycle.
  */
-const LEDGER_AUDIT_CHAIN_LOCK = 0x1e_d6_e5_a0;
+export const LEDGER_AUDIT_CHAIN_LOCK = 0x1e_d6_e5_a0;
 
 /**
  * {@link sumAmounts}, with any {@link MoneyError} translated into the typed
@@ -548,18 +554,30 @@ export class LedgerStore {
     // schemas. Nothing reclaims them automatically (an operator can delete them).
     // Integrity is unaffected: the stranded set is empty, no guard ever armed for
     // it, no ledger API can reach it, and nothing partially-armed is observable.
-    await this.db.begin(async (tx) => {
-      await tx.query(
+    // CLAIM the ids row rather than upsert it (LGR-15, S3). The pre-transaction
+    // `ids()` read above is a TOCTOU window: a concurrent backup RESTORE (or a
+    // second seeder on real Postgres) can land `ledgerDb` between that read and
+    // this commit, and a blind `DO UPDATE` would then OVERWRITE the winner's ids
+    // — orphaning an entire restored ledger while this seed's `ledger.init`
+    // chains onto the restored tail. `DO NOTHING RETURNING` makes the row a
+    // claim: the loser sees no row back, writes nothing (no audit event), and
+    // ADOPTS whatever won — its freshly created host pages become the
+    // documented non-corrupting strand (see the atomicity note above).
+    const won = await this.db.begin(async (tx) => {
+      const claim = await tx.query<{key: string}>(
         `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
         [LEDGER_DB_SETTING_KEY, JSON.stringify(ids)],
       );
+      if (claim.length === 0) return false;
       await this.appendAuditTx(tx, actor, 'ledger.init', [host.id], {hostPageId: host.id, databases: ids}, null, null);
+      return true;
     });
     // The settings row was written on the transaction, bypassing `setSetting`'s
-    // cache invalidation — drop the store's cached ids so every guard arms now.
+    // cache invalidation — drop the store's cached ids so every guard arms now
+    // (and, on a lost race, so `info()` reports the WINNER's ledger).
     this.store.invalidateLedgerIds();
-    this.notifyMutation();
+    if (won) this.notifyMutation();
     return this.info();
   }
 

@@ -67,6 +67,7 @@ import type {
   StoredDatabase,
   StoredEdit,
   StoredPage,
+  LedgerBackupSection,
   StoredPlugin,
   StoredSuggestion,
   SuggestionInput,
@@ -245,7 +246,7 @@ export class LocalDataClient implements DataClient {
     return true;
   }
 
-  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
     return this.store.exportAll();
   }
 

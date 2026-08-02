@@ -32,6 +32,24 @@ type Sql = ReturnType<typeof postgres>;
  * through verbatim; anything else serializes once. This matches PGlite's
  * behavior exactly, which is the property the whole store relies on
  * ("byte-identical SQL on both backends").
+ *
+ * LEGACY POSTURE — deliberately NO repair migration (LGR-15, Quinn Q1). Rows
+ * written through this driver before the fix hold jsonb STRING scalars. They
+ * cannot be repaired mechanically: a stored string that PARSES as JSON is
+ * indistinguishable from a value that legitimately IS a JSON string scalar —
+ * "un-double-encode everything parseable" would corrupt any genuine
+ * string-typed value. So legacy rows stay as written, with these consequences:
+ *  - application READS keep working: every read path goes through `parseJson`,
+ *    whose string branch re-parses exactly this shape;
+ *  - SQL-level extraction (`properties->>'…'`) on a legacy row returns NULL —
+ *    visible as e.g. missing icons in list projections for pages written
+ *    pre-fix on an external-Postgres deployment. New writes are correct, and
+ *    any full row UPDATE through the app rewrites the value properly;
+ *  - the LGR-15 durability CI runs the ledger suite against real Postgres, so
+ *    a regression of this serializer is caught, not re-hidden.
+ * Operators who want a clean store can export + restore into a fresh library
+ * (docs/ledger/backup-restore.md), which rewrites every row through the fixed
+ * driver.
  */
 const jsonParamPassthrough = (value: unknown): string =>
   typeof value === 'string' ? value : JSON.stringify(value);
