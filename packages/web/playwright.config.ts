@@ -19,7 +19,10 @@ import {defineConfig, devices} from '@playwright/test';
  * `@playwright/test`. `pnpm chromatic` sets that flag, archives just the
  * `@visual` specs, then uploads (needs CHROMATIC_PROJECT_TOKEN).
  */
-const WEB_PORT = 3000;
+// Overridable so a local run can dodge an unrelated dev server squatting :3000
+// (with `reuseExistingServer` on, Playwright would otherwise happily test
+// whatever app answers there). CI keeps the default.
+const WEB_PORT = Number(process.env.OPENBOOK_E2E_WEB_PORT ?? 3000);
 
 export default defineConfig({
   testDir: './e2e',
