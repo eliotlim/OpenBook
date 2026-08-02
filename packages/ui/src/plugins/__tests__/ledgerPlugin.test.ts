@@ -50,7 +50,10 @@ describe('ledger plugin (real source through the real loader)', () => {
     // block without a props CRDT map, so its controls could not persist).
     expect(getCustomBlock('openbook.ledger/trial-balance')?.slash?.label).toBe('Trial balance');
     expect(getCustomBlock('openbook.ledger/account-register')?.slash?.label).toBe('Account register');
-    for (const type of ['trial-balance', 'account-register']) {
+    // LGR-9: the two statements ship in the same plugin, on the same terms.
+    expect(getCustomBlock('openbook.ledger/balance-sheet')?.slash?.label).toBe('Balance sheet');
+    expect(getCustomBlock('openbook.ledger/income-statement')?.slash?.label).toBe('Income statement');
+    for (const type of ['trial-balance', 'account-register', 'balance-sheet', 'income-statement']) {
       const made = getCustomBlock(`openbook.ledger/${type}`)?.slash?.make();
       expect(made?.type).toBe(`openbook.ledger/${type}`);
       expect(Object.keys(made?.props ?? {}).length).toBeGreaterThan(0);
@@ -64,6 +67,8 @@ describe('ledger plugin (real source through the real loader)', () => {
     expect(getCustomBlock('openbook.ledger/journal-entry')).toBeUndefined();
     expect(getCustomBlock('openbook.ledger/trial-balance')).toBeUndefined();
     expect(getCustomBlock('openbook.ledger/account-register')).toBeUndefined();
+    expect(getCustomBlock('openbook.ledger/balance-sheet')).toBeUndefined();
+    expect(getCustomBlock('openbook.ledger/income-statement')).toBeUndefined();
     expect(getCustomBlock('openbook.ledger/bank-import')).toBeUndefined();
     expect(pluginCommands().some((c) => c.id === 'openbook.ledger/setup-books')).toBe(false);
   });

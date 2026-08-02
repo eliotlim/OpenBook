@@ -1,6 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
+import {pageWithBlock, runPaletteCommand} from './ledgerApi';
 
 /**
  * LGR-5: the journal entry block, end to end — the REAL first-party plugin
@@ -18,39 +19,6 @@ const ledgerAccounts = async (): Promise<Array<{id: string; name: string}>> => {
   return res.ok ? ((await res.json()) as Array<{id: string; name: string}>) : [];
 };
 
-async function runPaletteCommand(page: import('@playwright/test').Page, title: string): Promise<void> {
-  await page.keyboard.press('ControlOrMeta+k');
-  await page.getByPlaceholder(/Search pages or run a command/).fill(title);
-  await page.getByRole('option', {name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}).click();
-}
-
-/** A fresh page hosting one journal entry block, inserted via the slash menu. */
-async function pageWithJournalBlock(page: import('@playwright/test').Page, request: import('@playwright/test').APIRequestContext, name: string): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name, data: {editor: 'blocks', blockdoc: {blocks: [{id: 'p1', type: 'paragraph', text: [{t: ''}]}]}, editorjs: {blocks: []}, values: [], names: []}},
-  });
-  const {id} = (await res.json()) as {id: string};
-  await page.goto(`/?page=${id}`);
-  await expect(page.locator('.obe-text').first()).toBeVisible();
-  await page.locator('.obe-text').first().click();
-  // Retry the slash insertion: right after hydration the first keystrokes can
-  // land before the editor (or the plugin's slash contribution) is live.
-  const item = page.locator('.obe-slash-item', {has: page.locator('.obe-slash-label', {hasText: 'Journal entry'})});
-  for (let attempt = 0; ; attempt += 1) {
-    await page.keyboard.type('/journal');
-    try {
-      await expect(item.first()).toBeVisible({timeout: 3000});
-      break;
-    } catch (err) {
-      if (attempt >= 2) throw err;
-      await page.keyboard.press('Escape');
-      for (let i = 0; i < '/journal'.length; i += 1) await page.keyboard.press('Backspace');
-    }
-  }
-  await item.first().click();
-  await expect(page.locator('[data-ledger-journal]')).toBeVisible();
-  return id;
-}
 
 const row = (page: import('@playwright/test').Page, n: number) => ({
   account: page.getByLabel(`Row ${n} account`),
@@ -101,7 +69,7 @@ test('install the real plugin, set up books (idempotent), post a 3-row compound 
     }
   });
 
-  await pageWithJournalBlock(page, request, `Journal ${Date.now()}`);
+  await pageWithBlock(page, request, `Journal ${Date.now()}`, '/journal', 'Journal entry', '[data-ledger-journal]');
   const post = page.locator('[data-ledger-post]');
   const desc = `Payroll ${Date.now()}`;
 
@@ -193,7 +161,7 @@ test('install the real plugin, set up books (idempotent), post a 3-row compound 
 });
 
 test('keyboard-first: Tab walks account → debit → credit → memo → next row; Enter adds a row', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
-  await pageWithJournalBlock(page, request, `Journal keys ${Date.now()}`);
+  await pageWithBlock(page, request, `Journal keys ${Date.now()}`, '/journal', 'Journal entry', '[data-ledger-journal]');
 
   await row(page, 1).account.focus();
   await expect(row(page, 1).account).toBeFocused();
@@ -239,7 +207,7 @@ test('keyboard-first: Tab walks account → debit → credit → memo → next r
 });
 
 test('a half-entered draft survives reload (ledger draft ops + block props)', {tag: ['@ledger']}, async ({page, request}) => {
-  const pageId = await pageWithJournalBlock(page, request, `Journal draft ${Date.now()}`);
+  const pageId = await pageWithBlock(page, request, `Journal draft ${Date.now()}`, '/journal', 'Journal entry', '[data-ledger-journal]');
 
   const accounts = await ledgerAccounts();
   const cash = accounts.find((a) => a.name === 'Assets:Cash')!;
@@ -281,7 +249,7 @@ test('a half-entered draft survives reload (ledger draft ops + block props)', {t
 });
 
 test('a server rejection surfaces its typed LedgerError reason in the block', {tag: ['@ledger']}, async ({page, request}) => {
-  await pageWithJournalBlock(page, request, `Journal reject ${Date.now()}`);
+  await pageWithBlock(page, request, `Journal reject ${Date.now()}`, '/journal', 'Journal entry', '[data-ledger-journal]');
   const desc = `Reject ${Date.now()}`;
 
   await page.locator('[data-ledger-description]').fill(desc);
@@ -328,7 +296,7 @@ test('a server rejection surfaces its typed LedgerError reason in the block', {t
 });
 
 test('a draft that failed to save is never posted (stale-commit guard)', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
-  await pageWithJournalBlock(page, request, `Journal stale ${Date.now()}`);
+  await pageWithBlock(page, request, `Journal stale ${Date.now()}`, '/journal', 'Journal entry', '[data-ledger-journal]');
   const desc = `Stale ${Date.now()}`;
 
   // A first, balanced entry syncs normally.

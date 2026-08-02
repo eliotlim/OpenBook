@@ -1,6 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
+import {pageWithBlock, runPaletteCommand} from './ledgerApi';
 
 /**
  * LGR-10: the bank CSV importer, end to end — the REAL first-party plugin from
@@ -53,43 +54,6 @@ const ledgerAccounts = async (): Promise<Array<{id: string; name: string}>> => {
   return res.ok ? ((await res.json()) as Array<{id: string; name: string}>) : [];
 };
 
-async function runPaletteCommand(page: import('@playwright/test').Page, title: string): Promise<void> {
-  await page.keyboard.press('ControlOrMeta+k');
-  await page.getByPlaceholder(/Search pages or run a command/).fill(title);
-  await page.getByRole('option', {name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}).click();
-}
-
-/** A fresh page hosting one bank-import block, inserted via the slash menu. */
-async function pageWithImportBlock(
-  page: import('@playwright/test').Page,
-  request: import('@playwright/test').APIRequestContext,
-  name: string,
-): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name, data: {editor: 'blocks', blockdoc: {blocks: [{id: 'p1', type: 'paragraph', text: [{t: ''}]}]}, editorjs: {blocks: []}, values: [], names: []}},
-  });
-  const {id} = (await res.json()) as {id: string};
-  await page.goto(`/?page=${id}`);
-  await expect(page.locator('.obe-text').first()).toBeVisible();
-  await page.locator('.obe-text').first().click();
-  // Retry the slash insertion: right after hydration the first keystrokes can
-  // land before the editor (or the plugin's slash contribution) is live.
-  const item = page.locator('.obe-slash-item', {has: page.locator('.obe-slash-label', {hasText: 'Bank import'})});
-  for (let attempt = 0; ; attempt += 1) {
-    await page.keyboard.type('/bank');
-    try {
-      await expect(item.first()).toBeVisible({timeout: 3000});
-      break;
-    } catch (err) {
-      if (attempt >= 2) throw err;
-      await page.keyboard.press('Escape');
-      for (let i = 0; i < '/bank'.length; i += 1) await page.keyboard.press('Backspace');
-    }
-  }
-  await item.first().click();
-  await expect(page.locator('[data-ledger-import]')).toBeVisible();
-  return id;
-}
 
 test('install the plugin, import a bank CSV → drafts; re-importing the SAME file creates ZERO new drafts', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   await ensureLedgerPlugin(page);
@@ -112,7 +76,7 @@ test('install the plugin, import a bank CSV → drafts; re-importing the SAME fi
   });
 
   const tag = `T1-${Date.now()}`;
-  await pageWithImportBlock(page, request, `Bank import ${tag}`);
+  await pageWithBlock(page, request, `Bank import ${tag}`, '/bank', 'Bank import', '[data-ledger-import]');
   const before = (await drafts()).length;
 
   // ── First import ───────────────────────────────────────────────────────────
@@ -188,7 +152,7 @@ test('install the plugin, import a bank CSV → drafts; re-importing the SAME fi
 
 test('the mapping is remembered per source: the next month needs no re-mapping', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   const tag = `T2-${Date.now()}`;
-  await pageWithImportBlock(page, request, `Bank import april ${tag}`);
+  await pageWithBlock(page, request, `Bank import april ${tag}`, '/bank', 'Bank import', '[data-ledger-import]');
 
   // March, with one deliberate OVERRIDE of what detection chose, so the thing
   // being remembered is demonstrably the USER's mapping and not a re-detection.
@@ -202,7 +166,7 @@ test('the mapping is remembered per source: the next month needs no re-mapping',
 
   // A fresh block on a fresh page — nothing carries over except the SAVED
   // profile, which is keyed on the bank's export shape.
-  await pageWithImportBlock(page, request, `Bank import april 2 ${tag}`);
+  await pageWithBlock(page, request, `Bank import april 2 ${tag}`, '/bank', 'Bank import', '[data-ledger-import]');
   await page.locator('[data-import-file]').setInputFiles(upload('april.csv', aprilCsv(tag)));
 
   await expect(page.locator('[data-import-saved-mapping]')).toBeVisible();
@@ -226,7 +190,7 @@ test('the mapping is remembered per source: the next month needs no re-mapping',
 
 test('a CENTS-denominated export imports at the right scale, never 100x', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   const tag = `T3-${Date.now()}`;
-  await pageWithImportBlock(page, request, `Bank import cents ${tag}`);
+  await pageWithBlock(page, request, `Bank import cents ${tag}`, '/bank', 'Bank import', '[data-ledger-import]');
   await page.locator('[data-import-file]').setInputFiles(upload('stripe.csv', centsCsv(tag)));
 
   // Detection SAYS what it concluded about the money scale, and shows it in the
@@ -248,7 +212,7 @@ test('a CENTS-denominated export imports at the right scale, never 100x', {tag: 
 
 test('a malformed statement reports per row and still imports the good ones', {tag: ['@ledger']}, async ({page, request}) => {
   const tag = `T4-${Date.now()}`;
-  await pageWithImportBlock(page, request, `Bank import messy ${tag}`);
+  await pageWithBlock(page, request, `Bank import messy ${tag}`, '/bank', 'Bank import', '[data-ledger-import]');
   const messy = [
     'Date,Description,Amount',
     `2026-06-01,GOOD ROW ${tag},-1.00`,

@@ -1,7 +1,17 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
-import type {APIRequestContext, Page} from '@playwright/test';
+import {
+  createDraft,
+  draftCount,
+  ensureAccount,
+  pageWithBlock,
+  postEntry,
+  serveTransactions,
+  wirePosted as posted,
+  wirePosting as posting,
+  type ApiTransaction,
+} from './ledgerApi';
 
 /**
  * LGR-8: the read-only ledger reports, end to end — the REAL first-party plugin
@@ -20,81 +30,6 @@ import type {APIRequestContext, Page} from '@playwright/test';
  * against data the server will not make. Those surfaces are exactly where the
  * design review found the most, so they are no longer un-rendered.
  */
-
-// ── Ledger seeding (through the real HTTP ledger API) ─────────────────────────
-
-interface ApiAccount {
-  id: string;
-  name: string;
-}
-interface ApiPosting {
-  id: string;
-  accountId: string;
-  amountMinor: number;
-  cleared: string;
-}
-interface ApiTransaction {
-  id: string;
-  state: string;
-  entryNo: number | null;
-  postings: ApiPosting[];
-}
-
-async function ensureAccount(request: APIRequestContext, name: string, type: string): Promise<string> {
-  await request.post(`${SERVER}/api/ledger`);
-  const existing = (await (await request.get(`${SERVER}/api/ledger/accounts`)).json()) as ApiAccount[];
-  const found = existing.find((a) => a.name === name);
-  if (found) return found.id;
-  const res = await request.post(`${SERVER}/api/ledger/accounts`, {data: {name, type}});
-  return ((await res.json()) as ApiAccount).id;
-}
-
-/** Create a draft and post it atomically — the same two ops the block uses. */
-async function postEntry(
-  request: APIRequestContext,
-  entry: {date: string; description: string; postings: Array<{accountId: string; amountMinor: number; cleared?: string}>},
-): Promise<ApiTransaction> {
-  const draft = (await (await request.post(`${SERVER}/api/ledger/transactions`, {data: entry})).json()) as ApiTransaction;
-  return (await (await request.post(`${SERVER}/api/ledger/transactions/${draft.id}/post`)).json()) as ApiTransaction;
-}
-
-async function createDraft(
-  request: APIRequestContext,
-  entry: {date: string; description: string; postings: Array<{accountId: string; amountMinor: number}>},
-): Promise<ApiTransaction> {
-  return (await (await request.post(`${SERVER}/api/ledger/transactions`, {data: entry})).json()) as ApiTransaction;
-}
-
-const draftCount = async (request: APIRequestContext): Promise<number> =>
-  ((await (await request.get(`${SERVER}/api/ledger/transactions?state=draft`)).json()) as ApiTransaction[]).length;
-
-/** A fresh page hosting one report block, inserted through the slash menu. */
-async function pageWithBlock(page: Page, request: APIRequestContext, name: string, slash: string, label: string, marker: string): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name, data: {editor: 'blocks', blockdoc: {blocks: [{id: 'p1', type: 'paragraph', text: [{t: ''}]}]}, editorjs: {blocks: []}, values: [], names: []}},
-  });
-  const {id} = (await res.json()) as {id: string};
-  await page.goto(`/?page=${id}`);
-  await expect(page.locator('.obe-text').first()).toBeVisible();
-  await page.locator('.obe-text').first().click();
-  // Retry the slash insertion: right after hydration the first keystrokes can
-  // land before the editor (or the plugin's slash contribution) is live.
-  const item = page.locator('.obe-slash-item', {has: page.locator('.obe-slash-label', {hasText: label})});
-  for (let attempt = 0; ; attempt += 1) {
-    await page.keyboard.type(slash);
-    try {
-      await expect(item.first()).toBeVisible({timeout: 3000});
-      break;
-    } catch (err) {
-      if (attempt >= 2) throw err;
-      await page.keyboard.press('Escape');
-      for (let i = 0; i < slash.length; i += 1) await page.keyboard.press('Backspace');
-    }
-  }
-  await item.first().click();
-  await expect(page.locator(marker)).toBeVisible();
-  return id;
-}
 
 test('trial balance: pinned-at-zero assertion on a live book, drafts excluded and labelled, live on a new entry', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   const uniq = `${Date.now()}`;
@@ -292,48 +227,6 @@ test('account register: running balance in date order, correct under date-range 
   expect(bankAmounts).toEqual(['-25000', '10000', '100000', '50000'].sort());
 });
 
-
-/**
- * A payload the server will never produce, served to the real block.
- *
- * The four states below are unreachable through the API by construction — the
- * server refuses to post an unbalanced entry, exposes no account delete, and
- * the truncation cap needs a thousand entries — yet they are precisely the
- * states where a report either raises the alarm or fails to. Intercepting the
- * transaction LIST (nothing else) renders the real block and the real fold
- * against them, so these surfaces are covered rather than merely reasoned about.
- */
-async function serveTransactions(page: Page, transactions: unknown[]): Promise<void> {
-  await page.route('**/api/ledger/transactions**', async (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
-    await route.fulfill({status: 200, contentType: 'application/json', body: JSON.stringify(transactions)});
-  });
-}
-
-const posting = (id: string, accountId: string, amountMinor: number, cleared = 'pending') => ({
-  id,
-  transactionId: 't',
-  accountId,
-  amountMinor,
-  cleared,
-  reconciliationId: null,
-});
-
-const posted = (over: Record<string, unknown>) => ({
-  id: 'tx',
-  date: '2026-03-04',
-  description: 'Entry',
-  state: 'posted',
-  postedAt: '2026-03-04T00:00:00.000Z',
-  postedBy: 'tester',
-  reverses: null,
-  entryNo: 1,
-  evidence: [],
-  postings: [],
-  createdAt: '2026-03-04T00:00:00.000Z',
-  updatedAt: '2026-03-04T00:00:00.000Z',
-  ...over,
-});
 
 test('a damaged book raises the alarm, names the entries responsible, and marks the deleted account', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   const uniq = `${Date.now()}`;

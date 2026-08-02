@@ -1,20 +1,23 @@
 import {api} from '@book.dev/plugin-sdk';
 import {JournalEntryBlock} from './block';
 import {AccountRegisterBlock} from './register';
+import {BalanceSheetBlock} from './balanceSheet';
+import {IncomeStatementBlock} from './incomeStatement';
 import {TrialBalanceBlock} from './trialBalance';
 import {BankImportBlock} from './importBlock';
 import {setUpBooks} from './setup';
 
 /**
  * The first-party ledger extension: registers the JOURNAL ENTRY block (LGR-5 —
- * the sole human write surface for the double-entry books), the two read-only
- * REPORT blocks (LGR-8: trial balance, account register), the BANK IMPORT
- * block (LGR-10 — the surface that keeps the books being used past month two),
- * and the idempotent "Ledger: set up books" palette command.
+ * the sole human write surface for the double-entry books), the four read-only
+ * REPORT blocks (LGR-8: trial balance, account register; LGR-9: balance sheet,
+ * income statement), the BANK IMPORT block (LGR-10 — the surface that keeps the
+ * books being used past month two), and the idempotent "Ledger: set up books"
+ * palette command.
  *
- * The pure Σ/validity logic, the report folds, the import model and the setup
- * routine are all re-exported so the host test-suite can drive them through
- * the real plugin loader.
+ * The pure Σ/validity logic, the report and statement folds, the import model
+ * and the setup routine are all re-exported so the host test-suite can drive
+ * them through the real plugin loader.
  */
 export {
   computeEntryStatus,
@@ -51,6 +54,44 @@ export {
   normalSideFor,
   registerMatchesAccountBalance,
 } from './reports';
+// The LGR-9 statement folds: the colon-hierarchy rollup, the balance sheet, the
+// income statement, and the net-income ⇄ equity reconciliation that ties them.
+export {
+  CURRENT_EARNINGS_LABEL,
+  HIERARCHY_SEPARATOR,
+  buildBalanceSheet,
+  buildHierarchy,
+  buildIncomeStatement,
+  describeAsOfExclusion,
+  describeBalanceSheetAssertion,
+  describeBalanceSheetScope,
+  describeCurrentEarnings,
+  describeIncomeScope,
+  describeIncomeUnclassified,
+  describeNetIncome,
+  describePeriod,
+  describeReconciliation,
+  describeUnclassified,
+  directPostingsLabel,
+  flattenHierarchy,
+  formatCredit,
+  hierarchyLeafTotal,
+  hierarchyLeaves,
+  hierarchyParentPaths,
+  hierarchyRolledTotal,
+  latestPeriod,
+  latestReportedDate,
+  leafRows,
+  reconcileNetIncome,
+  splitAccountPath,
+  startOfYear,
+  transactionsAsOf,
+  transactionsBefore,
+  transactionsInRange,
+} from './statements';
+export {parseCollapsed, serializeCollapsed} from './statementShell';
+export {defaultAsOf} from './balanceSheet';
+export {defaultPeriod} from './incomeStatement';
 // The live-data hook is exported for the host test-suite: its staleness and
 // teardown behaviour under overlapping loads is correctness, not presentation,
 // so it is driven directly rather than inferred from a rendered block.
@@ -137,6 +178,32 @@ export default function activate(a: typeof api) {
       // plugin storage (per source) and the drafts live in the ledger — but the
       // props map must still be non-empty for the host to create one.
       make: () => ({type: 'openbook.ledger/bank-import', props: {ledgerImport: '1'}}),
+    },
+  });
+
+  // The two statements a business actually reports (LGR-9). Both roll the
+  // colon hierarchy up in a pure fold (`./statements`) for the same reason the
+  // LGR-8 reports fold in JS: the platform cannot aggregate across rows, let
+  // alone across a name hierarchy.
+  a.blocks.register({
+    type: 'balance-sheet',
+    render: BalanceSheetBlock,
+    slash: {
+      label: 'Balance sheet',
+      hint: 'Assets, liabilities and equity as at a date',
+      keywords: 'ledger balance sheet report accounting assets liabilities equity position statement',
+      make: () => ({type: 'openbook.ledger/balance-sheet', props: {ledgerBsAsOf: ''}}),
+    },
+  });
+
+  a.blocks.register({
+    type: 'income-statement',
+    render: IncomeStatementBlock,
+    slash: {
+      label: 'Income statement',
+      hint: 'Revenue less expenses over a period, with net income',
+      keywords: 'ledger income statement profit loss p&l report accounting revenue expenses earnings',
+      make: () => ({type: 'openbook.ledger/income-statement', props: {ledgerIsFrom: ''}}),
     },
   });
 

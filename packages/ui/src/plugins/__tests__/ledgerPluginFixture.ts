@@ -28,6 +28,13 @@ export const LEDGER_PLUGIN_FILES: Record<string, string> = Object.fromEntries(
   Object.entries(ledgerSources).map(([path, source]) => [`src/${path.split('/src/').pop() ?? ''}`, source]),
 );
 
+/**
+ * The manifest's RAW text. Exported because it is stored as JSONB alongside the
+ * sources and fails install identically on a stray control character — the glob
+ * above only covers `src/**`, so the manifest needs naming to be checked at all.
+ */
+export const ledgerManifestSource = ledgerManifestJson;
+
 export const ledgerManifest = JSON.parse(ledgerManifestJson) as PluginManifest;
 
 export const storedLedgerPlugin = (): StoredPlugin => ({
