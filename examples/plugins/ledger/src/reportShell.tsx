@@ -248,14 +248,46 @@ export const controlStyle: React.CSSProperties = {
   fontSize: '0.85rem',
 };
 
+/**
+ * LONGHAND border properties, not the `border` shorthand: the same element
+ * swaps between this and {@link disabledButtonStyle} as a row's state changes,
+ * and React warns (and can leave a stale edge behind) when a shorthand and a
+ * longhand for the same box alternate across rerenders.
+ */
 export const buttonStyle: React.CSSProperties = {
-  border: '1px solid hsl(var(--border))',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'hsl(var(--border))',
   borderRadius: 6,
   padding: '0.3rem 0.75rem',
   background: 'hsl(var(--card))',
   color: 'hsl(var(--foreground))',
   fontSize: '0.85rem',
   cursor: 'pointer',
+};
+
+/**
+ * A button that is OFF, and looks it.
+ *
+ * `disabled` alone is not a visual state: the platform's default dimming is a
+ * few percent of alpha on a bordered button, and a previous task shipped a
+ * disabled control pixel-identical to its enabled twin. So the off state changes
+ * SHAPE (a dashed border) as well as weight, which survives a forced-colours
+ * mode and does not rely on the reader distinguishing two greys. The reason is
+ * never carried by this style — it is rendered as text beside the control,
+ * because `disabled` also removes the button from the tab order and a `title`
+ * would be a mouse-only explanation.
+ */
+export const disabledButtonStyle: React.CSSProperties = {
+  borderWidth: 1,
+  borderStyle: 'dashed',
+  borderColor: 'hsl(var(--border))',
+  borderRadius: 6,
+  padding: '0.3rem 0.75rem',
+  background: 'transparent',
+  color: SECONDARY_TEXT,
+  fontSize: '0.85rem',
+  cursor: 'not-allowed',
 };
 
 export const tableStyle: React.CSSProperties = {
