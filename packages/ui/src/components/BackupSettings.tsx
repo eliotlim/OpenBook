@@ -91,7 +91,7 @@ export default function BackupSettings() {
     setBusy('export');
     setStatus(null);
     try {
-      const {pages, databases} = await client.exportLibrary();
+      const {pages, databases, ledger} = await client.exportLibrary();
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
       // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
@@ -99,7 +99,10 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
+      // LGR-15: the ledger durability section (audit stream, settings, evidence
+      // assets) rides in the same file — dropping it here would export a book
+      // whose restore could never verify.
+      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons, ...(ledger ? {ledger} : {})};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
       setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
