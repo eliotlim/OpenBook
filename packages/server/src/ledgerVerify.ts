@@ -934,35 +934,40 @@ async function checkEvidenceManifests(
   }
   if (items.length === 0) return checked;
 
-  // One read for the distinct hashes; bytes are re-hashed per DISTINCT asset
-  // (dedup — the store itself is content-addressed, so N manifests of one
-  // receipt are one digest).
-  const distinct = [...new Set(items.map((i) => i.sha256))];
-  let assetRows: Array<{id: string; size: number | string; bytes: Uint8Array | string}> = [];
-  try {
-    assetRows = await db.query<{id: string; size: number | string; bytes: Uint8Array | string}>(
-      'SELECT id, size, bytes FROM assets WHERE id = ANY($1)',
-      [distinct],
-    );
-  } catch (err) {
-    // A library whose migrations never created the asset store cannot hold any
-    // of the bytes these manifests promise — that is N missing assets, reported
-    // below, not a crash and not a silent pass. Any other failure propagates
-    // (isMissingRelation is deliberately narrow).
-    if (!isMissingRelation(err, 'assets')) throw err;
-  }
-  const byId = new Map(assetRows.map((r) => [r.id, r]));
+  // Bytes are read ONE ASSET PER QUERY and re-hashed per DISTINCT asset (dedup
+  // — the store itself is content-addressed, so N manifests of one receipt are
+  // one digest). Per-asset on purpose (LGR-15, Quinn's perf note): a single
+  // `bytes … = ANY($1)` read materializes the ENTIRE receipt corpus at once —
+  // peak memory = every posted receipt (each up to the upload cap) — which is
+  // fine on-demand but wrong the moment verify is scheduled or the restore CI
+  // points it at a big fixture. This loop's peak is ONE asset; the findings it
+  // can produce are identical (the tamper tests pin that).
+  const distinct = [...new Set(items.map((i) => i.sha256))].sort();
   const actualHash = new Map<string, string>();
   const actualSize = new Map<string, number>();
-  for (const row of assetRows) {
-    const bytes = toBytes(row.bytes);
-    actualHash.set(row.id, await sha256HexOfBytes(bytes));
-    actualSize.set(row.id, bytes.byteLength);
+  for (const id of distinct) {
+    let rows: Array<{id: string; bytes: Uint8Array | string}> = [];
+    try {
+      rows = await db.query<{id: string; bytes: Uint8Array | string}>(
+        'SELECT id, bytes FROM assets WHERE id = $1',
+        [id],
+      );
+    } catch (err) {
+      // A library whose migrations never created the asset store cannot hold
+      // any of the bytes these manifests promise — that is N missing assets,
+      // reported below (every lookup misses), not a crash and not a silent
+      // pass. Any other failure propagates (isMissingRelation is narrow).
+      if (!isMissingRelation(err, 'assets')) throw err;
+      break;
+    }
+    if (rows.length === 0) continue; // absent row → reported as missing below
+    const bytes = toBytes(rows[0].bytes);
+    actualHash.set(id, await sha256HexOfBytes(bytes));
+    actualSize.set(id, bytes.byteLength);
   }
 
   for (const item of items) {
-    const row = byId.get(item.sha256);
-    if (!row) {
+    if (!actualHash.has(item.sha256)) {
       flag(
         'evidence-asset-missing',
         `${item.txState} transaction ${item.txId} records evidence "${item.filename}" (${item.sha256}, ${item.size} bytes) but the asset store no longer holds it — the receipt was removed after posting`,
