@@ -701,7 +701,7 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         const LAST = tx({id: 'rev2', date: '2026-07-03', description: 'Reversal of the reversal', entryNo: 12, reverses: 'rev', postings: [posting('bank', 4200), posting('revenue', -4200)]});
         const CHAIN = [ORIGINAL, MID, LAST];
 
-        it('each row points at its OWN counterpart — one hop, never a loop', () => {
+        it('each row points at its OWN counterpart, and no row points backwards past it', () => {
           const {buildAccountRegister, describeCounterpart} = reports();
           const reg = buildAccountRegister('bank', ACCOUNTS, CHAIN);
           const [head, mid, last] = reg.rows;
@@ -716,10 +716,13 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
           // The tail is the only live entry and points back at what it undid.
           expect(last.counterpart).toMatchObject({relation: 'reverses', transactionId: 'rev', entryNo: 11, where: 'visible', state: 'void'});
 
-          // So walking from the head TERMINATES at the tail rather than looping.
+          // Walking from the head reaches the tail: head → mid → tail. The tail
+          // and the middle then stay mutually linked, because that is exactly
+          // what they are — an ordinary pair. Nothing points back past the head.
           expect(head.counterpart!.postingId).toBe(mid.postingId);
           expect(mid.counterpart!.postingId).toBe(last.postingId);
           expect(last.counterpart!.postingId).toBe(mid.postingId);
+          expect(reg.rows.map((r) => r.counterpart!.postingId)).not.toContain(head.postingId);
         });
 
         it('never sends the reader to a row that is itself dead', () => {
@@ -795,9 +798,12 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         // …and the standing notice stops advertising a control the reader cannot
         // press, while still stating the rule.
         expect(describeImmutability(false)).toContain('Posted entries are permanent');
-        expect(describeImmutability(false)).toContain('Correct this entry');
+        // Quotes the button's ACTUAL label — it said "Correct this entry" while
+        // every control on screen read "Correct".
+        expect(describeImmutability(false)).toContain('press “Correct” on its row');
+        expect(describeImmutability(false)).not.toContain('Correct this entry');
         expect(describeImmutability(true)).toContain('Posted entries are permanent');
-        expect(describeImmutability(true)).not.toContain('Correct this entry');
+        expect(describeImmutability(true)).not.toContain('Correct');
       });
 
       it('the confirmation states all three consequences before anything is written', () => {

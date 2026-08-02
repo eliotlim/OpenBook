@@ -116,13 +116,27 @@ interface Correction {
   draftId: string;
 }
 
-/** This block's own id, or a shared fallback — for storage keys and DOM ids. */
+/**
+ * This block's own id, for storage keys and DOM ids.
+ *
+ * The `'block'` fallback is dead defence — `makeBlock` always sets an id — kept
+ * only so a hand-built test harness cannot key everything on `undefined`.
+ */
 const blockKey = (block: BlockLike): string => {
   const id = block.get('id');
   return typeof id === 'string' && id !== '' ? id : 'block';
 };
 
-/** Storage key — per BLOCK, so two registers on a page keep their own panels. */
+/**
+ * Storage key — per BLOCK, so two registers on a page keep their own panels.
+ *
+ * Two known, accepted gaps, both strictly narrower than the CRDT version this
+ * replaced: the key is never collected when the block is deleted (a few dozen
+ * bytes of localStorage, and the panel it describes is validated against the
+ * books before it can reopen), and two TABS of the same page in one profile can
+ * overwrite each other's record — same person, same books, and the losing tab
+ * still has its reversal and its draft on the server.
+ */
 const correctionKey = (block: BlockLike): string => `correction.${blockKey(block)}`;
 
 /** Storage is untrusted (it is the user's own localStorage): validate, never cast. */
@@ -192,6 +206,25 @@ interface OriginalLike {
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/**
+ * The Correct column PINS to the left edge of the scrolling table.
+ *
+ * Moving it to column one made the action visible at the block's default width,
+ * and pushed the money out: Amount and Balance fell off the right of a register
+ * whose whole job is to show a running balance. A register you must scroll to
+ * read the balance of is a worse default than one you must scroll to act on, so
+ * the column stops competing for width — it stays put while the numbers keep
+ * theirs. The background is opaque (`--card`, the block's own) so rows do not
+ * show through as they pass underneath, and the inset rule is the pinned edge.
+ */
+const stickyCellStyle: React.CSSProperties = {
+  position: 'sticky',
+  left: 0,
+  zIndex: 1,
+  background: 'hsl(var(--card))',
+  boxShadow: 'inset -1px 0 0 hsl(var(--border))',
+};
+
 /** `"cleared,reconciled"` ⇄ the typed state list (unknown words are dropped). */
 function parseClearedProp(raw: string): ReportClearedState[] {
   const wanted = raw
@@ -202,8 +235,15 @@ function parseClearedProp(raw: string): ReportClearedState[] {
   return kept.length > 0 ? [...kept] : [...ALL_CLEARED_STATES];
 }
 
-export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   const data = useLedgerReport();
+  // MAY THIS READER WRITE? Not "is this widget frozen?". A custom block on a
+  // read-only page is deliberately handed an editor with `readOnly: false` so it
+  // stays operable for the reader, so `editor.readOnly` is FALSE on exactly the
+  // page where every correction affordance must be off — the host passes the
+  // document's real lock separately. (Optional, and defaulted, so the block
+  // still renders correctly when driven directly by a test harness.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const props = readProps(block);
   const [accountId, setAccountId] = React.useState<string>(() => readString(props, PROP_ACCOUNT));
   const [from, setFrom] = React.useState<string>(() => readString(props, PROP_FROM));
@@ -234,17 +274,39 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
   // Where focus goes back to when a correction fails or is dismissed — the
   // control the user actually pressed, not the top of the document.
   const correctRefs = React.useRef(new Map<string, HTMLButtonElement | null>());
+  const rowRefs = React.useRef(new Map<string, HTMLTableRowElement | null>());
   const lastAttemptRef = React.useRef<string | null>(null);
 
   const forgetCorrection = React.useCallback((): void => {
     setCorrection(null);
+    // Best-effort by contract: plugin storage swallows quota/private-mode
+    // failures. A private window can therefore lose the panel across a reload
+    // with the reversal already permanent — the books stay correct and the
+    // draft is still a draft, but the connection between them is only on
+    // screen. Worth a real answer if private-mode use turns out to matter.
     api.storage.set(storageKey, null);
   }, [storageKey]);
 
-  /** Hand focus back to the Correct button the flow started from. */
+  /**
+   * Hand focus back to where the flow started.
+   *
+   * The Correct button is the destination whenever it still exists — but after
+   * a SUCCESSFUL correction it does not: the originating entry is void now, so
+   * its row renders the disabled variant and the enabled button has unmounted
+   * (React having already called its ref with `null`). Every exit from a
+   * successful correction went through that hole and landed on `<body>`. The
+   * row itself is the fallback: it is still there, it is what the user was
+   * looking at, and its content is what a screen reader should read back.
+   */
   const returnFocus = React.useCallback((): void => {
     const id = lastAttemptRef.current;
-    if (id !== null) correctRefs.current.get(id)?.focus();
+    if (id === null) return;
+    const button = correctRefs.current.get(id);
+    if (button !== null && button !== undefined) {
+      button.focus();
+      return;
+    }
+    rowRefs.current.get(id)?.focus();
   }, []);
 
   const update = (key: string, value: string, apply: (v: string) => void): void => {
@@ -274,38 +336,62 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
 
   // A restored panel is checked against the books exactly once, as soon as they
   // are readable: the stored draft may have been posted or emptied elsewhere.
+  //
+  // The draft is resolved by an EXACT LOOKUP, never by scanning
+  // `data.transactions`: that list is a capped, newest-first page, so a bulk
+  // import can push a perfectly alive draft off the end of it — and "absent
+  // from the page" would then be reported as "the corrected copy is gone",
+  // which is an affirmative false claim about the books. A 404 is an answer;
+  // a miss in a truncated list is not.
   React.useEffect(() => {
     if (data.state !== 'ready' || !restoreCheck.current || correction === null) return;
     restoreCheck.current = false;
-    const stored = data.transactions.find((tx) => tx.id === correction.draftId);
-    if (stored !== undefined && stored.state === 'draft') return;
-    forgetCorrection();
-    if (stored !== undefined) {
-      // Posted while we were away — the correction finished, so say so rather
-      // than silently dropping the panel.
-      setDone({originalEntryNo: correction.originalEntryNo, reversalEntryNo: correction.reversalEntryNo, correctedEntryNo: stored.entryNo});
-      return;
-    }
-    // DELETED while we were away — the only path that ends with a permanent
-    // reversal, no copy and (until now) no message. It is reachable by ordinary
-    // use: emptying the hosted entry makes the journal block delete its draft.
-    setActionError({
-      lead: `The reversal of ${nameEntry(correction.originalEntryNo)} is on the books, but the corrected copy is gone`,
-      detail: 'Nothing else changed — enter the corrected version in a journal entry block.',
-      code: null,
-    });
-  }, [data.state, data.transactions, correction, forgetCorrection]);
+    let cancelled = false;
+    void (async () => {
+      let stored: {state: string; entryNo: number | null} | null;
+      try {
+        stored = (await api.ledger.getTransaction(correction.draftId)) as {state: string; entryNo: number | null} | null;
+      } catch {
+        // Could not ask. Say nothing and keep the panel: an unanswered question
+        // is not evidence that the copy is gone.
+        return;
+      }
+      if (cancelled) return;
+      if (stored !== null && stored.state === 'draft') return;
+      forgetCorrection();
+      if (stored !== null) {
+        // Posted while we were away — the correction finished, so say so rather
+        // than silently dropping the panel.
+        setDone({originalEntryNo: correction.originalEntryNo, reversalEntryNo: correction.reversalEntryNo, correctedEntryNo: stored.entryNo});
+        return;
+      }
+      // DELETED while we were away — the only path that ends with a permanent
+      // reversal, no copy and (until now) no message. It is reachable by
+      // ordinary use: emptying the hosted entry makes the journal block delete
+      // its draft.
+      setActionError({
+        lead: `The reversal of ${nameEntry(correction.originalEntryNo)} is on the books, but the corrected copy is gone`,
+        detail: 'Nothing else changed — enter the corrected version in a journal entry block.',
+        code: null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data.state, correction, forgetCorrection]);
 
   // The correction is FINISHED when its draft stops being a draft. The books
   // themselves say so (the live subscription already re-reads them on every
   // mutation), which is also where the corrected entry's number comes from — the
   // panel never has to be told by the journal block it is hosting.
   //
-  // A draft that has VANISHED while the panel is open is deliberately not
-  // treated as finished: the user may have emptied it mid-edit, and the journal
-  // block handles that by starting a fresh one. Closing the panel underneath
-  // them would look like a crash. (A draft that was already gone when the panel
-  // was RESTORED is the other case, handled above and reported below.)
+  // A draft ABSENT from this list is deliberately a no-op — twice over. The
+  // user may have emptied it mid-edit (the journal block handles that by
+  // starting a fresh one, and closing the panel underneath them would look like
+  // a crash), and the list is a capped page, so absence is not evidence of
+  // deletion anyway. Only a state CHANGE the list positively reports is acted
+  // on. (A draft already gone when the panel was RESTORED is the other case,
+  // settled above by an exact lookup.)
   React.useEffect(() => {
     if (correction === null) return;
     const draft = data.transactions.find((tx) => tx.id === correction.draftId);
@@ -409,8 +495,8 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
    */
   const correctionDraftId = correction === null ? null : correction.draftId;
   const hosted = React.useMemo(
-    () => (correctionDraftId === null ? null : correctionHost(correctionDraftId, editor.readOnly)),
-    [correctionDraftId, editor.readOnly],
+    () => (correctionDraftId === null ? null : correctionHost(correctionDraftId, pageLocked)),
+    [correctionDraftId, pageLocked],
   );
 
   /** Move to the other half of a reversal pair, and say where you landed. */
@@ -450,7 +536,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
         <h3 style={titleStyle}>
           <span aria-hidden="true">📒 </span>Account register
         </h3>
-        <SetupPrompt label="Set up books" readOnly={editor.readOnly} onDone={data.reload} />
+        <SetupPrompt label="Set up books" readOnly={pageLocked} onDone={data.reload} />
       </div>
     );
   }
@@ -461,7 +547,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
   // ask `correctionBlocker` (it also answers the row-specific ones and settles
   // precedence); this only decides where the SENTENCE is rendered.
   const correctionOpen = correction !== null || busy;
-  const blockBlocker: CorrectionBlocker | null = editor.readOnly ? 'read-only' : correctionOpen ? 'correction-open' : null;
+  const blockBlocker: CorrectionBlocker | null = pageLocked ? 'read-only' : correctionOpen ? 'correction-open' : null;
 
   return (
     <div data-ledger-register contentEditable={false} style={frameStyle}>
@@ -526,16 +612,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
           prohibition with no next step is what LGR-4 shipped and LGR-6 is here
           to finish — except on a read-only page, where instructing the reader to
           use a control they cannot press would be worse than saying nothing. */}
-      <div data-ledger-immutable style={mutedStyle}>{describeImmutability(editor.readOnly)}</div>
-
-      {/* The BLOCK-WIDE off reason, said once. It is identical on every row, so
-          forty copies of it in forty cells was forty repetitions of one fact and
-          roughly double the row height. Every disabled button points here. */}
-      {blockBlocker !== null && (
-        <div id={blockReasonId} data-ledger-correct-why={blockBlocker} style={mutedStyle}>
-          {describeCorrectionBlocker(blockBlocker, null)}
-        </div>
-      )}
+      <div data-ledger-immutable style={mutedStyle}>{describeImmutability(pageLocked)}</div>
 
       {done !== null && (
         <div data-ledger-correction-done role="status" aria-live="polite" style={noticeStyle('quiet')}>
@@ -631,7 +708,21 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
                 one person who needed it — someone bailing out — never scrolled
                 far enough to read it. */}
             <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
-              <button type="button" data-ledger-correction-close aria-describedby={closeWhyId} style={buttonStyle} onClick={forgetCorrection}>
+              <button
+                type="button"
+                data-ledger-correction-close
+                aria-describedby={closeWhyId}
+                style={buttonStyle}
+                onClick={() => {
+                  forgetCorrection();
+                  // Bailing out is BY CONSTRUCTION always post-reversal, so this
+                  // path lost focus 100% of the time. Not folded into
+                  // `forgetCorrection`: the auto-close path calls that too and
+                  // then focuses the done notice, and two focus moves in one
+                  // tick is a race.
+                  returnFocus();
+                }}
+              >
                 Close
               </button>
               <span id={closeWhyId} data-ledger-correction-close-why style={{...mutedStyle, maxWidth: '14rem'}}>
@@ -675,184 +766,213 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
               )}
             </EmptyState>
           ) : (
-            <TableRegion label="Account register table">
-              <table style={tableStyle}>
-                <caption style={{...mutedStyle, textAlign: 'left', paddingBottom: '0.25rem'}}>
-                  {/* What the columns actually SHOW. "Debit-positive" is the
+            <>
+              {/* The BLOCK-WIDE off reason, said once, IMMEDIATELY above the
+                  buttons it explains. Identical on every row, so forty copies in
+                  forty cells was forty repetitions of one fact and roughly double
+                  the row height — but up with the other notices it sat an entire
+                  journal form away from the controls it was about. Every disabled
+                  button points here by `aria-describedby`. */}
+              {blockBlocker !== null && (
+                <div id={blockReasonId} data-ledger-correct-why={blockBlocker} style={mutedStyle}>
+                  {describeCorrectionBlocker(blockBlocker, null)}
+                </div>
+              )}
+              <TableRegion label="Account register table">
+                <table style={tableStyle}>
+                  <caption style={{...mutedStyle, textAlign: 'left', paddingBottom: '0.25rem'}}>
+                    {/* What the columns actually SHOW. "Debit-positive" is the
                       fold's internal sign convention and no signed number
                       appears on screen any more — every amount is a magnitude
                       with its side marked, so the caption must describe that. */}
-                  <AccountName name={register.accountName} /> · debits and credits are marked Dr/Cr; this account is {register.normalSide}-normal.
-                </caption>
-                <thead>
-                  <tr>
-                    {/* FIRST, not last. At the block's default width the column
+                    <AccountName name={register.accountName} /> · debits and credits are marked Dr/Cr; this account is {register.normalSide}-normal.
+                  </caption>
+                  <thead>
+                    <tr>
+                      {/* FIRST, not last. At the block's default width the column
                         was clipped to "CORRE" — and once the counterpart chips
                         widened the rows it fell off the scroll entirely. The one
                         control this feature exists to ship cannot be the one
                         thing you have to scroll to find. */}
-                    <th scope="col" style={thStyle}>
+                      <th scope="col" style={{...thStyle, ...stickyCellStyle}}>
                     Correct
-                    </th>
-                    <th scope="col" style={thStyle}>
+                      </th>
+                      <th scope="col" style={thStyle}>
                     Entry
-                    </th>
-                    <th scope="col" style={thStyle}>
+                      </th>
+                      <th scope="col" style={thStyle}>
                     Date
-                    </th>
-                    <th scope="col" style={thStyle}>
+                      </th>
+                      <th scope="col" style={thStyle}>
                     Description
-                    </th>
-                    <th scope="col" style={thStyle}>
+                      </th>
+                      <th scope="col" style={thStyle}>
                     Contra account
-                    </th>
-                    <th scope="col" style={thStyle}>
+                      </th>
+                      <th scope="col" style={thStyle}>
                     Cleared
-                    </th>
-                    <th scope="col" style={numericHeadStyle}>
+                      </th>
+                      <th scope="col" style={numericHeadStyle}>
                     Amount
-                    </th>
-                    <th scope="col" style={numericHeadStyle}>
+                      </th>
+                      <th scope="col" style={numericHeadStyle}>
                     Balance
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr data-ledger-opening>
-                    <th scope="row" colSpan={7} style={{...tdStyle, ...mutedStyle, textAlign: 'left', fontWeight: 400}}>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr data-ledger-opening>
+                      <td style={{...tdStyle, ...stickyCellStyle}} />
+                      <th scope="row" colSpan={6} style={{...tdStyle, ...mutedStyle, textAlign: 'left', fontWeight: 400}}>
                     Opening balance{register.filter.from !== null ? ` before ${register.filter.from}` : ''}
-                    </th>
-                    <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle}}>
-                      <SideAmount minor={register.openingMinor} />
-                    </td>
-                  </tr>
-                  {register.rows.map((row) => {
-                    const blocker = correctionBlocker(row, {readOnly: editor.readOnly, correctionOpen});
-                    // A block-wide reason is stated once above the table; only a
-                    // row-specific one is rendered in the cell.
-                    const rowReason = blocker !== null && !isBlockWideBlocker(blocker) ? blocker : null;
-                    const reasonId = rowReason !== null ? `${blockReasonId}-${row.postingId}` : blockReasonId;
-                    const counterpart = row.counterpart;
-                    const jump = counterpart !== null && counterpart.where === 'visible' ? counterpart.postingId : null;
-                    return (
-                      <tr
-                        key={row.postingId}
-                        data-ledger-register-row={row.postingId}
-                        {...(row.reversed ? {'data-ledger-reversed': true} : {})}
-                        {...(highlight === row.postingId ? {'data-ledger-highlight': 'true'} : {})}
-                        // A cue at 1.13:1 is not a cue; at 0.15 it reads, and it
-                        // CLEARS when the link it followed loses focus, so the
-                        // register never sits in a tinted state nobody can explain.
-                        style={highlight === row.postingId ? {background: 'hsl(var(--foreground) / 0.15)'} : undefined}
-                      >
-                        {/* The button stays on ONE line and the column takes the
+                      </th>
+                      <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle}}>
+                        <SideAmount minor={register.openingMinor} />
+                      </td>
+                    </tr>
+                    {register.rows.map((row) => {
+                      const blocker = correctionBlocker(row, {readOnly: pageLocked, correctionOpen});
+                      // A block-wide reason is stated once above the table; only a
+                      // row-specific one is rendered in the cell.
+                      const rowReason = blocker !== null && !isBlockWideBlocker(blocker) ? blocker : null;
+                      const reasonId = rowReason !== null ? `${blockReasonId}-${row.postingId}` : blockReasonId;
+                      const counterpart = row.counterpart;
+                      const jump = counterpart !== null && counterpart.where === 'visible' ? counterpart.postingId : null;
+                      return (
+                        <tr
+                          key={row.postingId}
+                          // Focus lands HERE when the flow's Correct button has
+                          // gone (the row is void after its own correction). It is
+                          // the thing the user was looking at, and its content is
+                          // what a screen reader should read back.
+                          tabIndex={-1}
+                          ref={(el) => {
+                            rowRefs.current.set(row.transactionId, el);
+                          }}
+                          data-ledger-register-row={row.postingId}
+                          {...(row.reversed ? {'data-ledger-reversed': true} : {})}
+                          {...(highlight === row.postingId ? {'data-ledger-highlight': 'true'} : {})}
+                          // A cue at 1.13:1 is not a cue; at 0.15 it reads, and it
+                          // CLEARS when the link it followed loses focus, so the
+                          // register never sits in a tinted state nobody can explain.
+                          style={highlight === row.postingId ? {background: 'hsl(var(--foreground) / 0.15)'} : undefined}
+                        >
+                          {/* The button stays on ONE line and the column takes the
                             width it needs — the table scrolls inside its own
                             region, and a three-line button turned every row of
                             the register into a paragraph. The REASON wraps,
                             bounded, because it is a sentence. */}
-                        <td style={{...tdStyle, whiteSpace: 'nowrap'}}>
-                          {blocker === null ? (
-                            <button
-                              type="button"
-                              data-ledger-correct={row.transactionId}
-                              // The visible text is a prefix of the accessible
-                              // name (WCAG 2.5.3): the rest only DISAMBIGUATES
-                              // the twenty identical buttons a screen-reader user
-                              // would otherwise hear in a row.
-                              aria-label={`Correct this entry — ${nameEntry(row.entryNo)}`}
-                              style={buttonStyle}
-                              ref={(el) => {
-                                correctRefs.current.set(row.transactionId, el);
-                              }}
-                              onClick={() => setConfirming(row)}
-                            >
+                          <td style={{...tdStyle, ...stickyCellStyle, whiteSpace: 'nowrap'}}>
+                            {blocker === null ? (
+                              <button
+                                type="button"
+                                data-ledger-correct={row.transactionId}
+                                // The visible text is a prefix of the accessible
+                                // name (WCAG 2.5.3): the rest only DISAMBIGUATES
+                                // the twenty identical buttons a screen-reader user
+                                // would otherwise hear in a row.
+                                aria-label={`Correct this entry — ${nameEntry(row.entryNo)}`}
+                                style={buttonStyle}
+                                ref={(el) => {
+                                  correctRefs.current.set(row.transactionId, el);
+                                }}
+                                onClick={() => setConfirming(row)}
+                              >
                               Correct
-                            </button>
-                          ) : (
-                            <>
-                              <button type="button" data-ledger-correct-off={blocker} style={disabledButtonStyle} disabled aria-describedby={reasonId}>
-                                Correct
                               </button>
-                              {/* `minWidth` on the reason because the cell is
-                                  `nowrap` for the button — without it the column
-                                  is only as wide as "Correct" and the sentence
-                                  stacks one or two words to a line. */}
-                              {rowReason !== null && (
-                                <div
-                                  id={reasonId}
-                                  data-ledger-correct-why={rowReason}
-                                  style={{...mutedStyle, ...wrapStyle, marginTop: '0.2rem', whiteSpace: 'normal', minWidth: '9rem', maxWidth: '13rem'}}
-                                >
-                                  {describeCorrectionBlocker(rowReason, counterpart)}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </td>
-                        <td style={{...tdStyle, ...mutedStyle, fontVariantNumeric: 'tabular-nums'}}>{row.entryNo === null ? '—' : `#${row.entryNo}`}</td>
-                        <td style={{...tdStyle, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums'}}>{row.date}</td>
-                        <td style={{...tdStyle, ...wrapStyle}}>
-                          {row.description === '' ? <span style={mutedStyle}>(no description)</span> : row.description}
-                          {row.reversed && (
-                            <span style={{...mutedStyle, marginLeft: '0.35rem'}}>
+                            ) : (
+                              <>
+                                <button type="button" data-ledger-correct-off={blocker} style={disabledButtonStyle} disabled aria-describedby={reasonId}>
+                                Correct
+                                </button>
+                                {/* No `minWidth`: the correction column is pinned,
+                                  so every pixel it claims is one the running
+                                  balance loses at the default width. The reason
+                                  wraps under the button instead. */}
+                                {rowReason !== null && (
+                                  <div
+                                    id={reasonId}
+                                    data-ledger-correct-why={rowReason}
+                                    style={{...mutedStyle, ...wrapStyle, marginTop: '0.2rem', whiteSpace: 'normal', maxWidth: '12rem'}}
+                                  >
+                                    {describeCorrectionBlocker(rowReason, counterpart)}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </td>
+                          <td style={{...tdStyle, ...mutedStyle, fontVariantNumeric: 'tabular-nums'}}>{row.entryNo === null ? '—' : `#${row.entryNo}`}</td>
+                          <td style={{...tdStyle, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums'}}>{row.date}</td>
+                          <td style={{...tdStyle, ...wrapStyle}}>
+                            {row.description === '' ? <span style={mutedStyle}>(no description)</span> : row.description}
+                            {row.reversed && (
+                              <span style={{...mutedStyle, marginLeft: '0.35rem'}}>
                             (reversed)
-                              <SrOnly> — this entry was reversed; its reversing entry appears in this register too.</SrOnly>
-                            </span>
-                          )}
-                          {/* The pair, NAVIGABLE. "(reversed)" alone leaves the
+                                <SrOnly> — this entry was reversed; its reversing entry appears in this register too.</SrOnly>
+                              </span>
+                            )}
+                            {/* The pair, NAVIGABLE. "(reversed)" alone leaves the
                               reader to find the other half by eye; the two rows
                               point at each other, and a counterpart the filter
                               or the read cannot show says so instead of offering
                               a control that goes nowhere. */}
-                          {counterpart !== null && (
-                            <div data-ledger-counterpart={counterpart.relation} style={{marginTop: '0.15rem'}}>
-                              {jump !== null ? (
-                                <button
-                                  type="button"
-                                  ref={(el) => {
-                                    counterpartRefs.current.set(row.postingId, el);
-                                  }}
-                                  data-ledger-counterpart-link={jump}
-                                  // One line: "Reversed by entry #2" broken over
-                                  // three lines reads as a paragraph, not a link.
-                                  style={{...buttonStyle, ...mutedStyle, padding: '0.1rem 0.4rem', cursor: 'pointer', whiteSpace: 'nowrap'}}
-                                  onClick={() => jumpToCounterpart(jump)}
-                                  onBlur={() => setHighlight((current) => (current === row.postingId ? null : current))}
-                                >
-                                  {/* The glyph is decoration; inside the
-                                      accessible name it is read aloud as "up
-                                      down arrow" in the middle of a sentence. */}
-                                  {describeCounterpart(counterpart)} <span aria-hidden="true">↕</span>
-                                </button>
-                              ) : (
-                                <span style={mutedStyle}>{describeCounterpart(counterpart)}</span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td data-ledger-contra style={{...tdStyle, ...wrapStyle}}><AccountName name={row.contra} /></td>
-                        <td style={{...tdStyle, ...mutedStyle}}>{CLEARED_LABEL[row.cleared]}</td>
-                        <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
-                        <td data-ledger-running style={numericStyle}><SideAmount minor={row.runningMinor} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr data-ledger-register-totals>
-                    <th scope="row" colSpan={6} style={{...tdStyle, textAlign: 'left', fontWeight: 600, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
+                            {counterpart !== null && (
+                              <div data-ledger-counterpart={counterpart.relation} style={{marginTop: '0.15rem'}}>
+                                {jump !== null ? (
+                                  <button
+                                    type="button"
+                                    ref={(el) => {
+                                      counterpartRefs.current.set(row.postingId, el);
+                                    }}
+                                    data-ledger-counterpart-link={jump}
+                                    // Allowed to WRAP. As `nowrap` it set an
+                                    // unshrinkable ~140px floor under the
+                                    // description column, and the running balance
+                                    // paid for it by falling off the right edge.
+                                    style={{...buttonStyle, ...mutedStyle, padding: '0.1rem 0.4rem', cursor: 'pointer', textAlign: 'left'}}
+                                    onClick={() => jumpToCounterpart(jump)}
+                                    onBlur={() => setHighlight((current) => (current === row.postingId ? null : current))}
+                                  >
+                                    {/* No glyph. It was decoration that had to be
+                                      `aria-hidden` to stop being read aloud as
+                                      "up down arrow" mid-sentence, and once the
+                                      chip was allowed to wrap it bought itself a
+                                      third line. The sentence names the
+                                      destination; the button shape says it is a
+                                      control. */}
+                                    {describeCounterpart(counterpart)}
+                                  </button>
+                                ) : (
+                                  <span style={mutedStyle}>{describeCounterpart(counterpart)}</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td data-ledger-contra style={{...tdStyle, ...wrapStyle}}><AccountName name={row.contra} /></td>
+                          <td style={{...tdStyle, ...mutedStyle}}>{CLEARED_LABEL[row.cleared]}</td>
+                          <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
+                          <td data-ledger-running style={numericStyle}><SideAmount minor={row.runningMinor} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr data-ledger-register-totals>
+                      <td style={{...tdStyle, ...stickyCellStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}} />
+                      <th scope="row" colSpan={5} style={{...tdStyle, textAlign: 'left', fontWeight: 600, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
                     Closing balance
-                    </th>
-                    <td style={{...numericStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none', ...mutedStyle}}>
-                      {formatAmount(register.totalDebitMinor)} Dr / {formatAmount(register.totalCreditMinor)} Cr
-                    </td>
-                    <td data-ledger-closing style={{...numericStyle, fontWeight: 600, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
-                      <SideAmount minor={register.closingMinor} />
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </TableRegion>
+                      </th>
+                      <td style={{...numericStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none', ...mutedStyle}}>
+                        {formatAmount(register.totalDebitMinor)} Dr / {formatAmount(register.totalCreditMinor)} Cr
+                      </td>
+                      <td data-ledger-closing style={{...numericStyle, fontWeight: 600, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
+                        <SideAmount minor={register.closingMinor} />
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </TableRegion>
+            </>
           )}
 
           {register.exists && (

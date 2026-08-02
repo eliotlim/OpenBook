@@ -1,7 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
-import {closeAccount, ensureAccount, getTransaction, pageWithBlock, postEntry, type ApiTransaction} from './ledgerApi';
+import {closeAccount, draftCount, ensureAccount, getTransaction, pageWithBlock, postEntry, type ApiTransaction} from './ledgerApi';
 
 /**
  * LGR-6: immutability and the escape hatch, end to end — the REAL first-party
@@ -60,7 +60,7 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
   await expect(immutable).toBeVisible();
   await expect(immutable).toContainText('Posted entries are permanent');
   await expect(immutable).toContainText('cannot be edited or deleted');
-  await expect(immutable).toContainText('Correct this entry');
+  await expect(immutable).toContainText('press “Correct” on its row');
   // …and there is no edit affordance on the row to discover by failure.
   await expect(rows.locator('input')).toHaveCount(0);
   await expect(rows.locator('select')).toHaveCount(0);
@@ -164,16 +164,23 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
   // and names all three entries in the chain.
   const doneNotice = page.locator('[data-ledger-correction-done]');
   await expect(doneNotice).toBeVisible();
-  await expect(page.locator('[data-ledger-correction-dismiss]')).toBeFocused();
   await expect(doneNotice).toContainText('Corrected — entry #');
   await expect(doneNotice).toContainText('and your corrected copy is posted as entry #');
   await expect(panel).toHaveCount(0);
+  await expect(page.locator('[data-ledger-correction-dismiss]')).toBeFocused();
 
   // END TO END: three entries on the books, and the account reads the corrected
   // figure — not the wrong one, and not both added together.
   await expect(rows).toHaveCount(3);
   await expect(page.locator('[data-ledger-closing]')).toHaveText('45.00 Cr');
   expect(await bankAmountsFor(request, bank)).toEqual(['-4200', '-4500', '4200'].sort());
+
+  // …and pressing Dismiss lands somewhere real. The Correct button the flow
+  // started from has unmounted with its row's enabled branch (the entry is void
+  // now), so the ROW takes focus — this exit used to drop to the document body.
+  await page.locator('[data-ledger-correction-dismiss]').click();
+  await expect(doneNotice).toHaveCount(0);
+  await expect(page.locator('[data-ledger-register-row][data-ledger-reversed]')).toBeFocused();
 
   // Correcting a REVERSAL is allowed — a reversal is an ordinary posted entry,
   // and correcting one is how an over-eager correction is itself undone.
@@ -240,4 +247,102 @@ test('a reversal into a CLOSED account is refused with the typed error, legibly,
   // Dismissing hands focus back to the control the user actually pressed.
   await page.locator('[data-ledger-correct-error-dismiss]').click();
   await expect(page.locator(`[data-ledger-correct="${first.id}"]`)).toBeFocused();
+});
+
+test('closing a correction hands focus back to the row it came from, and leaves the copy as a draft', {tag: ['@ledger']}, async ({page, request}) => {
+  const uniq = `${Date.now()}`;
+  const bank = await ensureAccount(request, `CL${uniq}:Assets:Bank`, 'asset');
+  const expense = await ensureAccount(request, `CL${uniq}:Expenses:Hosting`, 'expense');
+  const wrong = await postEntry(request, {
+    date: '2026-03-04',
+    description: 'Bail out',
+    postings: [
+      {accountId: bank, amountMinor: -4200},
+      {accountId: expense, amountMinor: 4200},
+    ],
+  });
+
+  await ensureLedgerPlugin(page);
+  await pageWithBlock(page, request, `Bail ${uniq}`, '/register', 'Account register', '[data-ledger-register]');
+  await page.locator('[data-ledger-register-account]').selectOption({label: `CL${uniq}:Assets:Bank`});
+
+  const before = await draftCount(request);
+  await page.locator(`[data-ledger-correct="${wrong.id}"]`).click();
+  await page.locator('[data-ledger-correct-go]').click();
+  await expect(page.locator('[data-ledger-correction]')).toBeVisible();
+
+  // Bailing out is BY CONSTRUCTION always post-reversal — the button the flow
+  // started from has unmounted with its row, so this exit dropped focus to the
+  // document body every time.
+  await page.locator('[data-ledger-correction-close]').click();
+  await expect(page.locator('[data-ledger-correction]')).toHaveCount(0);
+  await expect(page.locator('[data-ledger-register-row][data-ledger-reversed]')).toBeFocused();
+
+  // …and the consequence the Close button advertised is what actually happened:
+  // the copy is still a draft, out of the report and counted as excluded.
+  expect(await draftCount(request)).toBe(before + 1);
+  await expect(page.locator('[data-ledger-drafts-excluded]')).toContainText('1 draft entry excluded');
+  await expect(page.locator('[data-ledger-closing]')).toHaveText('0.00');
+});
+
+test('on a read-only page the hatch is OFF and the block stops advertising it', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
+  const uniq = `${Date.now()}`;
+  const bank = await ensureAccount(request, `RO${uniq}:Assets:Bank`, 'asset');
+  const expense = await ensureAccount(request, `RO${uniq}:Expenses:Hosting`, 'expense');
+  await postEntry(request, {
+    date: '2026-03-04',
+    description: 'Read-only bill',
+    postings: [
+      {accountId: bank, amountMinor: -4200},
+      {accountId: expense, amountMinor: 4200},
+    ],
+  });
+
+  // Install the plugin and put the block on a page while it is still writable.
+  await ensureLedgerPlugin(page);
+  const pageId = await pageWithBlock(page, request, `Read only ${uniq}`, '/register', 'Account register', '[data-ledger-register]');
+  await page.locator('[data-ledger-register-account]').selectOption({label: `RO${uniq}:Assets:Bank`});
+  await expect(page.locator('[data-ledger-register-row]')).toHaveCount(1);
+
+  // The block and its chosen account are saved by a DEBOUNCED write, and the
+  // reload below only means anything once they have landed — reloading first
+  // gives a page with no block on it at all.
+  await expect
+    .poll(async () => JSON.stringify(await (await request.get(`${SERVER}/api/pages/${pageId}`)).json()).includes(bank), {timeout: 15_000})
+    .toBe(true);
+
+  // Present the instance as guest-read-only to this context only, and reload.
+  await page.route('**/api/instance', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const real = await route.fetch();
+    const info = (await real.json()) as Record<string, unknown>;
+    await route.fulfill({json: {...info, guestAccess: 'read'}});
+  });
+  await page.goto(`/?page=${pageId}`);
+  await expect(page.locator('.obe-root')).toHaveClass(/obe-readonly/);
+  // The READ side is untouched — the report still renders its rows for a reader.
+  await expect(page.locator('[data-ledger-register-row]')).toHaveCount(1);
+
+  // THE POINT. A custom block on a read-only page is deliberately handed an
+  // editor with `readOnly: false` so interactive widgets stay live for the
+  // reader — so the block asks the host for the DOCUMENT's lock (`pageReadOnly`)
+  // instead. Without that, every button below renders ENABLED on the one page
+  // where none of them can do anything.
+  await expect(page.locator('[data-ledger-correct]')).toHaveCount(0);
+  const off = page.locator('[data-ledger-correct-off="read-only"]');
+  await expect(off).toHaveCount(1);
+  await expect(off).toBeDisabled();
+  await expect(off).toHaveCSS('border-style', 'dashed');
+
+  // The reason is stated once, and the disabled button points at it.
+  const why = page.locator('[data-ledger-correct-why="read-only"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('This page is read-only');
+  await expect(off).toHaveAttribute('aria-describedby', (await why.getAttribute('id')) ?? '');
+
+  // …and the standing notice stops telling a reader who cannot write to press a
+  // control they cannot press, while still stating the rule.
+  const immutable = page.locator('[data-ledger-immutable]');
+  await expect(immutable).toContainText('Posted entries are permanent');
+  await expect(immutable).not.toContainText('Correct');
 });

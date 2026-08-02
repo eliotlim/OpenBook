@@ -633,13 +633,14 @@ export function buildAccountRegister(
  * or the truncated read never loaded is reported as such, so the UI can say
  * where it went instead of offering a link into nothing.
  *
- * ONE HOP, NOT THE WHOLE CHAIN. Each row points at ITS OWN counterpart. On a
- * chain (an entry reversed, and the reversal itself reversed) that means the
- * middle link shows its `reversed-by` face — it is void, and being void is the
- * more urgent fact — so walking from the head lands on the middle and the next
- * hop continues outward rather than returning. Every label is individually true
- * and navigation terminates; carrying both faces of a middle link is a display
- * question this task deliberately did not open.
+ * ONE HOP, NOT THE WHOLE CHAIN. Each row points at ITS OWN counterpart, and no
+ * row points backwards past it. On a chain (an entry reversed, and the reversal
+ * itself reversed) the middle link shows its `reversed-by` face — it is void,
+ * and being void is the more urgent fact — so walking from the head reaches the
+ * middle and then the tail, while the middle and the tail stay mutually linked
+ * as the ordinary pair they are. Every label is individually true; carrying both
+ * faces of a middle link is a display question this task deliberately did not
+ * open.
  */
 function linkReversalPairs(rows: RegisterRow[], transactions: readonly ReportTransaction[]): void {
   if (rows.length === 0) return;
@@ -780,7 +781,10 @@ export function describeCorrectionBlocker(blocker: CorrectionBlocker, counterpar
 export function describeImmutability(readOnly: boolean): string {
   const rule = 'Posted entries are permanent — they cannot be edited or deleted, here or anywhere else.';
   if (readOnly) return rule;
-  return `${rule} To fix one, use “Correct this entry”: the original stays on the books, a reversal is posted against it, and you get an editable copy to correct.`;
+  // Quotes the button's ACTUAL label. It read "Correct this entry" while every
+  // control on screen said "Correct" — an instruction to press something that
+  // is not there.
+  return `${rule} To fix one, press “Correct” on its row: the original stays on the books, a reversal is posted against it, and you get an editable copy to correct.`;
 }
 
 /** How an entry is named in the correction copy (`entry #12`, or a fallback). */

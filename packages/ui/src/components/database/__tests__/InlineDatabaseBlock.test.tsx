@@ -19,7 +19,7 @@ describe('inline database block (dbview)', () => {
     const doc = createDoc([{id: 'd', type: 'dbview', props: {}}]);
     const block: BlockMap = rootBlocks(doc).get(0);
     const editor = {doc, readOnly: false} as unknown as BlockEditorController;
-    render(<Render block={block} editor={editor} />);
+    render(<Render block={block} editor={editor} pageReadOnly={false} />);
     expect(screen.getByText('No database linked')).toBeTruthy();
   });
 });
