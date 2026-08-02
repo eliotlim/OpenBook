@@ -427,6 +427,14 @@ export interface RegisterCounterpart {
   /** The counterpart's posting id on THIS account — non-null iff `visible`. */
   postingId: string | null;
   where: CounterpartWhere;
+  /**
+   * The counterpart's own state, or `null` when it was never loaded.
+   *
+   * Load-bearing on a chain of three or more: "correct entry #2 instead" is
+   * dead-end advice when #2 has itself been reversed, and a chain is exactly
+   * what this epic deliberately made reachable.
+   */
+  state: ReportTransactionState | null;
 }
 
 export interface RegisterRow {
@@ -624,6 +632,14 @@ export function buildAccountRegister(
  * actual VISIBLE ROW gets a posting id to jump to; a counterpart the filter hid
  * or the truncated read never loaded is reported as such, so the UI can say
  * where it went instead of offering a link into nothing.
+ *
+ * ONE HOP, NOT THE WHOLE CHAIN. Each row points at ITS OWN counterpart. On a
+ * chain (an entry reversed, and the reversal itself reversed) that means the
+ * middle link shows its `reversed-by` face — it is void, and being void is the
+ * more urgent fact — so walking from the head lands on the middle and the next
+ * hop continues outward rather than returning. Every label is individually true
+ * and navigation terminates; carrying both faces of a middle link is a display
+ * question this task deliberately did not open.
  */
 function linkReversalPairs(rows: RegisterRow[], transactions: readonly ReportTransaction[]): void {
   if (rows.length === 0) return;
@@ -633,9 +649,11 @@ function linkReversalPairs(rows: RegisterRow[], transactions: readonly ReportTra
   for (const tx of reported) {
     byId.set(tx.id, tx);
     const reverses = tx.reverses ?? null;
-    // First writer wins: an original can only be reversed once (the store voids
-    // it in the same transaction), so a second claimant is damaged data and must
-    // not silently replace the link the reader already has.
+    // First IN THE READ wins (not oldest — the server returns transactions
+    // newest-entered first). An original can only be reversed once, because the
+    // store voids it inside the same transaction, so a second claimant is
+    // damaged data; the rule exists only so the link cannot flip between
+    // renders, not to adjudicate which claim is true.
     if (reverses !== null && reverses !== '' && !reversalOf.has(reverses)) reversalOf.set(reverses, tx);
   }
   // The first visible row per transaction — where a jump lands.
@@ -650,10 +668,9 @@ function linkReversalPairs(rows: RegisterRow[], transactions: readonly ReportTra
       // A void entry whose reversal was not loaded cannot be pointed at: its id
       // lives on the reversal, not on the original. `reversed` still marks it.
       if (reversal === undefined) continue;
-      row.counterpart = counterpartFor('reversed-by', reversal.id, reversal.entryNo, rowOf, byId);
+      row.counterpart = counterpartFor('reversed-by', reversal.id, reversal, rowOf);
     } else if (reverses !== null && reverses !== '') {
-      const original = byId.get(reverses) ?? null;
-      row.counterpart = counterpartFor('reverses', reverses, original !== null ? original.entryNo : null, rowOf, byId);
+      row.counterpart = counterpartFor('reverses', reverses, byId.get(reverses) ?? null, rowOf);
     }
   }
 }
@@ -661,13 +678,14 @@ function linkReversalPairs(rows: RegisterRow[], transactions: readonly ReportTra
 function counterpartFor(
   relation: CounterpartRelation,
   transactionId: string,
-  entryNo: number | null,
+  tx: ReportTransaction | null,
   rowOf: Map<string, RegisterRow>,
-  byId: Map<string, ReportTransaction>,
 ): RegisterCounterpart {
+  const entryNo = tx !== null ? tx.entryNo : null;
+  const state = tx !== null ? tx.state : null;
   const row = rowOf.get(transactionId);
-  if (row !== undefined) return {relation, transactionId, entryNo, postingId: row.postingId, where: 'visible'};
-  return {relation, transactionId, entryNo, postingId: null, where: byId.has(transactionId) ? 'filtered' : 'not-loaded'};
+  if (row !== undefined) return {relation, transactionId, entryNo, postingId: row.postingId, where: 'visible', state};
+  return {relation, transactionId, entryNo, postingId: null, where: tx !== null ? 'filtered' : 'not-loaded', state};
 }
 
 /**
@@ -713,7 +731,22 @@ export function correctionBlocker(row: {state: ReportTransactionState}, opts: {r
 }
 
 /**
- * The reason a disabled Correct button carries, IN THE CELL beside it.
+ * Is this blocker true of the WHOLE BLOCK rather than of one row?
+ *
+ * `read-only` and `correction-open` are properties of the page and of the
+ * session, so they are identical on every row — and rendering forty copies of
+ * "This page is read-only." roughly doubled the height of a read-only register
+ * while telling the reader nothing forty times. Those two are stated once above
+ * the table and pointed at by every row's `aria-describedby`; the row-specific
+ * ones stay in the cell, where the row is what makes them true.
+ */
+export function isBlockWideBlocker(blocker: CorrectionBlocker): boolean {
+  return blocker === 'read-only' || blocker === 'correction-open';
+}
+
+/**
+ * The reason a disabled Correct button carries, beside it or (for the
+ * block-wide ones) once above the table.
  *
  * A disabled control whose explanation lives in a `title` is a mouse-only
  * explanation, and `disabled` has already taken the control out of the tab
@@ -721,13 +754,33 @@ export function correctionBlocker(row: {state: ReportTransactionState}, opts: {r
  * about. The sentence is rendered, always.
  */
 export function describeCorrectionBlocker(blocker: CorrectionBlocker, counterpart: RegisterCounterpart | null): string {
-  if (blocker === 'read-only') return 'This page is read-only.';
+  if (blocker === 'read-only') return 'This page is read-only, so no entry can be corrected from it.';
   if (blocker === 'not-posted') return 'Only a posted entry can be corrected.';
   if (blocker === 'correction-open') return 'Finish or close the correction in progress first.';
-  // The useful half of "already reversed" is WHICH entry reversed it.
-  return counterpart === null
-    ? 'Already reversed — its reversing entry is not in this read.'
-    : `Already reversed — correct ${counterpart.entryNo === null ? 'the reversing entry' : `entry #${counterpart.entryNo}`} instead.`;
+  if (counterpart === null) return 'Already reversed — its reversing entry is not in this read.';
+  const named = counterpart.entryNo === null ? 'the reversing entry' : `entry #${counterpart.entryNo}`;
+  // A CHAIN needs different advice. Pointing at a reversal that has itself been
+  // reversed sends the reader to a row whose own Correct button is off — the
+  // prohibition-with-no-next-step this module exists to abolish, in the one
+  // scenario this feature deliberately made reachable.
+  if (counterpart.state === 'void') {
+    return `Already reversed by ${named}, which was itself reversed — correct the latest entry in the chain instead.`;
+  }
+  // The useful half of "already reversed" is WHICH entry to correct instead.
+  return `Already reversed — correct ${named} instead.`;
+}
+
+/**
+ * The standing immutability sentence, shown wherever posted entries are listed.
+ *
+ * On a read-only page the second half is DROPPED: instructing a reader to "use
+ * Correct this entry" beside forty controls they cannot press is worse than
+ * saying nothing, and the read-only reason is stated once in its own line.
+ */
+export function describeImmutability(readOnly: boolean): string {
+  const rule = 'Posted entries are permanent — they cannot be edited or deleted, here or anywhere else.';
+  if (readOnly) return rule;
+  return `${rule} To fix one, use “Correct this entry”: the original stays on the books, a reversal is posted against it, and you get an editable copy to correct.`;
 }
 
 /** How an entry is named in the correction copy (`entry #12`, or a fallback). */
@@ -752,9 +805,27 @@ export function describeCorrectionConfirm(row: {entryNo: number | null; descript
     ? ` This entry is itself a reversal, so correcting it puts ${nameEntry(row.counterpart.entryNo)}’s effect back on the books.`
     : '';
   return (
-    `Correct ${what}? The original stays on the books, a reversal is posted against it, and you get an editable copy to correct.` +
+    `Correct ${what}? The original stays on the books, a reversal — an opposite entry that cancels its effect — is posted against it,` +
+    ' and you get an editable copy to correct.' +
     ` The reversal is permanent too — it can only be undone by reversing it in turn.${chain}`
   );
+}
+
+/**
+ * The sentence shown when a correction cannot be completed, split so the view
+ * can weight the LEAD.
+ *
+ * The refusal and the confirmation are the same tone by design (`alarm` belongs
+ * to the books not balancing, not to an everyday rejection), and they can be on
+ * screen at once — so they must not be visual twins with only the words to tell
+ * them apart. The lead clause carries the weight instead of a second colour.
+ */
+export interface CorrectionFailure {
+  /** The headline — rendered bold. What did or did not happen to the books. */
+  lead: string;
+  /** The cause and the next step, at normal weight. */
+  detail: string;
+  code: string | null;
 }
 
 /** The sentence shown once a correction copy has been posted. */

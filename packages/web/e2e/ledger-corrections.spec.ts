@@ -78,7 +78,7 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
   await expect(confirm).toContainText('Hosting bill');
   // All three consequences, before anything irreversible happens.
   await expect(confirm).toContainText('The original stays on the books');
-  await expect(confirm).toContainText('a reversal is posted against it');
+  await expect(confirm).toContainText('an opposite entry that cancels its effect');
   await expect(confirm).toContainText('editable copy to correct');
   await expect(confirm).toContainText('The reversal is permanent too');
   // A decision point takes focus, so it is not something a keyboard user has to
@@ -96,6 +96,14 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
 
   const panel = page.locator('[data-ledger-correction]');
   await expect(panel).toBeVisible();
+  // FOCUS FOLLOWS THE FLOW. The button that was pressed is gone; without this
+  // the user is dropped to <body> at the top of the document, every time.
+  await expect(panel).toBeFocused();
+  // The consequence of bailing out is wired to the Close button itself, not
+  // stranded below the whole journal form.
+  const closeWhy = page.locator('[data-ledger-correction-close-why]');
+  await expect(closeWhy).toContainText('unposted draft');
+  await expect(page.locator('[data-ledger-correction-close]')).toHaveAttribute('aria-describedby', (await closeWhy.getAttribute('id')) ?? '');
   await expect(page.locator('[data-ledger-correction-head]')).toContainText('Correcting entry #');
   await expect(page.locator('[data-ledger-correction-head]')).toContainText('reversed by entry #');
 
@@ -135,9 +143,15 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
   await expect(off).toBeDisabled();
   await expect(off).toHaveCSS('border-style', 'dashed');
   await expect(voidRow.locator('[data-ledger-correct-why="already-reversed"]')).toContainText('Already reversed — correct entry #');
-  // Every other row is off too while a correction is open — and says so, rather
-  // than looking live and doing nothing.
-  await expect(reversalRow.locator('[data-ledger-correct-why="correction-open"]')).toContainText('Finish or close the correction in progress');
+  // Every other row is off too while a correction is open — and the reason is
+  // stated ONCE above the table, not copied into every cell, with each disabled
+  // button pointing at it.
+  const blockReason = page.locator('[data-ledger-correct-why="correction-open"]');
+  await expect(blockReason).toHaveCount(1);
+  await expect(blockReason).toContainText('Finish or close the correction in progress');
+  const otherOff = reversalRow.locator('[data-ledger-correct-off="correction-open"]');
+  await expect(otherOff).toBeDisabled();
+  await expect(otherOff).toHaveAttribute('aria-describedby', (await blockReason.getAttribute('id')) ?? '');
 
   // ── 5. Post the corrected copy: the books read 45.00 ───────────────────────
   await journal.getByLabel('Row 1 credit').fill('45.00');
@@ -150,6 +164,7 @@ test('a posted entry cannot be edited, says why, and "Correct this entry" nets t
   // and names all three entries in the chain.
   const doneNotice = page.locator('[data-ledger-correction-done]');
   await expect(doneNotice).toBeVisible();
+  await expect(page.locator('[data-ledger-correction-dismiss]')).toBeFocused();
   await expect(doneNotice).toContainText('Corrected — entry #');
   await expect(doneNotice).toContainText('and your corrected copy is posted as entry #');
   await expect(panel).toHaveCount(0);
@@ -202,6 +217,11 @@ test('a reversal into a CLOSED account is refused with the typed error, legibly,
   // report, not used AS the message.
   const error = page.locator('[data-ledger-correct-error="account-closed"]');
   await expect(error).toBeVisible();
+  // The refusal shares its tone with the confirmation it just refused, and they
+  // can be on screen together — so the LEAD carries weight instead of a second
+  // colour, and `alarm` stays reserved for the books not balancing.
+  await expect(error.locator('[data-ledger-correct-error-lead]')).toHaveCSS('font-weight', '600');
+  await expect(error).toBeFocused();
   await expect(error).toContainText('Nothing was reversed');
   await expect(error).toContainText(`CC${uniq}:Expenses:Parked`);
   await expect(error).toContainText('reopen the account, then correct the entry');
@@ -216,4 +236,8 @@ test('a reversal into a CLOSED account is refused with the typed error, legibly,
   await expect(page.locator('[data-ledger-register-row]')).toHaveCount(2);
   await expect(page.locator('[data-ledger-correction]')).toHaveCount(0);
   await expect(page.locator(`[data-ledger-correct="${first.id}"]`)).toBeEnabled();
+
+  // Dismissing hands focus back to the control the user actually pressed.
+  await page.locator('[data-ledger-correct-error-dismiss]').click();
+  await expect(page.locator(`[data-ledger-correct="${first.id}"]`)).toBeFocused();
 });

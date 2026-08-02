@@ -92,6 +92,7 @@ interface Counterpart {
   entryNo: number | null;
   postingId: string | null;
   where: 'visible' | 'filtered' | 'not-loaded';
+  state: TxState | null;
 }
 type CorrectionBlocker = 'already-reversed' | 'not-posted' | 'read-only' | 'correction-open';
 interface AccountRegister {
@@ -141,6 +142,8 @@ function reports(): {
   describeCorrectionBlocker: (b: CorrectionBlocker, c: Counterpart | null) => string;
   describeCorrectionConfirm: (row: {entryNo: number | null; description: string; state: TxState; counterpart?: Counterpart | null}) => string;
   describeCorrectionDone: (original: number | null, reversal: number | null, corrected: number | null) => string;
+  describeImmutability: (readOnly: boolean) => string;
+  isBlockWideBlocker: (b: CorrectionBlocker) => boolean;
   nameEntry: (entryNo: number | null) => string;
   REPORTED_STATES: readonly TxState[];
   ALL_CLEARED_STATES: readonly ClearedState[];
@@ -633,13 +636,14 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
 
         expect(voided.reversed).toBe(true);
         expect(voided.state).toBe('void');
-        expect(voided.counterpart).toEqual({relation: 'reversed-by', transactionId: 'rev', entryNo: 11, postingId: reversal.postingId, where: 'visible'});
+        expect(voided.counterpart).toEqual({relation: 'reversed-by', transactionId: 'rev', entryNo: 11, postingId: reversal.postingId, where: 'visible', state: 'posted'});
         expect(describeCounterpart(voided.counterpart!)).toBe('Reversed by entry #11');
 
-        // …and back the other way, which is what makes the pair WALKABLE rather
-        // than merely labelled: the link the reader lands on points home.
+        // …and back the other way, which is what makes an ordinary PAIR walkable
+        // rather than merely labelled: each row points at its own counterpart,
+        // and on a two-link pair that is the way home.
         expect(reversal.reversed).toBe(false);
-        expect(reversal.counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: 10, postingId: voided.postingId, where: 'visible'});
+        expect(reversal.counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: 10, postingId: voided.postingId, where: 'visible', state: 'void'});
         expect(describeCounterpart(reversal.counterpart!)).toBe('Reverses entry #10');
 
         // An ordinary entry is in no pair and claims no link.
@@ -657,7 +661,7 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         // A truncated read that loaded the reversal but not the entry it undid:
         // the id is known (it is ON the reversal), the entry number is not.
         const orphan = buildAccountRegister('bank', ACCOUNTS, [REVERSAL]);
-        expect(orphan.rows[0].counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: null, postingId: null, where: 'not-loaded'});
+        expect(orphan.rows[0].counterpart).toEqual({relation: 'reverses', transactionId: 'orig', entryNo: null, postingId: null, where: 'not-loaded', state: null});
         expect(describeCounterpart(orphan.rows[0].counterpart!)).toBe('Reverses an unnumbered entry — outside this read');
 
         // The mirror case cannot be linked at all — a void entry does not carry
@@ -686,6 +690,67 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         expect(voided.counterpart!.transactionId).toBe('rev');
       });
 
+      /**
+       * A CHAIN of three — the shape this feature deliberately made reachable by
+       * allowing a reversal to be reversed. Two claims used to be asserted only
+       * against a 2-link pair and are false here, so they are pinned explicitly.
+       */
+      describe('a chain of three (the entry, its reversal, and the counter-reversal)', () => {
+        // #10 posted → #11 reverses it → #12 reverses #11. #11 is now void too.
+        const MID = tx({id: 'rev', date: '2026-07-02', description: 'Reversal of Oops', state: 'void', entryNo: 11, reverses: 'orig', postings: [posting('bank', -4200), posting('revenue', 4200)]});
+        const LAST = tx({id: 'rev2', date: '2026-07-03', description: 'Reversal of the reversal', entryNo: 12, reverses: 'rev', postings: [posting('bank', 4200), posting('revenue', -4200)]});
+        const CHAIN = [ORIGINAL, MID, LAST];
+
+        it('each row points at its OWN counterpart — one hop, never a loop', () => {
+          const {buildAccountRegister, describeCounterpart} = reports();
+          const reg = buildAccountRegister('bank', ACCOUNTS, CHAIN);
+          const [head, mid, last] = reg.rows;
+
+          // The head points forward to the entry that reversed it.
+          expect(head.counterpart).toMatchObject({relation: 'reversed-by', transactionId: 'rev', entryNo: 11, where: 'visible', state: 'void'});
+          // The MIDDLE link is void, and being void is the more urgent fact — so
+          // it shows its `reversed-by` face and points ONWARD to #12. It does not
+          // also advertise "Reverses entry #10": one row, one counterpart.
+          expect(mid.counterpart).toMatchObject({relation: 'reversed-by', transactionId: 'rev2', entryNo: 12, where: 'visible', state: 'posted'});
+          expect(describeCounterpart(mid.counterpart!)).toBe('Reversed by entry #12');
+          // The tail is the only live entry and points back at what it undid.
+          expect(last.counterpart).toMatchObject({relation: 'reverses', transactionId: 'rev', entryNo: 11, where: 'visible', state: 'void'});
+
+          // So walking from the head TERMINATES at the tail rather than looping.
+          expect(head.counterpart!.postingId).toBe(mid.postingId);
+          expect(mid.counterpart!.postingId).toBe(last.postingId);
+          expect(last.counterpart!.postingId).toBe(mid.postingId);
+        });
+
+        it('never sends the reader to a row that is itself dead', () => {
+          const {buildAccountRegister, correctionBlocker, describeCorrectionBlocker} = reports();
+          const reg = buildAccountRegister('bank', ACCOUNTS, CHAIN);
+          const [head, mid, last] = reg.rows;
+          const open = {readOnly: false, correctionOpen: false};
+
+          // Both void links are off; only the tail can be corrected.
+          expect(correctionBlocker(head, open)).toBe('already-reversed');
+          expect(correctionBlocker(mid, open)).toBe('already-reversed');
+          expect(correctionBlocker(last, open)).toBeNull();
+
+          // The head's advice must NOT be "correct entry #11" — #11 is void, so
+          // its own Correct is off with its own redirect, and the reader is
+          // walked from one dead control to the next.
+          const advice = describeCorrectionBlocker('already-reversed', head.counterpart);
+          expect(advice).toBe('Already reversed by entry #11, which was itself reversed — correct the latest entry in the chain instead.');
+          expect(advice).not.toContain('correct entry #11 instead');
+          // The two-link case keeps the specific, more useful sentence.
+          expect(describeCorrectionBlocker('already-reversed', mid.counterpart)).toBe('Already reversed — correct entry #12 instead.');
+        });
+
+        it('the chain nets to the original position — three entries, nothing edited', () => {
+          const {accountBalances, buildAccountRegister} = reports();
+          // Negation of a negation: 42.00 is back, with all three on the books.
+          expect(accountBalances(CHAIN).get('bank')).toBe(4200);
+          expect(buildAccountRegister('bank', ACCOUNTS, CHAIN).closingMinor).toBe(4200);
+        });
+      });
+
       it('gates the correction affordance, and every OFF state carries a reason', () => {
         const {correctionBlocker, describeCorrectionBlocker, buildAccountRegister} = reports();
         const reg = buildAccountRegister('bank', ACCOUNTS, PAIR_BOOK);
@@ -711,9 +776,28 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         // of "already reversed" is which entry to correct instead.
         expect(describeCorrectionBlocker('already-reversed', voided.counterpart)).toBe('Already reversed — correct entry #11 instead.');
         expect(describeCorrectionBlocker('already-reversed', null)).toMatch(/not in this read/);
-        expect(describeCorrectionBlocker('read-only', null)).toBe('This page is read-only.');
+        expect(describeCorrectionBlocker('read-only', null)).toMatch(/^This page is read-only/);
         expect(describeCorrectionBlocker('not-posted', null)).toBe('Only a posted entry can be corrected.');
         expect(describeCorrectionBlocker('correction-open', null)).toMatch(/Finish or close/);
+      });
+
+      it('separates the reasons that belong to the BLOCK from the ones that belong to a row', () => {
+        const {isBlockWideBlocker, describeImmutability} = reports();
+        // `read-only` and `correction-open` are identical on every row, so they
+        // are stated once above the table — forty copies of one fact was forty
+        // repetitions and roughly double the row height.
+        expect(isBlockWideBlocker('read-only')).toBe(true);
+        expect(isBlockWideBlocker('correction-open')).toBe(true);
+        // These two are only true BECAUSE of the row they sit on.
+        expect(isBlockWideBlocker('already-reversed')).toBe(false);
+        expect(isBlockWideBlocker('not-posted')).toBe(false);
+
+        // …and the standing notice stops advertising a control the reader cannot
+        // press, while still stating the rule.
+        expect(describeImmutability(false)).toContain('Posted entries are permanent');
+        expect(describeImmutability(false)).toContain('Correct this entry');
+        expect(describeImmutability(true)).toContain('Posted entries are permanent');
+        expect(describeImmutability(true)).not.toContain('Correct this entry');
       });
 
       it('the confirmation states all three consequences before anything is written', () => {
@@ -724,7 +808,10 @@ describe('LGR-8 report folds (real plugin source through the real loader)', () =
         expect(plain).toContain('Correct entry #1 “Opening float”?');
         // The original SURVIVES — this is not a delete confirmation…
         expect(plain).toContain('The original stays on the books');
-        expect(plain).toContain('a reversal is posted against it');
+        // …and "reversal" is defined in money terms rather than assumed: a
+        // bookkeeper knows the word, the person who mistyped 42.00 may not.
+        expect(plain).toContain('an opposite entry that cancels its effect');
+        expect(plain).toContain('is posted against it');
         // …and the user is left with something to do, not just a warning.
         expect(plain).toContain('editable copy to correct');
         expect(plain).toContain('The reversal is permanent too');
