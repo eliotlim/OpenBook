@@ -61,6 +61,7 @@ import type {
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
+  LedgerVerifyReport,
 } from './ledger';
 
 /** Handlers for a single page's live update stream. */
@@ -412,6 +413,14 @@ export interface DataClient {
   /** The whole ledger as the canonical postings CSV (LGR-7) — byte-stable:
    *  same data ⇒ identical bytes over BOTH transports. */
   ledgerExportCsv(): Promise<string>;
+  /** The whole ledger as a Beancount journal (LGR-13) — byte-stable like the
+   *  CSV, built from the same read model; `bean-check`/Fava re-verify it with
+   *  an independent implementation. */
+  ledgerExportBeancount(): Promise<string>;
+  /** The independent invariant verifier's report (LGR-7). Admin-gated over
+   *  HTTP (the report names entity ids across the whole book); the local
+   *  single-user store answers directly. */
+  ledgerVerify(): Promise<LedgerVerifyReport>;
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────
   /** List a page's suggestions, newest first. `status` filters (e.g. only open). */
@@ -1561,11 +1570,23 @@ export class HttpDataClient implements DataClient {
     return this.ledgerRequest<LedgerAuditEvent[]>('GET', `${API.ledgerAudit}${query ? `?${query}` : ''}`);
   }
 
-  /** Canonical postings CSV (LGR-7) — the one ledger read that is text, not JSON. */
+  /** Canonical postings CSV (LGR-7) — a ledger read that is text, not JSON. */
   async ledgerExportCsv(): Promise<string> {
     const res = await this.authFetch(`${this.baseUrl}${API.ledgerExportCsv}`, {cache: 'no-store'});
     if (!res.ok) return this.throwLedgerError(res);
     return res.text();
+  }
+
+  /** Beancount journal (LGR-13) — text like the CSV, same error mapping. */
+  async ledgerExportBeancount(): Promise<string> {
+    const res = await this.authFetch(`${this.baseUrl}${API.ledgerExportBeancount}`, {cache: 'no-store'});
+    if (!res.ok) return this.throwLedgerError(res);
+    return res.text();
+  }
+
+  /** The independent verifier's report (admin-gated server-side). */
+  async ledgerVerify(): Promise<LedgerVerifyReport> {
+    return this.ledgerRequest<LedgerVerifyReport>('GET', API.ledgerVerify);
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

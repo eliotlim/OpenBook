@@ -27,6 +27,56 @@ jobs:
       - name: Verify
         run: pnpm run verify
 
+  # Beancount reference gate (LGR-13): bean-check on the fixture exports plus
+  # the Fava/OpenBook trial-balance parity comparison, against a PINNED Python
+  # and a PINNED beancount. "Optional-but-gating": this job installs the
+  # toolchain and then REQUIRES it (OPENBOOK_REQUIRE_BEANCOUNT=1 turns the
+  # local graceful skip into a failure), so when it runs, it gates. The same
+  # vitest file runs inside `verify` too, where it skips — with a printed
+  # notice — on machines without Python+beancount.
+  beancount:
+    name: Beancount reference (bean-check + Fava parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Setup Python (pinned)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install beancount (pinned)
+        run: python -m pip install beancount==3.1.0
+
+      # Same libs cache as the e2e jobs: the ui test suite resolves
+      # @book.dev/sdk from its built dist.
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/mcp/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+
+      - name: bean-check fixture exports + Fava parity (to the cent)
+        env:
+          OPENBOOK_REQUIRE_BEANCOUNT: "1"
+        run: pnpm run test:beancount
+
   # Fast P1 core gate — a quick early canary on pull requests (OB-225). Runs only
   # the @p1 specs minus anything tagged @flaky (`test:e2e:core`): ~15 tests in a
   # single job (~1.4min), so no shard matrix. It surfaces core breakage fast; the

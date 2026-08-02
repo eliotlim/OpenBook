@@ -7,6 +7,7 @@ import {TrialBalanceBlock} from './trialBalance';
 import {BankImportBlock} from './importBlock';
 import {ReconcileBlock} from './reconcileBlock';
 import {PeriodCloseBlock} from './periodCloseBlock';
+import {BeancountExportBlock} from './beancountBlock';
 import {setUpBooks} from './setup';
 
 /**
@@ -179,6 +180,15 @@ export {
   validateStoredProfile,
 } from './importModel';
 export {setUpBooks} from './setup';
+// The LGR-13 Beancount export: the sentence builders are exported so the host
+// test-suite can pin the export/verify copy through the real loader.
+export {
+  BEANCOUNT_EXPORT_FILENAME,
+  countBeancountTransactions,
+  describeBeancountExport,
+  describeVerifyOutcome,
+  describeVerifyUnavailable,
+} from './beancountBlock';
 
 export default function activate(a: typeof api) {
   a.blocks.register({
@@ -287,6 +297,22 @@ export default function activate(a: typeof api) {
       hint: 'Close the books for a date range and lock it',
       keywords: 'ledger period close closing entry lock retained earnings reopen books quarter year end',
       make: () => ({type: 'openbook.ledger/period-close', props: {ledgerPeriodStart: ''}}),
+    },
+  });
+
+  // The Beancount export surface (LGR-13): one action — export the book as a
+  // journal an independent toolchain can re-verify, and run the ledger's own
+  // verifier on the same book, reporting both results.
+  a.blocks.register({
+    type: 'beancount-export',
+    render: BeancountExportBlock,
+    slash: {
+      label: 'Beancount export',
+      hint: 'Download the books as a Beancount journal, verified',
+      keywords: 'ledger beancount export fava bean-check journal verify backup books plain text accounting',
+      // Non-empty seed props: an empty object would leave the block without a
+      // props CRDT map (the host only creates one for non-empty props).
+      make: () => ({type: 'openbook.ledger/beancount-export', props: {ledgerBeancount: '1'}}),
     },
   });
 

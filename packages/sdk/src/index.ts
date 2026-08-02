@@ -496,5 +496,23 @@ export {
   type LedgerPeriodCloseInput,
   type LedgerPeriodCloseResult,
   type LedgerPeriodReopenResult,
+  type LedgerVerifyCode,
+  type LedgerVerifyFinding,
+  type LedgerVerifyReport,
 } from './ledger';
 export {buildLedgerPostingsCsv, LEDGER_CSV_COLUMNS} from './ledgerCsv';
+export {
+  BEANCOUNT_ROOT_BY_TYPE,
+  beancountAccountName,
+  buildBeancountAccountNames,
+  buildLedgerBeancount,
+  formatBeancountAmount,
+  mangleBeancountComponent,
+  quoteBeancountString,
+} from './ledgerBeancount';
+export {
+  BEANCOUNT_PARITY_TX_COUNT,
+  buildBeancountMiniBook,
+  buildBeancountParityBook,
+  type LedgerBeancountFixtureBook,
+} from './ledgerBeancountFixture';

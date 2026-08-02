@@ -22,6 +22,7 @@ import type {
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
+  LedgerVerifyReport,
   PageMeta,
   StoredDatabase,
   StoredPage,
@@ -177,6 +178,18 @@ export interface PluginApi {
     listPeriods(): Promise<LedgerPeriod[]>;
     closePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult>;
     reopenPeriod(id: string): Promise<LedgerPeriodReopenResult>;
+    /**
+     * The whole ledger as a Beancount journal (LGR-13) — byte-stable text,
+     * verifiable by `bean-check`/Fava. A read, gated exactly like the other
+     * ledger reads.
+     */
+    exportBeancount(): Promise<string>;
+    /**
+     * The independent invariant verifier's report (LGR-7). Admin-gated over
+     * HTTP (the report names entity ids across the whole book) — a non-admin
+     * caller's promise REJECTS; the in-browser local store answers directly.
+     */
+    verify(): Promise<LedgerVerifyReport>;
   };
   /**
    * The content-addressed binary asset store (same ambient credentials/read
@@ -298,6 +311,8 @@ export function buildPluginApi(
       listPeriods: () => client.ledgerListPeriods(),
       closePeriod: (input) => client.ledgerClosePeriod(input),
       reopenPeriod: (id) => client.ledgerReopenPeriod(id),
+      exportBeancount: () => client.ledgerExportBeancount(),
+      verify: () => client.ledgerVerify(),
     },
     assets: {
       get: (id) => client.getAsset(id),

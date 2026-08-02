@@ -17,7 +17,15 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    // The LGR-13 beancount gate test imports the ledger plugin's report fold
+    // from its shipped sources; the plugin's `@book.dev/plugin-sdk` imports
+    // resolve to the sdk — the same mapping the plugin host performs at
+    // runtime (ui `hostModulesFor`). Mirrored for the test runner in
+    // vitest.config.ts.
+    "paths": {
+      "@book.dev/plugin-sdk": ["../sdk/dist/index.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

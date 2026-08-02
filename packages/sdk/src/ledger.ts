@@ -920,3 +920,54 @@ export function isValidLedgerDate(date: unknown): date is string {
   const parsed = new Date(`${date}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
+
+// ── Independent verifier report (LGR-7; the wire contract since LGR-13) ────────
+// The verifier ITSELF lives server-side (`packages/server/src/ledgerVerify.ts` —
+// it re-checks raw storage with its own SQL), but its REPORT is a wire type:
+// `GET /api/ledger/verify` returns it, `DataClient.ledgerVerify()` types it
+// over both transports, and the ledger plugin's Export & verify action renders
+// it. One home for the shape, here with the rest of the ledger contract.
+
+/** Finding categories the independent verifier can report. */
+export type LedgerVerifyCode =
+  | 'unbalanced'
+  | 'too-few-postings'
+  | 'invalid-amount'
+  | 'audit-chain-broken'
+  | 'audit-hash-forged'
+  | 'posted-hash-mismatch'
+  | 'orphan-posting'
+  | 'unknown-account'
+  | 'replay-divergence'
+  | 'entry-no-gap'
+  | 'entry-no-duplicate'
+  | 'entry-no-missing'
+  /** A `period.close`/`period.reopen` payload posting is not `pending`/unowned
+   *  (LGR-12) — the writer always emits closing and reversal legs born
+   *  `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
+   *  otherwise was rewritten. This is what covers the workflow fields the
+   *  period hash chain deliberately excludes. */
+  | 'closing-posting-forged';
+
+/** One invariant violation the verifier found against raw storage. */
+export interface LedgerVerifyFinding {
+  code: LedgerVerifyCode;
+  /** Human-readable, entity-id-bearing description of the violation. */
+  message: string;
+  /** The primary entity (transaction / posting / account / audit seq) at fault. */
+  entityId?: string;
+}
+
+/** The verifier's report: what was checked, and every finding (empty = clean). */
+export interface LedgerVerifyReport {
+  /** False when the ledger has never been seeded — trivially clean. */
+  initialized: boolean;
+  checkedTransactions: number;
+  checkedPostings: number;
+  checkedAccounts: number;
+  checkedAuditEvents: number;
+  /** Period records checked against the audit stream (LGR-12). */
+  checkedPeriods: number;
+  /** Empty = every invariant holds against raw storage. */
+  findings: LedgerVerifyFinding[];
+}

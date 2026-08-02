@@ -52,6 +52,7 @@ import {
   LedgerError,
   MoneyError,
   assertUniformCurrency,
+  buildLedgerBeancount,
   buildLedgerPostingsCsv,
   canonicalLedgerJson,
   closedPeriodContaining,
@@ -2016,6 +2017,22 @@ export class LedgerStore {
     // order here only needs to be TOTAL (id) — never plan-dependent.
     const transactions = await this.loadTransactionsWithPostings(ids, 'ORDER BY id ASC');
     return buildLedgerPostingsCsv(accounts, transactions);
+  }
+
+  /**
+   * The whole ledger as a Beancount journal (LGR-13) — the SAME read model as
+   * {@link exportPostingsCsv} (one read model, two serializers), serialized by
+   * the sdk's pure `buildLedgerBeancount` (byte-stable; drafts excluded;
+   * `balance` assertions after each closed period). Unlike the insurance CSV
+   * this REFUSES a corrupt book with a typed error — the reference export must
+   * never serialize data the ledger cannot vouch for.
+   */
+  async exportBeancount(): Promise<string> {
+    const ids = await this.requireIds();
+    const accounts = await this.listAccounts();
+    const transactions = await this.loadTransactionsWithPostings(ids, 'ORDER BY id ASC');
+    const periods = await this.listPeriods();
+    return buildLedgerBeancount(accounts, transactions, periods);
   }
 
   // ── Audit log (append-only; read is the only public surface) ─────────────────
