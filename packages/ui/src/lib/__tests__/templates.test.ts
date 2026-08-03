@@ -31,6 +31,10 @@ function stubClient(existing: string[]): DataClient {
     // are tellable-apart in assertions.
     createRow: vi.fn(async () => page({id: `row-${(seq += 1)}`})),
     updateRow: vi.fn(async () => ({id: 'row-0', name: null, properties: {}, exports: {}})),
+    ledgerInit: vi.fn(async () => ({initialized: true})),
+    ledgerCreateAccount: vi.fn(async (input: {name: string; type: string; currency?: string}) => ({id: crypto.randomUUID(), ...input, status: 'open', currency: input.currency ?? 'USD', evidenceRequired: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z'})),
+    ledgerCreateDraft: vi.fn(async () => ({id: 'draft-1', state: 'draft', postings: []})),
+    ledgerPostTransaction: vi.fn(async () => ({id: 'draft-1', state: 'posted'})),
   } as unknown as DataClient;
 }
 
@@ -42,6 +46,10 @@ const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth', 'team-status'] as c
 // Templates that create a database (the four fixtures, the two-database Product HQ,
 // and the Dashboard — which lands on a document but seeds a sample sales database).
 const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq', 'dashboard'] as const;
+// Ledger templates: block-doc pages backed by the ledger plugin's double-entry
+// accounting system (no reactive live code, no database — they seed accounts
+// and transactions through the ledger API).
+const LEDGER_IDS = ['simple-budget', 'startup-books'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
 async function schemaOf(id: PageTemplate['id']): Promise<DatabaseSchema> {
@@ -146,8 +154,8 @@ describe('PAGE_TEMPLATES', () => {
   it('has twelve templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(12);
-    expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
+    expect(PAGE_TEMPLATES).toHaveLength(14);
+    expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS, ...LEDGER_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
   });
@@ -160,6 +168,10 @@ describe('PAGE_TEMPLATES', () => {
       if ((DATABASE_IDS as readonly string[]).includes(t.id)) {
         expect(madeDb).toBe(true);
         expect((client.createRow as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+      } else if ((LEDGER_IDS as readonly string[]).includes(t.id)) {
+        expect(madeDb).toBe(false);
+        expect((client.ledgerInit as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+        expect((client.ledgerCreateAccount as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
       } else {
         expect(madeDb).toBe(false);
       }
@@ -670,8 +682,11 @@ describe('guidance callouts (the standardized "how to use this" lead block)', ()
   });
 
   it('templates that already open with strong in-doc guidance carry none', () => {
+    // The database-style guided templates AND the ledger templates all carry
+    // guidance text; every other template self-guides through its own content.
+    const HAS_GUIDANCE = [...GUIDED_IDS, 'simple-budget', 'startup-books'] as const;
     for (const t of PAGE_TEMPLATES) {
-      const guided = (GUIDED_IDS as readonly string[]).includes(t.id);
+      const guided = (HAS_GUIDANCE as readonly string[]).includes(t.id);
       expect(t.guidance !== undefined, t.id).toBe(guided);
     }
   });

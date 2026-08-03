@@ -3,6 +3,7 @@ import type {PageSnapshot, StoredPage} from './types';
 import type {DatabaseSchema} from './database';
 import {TITLE_PROPERTY_ID} from './database';
 import {buildSampleDocument} from './sampleDocument';
+import type {LedgerAccountInput, LedgerDraftInput} from './ledger';
 
 /**
  * The built-in **template gallery**: ready-made pages instantiated client-side
@@ -34,7 +35,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq' | 'dashboard';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq' | 'dashboard' | 'simple-budget' | 'startup-books';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -84,6 +85,10 @@ const GUIDANCE = {
     'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
   dashboard:
     'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: pick a quarter in the control at the top and every tile and chart re-scopes to it at once — or edit a deal on the “… data” sub-page and watch a tile move.',
+  simpleBudget:
+    'A personal finance budget tracker built on double-entry accounting. The ledger seeds a chart of accounts and a month of sample transactions so you can explore the journal, run reports, and add your own entries.',
+  startupBooks:
+    'Comprehensive double-entry bookkeeping for a tech startup, with all reporting surfaces. The ledger seeds accounts for assets, liabilities, equity, revenue and expenses, plus sample transactions showing typical startup operations.',
 } as const;
 
 /** The guidance callout as a block-doc block (ids are stable per template). */
@@ -1073,6 +1078,168 @@ const createDashboard = async (client: DataClient, name: string, guidance: strin
   return page;
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// Ledger templates
+//
+// These templates use the ledger plugin's double-entry accounting system.
+// Each seeds a chart of accounts, sample transactions, and a block-doc page
+// with the ledger's interactive blocks (journal, reports, operations).
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── 💵 Simple budget ────────────────────────────────────────────────────────
+
+const SIMPLE_BUDGET_CHART: LedgerAccountInput[] = [
+  {name: 'Assets:Bank:Checking', type: 'asset'},
+  {name: 'Assets:Bank:Savings', type: 'asset'},
+  {name: 'Assets:Cash', type: 'asset'},
+  {name: 'Liabilities:CreditCard', type: 'liability'},
+  {name: 'Equity:OpeningBalances', type: 'equity'},
+  {name: 'Income:Salary', type: 'revenue'},
+  {name: 'Income:Freelance', type: 'revenue'},
+  {name: 'Income:OtherIncome', type: 'revenue'},
+  {name: 'Expenses:Rent', type: 'expense'},
+  {name: 'Expenses:Utilities', type: 'expense'},
+  {name: 'Expenses:Groceries', type: 'expense'},
+  {name: 'Expenses:Transport', type: 'expense'},
+  {name: 'Expenses:DiningOut', type: 'expense'},
+  {name: 'Expenses:Entertainment', type: 'expense'},
+  {name: 'Expenses:Subscriptions', type: 'expense'},
+  {name: 'Expenses:Healthcare', type: 'expense'},
+];
+
+const simpleBudgetTransactions = (accounts: Map<string, string>): LedgerDraftInput[] => {
+  const id = (name: string): string => accounts.get(name)!;
+  return [
+    {date: day(-25), description: 'Salary deposit', postings: [{accountId: id('Assets:Bank:Checking'), amountMinor: 500000}, {accountId: id('Income:Salary'), amountMinor: -500000}]},
+    {date: day(-20), description: 'Rent payment', postings: [{accountId: id('Expenses:Rent'), amountMinor: 150000}, {accountId: id('Assets:Bank:Checking'), amountMinor: -150000}]},
+    {date: day(-15), description: 'Grocery run', postings: [{accountId: id('Expenses:Groceries'), amountMinor: 8500}, {accountId: id('Liabilities:CreditCard'), amountMinor: -8500}]},
+    {date: day(-10), description: 'Electric bill', postings: [{accountId: id('Expenses:Utilities'), amountMinor: 12000}, {accountId: id('Assets:Bank:Checking'), amountMinor: -12000}]},
+    {date: day(-5), description: 'Dinner out', postings: [{accountId: id('Expenses:DiningOut'), amountMinor: 4500}, {accountId: id('Liabilities:CreditCard'), amountMinor: -4500}]},
+    {date: day(-2), description: 'Streaming subscription', postings: [{accountId: id('Expenses:Subscriptions'), amountMinor: 1599}, {accountId: id('Liabilities:CreditCard'), amountMinor: -1599}]},
+  ];
+};
+
+const SIMPLE_BUDGET_BLOCKS = (guidance: string): object[] => [
+  {id: 'sb-h1', type: 'heading', text: [{t: 'Simple budget'}], props: {level: 1}},
+  guidanceCallout('sb-guide', guidance),
+  {id: 'sb-h2', type: 'heading', text: [{t: 'Journal'}], props: {level: 2}},
+  {id: 'sb-journal', type: 'openbook.ledger/journal-entry', props: {ledgerRows: ''}},
+  {id: 'sb-div', type: 'divider'},
+  {id: 'sb-h3', type: 'heading', text: [{t: 'Monthly summary'}], props: {level: 2}},
+  {id: 'sb-income', type: 'openbook.ledger/income-statement', props: {ledgerIsFrom: ''}},
+];
+
+const createSimpleBudget = async (client: DataClient, name: string, guidance: string = GUIDANCE.simpleBudget): Promise<StoredPage> => {
+  await client.ledgerInit();
+  const accounts = new Map<string, string>();
+  for (const acct of SIMPLE_BUDGET_CHART) {
+    try {
+      const created = await client.ledgerCreateAccount(acct);
+      accounts.set(acct.name, created.id);
+    } catch { /* skip if already exists */ }
+  }
+  if (accounts.size > 0) {
+    for (const tx of simpleBudgetTransactions(accounts)) {
+      try {
+        const draft = await client.ledgerCreateDraft(tx);
+        await client.ledgerPostTransaction(draft.id);
+      } catch { /* skip on error */ }
+    }
+  }
+  return client.savePage({name, data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: SIMPLE_BUDGET_BLOCKS(guidance)}}});
+};
+
+// ── 📒 Startup books ────────────────────────────────────────────────────────
+
+const STARTUP_BOOKS_CHART: LedgerAccountInput[] = [
+  {name: 'Assets:Bank:Checking', type: 'asset'},
+  {name: 'Assets:Bank:Savings', type: 'asset'},
+  {name: 'Assets:AccountsReceivable', type: 'asset'},
+  {name: 'Assets:PrepaidExpenses', type: 'asset'},
+  {name: 'Assets:Equipment', type: 'asset'},
+  {name: 'Liabilities:CreditCard', type: 'liability'},
+  {name: 'Liabilities:AccountsPayable', type: 'liability'},
+  {name: 'Liabilities:AccruedExpenses', type: 'liability'},
+  {name: 'Liabilities:DeferredRevenue', type: 'liability'},
+  {name: 'Equity:OpeningBalances', type: 'equity'},
+  {name: 'Equity:RetainedEarnings', type: 'equity'},
+  {name: 'Equity:OwnersInvestment', type: 'equity'},
+  {name: 'Income:Sales', type: 'revenue'},
+  {name: 'Income:Services', type: 'revenue'},
+  {name: 'Income:InterestIncome', type: 'revenue'},
+  {name: 'Expenses:Payroll', type: 'expense'},
+  {name: 'Expenses:Rent', type: 'expense'},
+  {name: 'Expenses:Utilities', type: 'expense'},
+  {name: 'Expenses:Insurance', type: 'expense'},
+  {name: 'Expenses:ProfessionalFees', type: 'expense'},
+  {name: 'Expenses:Marketing', type: 'expense'},
+  {name: 'Expenses:Travel', type: 'expense'},
+  {name: 'Expenses:Software', type: 'expense'},
+  {name: 'Expenses:Hosting', type: 'expense'},
+  {name: 'Expenses:BankFees', type: 'expense'},
+  {name: 'Expenses:Office', type: 'expense'},
+];
+
+const startupBooksTransactions = (accounts: Map<string, string>): LedgerDraftInput[] => {
+  const id = (name: string): string => accounts.get(name)!;
+  return [
+    {date: day(-30), description: 'Owner investment', postings: [{accountId: id('Assets:Bank:Checking'), amountMinor: 5000000}, {accountId: id('Equity:OwnersInvestment'), amountMinor: -5000000}]},
+    {date: day(-25), description: 'Office rent', postings: [{accountId: id('Expenses:Rent'), amountMinor: 250000}, {accountId: id('Assets:Bank:Checking'), amountMinor: -250000}]},
+    {date: day(-20), description: 'AWS hosting', postings: [{accountId: id('Expenses:Hosting'), amountMinor: 15000}, {accountId: id('Liabilities:CreditCard'), amountMinor: -15000}]},
+    {date: day(-15), description: 'Contractor invoice', postings: [{accountId: id('Expenses:ProfessionalFees'), amountMinor: 300000}, {accountId: id('Liabilities:AccountsPayable'), amountMinor: -300000}]},
+    {date: day(-10), description: 'Customer payment', postings: [{accountId: id('Assets:AccountsReceivable'), amountMinor: 1000000}, {accountId: id('Income:Sales'), amountMinor: -1000000}]},
+    {date: day(-5), description: 'Equipment purchase', postings: [{accountId: id('Assets:Equipment'), amountMinor: 200000}, {accountId: id('Assets:Bank:Checking'), amountMinor: -200000}]},
+    {date: day(-2), description: 'Software license', postings: [{accountId: id('Expenses:Software'), amountMinor: 4999}, {accountId: id('Liabilities:CreditCard'), amountMinor: -4999}]},
+  ];
+};
+
+const STARTUP_BOOKS_BLOCKS = (guidance: string): object[] => [
+  {id: 'stb-h1', type: 'heading', text: [{t: 'Startup books'}], props: {level: 1}},
+  guidanceCallout('stb-guide', guidance),
+  {id: 'stb-h2', type: 'heading', text: [{t: 'Journal entries'}], props: {level: 2}},
+  {id: 'stb-journal', type: 'openbook.ledger/journal-entry', props: {ledgerRows: ''}},
+  {id: 'stb-div1', type: 'divider'},
+  {id: 'stb-h3', type: 'heading', text: [{t: 'Reports'}], props: {level: 2}},
+  {id: 'stb-h3a', type: 'heading', text: [{t: 'Trial balance'}], props: {level: 3}},
+  {id: 'stb-tb', type: 'openbook.ledger/trial-balance', props: {ledgerTbShowZero: false}},
+  {id: 'stb-h3b', type: 'heading', text: [{t: 'Balance sheet'}], props: {level: 3}},
+  {id: 'stb-bs', type: 'openbook.ledger/balance-sheet', props: {ledgerBsAsOf: ''}},
+  {id: 'stb-h3c', type: 'heading', text: [{t: 'Income statement'}], props: {level: 3}},
+  {id: 'stb-is', type: 'openbook.ledger/income-statement', props: {ledgerIsFrom: ''}},
+  {id: 'stb-h3d', type: 'heading', text: [{t: 'Account register'}], props: {level: 3}},
+  {id: 'stb-reg', type: 'openbook.ledger/account-register', props: {ledgerRegAccount: ''}},
+  {id: 'stb-div2', type: 'divider'},
+  {id: 'stb-h4', type: 'heading', text: [{t: 'Operations'}], props: {level: 2}},
+  {id: 'stb-h4a', type: 'heading', text: [{t: 'Bank import'}], props: {level: 3}},
+  {id: 'stb-import', type: 'openbook.ledger/bank-import', props: {ledgerImport: '1'}},
+  {id: 'stb-h4b', type: 'heading', text: [{t: 'Reconcile'}], props: {level: 3}},
+  {id: 'stb-rec', type: 'openbook.ledger/reconcile', props: {ledgerRecId: ''}},
+  {id: 'stb-h4c', type: 'heading', text: [{t: 'Period close'}], props: {level: 3}},
+  {id: 'stb-close', type: 'openbook.ledger/period-close', props: {ledgerPeriodStart: ''}},
+  {id: 'stb-h4d', type: 'heading', text: [{t: 'Beancount export'}], props: {level: 3}},
+  {id: 'stb-bean', type: 'openbook.ledger/beancount-export', props: {ledgerBeancount: '1'}},
+];
+
+const createStartupBooks = async (client: DataClient, name: string, guidance: string = GUIDANCE.startupBooks): Promise<StoredPage> => {
+  await client.ledgerInit();
+  const accounts = new Map<string, string>();
+  for (const acct of STARTUP_BOOKS_CHART) {
+    try {
+      const created = await client.ledgerCreateAccount(acct);
+      accounts.set(acct.name, created.id);
+    } catch { /* skip if already exists */ }
+  }
+  if (accounts.size > 0) {
+    for (const tx of startupBooksTransactions(accounts)) {
+      try {
+        const draft = await client.ledgerCreateDraft(tx);
+        await client.ledgerPostTransaction(draft.id);
+      } catch { /* skip on error */ }
+    }
+  }
+  return client.savePage({name, data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: STARTUP_BOOKS_BLOCKS(guidance)}}});
+};
+
 // ── The gallery ──────────────────────────────────────────────────────────────
 
 /** Create a block-editor template page from a JSON block projection. */
@@ -1138,6 +1305,8 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   // overwrites), the gallery card always mints a FRESH copy under its own
   // display name — the two entry points never race or shadow each other.
   {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], create: createCompoundGrowth},
+  {id: 'simple-budget', icon: '💵', pageName: 'Simple budget', tags: ['interactive'], guidance: GUIDANCE.simpleBudget, create: createSimpleBudget},
+  {id: 'startup-books', icon: '📒', pageName: 'Startup books', tags: ['interactive'], guidance: GUIDANCE.startupBooks, create: createStartupBooks},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes
