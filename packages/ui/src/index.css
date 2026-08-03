@@ -2257,6 +2257,82 @@ a.obe-mention {
   padding: 0.4rem 0.6rem;
 }
 
+/* ── Missing-plugin install prompt ──────────────────────────────────────────
+   Shown when a block's type belongs to a plugin that isn't installed. Matches
+   the dashed obe-unknown border but adds a structured card with an Install
+   button (or informational hint when the package isn't available yet). */
+.obe-missing-plugin {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  user-select: none;
+}
+.obe-missing-plugin-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: hsl(var(--accent) / 0.5);
+  font-size: 1.1rem;
+  color: hsl(var(--muted-foreground));
+}
+.obe-missing-plugin-body {
+  flex: 1;
+  min-width: 0;
+}
+.obe-missing-plugin-title {
+  font-size: 0.8rem;
+  color: hsl(var(--foreground));
+  line-height: 1.3;
+}
+.obe-missing-plugin-meta {
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground) / 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 0.1rem;
+}
+.obe-missing-plugin-error {
+  font-size: 0.7rem;
+  color: hsl(var(--destructive));
+  margin-top: 0.25rem;
+}
+.obe-missing-plugin-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.obe-missing-plugin-install:hover {
+  background: hsl(var(--accent));
+  border-color: hsl(var(--accent));
+}
+.obe-missing-plugin-install:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.obe-missing-plugin-hint {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
 /* ── Artifact kit (inputs / charts / cards) ─────────────────────────────────
    Plain classes (no Tailwind apply) so exported standalone HTML renders
    identically. Quiet chrome: control surfaces lead, config hides behind ⚙. */
