@@ -1,3 +1,14 @@
+## 3.7.0 (2026-08-03)
+
+### 🚀 Features
+
+- **sdk:** add Simple Budget and Startup Books ledger templates ([#228](https://github.com/eliotlim/OpenBook/pull/228))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6
+- Eliot Lim @eliotlim
+
 ## 3.6.0 (2026-08-03)
 
 ### 🚀 Features
