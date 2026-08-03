@@ -66,6 +66,7 @@ import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
 import {getCustomBlock, getRegistrySnapshot, subscribeRegistry} from './registry';
+import {MissingPluginBlock} from './MissingPluginBlock';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
 import {imageBlockFromFile} from './imageBlock';
@@ -2373,11 +2374,9 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
     // A text-carrying unknown type still edits as text; anything else shows
     // a quiet placeholder instead of crashing (forward compatibility).
     if (blockText(block)) return <TextBlockView block={block} editor={textEditor} ui={ui} />;
-    return (
-      <div className="obe-unknown" contentEditable={false}>
-        Unsupported block “{type}”
-      </div>
-    );
+    // Plugin-contributed types follow the `{pluginId}/{blockName}` pattern.
+    // Show a helpful install prompt instead of the bare “Unsupported block”.
+    return <MissingPluginBlock type={type} />;
   }
   }
 
