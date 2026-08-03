@@ -1,3 +1,15 @@
+## 3.6.0 (2026-08-03)
+
+### 🚀 Features
+
+- Ledger — trustworthy double-entry books (epic LGR, review by commit) ([#227](https://github.com/eliotlim/OpenBook/pull/227), [#2](https://github.com/eliotlim/OpenBook/issues/2))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 5
+- Eliot Lim @eliotlim
+
 ## 3.5.1 (2026-07-28)
 
 ### 🩹 Fixes
