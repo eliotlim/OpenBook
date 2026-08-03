@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -65,7 +65,7 @@ import {
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
-import {getCustomBlock} from './registry';
+import {getCustomBlock, getRegistrySnapshot, subscribeRegistry} from './registry';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
 import {imageBlockFromFile} from './imageBlock';
@@ -2234,6 +2234,10 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
     if (pageLocked) return interactive ? liveEditor : editor; // viewer/present: live unless opted out
     return lockText && !interactive ? {...editor, readOnly: true} : editor; // group lock (unchanged)
   }, [editor, liveEditor, pageLocked, lockText, interactive]);
+
+  // Re-render when the custom-block registry changes so that a block whose
+  // plugin hasn't loaded yet updates automatically once registration happens.
+  useSyncExternalStore(subscribeRegistry, getRegistrySnapshot);
 
   switch (type) {
   case 'divider':
