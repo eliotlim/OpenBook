@@ -3,10 +3,12 @@ import {
   pluginApiVersionError,
   OPENBOOK_REGISTRY,
   type DataClient,
+  type PluginPackage,
   type StoredPlugin,
 } from '@book.dev/sdk';
 import {executePlugin} from './loader';
 import {buildPluginApi, hostModulesFor, type PluginModule} from './api';
+import {BUNDLED_PLUGINS} from './bundled.gen';
 
 /**
  * The plugin host: loads the library's enabled plugins, activates each in
@@ -125,13 +127,82 @@ function activate(plugin: StoredPlugin, client: DataClient): {error?: string} {
   }
 }
 
+// ── Bundled plugin auto-install ───────────────────────────────────────────────
+
+/**
+ * localStorage key that records bundled plugins the user has explicitly removed.
+ * Value is a JSON array of plugin ids. Once an id is in this list, syncPlugins
+ * will not re-install it — the user's choice to remove wins over the bundle.
+ */
+const DISMISSED_BUNDLED_KEY = 'openbook.bundledPluginsDismissed';
+
+function getDismissedBundled(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_BUNDLED_KEY);
+    if (!raw) return new Set();
+    const list = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(list) ? (list as string[]).filter((id) => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Mark a bundled plugin as dismissed so auto-install won't re-add it. */
+export function dismissBundledPlugin(id: string): void {
+  const set = getDismissedBundled();
+  set.add(id);
+  try {
+    localStorage.setItem(DISMISSED_BUNDLED_KEY, JSON.stringify([...set]));
+  } catch {
+    // storage quota / private mode — best effort
+  }
+}
+
+const bundledIds = new Set(BUNDLED_PLUGINS.map((p) => p.manifest.id));
+
+/** Whether `id` is a first-party bundled plugin. */
+export function isBundledPlugin(id: string): boolean {
+  return bundledIds.has(id);
+}
+
+/**
+ * Install any bundled first-party plugins that are not yet on the server and
+ * have not been explicitly dismissed by the user. Returns the list of newly
+ * installed StoredPlugins (empty when nothing was needed).
+ */
+async function seedBundledPlugins(client: DataClient, existing: StoredPlugin[]): Promise<StoredPlugin[]> {
+  const installed = new Set(existing.map((p) => p.manifest.id));
+  const dismissed = getDismissedBundled();
+  const toInstall: PluginPackage[] = [];
+  for (const pkg of BUNDLED_PLUGINS) {
+    if (!installed.has(pkg.manifest.id) && !dismissed.has(pkg.manifest.id)) {
+      toInstall.push(pkg);
+    }
+  }
+  const results: StoredPlugin[] = [];
+  for (const pkg of toInstall) {
+    try {
+      results.push(await client.installPlugin(pkg));
+    } catch {
+      // Network/permission failure — skip silently; next sync will retry.
+    }
+  }
+  return results;
+}
+
 /**
  * Reconcile the running set against the server's list: activate newly
  * enabled plugins, dispose disabled/removed ones, verify signatures against
  * the user's trusted keys. Safe to call repeatedly (boot + after changes).
  */
 export async function syncPlugins(client: DataClient): Promise<PluginStatus[]> {
-  const plugins = await client.listPlugins();
+  let plugins = await client.listPlugins();
+
+  // Auto-install bundled first-party plugins that are missing and not dismissed.
+  const seeded = await seedBundledPlugins(client, plugins);
+  if (seeded.length > 0) {
+    plugins = await client.listPlugins();
+  }
   const seen = new Set<string>();
   const next: PluginStatus[] = [];
 
