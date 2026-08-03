@@ -25,7 +25,8 @@
   },
   "module": "dist/index.js",
   "scripts": {
-    "build": "pnpm run build:viewer && vite build && tsc",
+    "build": "pnpm run gen:bundled-plugins && pnpm run build:viewer && vite build && tsc",
+    "gen:bundled-plugins": "tsx scripts/bundlePlugins.ts",
     "build:viewer": "vite build --config vite.viewer.config.js",
     "gen:export-fixtures": "vitest run scripts/exportParityFixtures.test.ts",
     "dev": "vite build --watch",
