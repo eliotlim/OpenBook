@@ -56,16 +56,25 @@ export interface CustomBlockDef {
 const registry = new Map<string, CustomBlockDef>();
 const subscribers = new Set<() => void>();
 
+/** Monotonic version counter — increments on every register/unregister so
+ *  `useSyncExternalStore` can detect changes cheaply. */
+let registryVersion = 0;
+
 export function registerCustomBlock(def: CustomBlockDef): () => void {
   registry.set(def.type, def);
+  registryVersion += 1;
   subscribers.forEach((cb) => cb());
   return () => {
     if (registry.get(def.type) === def) {
       registry.delete(def.type);
+      registryVersion += 1;
       subscribers.forEach((cb) => cb());
     }
   };
 }
+
+/** Snapshot for `useSyncExternalStore` — returns the current version counter. */
+export const getRegistrySnapshot = (): number => registryVersion;
 
 export const getCustomBlock = (type: string): CustomBlockDef | undefined => registry.get(type);
 

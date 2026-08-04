@@ -9,6 +9,8 @@ import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {
   addTrustedRegistry,
+  dismissBundledPlugin,
+  isBundledPlugin,
   parsePluginZip,
   pluginStatuses,
   removeTrustedRegistry,
@@ -67,6 +69,7 @@ export default function ExtensionsSettings() {
 
   const remove = useCallback(
     async (id: string) => {
+      if (isBundledPlugin(id)) dismissBundledPlugin(id);
       await client.removePlugin(id);
       await syncPlugins(client);
     },
