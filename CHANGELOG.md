@@ -1,3 +1,14 @@
+## 3.8.0 (2026-08-04)
+
+### 🚀 Features
+
+- **ui:** unsupported ledger blocks — install prompt + bundled plugin ([#229](https://github.com/eliotlim/OpenBook/pull/229))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6
+- Eliot Lim @eliotlim
+
 ## 3.7.0 (2026-08-03)
 
 ### 🚀 Features
