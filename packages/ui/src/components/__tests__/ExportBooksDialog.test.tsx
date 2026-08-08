@@ -37,6 +37,8 @@ describe('ExportBooksDialog', () => {
     expect(toggle.checked).toBe(true); // the owner default
     expect(screen.getByTestId('export-books-warning').textContent).toContain('financial records');
     expect(screen.queryByTestId('export-books-excluded')).toBeNull();
+    // With the toggle ON the confirm button restates the consequence.
+    expect(screen.getByTestId('export-books-confirm').textContent).toBe('Export with books');
     fireEvent.click(screen.getByTestId('export-books-confirm'));
     expect(onClose).toHaveBeenCalledWith({includeBooks: true});
   });
@@ -46,6 +48,8 @@ describe('ExportBooksDialog', () => {
     fireEvent.click(screen.getByTestId('export-books-toggle'));
     expect(screen.getByTestId('export-books-excluded').textContent).toContain('not be included');
     expect(screen.queryByTestId('export-books-warning')).toBeNull();
+    // Toggle OFF: a plain "Export" — the file carries no books.
+    expect(screen.getByTestId('export-books-confirm').textContent).toBe('Export');
     fireEvent.click(screen.getByTestId('export-books-confirm'));
     expect(onClose).toHaveBeenCalledWith({includeBooks: false});
   });

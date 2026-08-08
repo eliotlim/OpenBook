@@ -341,6 +341,7 @@ export const ja: PartialMessages = {
     exportBooksExcluded: '帳簿は含まれません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
     exportBooksUnavailable: 'レコードへのアクセス権がないため、帳簿を含められません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
     exportBooksConfirm: 'エクスポート',
+    exportBooksConfirmInclude: '帳簿を含めてエクスポート',
     exportBooksCaptureFailed: '帳簿を含められませんでした——レコードを完全に読み取れなかったため、ファイルは帳簿データなしでエクスポートされました。',
   },
   home: {

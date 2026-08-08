@@ -18,10 +18,10 @@
  * SDK's `gatherLedgerExportSection`, driven by the export pipeline.
  */
 import {useEffect, useState} from 'react';
+import {TriangleAlert} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -62,12 +62,19 @@ export function ExportBooksDialog({
         <DialogContent className="sm:max-w-[440px]" data-testid="export-books-dialog">
           <DialogHeader>
             <DialogTitle>{t('page.exportBooksTitle')}</DialogTitle>
-            {canInclude && include && (
-              <DialogDescription data-testid="export-books-warning">
-                {t('page.exportBooksWarning')}
-              </DialogDescription>
-            )}
           </DialogHeader>
+          {/* The data-exposure warning is a CAUTION, not a subtitle: a bordered,
+              amber-tinted callout (the ShareDialog/SiteVisibilityControl caveat
+              idiom) with a warning icon, in full-contrast foreground text. */}
+          {canInclude && include && (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground"
+              data-testid="export-books-warning"
+            >
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <span>{t('page.exportBooksWarning')}</span>
+            </div>
+          )}
           {canInclude ? (
             <label className="flex cursor-pointer items-start gap-2 text-sm">
               <input
@@ -89,8 +96,10 @@ export function ExportBooksDialog({
             <Button variant="outline" onClick={() => onClose(null)}>
               {t('common.cancel')}
             </Button>
+            {/* With the toggle ON the click restates the consequence — "Export
+                with books" — so consent is confirmed in the button itself. */}
             <Button onClick={() => onClose({includeBooks: canInclude && include})} data-testid="export-books-confirm">
-              {t('page.exportBooksConfirm')}
+              {canInclude && include ? t('page.exportBooksConfirmInclude') : t('page.exportBooksConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
