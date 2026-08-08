@@ -26,6 +26,7 @@ import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '
 import {assetsIslandScript, isSafeHref, pageIslandScript, libraryIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {describeUnknownBlock} from '../blockeditor/unknownBlock';
 import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -590,8 +591,25 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       );
       break;
     }
-    default:
+    default: {
+      // A plugin-contributed (`{pluginId}/{blockName}`) or newer-version block
+      // type. The projection now preserves its identity (LX-1), so render the
+      // same labelled placeholder the app shows for a missing plugin rather
+      // than dropping the block: the reader sees WHAT is here and why it isn't
+      // drawn. Any text the block carried rides along. This is the final render
+      // for decks, the PDF path and no-JS/no-hydrate exports; on the hydrate
+      // path the viewer replaces it with its own missing-plugin card.
+      const {label, hint} = describeUnknownBlock(str(block.type));
+      const text = str(d.text) ? inlineToHtml(parseInline(str(d.text)), ctx) : '';
+      html.push(
+        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}">` +
+          `<p class="ob-plugin-block-label">${escapeHtml(label)}</p>` +
+          `<p class="ob-plugin-block-hint">${escapeHtml(hint)}</p>` +
+          (text ? `<p class="ob-plugin-block-text">${text}</p>` : '') +
+          '</div>',
+      );
       break;
+    }
     }
   }
   return html.join('\n');
@@ -1145,6 +1163,13 @@ figure.ob-artifact { margin: 1.2em 0; }
 .ob-artifact-placeholder { display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; }
 .ob-artifact-label { font-weight: 600; }
 .ob-artifact-hint { font-size: .85rem; opacity: .65; }
+/* Plugin / unknown block placeholder (LX-1). Same dashed-card language as the
+   artifact placeholder above; kept whole across a PDF page break. */
+.ob-plugin-block { margin: 1.2em 0; padding: 14px 16px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; background: rgba(127,127,127,.05); break-inside: avoid; page-break-inside: avoid; }
+.ob-plugin-block > p { margin: 0; }
+.ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
+.ob-plugin-block > p.ob-plugin-block-hint { font-size: .85rem; opacity: .65; margin-top: 2px; }
+.ob-plugin-block > p.ob-plugin-block-text { margin-top: 8px; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }

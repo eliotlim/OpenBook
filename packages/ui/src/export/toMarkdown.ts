@@ -4,6 +4,7 @@
  * series names; `@`-mentions to their label text (there is no portable URL).
  */
 import type {DocBlock, DocModel, InlineRun, ListItem} from './documentModel';
+import {describeUnknownBlock} from '@/blockeditor/unknownBlock';
 import {formatValue} from './format';
 import {pageIconToText} from '@/lib/iconValue';
 
@@ -150,8 +151,13 @@ function blockToMd(block: DocBlock): string {
     const body = block.src ? `![${alt}](${block.src})` : `_${alt || 'Image'}_`;
     return block.caption ? `${body}\n\n*${escapeMd(block.caption)}*` : body;
   }
-  case 'unknown':
-    return `_(${block.raw} block)_`;
+  case 'unknown': {
+    // A plugin / newer-version block: a labelled blockquote (same words the app
+    // and the HTML export use), plus any text the block carried.
+    const {label, hint} = describeUnknownBlock(block.raw);
+    const text = inlineToMd(block.runs).trim();
+    return `> **${escapeMd(label)}** — ${hint}${text ? `\n>\n> ${text}` : ''}`;
+  }
   default:
     return '';
   }

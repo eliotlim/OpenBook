@@ -1,6 +1,7 @@
 import {isSafeHref} from '@book.dev/sdk';
-import type {BlockJSON, InlineAttrs, TextRun} from './model';
-import {decodeSnapshot, TABLE_COLBG_PREFIX} from './model';
+import type {BlockJSON, BlockType, InlineAttrs, TextRun} from './model';
+import {CONTAINER_BLOCKS, decodeSnapshot, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
+import {describeUnknownBlock} from './unknownBlock';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
 import {computeExportCells, type ExportCell} from './kit/scope';
@@ -109,6 +110,17 @@ function runToMd(run: TextRun): string {
 }
 
 const textMd = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToMd).join('');
+
+/**
+ * Whether a block type that fell through an exporter's switch is a CORE type
+ * carrying nothing but text — a bare `paragraph` (which has no case of its own
+ * anywhere), or a container child (`cell`, `tab`, …) orphaned from its parent.
+ * Those keep the plain-text projection; every OTHER unhandled type is
+ * plugin-contributed or from a newer version and gets a labelled placeholder
+ * instead of being silently flattened (LX-1).
+ */
+const isCoreTextType = (type: string): boolean =>
+  TEXT_BLOCKS.has(type as BlockType) || CONTAINER_BLOCKS.has(type as BlockType);
 
 /** The current value of a June-2026 kit input rendered as Markdown. */
 function kitInputMd(b: BlockJSON): string {
@@ -268,9 +280,25 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       i += 1;
       break;
     }
-    default:
-      parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
+    default: {
+      if (isCoreTextType(b.type)) {
+        parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
+        i += 1;
+        break;
+      }
+      // Plugin / forward-compat block: a labelled placeholder that names what
+      // the reader is missing, keeping any text the block carried.
+      const {label, hint} = describeUnknownBlock(b.type);
+      const body = textHtml(b.text);
+      parts.push(
+        `<div class="obe-x-plugin" data-block-type="${escapeHtml(b.type)}">` +
+          `<p class="obe-x-plugin-label"><strong>${escapeHtml(label)}</strong></p>` +
+          `<p class="obe-x-plugin-hint">${escapeHtml(hint)}</p>` +
+          (body ? `<p class="obe-x-plugin-text">${body}</p>` : '') +
+          '</div>',
+      );
       i += 1;
+    }
     }
   }
   return parts.join('\n');
@@ -372,8 +400,15 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       out.push(label ? `**${label}:** ${body}` : body);
       break;
     }
-    default:
-      out.push(textMd(b.text));
+    default: {
+      if (isCoreTextType(b.type)) {
+        out.push(textMd(b.text));
+        break;
+      }
+      const {label, hint} = describeUnknownBlock(b.type);
+      const body = textMd(b.text);
+      out.push(`> **${label}** — ${hint}${body ? `\n>\n> ${body}` : ''}`);
+    }
     }
   }
   return out.join('\n\n');
@@ -822,9 +857,25 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         });
         i += 1;
         break;
-      default:
-        sink.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
+      default: {
+        // Core text-only types (a bare `paragraph`, or an orphaned container
+        // child) project as paragraphs — they have no props worth carrying.
+        if (isCoreTextType(b.type)) {
+          sink.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
+          i += 1;
+          break;
+        }
+        // LX-1: a plugin-contributed (`{pluginId}/{blockName}`) or newer-version
+        // type. PRESERVE ITS IDENTITY — `type` verbatim plus `props` nested (so a
+        // plugin prop can never collide with the projection's own `data` keys
+        // like `text`/`level`). Relabelling these `paragraph` erased both, and
+        // since plugin blocks carry no text it printed a literal empty <p> into
+        // every HTML/PDF/Markdown export. Downstream renderers now see the real
+        // type and draw a labelled placeholder; unknown types are inert in every
+        // other consumer of this projection (assets/link/search/mtime walks).
+        sink.push({id: b.id, type: b.type, data: {props: b.props ?? {}, text: textHtml(b.text)}});
         i += 1;
+      }
       }
     }
   };
