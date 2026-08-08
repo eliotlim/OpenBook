@@ -60,4 +60,58 @@ describe('gatherLedgerExportSection — fail-closed edges', () => {
     const client = stubClient({listRows: async () => []});
     expect(await gatherLedgerExportSection(client)).toBeNull();
   });
+
+  it('a book AT the transaction cap fails CLOSED — even with a partial row grant (Sasha #1)', async () => {
+    // The typed read returns exactly the cap: completeness of the tx/posting
+    // parity can no longer be proven, and the generic row read is FILTERED
+    // (999 of >=1000 row pages readable). Without the cap guard this would
+    // ship a complete chart of accounts + a silently partial journal.
+    const atCap = Array.from({length: 1000}, (_, i) => ({id: `tx-${i}`, postings: []}));
+    const rows = (n: number, dbId: string) =>
+      Array.from({length: n}, (_, i) => ({id: `row-${dbId}-${i}`, name: '', properties: {}, exports: {}, parentId: null, createdAt: '', updatedAt: ''}));
+    const client = stubClient({
+      ledgerListTransactions: async () => atCap,
+      listRows: async (dbId: string) => {
+        if (dbId === IDS.accounts) return rows(1, 'a');
+        if (dbId === IDS.transactions) return rows(999, 't'); // partial grant
+        return [];
+      },
+      ledgerListAccounts: async () => [{id: 'row-a-0'}],
+    });
+    expect(await gatherLedgerExportSection(client)).toBeNull();
+  });
+
+  it('at the cap, even EXACT row parity fails closed (completeness is unprovable)', async () => {
+    const atCap = Array.from({length: 1000}, (_, i) => ({id: `tx-${i}`, postings: []}));
+    const rows = (n: number, dbId: string) =>
+      Array.from({length: n}, (_, i) => ({id: `row-${dbId}-${i}`, name: '', properties: {}, exports: {}, parentId: null, createdAt: '', updatedAt: ''}));
+    const client = stubClient({
+      ledgerListTransactions: async () => atCap,
+      listRows: async (dbId: string) => {
+        if (dbId === IDS.accounts) return rows(1, 'a');
+        if (dbId === IDS.transactions) return rows(1000, 't'); // parity holds, but the cap hides any excess
+        return [];
+      },
+      ledgerListAccounts: async () => [{id: 'row-a-0'}],
+    });
+    expect(await gatherLedgerExportSection(client)).toBeNull();
+  });
+
+  it('strictly under the cap, matching parity still captures (the guard is at-cap only)', async () => {
+    const under = Array.from({length: 3}, (_, i) => ({id: `tx-${i}`, postings: []}));
+    const rows = (n: number, dbId: string) =>
+      Array.from({length: n}, (_, i) => ({id: `row-${dbId}-${i}`, name: '', properties: {}, exports: {}, parentId: null, createdAt: '', updatedAt: ''}));
+    const client = stubClient({
+      ledgerListTransactions: async () => under,
+      listRows: async (dbId: string) => {
+        if (dbId === IDS.accounts) return rows(1, 'a');
+        if (dbId === IDS.transactions) return rows(3, 't');
+        return [];
+      },
+      ledgerListAccounts: async () => [{id: 'row-a-0'}],
+    });
+    const section = await gatherLedgerExportSection(client);
+    expect(section).not.toBeNull();
+    expect(section!.library.pages.filter((p) => p.databaseId === IDS.transactions)).toHaveLength(3);
+  });
 });

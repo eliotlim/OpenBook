@@ -1,9 +1,9 @@
 import {describe, it, expect} from 'vitest';
-import type {LedgerExportSection, PageSnapshot, StoredPage} from '@book.dev/sdk';
+import type {DataClient, LedgerExportSection, PageSnapshot, StoredPage} from '@book.dev/sdk';
 import {readLibraryIsland} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {toHtmlSite} from '../toHtml';
-import {bundleHasLedgerBlocks, snapshotHasLedgerBlocks, type SiteBundle} from '../exportSite';
+import {bundleHasLedgerBlocks, gatherSite, snapshotHasLedgerBlocks, type SiteBundle} from '../exportSite';
 
 /**
  * LX-2 — ledger records in the site export island.
@@ -115,6 +115,97 @@ function siteBundle(ledger?: LedgerExportSection): SiteBundle {
   };
 }
 
+// ── The crawl: ledger content behind a reference (Sasha #2, consent bypass) ──
+
+/** A root doc whose `@`-mentions reach a ledger child host page and a plain page. */
+const crawlRootSnapshot = blockSnapshot([
+  {type: 'paragraph', text: [{t: 'Accounts', a: {m: 'host-acc'}}, {t: ' and '}, {t: 'notes', a: {m: 'plain'}}]},
+]);
+
+/**
+ * A stub world where the ledger is seeded and READABLE by the caller: the
+ * crawl can reach the accounts child host page (and would, unpruned, pull the
+ * managed database's schema + rows into the visible bundle and the island).
+ */
+/** A record marker that can never collide with the bundled ledger plugin's own
+ *  source (which toHtmlSite embeds verbatim and mentions common account names). */
+const SECRET_ROW = 'Assets:Vault:LX2-SECRET-9314';
+
+function crawlClient(overrides: Partial<Record<keyof DataClient, unknown>> = {}): DataClient {
+  const dbIds = {accounts: 'db-acc', transactions: 'db-tx', postings: 'db-po', reconciliations: 'db-rec'};
+  const pagesById: Record<string, StoredPage> = {
+    root: storedPage('root', crawlRootSnapshot),
+    plain: storedPage('plain', plainSnapshot),
+    'ledger-root': storedPage('ledger-root', plainSnapshot),
+    'host-acc': storedPage('host-acc', plainSnapshot, {parentId: 'ledger-root', hostedDatabaseId: dbIds.accounts}),
+    'row-acc-lx2': storedPage('row-acc-lx2', plainSnapshot, {databaseId: dbIds.accounts, properties: {name: SECRET_ROW}}),
+  };
+  const base = {
+    ledgerInfo: async () => ({exists: true, hostPageId: 'ledger-root', databases: dbIds}),
+    getPage: async (id: string) => pagesById[id] ?? null,
+    getDatabase: async (id: string) =>
+      id === dbIds.accounts
+        ? {id, pageId: 'host-acc', name: 'Ledger accounts', schema: {properties: [{id: 'name', name: 'Account', type: 'text'}], views: []}, createdAt: '', updatedAt: ''}
+        : null,
+    listRows: async (dbId: string) =>
+      dbId === dbIds.accounts
+        ? [{id: 'row-acc-lx2', name: SECRET_ROW, properties: {name: SECRET_ROW}, exports: {}, parentId: null, createdAt: '', updatedAt: ''}]
+        : [],
+  };
+  return {...base, ...overrides} as unknown as DataClient;
+}
+
+describe('gatherSite — crawled ledger content is pruned and consent-flagged (Sasha #2)', () => {
+  it('a crawl reaching a ledger host page prunes the books from bundle AND island, and flags consent', async () => {
+    const bundle = await gatherSite(crawlClient(), 'root', {snapshot: crawlRootSnapshot, title: 'Root', icon: ''});
+    // The reference was reached → the export flow must run the consent dialog.
+    expect(bundle.ledgerReached).toBe(true);
+    // The visible bundle carries only non-ledger pages, and no database rows.
+    expect(bundle.pages.map((p) => p.id).sort()).toEqual(['plain', 'root']);
+    expect(bundle.pages.every((p) => p.database === undefined)).toBe(true);
+    // The lossless island bundle is equally clean.
+    expect(bundle.space.pages.map((p) => p.id).sort()).toEqual(['plain', 'root']);
+    expect(bundle.space.databases).toHaveLength(0);
+  });
+
+  it('toggle off (no section): ZERO ledger records anywhere in the exported file', async () => {
+    const bundle = await gatherSite(crawlClient(), 'root', {snapshot: crawlRootSnapshot, title: 'Root', icon: ''});
+    const html = toHtmlSite(bundle); // no bundle.ledger — the user opted out
+    expect(readLibraryIsland(html)!.ledger).toBeUndefined();
+    expect(html).not.toContain(SECRET_ROW);
+    expect(html).not.toContain('row-acc-lx2');
+    expect(html).not.toContain('Ledger accounts');
+  });
+
+  it('guest (existence-hiding ledgerInfo + 404s on restricted pages): zero records, no dialog needed', async () => {
+    const client = crawlClient({
+      ledgerInfo: async () => ({exists: false, hostPageId: null, databases: null}),
+      getPage: async (id: string) =>
+        id === 'root'
+          ? storedPage('root', crawlRootSnapshot)
+          : id === 'plain'
+            ? storedPage('plain', plainSnapshot)
+            : null, // the restricted ledger pages 404 for a guest
+    });
+    const bundle = await gatherSite(client, 'root', {snapshot: crawlRootSnapshot, title: 'Root', icon: ''});
+    expect(bundle.ledgerReached).toBeUndefined();
+    const html = toHtmlSite(bundle);
+    expect(html).not.toContain(SECRET_ROW);
+    expect(html).not.toContain('row-acc-lx2');
+  });
+
+  it('exporting a ledger page directly: the root stays but its managed database (rows) is pruned', async () => {
+    const bundle = await gatherSite(crawlClient(), 'host-acc', {snapshot: plainSnapshot, title: 'Accounts', icon: ''});
+    expect(bundle.ledgerReached).toBe(true);
+    expect(bundle.pages.map((p) => p.id)).toEqual(['host-acc']);
+    expect(bundle.pages[0].database).toBeUndefined();
+    expect(bundle.space.databases).toHaveLength(0);
+    const html = toHtmlSite(bundle);
+    expect(html).not.toContain(SECRET_ROW);
+    expect(html).not.toContain('row-acc-lx2');
+  });
+});
+
 describe('site export island — ledger section (LX-2)', () => {
   it('toggle ON: the island carries the complete, machine-readable section under its own key', () => {
     const section = fixtureSection();
@@ -142,6 +233,20 @@ describe('site export island — ledger section (LX-2)', () => {
     // Not merely "no island key": no record content leaks anywhere in the file.
     expect(html).not.toContain('Owner investment');
     expect(html).not.toContain('db-acc');
+  });
+
+  it('crawled ledger content: opted-in records ship EXACTLY once (the section), never via the crawl copy', async () => {
+    const bundle = await gatherSite(crawlClient(), 'root', {snapshot: crawlRootSnapshot, title: 'Root', icon: ''});
+    bundle.ledger = fixtureSection();
+    const html = toHtmlSite(bundle);
+    const parsed = readLibraryIsland(html)!;
+    // The section carries the records; the generic bundle stays clean.
+    expect(parsed.ledger).toEqual(fixtureSection());
+    expect(parsed.space.pages.map((p) => p.id).sort()).toEqual(['plain', 'root']);
+    expect(parsed.space.databases).toHaveLength(0);
+    // A unique record marker appears exactly once in the whole file — the
+    // consent-gated section is the single sanctioned carrier (no duplication).
+    expect(html.split('Owner investment')).toHaveLength(2);
   });
 
   it('the section survives hostile content in the books (island escaping)', () => {

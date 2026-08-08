@@ -153,6 +153,24 @@ describe('identity verification', () => {
     expect(asOwner.trustedIssuers).toContain(ISS);
     expect(asOwner.audience).toBe('https://lib.example');
   });
+
+  // PUB-1: `claimed` deliberately sits OUTSIDE the GATE-7 fence. `ownerSubject` is
+  // nulled for an anonymous caller on a claimed instance, so it cannot answer "is
+  // this library owned?" — and a client needs that to warn honestly that an
+  // UNCLAIMED library ignores `defaultVisibility` entirely (authorize rule 0).
+  // A bare boolean discloses no identity.
+  it('PUB-1: `claimed` survives the GATE-7 nulling for an anonymous caller', async () => {
+    const unclaimed = (await (await appWithIdentity().request('/api/instance')).json()) as InstanceInfo;
+    expect(unclaimed.claimed).toBe(false);
+    expect(unclaimed.ownerSubject).toBeNull();
+
+    await store.updateInstanceConfig({ownerSubject: `${ISS}#owner`});
+    const asGuest = (await (await appWithIdentity().request('/api/instance')).json()) as InstanceInfo;
+    // The owner's identity stays fenced…
+    expect(asGuest.ownerSubject).toBeNull();
+    // …but the claim STATE is now unambiguous, which `ownerSubject` alone never was.
+    expect(asGuest.claimed).toBe(true);
+  });
 });
 
 describe('change provenance (edit log)', () => {

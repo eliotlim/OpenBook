@@ -341,6 +341,8 @@ export const ja: PartialMessages = {
     exportBooksExcluded: '帳簿は含まれません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
     exportBooksUnavailable: 'レコードへのアクセス権がないため、帳簿を含められません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
     exportBooksConfirm: 'エクスポート',
+    exportBooksConfirmInclude: '帳簿を含めてエクスポート',
+    exportBooksCaptureFailed: '帳簿を含められませんでした——レコードを完全に読み取れなかったため、ファイルは帳簿データなしでエクスポートされました。',
   },
   home: {
     morning: 'おはようございます',
@@ -841,8 +843,18 @@ export const ja: PartialMessages = {
     defaultAccess: '既定のアクセス',
     defaultAccessHint: 'サインインせずにこのライブラリへ到達した人ができること（ネットワーク経由や共有 ✦.book.cloud リンクなど）と、新しいページの既定の公開範囲を設定します。自分のアクセスには影響しません。',
     accessPrivate: 'プライベート（メンバーのみ）',
+    accessPublished: '公開ページのみ',
     accessView: '誰でも閲覧できる',
     accessEdit: '誰でも編集できる',
+    accessPrivateHint: '訪問者は何も開けません — このライブラリはメンバー専用です。',
+    accessPublishedHint: '訪問者はあなたが公開したページだけを開けます。それ以外はすべて非公開のままです。',
+    accessViewHint: '訪問者はこのライブラリのすべてのページを閲覧できますが、編集はできません。',
+    accessEditHint: '訪問者はこのライブラリのすべてのページを閲覧・編集できます。',
+    accessEditHintClaimed:
+      '訪問者はこのライブラリのすべてのページを閲覧できます。編集できるのはメンバーのみです。',
+    accessUnclaimedCaveat:
+      'このライブラリのオーナーが決まるまでは、アクセスできる人は誰でもすべてのページを閲覧できます。',
+    accessAuthenticatedCaveat: 'サインインしている人は、公開していないページも閲覧できます。',
     ownerLocked: 'これを変更できるのはライブラリのオーナーのみです。',
     saveError: 'アクセスを更新できませんでした — {error}',
   },
@@ -893,7 +905,9 @@ export const ja: PartialMessages = {
       authenticatedHint: 'サインインしている人なら誰でもこのライブラリを見られます。',
       membersHint: 'ライブラリのメンバーだけがこのライブラリを見られます。',
       guestOffCaveat:
-        'ゲストアクセスがオフのため、公開ページもサインインしていない訪問者には開けません。ライブラリの共有設定でゲスト閲覧を有効にしてください。',
+        'ゲストアクセスがオフのため、公開ページもサインインしていない訪問者には開けません。「ゲストとアクセス」で「既定のアクセス」を「公開ページのみ」に設定してください。',
+      guestOffCaveatPublic:
+        'ゲストアクセスがオフのため、このライブラリはサインインしていない訪問者には開けません。「ゲストとアクセス」で「既定のアクセス」を「誰でも閲覧できる」に設定してください。',
       manageOnWeb: 'ウェブで管理',
       error: 'アドレスアクセスを更新できませんでした。もう一度お試しください。',
     },
