@@ -249,7 +249,7 @@ export async function syncPlugins(client: DataClient): Promise<PluginStatus[]> {
     const id = plugin.manifest.id;
     seen.add(id);
     const verdict = await verifyPlugin(plugin, trustedRegistryKeys());
-    const revoked = revokedEntryFor(id, plugin.manifest.version);
+    const revoked = await revokedEntryFor(id, plugin.manifest.version);
     if (revoked) {
       // Revoked means disabled, not merely flagged — regardless of the
       // enabled switch, and even for an already-running instance.

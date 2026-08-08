@@ -94,6 +94,12 @@ describe('bundled plugin upgrade seeding', () => {
 });
 
 describe('revocation enforcement in syncPlugins', () => {
+  beforeEach(() => {
+    localStorage.setItem('openbook.pluginStores', JSON.stringify([
+      {name: 'Test Store', baseUrl: 'https://store.test', notaryPublicKey: null, registryPublicKey: null},
+    ]));
+  });
+
   const revokedCache = (pluginId: string, version: string | null) =>
     JSON.stringify({
       'https://store.test': {

@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {canonicalDigest, signPlugin, generateRegistryKeys, RegistryError, type DataClient, type PluginPackage} from '@book.dev/sdk';
+import {canonicalDigest, canonicalJson, signPlugin, generateRegistryKeys, RegistryError, type DataClient, type PluginPackage} from '@book.dev/sdk';
 import {
   addPluginStore,
   listPluginStores,
@@ -7,6 +7,7 @@ import {
   removePluginStore,
   resolvePlugin,
   revokedEntryFor,
+  storeProvenanceChanged,
   verifyFromStore,
   installVerified,
 } from '../registryStores';
@@ -30,6 +31,7 @@ interface FakeState {
   revocations: Array<Record<string, unknown>>;
   maxSeq: number;
   downloadRevoked?: boolean;
+  revocationsUnavailable?: boolean;
 }
 
 /** A minimal openbook-registry/1 fake behind globalThis.fetch (no notary key). */
@@ -67,6 +69,7 @@ function serveFake(state: FakeState): void {
       return new Response(bytes as BodyInit, {headers: {etag: `"${await sha256Hex(bytes)}"`, 'x-canonical-digest': state.digest}});
     }
     if (url.pathname === '/api/v1/revocations') {
+      if (state.revocationsUnavailable) throw new Error('revocation feed offline');
       const since = Number(url.searchParams.get('since') ?? '0');
       return json({maxSeq: state.maxSeq, revocations: state.revocations.filter((r) => (r.seq as number) > since)});
     }
@@ -99,6 +102,13 @@ const unsignedEntry = (seq: number, pluginId: string, version: string | null) =>
   createdAt: new Date(0).toISOString(),
 });
 
+async function signMessage(privateKeyB64: string, message: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(privateKeyB64), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('pkcs8', bytes as BufferSource, 'Ed25519', false, ['sign']);
+  const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', key, te.encode(message) as BufferSource));
+  return btoa(String.fromCharCode(...signature));
+}
+
 beforeEach(() => {
   localStorage.clear();
   addPluginStore({name: 'Fake Store', baseUrl: 'https://store.test', notaryPublicKey: null, registryPublicKey: null});
@@ -117,6 +127,14 @@ describe('pin persistence', () => {
     removePluginStore('https://store.test');
     expect(listPluginStores()).toHaveLength(0);
   });
+
+  it('clears that store\'s cached revocations when unpinned', () => {
+    localStorage.setItem('openbook.storeRevocations', JSON.stringify({
+      'https://store.test': {maxSeq: 1, entries: [unsignedEntry(1, 'acme.widget', null)], fetchedAt: new Date().toISOString(), generatedAt: null},
+    }));
+    removePluginStore('https://store.test');
+    expect(JSON.parse(localStorage.getItem('openbook.storeRevocations') ?? '{}')).toEqual({});
+  });
 });
 
 describe('revocation cache', () => {
@@ -126,13 +144,13 @@ describe('revocation cache', () => {
     state.revocations = [unsignedEntry(1, 'acme.widget', '1.2.0')];
     state.maxSeq = 1;
     await refreshRevocations({force: true});
-    expect(revokedEntryFor('acme.widget', '1.2.0')?.reason).toBe('compromised build');
+    expect((await revokedEntryFor('acme.widget', '1.2.0'))?.reason).toBe('compromised build');
 
     // The feed "forgets" the entry (or the since-window excludes it) — the
     // cached copy keeps being honoured.
     state.revocations = [];
     await refreshRevocations({force: true});
-    expect(revokedEntryFor('acme.widget', '1.2.0')).not.toBeNull();
+    expect(await revokedEntryFor('acme.widget', '1.2.0')).not.toBeNull();
   });
 
   it('an unreachable feed keeps the last-known-good copy', async () => {
@@ -146,7 +164,31 @@ describe('revocation cache', () => {
       throw new Error('offline');
     });
     await refreshRevocations({force: true});
-    expect(revokedEntryFor('acme.widget', '9.9.9')).not.toBeNull();
+    expect(await revokedEntryFor('acme.widget', '9.9.9')).not.toBeNull();
+  });
+
+  it('re-verifies cached signatures against the pinned notary key on read', async () => {
+    const notary = await generateRegistryKeys();
+    addPluginStore({name: 'Fake Store', baseUrl: 'https://store.test', notaryPublicKey: notary.publicKey, registryPublicKey: null});
+    const entry = unsignedEntry(1, 'acme.widget', '1.2.0');
+    const payload = canonicalJson({
+      id: entry.id,
+      pluginId: entry.pluginId,
+      reason: entry.reason,
+      revokedAt: entry.createdAt,
+      seq: entry.seq,
+      version: entry.version,
+    });
+    const signed = {...entry, signerPublicKey: notary.publicKey, signature: await signMessage(notary.privateKey, payload)};
+    localStorage.setItem('openbook.storeRevocations', JSON.stringify({
+      'https://store.test': {maxSeq: 1, entries: [signed], fetchedAt: new Date().toISOString(), generatedAt: new Date().toISOString()},
+    }));
+    expect(await revokedEntryFor('acme.widget', '1.2.0')).not.toBeNull();
+
+    localStorage.setItem('openbook.storeRevocations', JSON.stringify({
+      'https://store.test': {maxSeq: 1, entries: [{...signed, reason: 'localStorage forgery'}], fetchedAt: new Date().toISOString(), generatedAt: new Date().toISOString()},
+    }));
+    expect(await revokedEntryFor('acme.widget', '1.2.0')).toBeNull();
   });
 });
 
@@ -175,6 +217,27 @@ describe('resolve + verified install', () => {
     await expect(verifyFromStore(res!)).rejects.toMatchObject({code: 'revoked'});
   });
 
+  it('fails closed when a fresh cached feed becomes unreachable at install verification', async () => {
+    const state = await fixture();
+    serveFake(state);
+    await refreshRevocations({force: true});
+    state.revocationsUnavailable = true;
+    const res = await resolvePlugin('acme.widget');
+    await expect(verifyFromStore(res!)).rejects.toMatchObject({code: 'revocation_unavailable'});
+  });
+
+  it('fails closed when a stale cached feed is unreachable at install verification', async () => {
+    const state = await fixture();
+    serveFake(state);
+    await refreshRevocations({force: true});
+    const cache = JSON.parse(localStorage.getItem('openbook.storeRevocations') ?? '{}') as Record<string, Record<string, unknown>>;
+    cache['https://store.test']!.fetchedAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    localStorage.setItem('openbook.storeRevocations', JSON.stringify(cache));
+    state.revocationsUnavailable = true;
+    const res = await resolvePlugin('acme.widget');
+    await expect(verifyFromStore(res!)).rejects.toMatchObject({code: 'revocation_unavailable'});
+  });
+
   it('…and again at install time, even for an already-verified download', async () => {
     const state = await fixture();
     serveFake(state);
@@ -197,5 +260,26 @@ describe('resolve + verified install', () => {
     state.downloadRevoked = true;
     const res = await resolvePlugin('acme.widget');
     await expect(verifyFromStore(res!)).rejects.toMatchObject({code: 'revoked'});
+  });
+
+  it('persists first-seen store/key provenance and warns when an update changes it', async () => {
+    const state = await fixture();
+    serveFake(state);
+    const resolution = (await resolvePlugin('acme.widget'))!;
+    const download = await verifyFromStore(resolution);
+    const client = {
+      installPlugin: async (pkg: PluginPackage) => ({...pkg, enabled: true, installedAt: ''}),
+    } as unknown as DataClient;
+    await installVerified(client, download);
+
+    expect(storeProvenanceChanged(download)).toBe(false);
+    expect(storeProvenanceChanged({
+      ...download,
+      provenance: {...download.provenance, baseUrl: 'https://other-store.test'},
+    })).toBe(true);
+    expect(storeProvenanceChanged({
+      ...download,
+      provenance: {...download.provenance, pinnedKeys: [...download.provenance.pinnedKeys, 'rotated-key']},
+    })).toBe(true);
   });
 });

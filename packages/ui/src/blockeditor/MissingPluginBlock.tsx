@@ -1,6 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {BadgeCheck, Building2, Download, Puzzle, ShieldAlert, ShieldCheck} from 'lucide-react';
-import type {VerifiedDownload} from '@book.dev/sdk';
 import {useOptionalData} from '@/data';
 import {
   getBundledPlugin,
@@ -10,6 +9,7 @@ import {
   syncPlugins,
   verifyFromStore,
   type StoreResolution,
+  type VerifiedStoreDownload,
 } from '@/plugins';
 import {describeUnknownBlock} from './unknownBlock';
 
@@ -36,7 +36,7 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
   const [error, setError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<StoreResolution | null>(null);
   const [resolving, setResolving] = useState(false);
-  const [verified, setVerified] = useState<VerifiedDownload | null>(null);
+  const [verified, setVerified] = useState<VerifiedStoreDownload | null>(null);
 
   // Parse `pluginId/blockName` from the block type (shared with the exporters).
   const {pluginId, blockName, label} = describeUnknownBlock(type);

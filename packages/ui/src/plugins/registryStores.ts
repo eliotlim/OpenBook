@@ -1,7 +1,10 @@
 import {
+  canonicalJson,
   RegistryClient,
   RegistryError,
+  REVOCATION_STALENESS_MS,
   revocationMatches,
+  verifyEd25519Message,
   type DataClient,
   type RegistryIndexEntry,
   type RegistryRevocation,
@@ -16,6 +19,13 @@ import {
  * PROTOCOL.md §6.2: a pin is `(baseUrl, keys)` captured at the moment the
  * user confirmed the fingerprints; afterwards nothing a fetch returns can
  * silently change it.
+ *
+ * Residual threat: this cache is browser-local and plugin-writable. Rechecking
+ * cached signatures prevents passive localStorage tampering before plugin code
+ * starts, but revocation cannot contain a plugin that is already live and has
+ * compromised the page. The kill switch primarily defends not-yet-running
+ * deployments; containment of live-compromised code needs a stronger process
+ * boundary than the current plugin host provides.
  */
 
 export interface PluginStore {
@@ -32,8 +42,21 @@ export interface StoreResolution {
   entry: RegistryIndexEntry;
 }
 
+/** First-seen store + publisher-key continuity for one installed plugin id. */
+export interface StorePluginProvenance {
+  baseUrl: string;
+  pluginId: string;
+  pinnedKeys: string[];
+}
+
+/** A verified package carrying the pinned store provenance that supplied it. */
+export interface VerifiedStoreDownload extends VerifiedDownload {
+  provenance: StorePluginProvenance;
+}
+
 const STORES_KEY = 'openbook.pluginStores';
 const REVOCATIONS_KEY = 'openbook.storeRevocations';
+const PROVENANCE_KEY = 'openbook.storePluginProvenance';
 
 /** How stale the cached revocation list may get before a sync re-polls. */
 const REVOCATION_TTL_MS = 5 * 60 * 1000;
@@ -41,7 +64,12 @@ const REVOCATION_TTL_MS = 5 * 60 * 1000;
 interface RevocationCacheEntry {
   maxSeq: number;
   entries: RegistryRevocation[];
-  fetchedAt: string;
+  /** Client time of the most recent successful verified fetch. */
+  fetchedAt: string | null;
+  /** Signed server time for notarising registries; null for unsigned feeds. */
+  generatedAt: string | null;
+  lastFailureAt?: string;
+  lastFailure?: string;
 }
 
 type RevocationCache = Record<string, RevocationCacheEntry>;
@@ -68,6 +96,11 @@ export function addPluginStore(store: PluginStore): void {
 
 export function removePluginStore(baseUrl: string): void {
   localStorage.setItem(STORES_KEY, JSON.stringify(listPluginStores().filter((s) => s.baseUrl !== baseUrl)));
+  const cache = readRevocationCache();
+  if (cache[baseUrl]) {
+    delete cache[baseUrl];
+    writeRevocationCache(cache);
+  }
 }
 
 /** A protocol client for one pinned store (verification anchored on the pin). */
@@ -86,7 +119,20 @@ function readRevocationCache(): RevocationCache {
   try {
     const raw = localStorage.getItem(REVOCATIONS_KEY);
     const cache = raw ? (JSON.parse(raw) as RevocationCache) : {};
-    return cache && typeof cache === 'object' ? cache : {};
+    if (!cache || typeof cache !== 'object' || Array.isArray(cache)) return {};
+    const valid: RevocationCache = {};
+    for (const [baseUrl, entry] of Object.entries(cache)) {
+      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.entries)) continue;
+      valid[baseUrl] = {
+        maxSeq: Number.isSafeInteger(entry.maxSeq) && entry.maxSeq >= 0 ? entry.maxSeq : 0,
+        entries: entry.entries,
+        fetchedAt: typeof entry.fetchedAt === 'string' ? entry.fetchedAt : null,
+        generatedAt: typeof entry.generatedAt === 'string' ? entry.generatedAt : null,
+        ...(typeof entry.lastFailureAt === 'string' ? {lastFailureAt: entry.lastFailureAt} : {}),
+        ...(typeof entry.lastFailure === 'string' ? {lastFailure: entry.lastFailure} : {}),
+      };
+    }
+    return valid;
   } catch {
     return {};
   }
@@ -96,8 +142,35 @@ function writeRevocationCache(cache: RevocationCache): void {
   try {
     localStorage.setItem(REVOCATIONS_KEY, JSON.stringify(cache));
   } catch {
-    // storage quota / private mode — the in-memory copy still served this session
+    // storage quota / private mode — the caller still fails closed on install
   }
+}
+
+export interface RevocationFeedStatus {
+  state: 'fresh' | 'stale' | 'unavailable';
+  fetchedAt: string | null;
+  lastFailure: string | null;
+}
+
+/** User-facing freshness state for one store's last-known-good feed. */
+export function revocationFeedStatus(baseUrl: string): RevocationFeedStatus {
+  const cached = readRevocationCache()[baseUrl];
+  if (!cached?.fetchedAt) {
+    return {state: 'unavailable', fetchedAt: null, lastFailure: cached?.lastFailure ?? null};
+  }
+  const freshnessAt = cached.generatedAt ?? cached.fetchedAt;
+  const freshnessMs = Date.parse(freshnessAt);
+  const fresh = Number.isFinite(freshnessMs) && Date.now() - freshnessMs <= REVOCATION_STALENESS_MS;
+  return {
+    state: fresh ? 'fresh' : 'stale',
+    fetchedAt: cached.fetchedAt,
+    lastFailure: cached.lastFailure ?? null,
+  };
+}
+
+export interface RevocationRefreshResult {
+  ok: boolean;
+  error?: unknown;
 }
 
 /**
@@ -107,38 +180,148 @@ function writeRevocationCache(cache: RevocationCache): void {
  * last-known-good copy. `force` skips the staleness window (used right
  * before an install, where the check must be fresh).
  */
-export async function refreshRevocations(opts: {force?: boolean} = {}): Promise<void> {
+export async function refreshRevocations(opts: {force?: boolean; baseUrl?: string} = {}): Promise<Map<string, RevocationRefreshResult>> {
   const cache = readRevocationCache();
+  const outcomes = new Map<string, RevocationRefreshResult>();
   let changed = false;
-  for (const store of listPluginStores()) {
+  const stores = listPluginStores().filter((store) => !opts.baseUrl || store.baseUrl === opts.baseUrl);
+  for (const store of stores) {
     const cached = cache[store.baseUrl];
-    if (!opts.force && cached && Date.now() - new Date(cached.fetchedAt).getTime() < REVOCATION_TTL_MS) continue;
+    if (!opts.force && cached?.fetchedAt && Date.now() - new Date(cached.fetchedAt).getTime() < REVOCATION_TTL_MS) {
+      outcomes.set(store.baseUrl, {ok: revocationFeedStatus(store.baseUrl).state === 'fresh'});
+      continue;
+    }
     try {
-      const {maxSeq, entries} = await storeClient(store).revocations(cached?.maxSeq);
+      const {maxSeq, entries, generatedAt} = await storeClient(store).revocations(cached?.maxSeq);
+      if (maxSeq < (cached?.maxSeq ?? 0)) {
+        throw new RegistryError('bad_response', `the revocation feed rolled back from sequence ${cached!.maxSeq} to ${maxSeq}`);
+      }
       const known = new Set((cached?.entries ?? []).map((e) => e.id));
       cache[store.baseUrl] = {
-        maxSeq: Math.max(maxSeq, cached?.maxSeq ?? 0),
+        maxSeq,
         entries: [...(cached?.entries ?? []), ...entries.filter((e) => !known.has(e.id))],
         fetchedAt: new Date().toISOString(),
+        generatedAt,
       };
+      outcomes.set(store.baseUrl, {ok: true});
       changed = true;
-    } catch {
+    } catch (error) {
       // Unreachable/broken feed: keep the last-known-good copy (never treat
       // an unreachable list as "nothing is revoked").
+      cache[store.baseUrl] = {
+        maxSeq: cached?.maxSeq ?? 0,
+        entries: cached?.entries ?? [],
+        fetchedAt: cached?.fetchedAt ?? null,
+        generatedAt: cached?.generatedAt ?? null,
+        lastFailureAt: new Date().toISOString(),
+        lastFailure: error instanceof Error ? error.message : String(error),
+      };
+      outcomes.set(store.baseUrl, {ok: false, error});
+      changed = true;
     }
   }
   if (changed) writeRevocationCache(cache);
+  return outcomes;
 }
 
-/** The cached revocation entry covering `(pluginId, version)`, if any. */
-export function revokedEntryFor(pluginId: string, version: string): RegistryRevocation | null {
+/**
+ * The cached revocation covering `(pluginId, version)`, if any. Cached entries
+ * are untrusted bytes: re-verify them against their store's PIN on every read.
+ */
+export async function revokedEntryFor(pluginId: string, version: string, opts: {baseUrl?: string} = {}): Promise<RegistryRevocation | null> {
   const cache = readRevocationCache();
-  for (const store of Object.values(cache)) {
-    for (const entry of store.entries) {
-      if (revocationMatches(entry, pluginId, version)) return entry;
+  const stores = listPluginStores().filter((store) => !opts.baseUrl || store.baseUrl === opts.baseUrl);
+  for (const store of stores) {
+    for (const entry of cache[store.baseUrl]?.entries ?? []) {
+      if (!revocationMatches(entry, pluginId, version)) continue;
+      if (store.notaryPublicKey) {
+        if (!entry.signature) continue;
+        const payload = canonicalJson({
+          id: entry.id,
+          pluginId: entry.pluginId,
+          reason: entry.reason,
+          revokedAt: entry.createdAt,
+          seq: entry.seq,
+          version: entry.version ?? null,
+        });
+        if (!(await verifyEd25519Message(store.notaryPublicKey, payload, entry.signature))) continue;
+      }
+      return entry;
     }
   }
   return null;
+}
+
+async function requireFreshRevocations(store: PluginStore): Promise<void> {
+  const outcome = (await refreshRevocations({force: true, baseUrl: store.baseUrl})).get(store.baseUrl);
+  const status = revocationFeedStatus(store.baseUrl);
+  if (!outcome?.ok || status.state !== 'fresh') {
+    const detail = outcome?.error instanceof Error ? `: ${outcome.error.message}` : '';
+    throw new RegistryError(
+      'revocation_unavailable',
+      `cannot confirm a fresh revocation feed for ${store.name}; installation is blocked${detail}`,
+    );
+  }
+}
+
+/** `pinnedKeys` is authoritative; old registries fall back to `pinnedKey`. */
+export function registryEntryPinnedKeys(entry: RegistryIndexEntry): string[] {
+  const keys = entry.pinnedKeys?.filter((key): key is string => typeof key === 'string' && key.length > 0) ?? [];
+  return keys.length > 0 ? [...new Set(keys)] : [entry.pinnedKey];
+}
+
+type ProvenanceCache = Record<string, StorePluginProvenance>;
+
+function readProvenanceCache(): ProvenanceCache {
+  try {
+    const raw = localStorage.getItem(PROVENANCE_KEY);
+    const cache = raw ? (JSON.parse(raw) as ProvenanceCache) : {};
+    if (!cache || typeof cache !== 'object' || Array.isArray(cache)) return {};
+    const valid: ProvenanceCache = {};
+    for (const [pluginId, entry] of Object.entries(cache)) {
+      if (
+        entry
+        && typeof entry.baseUrl === 'string'
+        && entry.pluginId === pluginId
+        && Array.isArray(entry.pinnedKeys)
+        && entry.pinnedKeys.every((key) => typeof key === 'string')
+      ) valid[pluginId] = entry;
+    }
+    return valid;
+  } catch {
+    return {};
+  }
+}
+
+function sameKeySet(a: string[], b: string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((key) => right.has(key));
+}
+
+/** Whether an update changes its first-seen store/key set or publisher key. */
+export function storeProvenanceChanged(download: VerifiedStoreDownload, installed?: StoredPlugin): boolean {
+  const firstSeen = readProvenanceCache()[download.provenance.pluginId];
+  // Existing installs that predate provenance persistence have an unknown
+  // store origin. Treat their first store update as a trust event too.
+  if (installed && !firstSeen) return true;
+  if (firstSeen && (
+    firstSeen.baseUrl !== download.provenance.baseUrl
+    || !sameKeySet(firstSeen.pinnedKeys, download.provenance.pinnedKeys)
+  )) return true;
+  const installedPublisherKey = installed?.signature?.publicKey;
+  return !!installedPublisherKey && !download.provenance.pinnedKeys.includes(installedPublisherKey);
+}
+
+function persistFirstSeenProvenance(provenance: StorePluginProvenance): void {
+  const cache = readProvenanceCache();
+  if (cache[provenance.pluginId]) return;
+  try {
+    localStorage.setItem(PROVENANCE_KEY, JSON.stringify({...cache, [provenance.pluginId]: provenance}));
+  } catch {
+    // A missing continuity record causes future updates to warn from the
+    // installed publisher key when possible; it never grants more trust.
+  }
 }
 
 // ── Resolution + verified install ───────────────────────────────────────────
@@ -181,14 +364,23 @@ export async function browseStores(q?: string): Promise<StoreResolution[]> {
  * outcome to the user and only installs on explicit consent — no plugin code
  * runs before both have happened.
  */
-export async function verifyFromStore(resolution: StoreResolution): Promise<VerifiedDownload> {
+export async function verifyFromStore(resolution: StoreResolution): Promise<VerifiedStoreDownload> {
   const {store, entry} = resolution;
-  await refreshRevocations({force: true});
-  const revoked = revokedEntryFor(entry.id, entry.latestVersion);
+  await requireFreshRevocations(store);
+  const revoked = await revokedEntryFor(entry.id, entry.latestVersion, {baseUrl: store.baseUrl});
   if (revoked) {
     throw new RegistryError('revoked', `${entry.id}@${entry.latestVersion} was revoked by the registry: ${revoked.reason}`);
   }
-  return storeClient(store).download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey});
+  const pinnedKeys = registryEntryPinnedKeys(entry);
+  const download = await storeClient(store).download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys});
+  // Close the download window: a revocation published while the artifact was
+  // in flight must be visible before the consent UI treats verification as done.
+  await requireFreshRevocations(store);
+  const revokedAfterDownload = await revokedEntryFor(entry.id, entry.latestVersion, {baseUrl: store.baseUrl});
+  if (revokedAfterDownload) {
+    throw new RegistryError('revoked', `${entry.id}@${entry.latestVersion} was revoked by the registry: ${revokedAfterDownload.reason}`);
+  }
+  return {...download, provenance: {baseUrl: store.baseUrl, pluginId: entry.id, pinnedKeys}};
 }
 
 /**
@@ -197,11 +389,18 @@ export async function verifyFromStore(resolution: StoreResolution): Promise<Veri
  * upgrade (never a downgrade from the store path — the index only serves the
  * latest approved version, and the server 409s regressions).
  */
-export async function installVerified(client: DataClient, download: VerifiedDownload): Promise<StoredPlugin> {
+export async function installVerified(client: DataClient, download: VerifiedStoreDownload): Promise<StoredPlugin> {
   const {manifest} = download.pkg;
-  const revoked = revokedEntryFor(manifest.id, manifest.version);
+  const store = listPluginStores().find((candidate) => candidate.baseUrl === download.provenance.baseUrl);
+  if (!store) {
+    throw new RegistryError('revocation_unavailable', 'the store that verified this download is no longer pinned; installation is blocked');
+  }
+  await requireFreshRevocations(store);
+  const revoked = await revokedEntryFor(manifest.id, manifest.version, {baseUrl: store.baseUrl});
   if (revoked) {
     throw new RegistryError('revoked', `${manifest.id}@${manifest.version} was revoked by the registry: ${revoked.reason}`);
   }
-  return client.installPlugin(download.pkg);
+  const installed = await client.installPlugin(download.pkg);
+  persistFirstSeenProvenance(download.provenance);
+  return installed;
 }
