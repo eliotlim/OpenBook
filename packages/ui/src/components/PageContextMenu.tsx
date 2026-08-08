@@ -28,27 +28,7 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
-import {
-  ContextMenu,
-  ContextMenuCheckboxItem,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import {
-  DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from '@/components/ui/dropdown-menu';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {useConfirm, useHud, useNavigation, usePlatformCapabilities, usePreferences, useTranslation} from '@/providers';
 import {copyInternalLink, requestMovePage, requestRenamePage} from '@/lib/pageActions';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
@@ -82,43 +62,11 @@ export const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof
   {kind: 'plugin', labelKey: 'page.exportPlugin', icon: Puzzle},
 ];
 
-/**
- * The two Radix menu families expose the same item/checkbox/sub/separator shape,
- * so the one canonical page-action list below renders through whichever bundle
- * its host provides — a right-click {@link ContextMenu} or the click-triggered
- * "…" dropdown. Typed as {@link React.ElementType} because we only lean on the
- * props both families share (onSelect/checked/disabled/children).
- */
-interface MenuComponentSet {
-  Item: React.ElementType;
-  CheckboxItem: React.ElementType;
-  Separator: React.ElementType;
-  Shortcut: React.ElementType;
-  Sub: React.ElementType;
-  SubTrigger: React.ElementType;
-  SubContent: React.ElementType;
-}
-
-const MENU_COMPONENTS: Record<'context' | 'dropdown', MenuComponentSet> = {
-  context: {
-    Item: ContextMenuItem,
-    CheckboxItem: ContextMenuCheckboxItem,
-    Separator: ContextMenuSeparator,
-    Shortcut: ContextMenuShortcut,
-    Sub: ContextMenuSub,
-    SubTrigger: ContextMenuSubTrigger,
-    SubContent: ContextMenuSubContent,
-  },
-  dropdown: {
-    Item: DropdownMenuItem,
-    CheckboxItem: DropdownMenuCheckboxItem,
-    Separator: DropdownMenuSeparator,
-    Shortcut: DropdownMenuShortcut,
-    Sub: DropdownMenuSub,
-    SubTrigger: DropdownMenuSubTrigger,
-    SubContent: DropdownMenuSubContent,
-  },
-};
+// The canonical page-action list below renders through whichever Radix menu
+// family its host provides — see {@link MENU_COMPONENTS} (shared with the
+// database's row/column menu lists).
+import {MENU_COMPONENTS} from '@/components/ui/menu-components';
+export {MENU_COMPONENTS, type MenuComponentSet} from '@/components/ui/menu-components';
 
 /**
  * Which actions a menu surface shows:

@@ -24,6 +24,9 @@ test('bulk set any select property', {tag: ['@database']}, async ({page, request
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
+  // Rows must have LOADED before select-all means anything — toggling over a
+  // still-empty visible set is a no-op (the pre-load click was a flake).
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(2);
 
   // Select all rows via the header checkbox.
   await page.getByRole('table').getByRole('checkbox').first().check();
