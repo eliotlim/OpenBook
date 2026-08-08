@@ -1,29 +1,34 @@
 import React, {useCallback, useState} from 'react';
 import {Download, Puzzle} from 'lucide-react';
-import {useData} from '@/data';
+import {useOptionalData} from '@/data';
 import {getBundledPlugin, syncPlugins} from '@/plugins';
+import {describeUnknownBlock} from './unknownBlock';
 
 /**
  * Displayed when a block's type is `{pluginId}/{blockName}` but the plugin
  * isn't installed — instead of the bare "Unsupported block" text, the user
  * sees the plugin name and an Install button (for bundled/available plugins)
  * or an informational fallback.
+ *
+ * Renders WITHOUT a {@link DataProvider} too (`useOptionalData`): the vendored
+ * viewer that hydrates an exported page has no data client, and a throw here
+ * would take down the whole viewer mount — the reader would silently lose every
+ * live widget on the page, not just this block. Provider-less, the card is
+ * informational: there is nothing to install into.
  */
 export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
-  const client = useData();
+  const client = useOptionalData();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Parse `pluginId/blockName` from the block type.
-  const slashIdx = type.indexOf('/');
-  const pluginId = slashIdx > 0 ? type.slice(0, slashIdx) : null;
-  const blockName = slashIdx > 0 ? type.slice(slashIdx + 1) : null;
+  // Parse `pluginId/blockName` from the block type (shared with the exporters).
+  const {pluginId, blockName} = describeUnknownBlock(type);
 
   const bundled = pluginId ? getBundledPlugin(pluginId) : undefined;
   const displayName = bundled?.name ?? pluginId ?? type;
 
   const install = useCallback(async () => {
-    if (!bundled) return;
+    if (!bundled || !client) return;
     setBusy(true);
     setError(null);
     try {
@@ -46,7 +51,7 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
   }
 
   return (
-    <div className="obe-missing-plugin" contentEditable={false}>
+    <div className="obe-missing-plugin" contentEditable={false} data-block-type={type}>
       <span className="obe-missing-plugin-icon" aria-hidden>
         {bundled?.icon ?? <Puzzle className="h-5 w-5" />}
       </span>
@@ -61,7 +66,7 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
           <p className="obe-missing-plugin-error">{error}</p>
         )}
       </div>
-      {bundled ? (
+      {bundled && client ? (
         <button
           type="button"
           className="obe-missing-plugin-install"
@@ -73,7 +78,8 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
         </button>
       ) : (
         <span className="obe-missing-plugin-hint">
-          Plugin not available
+          {/* No client (the exported page's viewer) — there is nowhere to install to. */}
+          {bundled ? 'Open in OpenBook to install' : 'Plugin not available'}
         </span>
       )}
     </div>
