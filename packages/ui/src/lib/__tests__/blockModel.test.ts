@@ -494,7 +494,7 @@ describe('htmlToBlocks — Notion-shaped table normalization', () => {
     ]);
   });
 
-  it('expands colspan/rowspan into a rectangular grid (origin keeps content, spans blank)', async () => {
+  it('preserves colspan/rowspan as anchor props with null covered slots', async () => {
     const {htmlToBlocks} = await import('../../blockeditor/model');
     const blocks = htmlToBlocks(
       '<table><tbody>' +
@@ -503,11 +503,10 @@ describe('htmlToBlocks — Notion-shaped table normalization', () => {
         '<tr><td>c1</td></tr>' +
         '</tbody></table>',
     );
-    expect(grid(blocks[0])).toEqual([
-      ['Wide', ''],
-      ['Tall', 'b1'],
-      ['', 'c1'],
-    ]);
+    expect(grid(blocks[0])).toEqual([['Wide'], ['Tall', 'b1'], ['c1']]);
+    expect(blocks[0].children![0].children![0].props).toMatchObject({col: 'c0', colspan: 2});
+    expect(blocks[0].children![1].children![0].props).toMatchObject({col: 'c0', rowspan: 2});
+    expect(blocks[0].children![2].children![0].props).toMatchObject({col: 'c1'});
   });
 
   it('drops cell-less spacer rows, pads ragged rows, keeps blank-but-real cells, stays rectangular', async () => {

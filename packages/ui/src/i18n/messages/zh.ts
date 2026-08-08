@@ -185,6 +185,8 @@ export const zh: PartialMessages = {
       clearCells: '清空单元格',
       tintCells: '单元格颜色',
       deleteTable: '删除表格',
+      mergeCells: '合并单元格',
+      splitCell: '拆分单元格',
       deleteRowsN: '删除 {n} 行',
       deleteColumnsN: '删除 {n} 列',
     },

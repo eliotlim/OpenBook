@@ -1,5 +1,7 @@
 import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
+import {blocksToMarkdown, projectBlocksForExport} from '../../blockeditor/exportBlocks';
+import type {BlockJSON} from '../../blockeditor/model';
 import {buildDocumentModel, parseInline, runsToText} from '../documentModel';
 import {toMarkdown} from '../toMarkdown';
 import {toHtml, toHtmlSite, toSlideDeck} from '../toHtml';
@@ -97,6 +99,51 @@ describe('toMarkdown', () => {
     expect(md).toContain('```\nconst x = 1\n```');
     expect(md).toContain('**months** = 120');
   });
+
+  it('keeps compact merged-table cells in their rendered columns through both Markdown paths', () => {
+    const blocks: BlockJSON[] = [
+      {
+        id: 'table',
+        type: 'table',
+        children: [
+          {
+            id: 'row0',
+            type: 'row',
+            children: [
+              {id: 'r0c0', type: 'cell', text: [{t: 'wide'}], props: {colspan: 2, rowspan: 2}},
+              {id: 'r0c2', type: 'cell', text: [{t: 'r0c2'}]},
+            ],
+          },
+          {id: 'row1', type: 'row', children: [{id: 'r1c2', type: 'cell', text: [{t: 'r1c2'}]}]},
+          {
+            id: 'row2',
+            type: 'row',
+            children: [
+              {id: 'r2c0', type: 'cell', text: [{t: 'r2c0'}]},
+              {id: 'r2c1', type: 'cell', text: [{t: 'r2c1'}]},
+              {id: 'r2c2', type: 'cell', text: [{t: 'r2c2'}]},
+            ],
+          },
+        ],
+      },
+    ];
+    const projected = projectBlocksForExport(blocks);
+    const markdownPaths = [
+      blocksToMarkdown(blocks),
+      toMarkdown(
+        buildDocumentModel({title: 'T', icon: '', snapshot: snapshot(projected.blocks, projected.values, projected.names)}),
+      ),
+    ];
+    const cells = (line: string): string[] => line.split('|').slice(1, -1).map((value) => value.trim());
+    for (const markdown of markdownPaths) {
+      const tableRows = markdown.split('\n').filter((line) => line.startsWith('| ') && !line.includes('---'));
+      expect(tableRows.map(cells)).toEqual([
+        ['wide', '', 'r0c2'],
+        ['', '', 'r1c2'],
+        ['r2c0', 'r2c1', 'r2c2'],
+      ]);
+    }
+  });
 });
 
 describe('new block types', () => {
@@ -155,6 +202,24 @@ describe('new block types', () => {
     expect(html).toContain('<nav class="toc">');
     expect(html).toContain('href="#h-0"'); // ToC links to the first heading anchor
     expect(html).toContain('id="h-0"');
+  });
+
+  it('renders projected table cell spans in interactive HTML', () => {
+    const html = toHtml(
+      snapshot([
+        {
+          type: 'table',
+          data: {
+            withHeadings: false,
+            content: [['wide', 'right'], ['below']],
+            cellSpans: [[{colspan: 2, rowspan: 2}, {colspan: 1, rowspan: 1}], [{colspan: 1, rowspan: 1}]],
+          },
+        },
+      ]),
+      'T',
+      '',
+    );
+    expect(html).toContain('<td colspan="2" rowspan="2">wide</td>');
   });
 });
 

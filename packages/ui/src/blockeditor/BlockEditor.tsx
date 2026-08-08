@@ -20,6 +20,8 @@ import {
   LockOpen,
   Plus,
   RefreshCw,
+  TableCellsMerge,
+  TableCellsSplit,
   Trash2,
 } from 'lucide-react';
 import type * as Y from 'yjs';
@@ -45,10 +47,12 @@ import {
   rootBlocks,
   setBlockProp,
   tableCellColor,
+  tableCellAt,
   tableCellOwnColor,
   tableColumnColor,
   tableColumns,
   tableRangeCells,
+  tableRangeExport,
   tableRangeRuns,
   tableDeleteColumn,
   tableDeleteColumnRange,
@@ -58,9 +62,13 @@ import {
   tableGrid,
   tableInsertColumn,
   tableInsertRow,
+  tableMergeCells,
   tableMoveColumn,
   tableMoveRow,
   tableRowColor,
+  tableSnapRectToSpans,
+  tableSpans,
+  tableSplitCell,
   setTableCellRangeColor,
   setTableColumnColor,
   setTableRowColor,
@@ -71,7 +79,7 @@ import {
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
-import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
+import {blocksToHtml, blocksToMarkdown, cellRangeExportToHtml, cellRangeToTsv} from './exportBlocks';
 import {getCustomBlock, getRegistrySnapshot, subscribeRegistry} from './registry';
 import {MissingPluginBlock} from './MissingPluginBlock';
 import {StaticKeepBlock, useStaticKeep} from './staticKeep';
@@ -868,7 +876,7 @@ export const BlockEditor: React.FC<{
       const rect = normalizeCellRect(csel.anchor, csel.focus);
       const grid = tableRangeRuns(doc, csel.tableId, rect);
       e.clipboardData.setData('text/plain', cellRangeToTsv(grid));
-      e.clipboardData.setData('text/html', cellRangeToHtml(grid));
+      e.clipboardData.setData('text/html', cellRangeExportToHtml(tableRangeExport(doc, csel.tableId, rect)));
       // Cut = copy + clear; the clear half is disabled on a read-only surface,
       // so there Cut degrades to a plain Copy (never mutates — acceptance #4).
       if (cut && !readOnly) {
@@ -947,8 +955,8 @@ export const BlockEditor: React.FC<{
       }
       // Plain arrow collapses the range to a single-cell caret at the moved focus.
       setCellSel(null);
-      const cell = grid.cells[focus.row]?.[focus.col];
-      if (cell && blockType(cell) === 'cell') editor.requestCaret({blockId: blockId(cell), offset: 'end'});
+      const cell = tableCellAt(grid, focus.row, focus.col);
+      if (cell) editor.requestCaret({blockId: blockId(cell), offset: 'end'});
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -2548,9 +2556,9 @@ const TableColorSubmenu: React.FC<{
  *   Delete N rows      exactly rect.top…rect.bottom
  *   Delete N columns   exactly rect.left…rect.right
  *
- * The two deletes drop the selection afterwards (`onClearRange`) — its
- * coordinates address slots that no longer exist. A clear/tint keeps it, matching
- * the keyboard clear (the highlight persists so the range stays actionable).
+ * Merge and the two deletes drop the selection afterwards (`onClearRange`) —
+ * its coordinates address slots that no longer exist. A clear/tint keeps it,
+ * matching the keyboard clear (the highlight persists so the range stays actionable).
  * A range of one row / one column falls back to the singular labels, so we never
  * render "Delete 1 rows" and never need plural rules in the catalogues.
  */
@@ -2587,6 +2595,14 @@ const TableRangeMenuContent: React.FC<{
       </ContextMenuLabel>
       <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>
         <Eraser className="mr-2 h-3.5 w-3.5" /> {t('menu.table.clearCells')}
+      </ContextMenuItem>
+      <ContextMenuItem
+        onSelect={() => {
+          tableMergeCells(doc, tableId, rect);
+          onClearRange?.();
+        }}
+      >
+        <TableCellsMerge className="mr-2 h-3.5 w-3.5" /> {t('menu.table.mergeCells')}
       </ContextMenuItem>
       <TableColorSubmenu
         label={t('menu.table.tintCells')}
@@ -2649,6 +2665,8 @@ const TableCellMenuContent: React.FC<{
   // Ids for the move ops, resolved from the SORTED grid so a reordered table
   // still targets the right row/column (the sorted-vs-array trap, acceptance #6).
   const rowBlock = tableGrid(table).rows[row];
+  const cellSlot = tableSpans(tableGrid(table))[row]?.[col];
+  const merged = cellSlot?.kind === 'cell' && (cellSlot.colspan > 1 || cellSlot.rowspan > 1);
   const rowId = blockId(rowBlock);
   const colId = tableColumns(table)[col]?.id;
   // Live colours for the swatch checks (TBL-4).
@@ -2660,6 +2678,14 @@ const TableCellMenuContent: React.FC<{
   };
   return (
     <ContextMenuContent className="w-52">
+      {merged && (
+        <>
+          <ContextMenuItem onSelect={() => tableSplitCell(doc, blockId(cell))}>
+            <TableCellsSplit className="mr-2 h-3.5 w-3.5" /> {t('menu.table.splitCell')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
       {/* Rendering is positional: with `header`, sorted row 0 IS the header.
           Inserting above it would make the blank new row the header and
@@ -2823,6 +2849,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const header = blockProp<boolean>(block, 'header') ?? false;
   // Widest row wins so ragged rows pad to a rectangle at render.
   const cols = grid.width;
+  const spans = tableSpans(grid);
   // Cells render TextBlockView directly (not through BlockBody), so the table
   // must apply the lock swap itself — a locked group / present mode / the
   // export viewer would otherwise leave cell text EDITABLE (a lock leak).
@@ -2886,7 +2913,9 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // hides the native blue while a drag lays down the range.
   const cellCtx = React.useContext(CellSelectionContext);
   const activeCellSel = cellCtx?.sel && cellCtx.sel.tableId === id ? cellCtx.sel : null;
-  const cellRect = activeCellSel ? normalizeCellRect(activeCellSel.anchor, activeCellSel.focus) : null;
+  const cellRect = activeCellSel
+    ? tableSnapRectToSpans(block, normalizeCellRect(activeCellSel.anchor, activeCellSel.focus))
+    : null;
   // Drop the range (TBL-6): the row/column deletes in the range menu invalidate
   // its coordinates, so the highlight must not survive them.
   const clearCellRangeSel = useCallback(() => cellCtx?.setSel(null), [cellCtx]);
@@ -2949,6 +2978,10 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
               >
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
+                  const slot = spans[r]?.[c];
+                  // A covered coordinate is represented by the anchor's native
+                  // td span. Emitting a padding td here would split the layout.
+                  if (slot?.kind === 'covered') return null;
                   const colId = columns[c]?.id;
                   // Cell tint composites CELL-over-ROW-over-COLUMN (TBL-4/TBL-6).
                   // All three are palette tokens → theme-aware `obe-bg-*` alpha
@@ -3053,6 +3086,8 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     >
                       <td
                         className={tdDropClass || undefined}
+                        colSpan={slot?.kind === 'cell' && slot.colspan > 1 ? slot.colspan : undefined}
+                        rowSpan={slot?.kind === 'cell' && slot.rowspan > 1 ? slot.rowspan : undefined}
                         onMouseDownCapture={extendCellSelect(r, c)}
                         onDragOver={showHandles ? overCol(c) : undefined}
                         onDrop={showHandles ? commitDrop : undefined}

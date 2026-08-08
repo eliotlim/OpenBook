@@ -186,6 +186,8 @@ export const de: PartialMessages = {
       clearCells: 'Zellen leeren',
       tintCells: 'Zellenfarbe',
       deleteTable: 'Tabelle löschen',
+      mergeCells: 'Zellen verbinden',
+      splitCell: 'Zelle teilen',
       deleteRowsN: '{n} Zeilen löschen',
       deleteColumnsN: '{n} Spalten löschen',
     },
