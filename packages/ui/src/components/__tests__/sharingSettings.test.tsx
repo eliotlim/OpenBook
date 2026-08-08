@@ -2,9 +2,10 @@ import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import type {DataClient} from '@book.dev/sdk';
 import {DEFAULT_INSTANCE_CONFIG, guestPrincipal} from '@book.dev/sdk';
+import type {EffectiveVisibility, GuestAccess} from '@book.dev/sdk';
 import {
   SharingSection,
-  accessStateFromGuest,
+  accessStateFromConfig,
   accessStatePolicy,
   type DefaultAccess,
 } from '../settings/SharingSettings';
@@ -73,15 +74,13 @@ describe('SharingSection (guest access)', () => {
     expect(await screen.findByText('Only the library owner can change this.')).toBeTruthy();
   });
 
-  // Security fix: the config→state mapping is lossy, so re-selecting the state
-  // that's already displayed must NEVER write — otherwise the freshly-claimed
-  // bootstrap `(members, read)` (shown as "Anyone can view") would flip
-  // defaultVisibility members→public on a visually no-op click, silently making
-  // every inherit-visibility page world-readable.
+  // PUB-1: the freshly-claimed bootstrap `(members, read)` is the state per-page
+  // publishing runs in, and it now has an HONEST rendering of its own — before,
+  // detection keyed on the guest gate alone and mislabelled it "Anyone can view".
   const bootstrapClaimed = (setInstancePolicy: DataClient['setInstancePolicy']): Partial<DataClient> => ({
     getInstanceInfo: async () => ({
-      guestAccess: 'read', // freshly-claimed bootstrap → renders "Anyone can view"
-      defaultVisibility: 'members',
+      guestAccess: 'read', // freshly-claimed bootstrap …
+      defaultVisibility: 'members', // … → renders "Published pages only"
       ownerSubject: null, // control enabled (unclaimed-owner path)
       trustedIssuers: [],
       audience: null,
@@ -92,13 +91,36 @@ describe('SharingSection (guest access)', () => {
     setInstancePolicy,
   });
 
-  it('re-selecting the already-displayed state does NOT write (no silent widening)', async () => {
+  it('renders the freshly-claimed (members, read) pair as "Published pages only"', async () => {
+    wrap(bootstrapClaimed(vi.fn() as unknown as DataClient['setInstancePolicy']));
+    expect(await screen.findByText('Published pages only')).toBeTruthy();
+    // …and the honest one-liner for it, not the "anyone can view" claim.
+    expect(
+      await screen.findByText(/Only pages you explicitly publish are visible to visitors/),
+    ).toBeTruthy();
+  });
+
+  it('re-selecting the already-displayed state does NOT write', async () => {
+    const setInstancePolicy = vi.fn(async () => ({guestAccess: 'read', trustedIssuers: []})) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Published pages only'}));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setInstancePolicy).not.toHaveBeenCalled();
+  });
+
+  // THE PUB-1 UNLOCK: "Anyone can view" is now reachable FROM the bootstrap state.
+  // Before, `(members, read)` displayed as "Anyone can view", so selecting it was
+  // a no-op re-selection and genuine whole-library viewing could not be turned on
+  // through this control at all.
+  it('a deliberate widening to "Anyone can view" now writes the full pair', async () => {
     const setInstancePolicy = vi.fn(async () => ({guestAccess: 'read', trustedIssuers: []})) as unknown as DataClient['setInstancePolicy'];
     wrap(bootstrapClaimed(setInstancePolicy));
     fireEvent.click(await screen.findByRole('combobox'));
     fireEvent.click(await screen.findByRole('option', {name: 'Anyone can view'}));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(setInstancePolicy).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(setInstancePolicy).toHaveBeenCalledWith({defaultVisibility: 'public', guestAccess: 'read'}),
+    );
   });
 
   it('a deliberate change from that same state still writes the full pair', async () => {
@@ -110,27 +132,81 @@ describe('SharingSection (guest access)', () => {
       expect(setInstancePolicy).toHaveBeenCalledWith({defaultVisibility: 'public', guestAccess: 'write'}),
     );
   });
+
+  it('offers all four states', async () => {
+    wrap(bootstrapClaimed(vi.fn() as unknown as DataClient['setInstancePolicy']));
+    fireEvent.click(await screen.findByRole('combobox'));
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
+      'Private (members only)',
+      'Published pages only',
+      'Anyone can view',
+      'Anyone can edit',
+    ]);
+  });
 });
 
-describe('Default-access state ↔ config-pair mapping (SHR-7)', () => {
-  const states: DefaultAccess[] = ['private', 'view', 'edit'];
+/** Every `defaultVisibility` the client can observe, including "not reported". */
+type EffectiveVisibilityOrAbsent = EffectiveVisibility | undefined | null;
+
+describe('Default-access state ↔ config-pair mapping (SHR-7 / PUB-1)', () => {
+  const states: DefaultAccess[] = ['private', 'published', 'view', 'edit'];
 
   it('each state writes the expected (defaultVisibility, guestAccess) pair', () => {
     expect(accessStatePolicy('private')).toEqual({defaultVisibility: 'members', guestAccess: 'off'});
+    expect(accessStatePolicy('published')).toEqual({defaultVisibility: 'members', guestAccess: 'read'});
     expect(accessStatePolicy('view')).toEqual({defaultVisibility: 'public', guestAccess: 'read'});
     expect(accessStatePolicy('edit')).toEqual({defaultVisibility: 'public', guestAccess: 'write'});
   });
 
-  it('each state round-trips: state → pair → state', () => {
+  // The pairs must be DISTINCT, or two states would be the same config wearing two
+  // names and the control would lie about at least one of them.
+  it('the four states write four distinct pairs', () => {
+    const pairs = states.map((s) => JSON.stringify(accessStatePolicy(s)));
+    expect(new Set(pairs).size).toBe(states.length);
+  });
+
+  // THE ROUND-TRIP TABLE: every writable state survives state → pair → state
+  // EXACTLY. This is what `published` existing at all buys — detection reading only
+  // `guestAccess` collapsed `published` and `view` onto the same rendering.
+  it('every writable state round-trips exactly: state → pair → state', () => {
     for (const state of states) {
-      expect(accessStateFromGuest(accessStatePolicy(state).guestAccess)).toBe(state);
+      expect(accessStateFromConfig(accessStatePolicy(state))).toBe(state);
     }
   });
 
-  it('every guest-gate value renders exactly one state', () => {
-    expect(accessStateFromGuest('off')).toBe('private');
-    expect(accessStateFromGuest('read')).toBe('view');
-    expect(accessStateFromGuest('write')).toBe('edit');
+  // Detection is TOTAL over both fields: every (defaultVisibility, guestAccess)
+  // combination the server can hold renders exactly one state, including the pairs
+  // this control never writes itself.
+  it('every (defaultVisibility, guestAccess) combination renders exactly one state', () => {
+    const table: Array<[EffectiveVisibilityOrAbsent, GuestAccess, DefaultAccess]> = [
+      // The guest gate is a hard floor: `off` ⇒ nothing is anonymously readable,
+      // whatever `inherit` resolves to.
+      ['members', 'off', 'private'],
+      ['public', 'off', 'private'],
+      ['authenticated', 'off', 'private'],
+      ['restricted', 'off', 'private'],
+      // Guests may read ⇒ the whole library only when `inherit` is `public`.
+      ['members', 'read', 'published'],
+      ['public', 'read', 'view'],
+      ['authenticated', 'read', 'published'],
+      ['restricted', 'read', 'published'],
+      // Guests may write ⇒ the widest honest reading (see `accessStateFromConfig`:
+      // an unclaimed instance short-circuits with `defaultVisibility` dormant).
+      ['members', 'write', 'edit'],
+      ['public', 'write', 'edit'],
+      ['authenticated', 'write', 'edit'],
+      ['restricted', 'write', 'edit'],
+      // A pre-SHR-6 server / test fixture reports no `defaultVisibility` at all;
+      // that server resolves `inherit` with its own `?? 'members'` fallback, so
+      // reading it as `published` is the behaviour-faithful answer.
+      [undefined, 'off', 'private'],
+      [undefined, 'read', 'published'],
+      [undefined, 'write', 'edit'],
+      [null, 'read', 'published'],
+    ];
+    for (const [defaultVisibility, guestAccess, expected] of table) {
+      expect(accessStateFromConfig({defaultVisibility, guestAccess})).toBe(expected);
+    }
   });
 
   // THE LOAD-BEARING INVARIANT: a fresh (unclaimed) instance ships
@@ -138,8 +214,17 @@ describe('Default-access state ↔ config-pair mapping (SHR-7)', () => {
   // can edit" and never move the default. On an unclaimed instance only the guest
   // gate is consulted (authorize rule 0), so defaultVisibility is dormant — the
   // control renders today's default without writing anything.
-  it('the shipped default guest gate renders as "edit" (behaviour unchanged)', () => {
+  it('the shipped default config renders as "edit" (behaviour unchanged)', () => {
     expect(DEFAULT_INSTANCE_CONFIG.guestAccess).toBe('write');
-    expect(accessStateFromGuest(DEFAULT_INSTANCE_CONFIG.guestAccess)).toBe('edit');
+    expect(DEFAULT_INSTANCE_CONFIG.defaultVisibility).toBe('members');
+    expect(accessStateFromConfig(DEFAULT_INSTANCE_CONFIG)).toBe('edit');
+  });
+
+  // The claim bootstrap (store.claimOwnership: defaultVisibility='members',
+  // guestAccess 'write'→'read') lands EXACTLY on `published` — the state per-page
+  // publishing needs, and the pair this control could not name before PUB-1.
+  it('the freshly-claimed bootstrap pair renders as "published"', () => {
+    expect(accessStateFromConfig({defaultVisibility: 'members', guestAccess: 'read'})).toBe('published');
+    expect(accessStatePolicy('published')).toEqual({defaultVisibility: 'members', guestAccess: 'read'});
   });
 });

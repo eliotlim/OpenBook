@@ -840,8 +840,15 @@ export const de: PartialMessages = {
     defaultAccess: 'Standardzugriff',
     defaultAccessHint: 'Legt fest, was Personen tun können, die diese Bibliothek ohne Anmeldung erreichen — über das Netzwerk oder einen geteilten ✦.book.cloud-Link — sowie die Standardsichtbarkeit neuer Seiten. Dein eigener Zugriff bleibt unberührt.',
     accessPrivate: 'Privat (nur Mitglieder)',
+    accessPublished: 'Nur veröffentlichte Seiten',
     accessView: 'Alle können ansehen',
     accessEdit: 'Alle können bearbeiten',
+    accessPrivateHint: 'Nur Mitglieder können diese Bibliothek öffnen. Nicht angemeldete Besucher sehen nichts.',
+    accessPublishedHint:
+      'Nur Seiten, die du ausdrücklich veröffentlichst, sind für Besucher sichtbar. Alles andere bleibt privat.',
+    accessViewHint:
+      'Besucher können jede Seite dieser Bibliothek ohne Anmeldung lesen, aber nichts ändern.',
+    accessEditHint: 'Besucher können jede Seite dieser Bibliothek ohne Anmeldung lesen und ändern.',
     ownerLocked: 'Nur die Inhaberin bzw. der Inhaber der Bibliothek kann das ändern.',
     saveError: 'Zugriff konnte nicht aktualisiert werden — {error}',
   },

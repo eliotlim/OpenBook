@@ -1592,8 +1592,20 @@ export const en = {
     defaultAccess: 'Default access',
     defaultAccessHint: 'Sets what people who reach this library without signing in can do — over the network or a shared ✦.book.cloud link — and the default visibility for new pages. Your own access is never affected.',
     accessPrivate: 'Private (members only)',
+    // PUB-1: the state a freshly-claimed library already sits in — the guest gate
+    // is open to reading, but only pages the owner explicitly publishes resolve to
+    // `public`, so everything else stays private. Named to match the published
+    // address's "Only published pages" scope.
+    accessPublished: 'Published pages only',
     accessView: 'Anyone can view',
     accessEdit: 'Anyone can edit',
+    // One honest line per state, shown beneath the picker for whichever is
+    // selected. Four states that differ only in who sees what need spelling out.
+    accessPrivateHint: 'Only members can open this library. Visitors who aren’t signed in see nothing.',
+    accessPublishedHint:
+      'Only pages you explicitly publish are visible to visitors. Everything else stays private.',
+    accessViewHint: 'Visitors can read every page in this library without signing in, but can’t change anything.',
+    accessEditHint: 'Visitors can read and change every page in this library without signing in.',
     ownerLocked: 'Only the library owner can change this.',
     saveError: 'Couldn’t update access — {error}',
   },
