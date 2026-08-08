@@ -98,11 +98,41 @@ function blockToMd(block: DocBlock): string {
     return '---';
   case 'table': {
     if (block.rows.length === 0) return '';
+    const carry = new Map<number, number>();
+    const rows = block.rows.map((row, r) => {
+      const slots: Array<InlineRun[] | undefined> = [];
+      for (const [col, remaining] of carry) {
+        if (remaining <= 0) {
+          carry.delete(col);
+          continue;
+        }
+        slots[col] = [];
+        if (remaining === 1) carry.delete(col);
+        else carry.set(col, remaining - 1);
+      }
+      let col = 0;
+      row.forEach((runs, c) => {
+        while (slots[col] !== undefined) col += 1;
+        const span = block.cellSpans[r]?.[c] ?? {colspan: 1, rowspan: 1};
+        slots[col] = runs;
+        for (let offset = 0; offset < span.colspan; offset += 1) {
+          if (offset > 0) slots[col + offset] = [];
+          if (span.rowspan > 1) carry.set(col + offset, span.rowspan - 1);
+        }
+        col += span.colspan;
+      });
+      return Array.from({length: slots.length}, (_, c) => slots[c] ?? []);
+    });
+    const width = Math.max(...rows.map((row) => row.length));
+    const pad = (row: InlineRun[][]): InlineRun[][] => [
+      ...row,
+      ...Array.from({length: width - row.length}, (): InlineRun[] => []),
+    ];
     const cell = (runs: InlineRun[]) => inlineToMd(runs).replace(/\|/g, '\\|').replace(/\n/g, ' ') || ' ';
-    const [head, ...body] = block.rows;
+    const [head, ...body] = rows.map(pad);
     const lines = [
       `| ${head.map(cell).join(' | ')} |`,
-      `| ${head.map(() => '---').join(' | ')} |`,
+      `| ${Array.from({length: width}, () => '---').join(' | ')} |`,
       ...body.map((row) => `| ${row.map(cell).join(' | ')} |`),
     ];
     return lines.join('\n');

@@ -34,6 +34,11 @@ export interface ListItem {
   items: ListItem[];
 }
 
+export interface TableCellSpan {
+  colspan: number;
+  rowspan: number;
+}
+
 export type DocBlock =
   | {type: 'paragraph'; runs: InlineRun[]}
   | {type: 'header'; level: number; runs: InlineRun[]}
@@ -41,7 +46,7 @@ export type DocBlock =
   | {type: 'quote'; runs: InlineRun[]; caption: string}
   | {type: 'code'; code: string}
   | {type: 'delimiter'}
-  | {type: 'table'; withHeadings: boolean; rows: InlineRun[][][]}
+  | {type: 'table'; withHeadings: boolean; rows: InlineRun[][][]; cellSpans: TableCellSpan[][]}
   | {type: 'callout'; variant: string; runs: InlineRun[]}
   | {type: 'accordion'; title: InlineRun[]; content: InlineRun[]; open: boolean}
   | {type: 'checklist'; items: {runs: InlineRun[]; checked: boolean}[]}
@@ -200,7 +205,16 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets =
     case 'table': {
       const content = Array.isArray(data.content) ? (data.content as unknown[][]) : [];
       const rows = content.map((row) => (Array.isArray(row) ? row : []).map((cell) => parseInline(str(cell))));
-      out.push({type: 'table', withHeadings: data.withHeadings === true, rows});
+      const rawSpans = Array.isArray(data.cellSpans) ? (data.cellSpans as unknown[][]) : [];
+      const spanValue = (value: unknown): number =>
+        typeof value === 'number' && Number.isFinite(value) && value >= 2 ? Math.min(512, Math.floor(value)) : 1;
+      const cellSpans = rows.map((row, r) =>
+        row.map((_, c) => {
+          const raw = (Array.isArray(rawSpans[r]) ? rawSpans[r][c] : undefined) as Record<string, unknown> | undefined;
+          return {colspan: spanValue(raw?.colspan), rowspan: spanValue(raw?.rowspan)};
+        }),
+      );
+      out.push({type: 'table', withHeadings: data.withHeadings === true, rows, cellSpans});
       break;
     }
     case 'callout':

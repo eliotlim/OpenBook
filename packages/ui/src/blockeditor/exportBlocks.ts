@@ -104,14 +104,16 @@ function tableCellTint(tableProps: Props, rowProps: Props, cellProps: Props): st
 const tintStyle = (token: string | null): string =>
   token && COLOR_EXPORT_HEX[token] ? ` style="background:${COLOR_EXPORT_HEX[token].hl}"` : '';
 
+/** A canonical projected-cell span (absent or malformed means one). */
+const tableCellSpan = (props: Props, key: 'colspan' | 'rowspan'): number => {
+  const raw = props?.[key];
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 2 ? Math.min(512, Math.floor(raw)) : 1;
+};
+
 /** Canonical HTML span attributes from a projected cell (absent means one). */
 const tableCellSpanAttrs = (props: Props): string => {
-  const span = (key: 'colspan' | 'rowspan'): number => {
-    const raw = props?.[key];
-    return typeof raw === 'number' && Number.isFinite(raw) && raw >= 2 ? Math.min(512, Math.floor(raw)) : 1;
-  };
-  const colspan = span('colspan');
-  const rowspan = span('rowspan');
+  const colspan = tableCellSpan(props, 'colspan');
+  const rowspan = tableCellSpan(props, 'rowspan');
   return `${colspan > 1 ? ` colspan="${colspan}"` : ''}${rowspan > 1 ? ` rowspan="${rowspan}"` : ''}`;
 };
 
@@ -399,7 +401,35 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       for (const col of b.children ?? []) out.push(blocksToMarkdown(col.children ?? []));
       break;
     case 'table': {
-      const rows = (b.children ?? []).map((row) => (row.children ?? []).map((cell) => textMd(cell.text).replace(/\|/g, '\\|')));
+      // Covered slots are absent from tableChildrenToJSON. Reconstruct their
+      // coordinates before emitting Markdown so later cells stay in their
+      // rendered columns (the carry map mirrors normalizeTableGrid).
+      const carry = new Map<number, number>();
+      const rows = (b.children ?? []).map((row) => {
+        const slots: Array<string | undefined> = [];
+        for (const [col, remaining] of carry) {
+          if (remaining <= 0) {
+            carry.delete(col);
+            continue;
+          }
+          slots[col] = '';
+          if (remaining === 1) carry.delete(col);
+          else carry.set(col, remaining - 1);
+        }
+        let col = 0;
+        for (const cell of row.children ?? []) {
+          while (slots[col] !== undefined) col += 1;
+          const colspan = tableCellSpan(cell.props, 'colspan');
+          const rowspan = tableCellSpan(cell.props, 'rowspan');
+          slots[col] = textMd(cell.text).replace(/\|/g, '\\|');
+          for (let offset = 0; offset < colspan; offset += 1) {
+            if (offset > 0) slots[col + offset] = '';
+            if (rowspan > 1) carry.set(col + offset, rowspan - 1);
+          }
+          col += colspan;
+        }
+        return Array.from({length: slots.length}, (_, c) => slots[c] ?? '');
+      });
       if (rows.length > 0) {
         const width = Math.max(...rows.map((r) => r.length));
         const pad = (r: string[]): string[] => [...r, ...Array.from({length: width - r.length}, () => '')];
