@@ -1813,18 +1813,30 @@ a.obe-mention {
 }
 /* ── Multi-cell selection (TBL-5) ────────────────────────────────────────────
    A rectangle of selected table cells — distinct from obe-row-selected (a whole
-   top-level block). Token-based accent tint + inset ring: theme-aware, dark-safe,
+   top-level block). Token-based accent wash + inset ring: theme-aware, dark-safe,
    and translucent so it never obscures the cell text (aligns with the marquee's
    --ring usage). `obe-cell-selecting` hides the native blue mid-drag so only the
    cell highlight reads (the native range is collapsed on mouseup).
-   Declared AFTER the TBL-4 header-tint rule so the selection's ring background
-   wins on equal-specificity header cells — the 2px inset ring is the load-bearing
-   signal over a same-hue tint. */
+
+   The selection paints ENTIRELY through box-shadow — the wash is a second inset
+   layer (a 999px spread fills the cell), never a `background`. TBL-6 made that
+   load-bearing: a range keeps its highlight after "Cell colour" applies, and a
+   `background` here both out-specifies `.obe-bg-*` (0,2,1 vs 0,1,0) and, as a
+   shorthand, resets background-color — so the tint the user just picked painted
+   nothing at all on the primary path. Shadows compose instead of colliding: the
+   ring reads over the tint, and the tint reads through the wash. Any future
+   background declaration on this selector re-breaks that (see
+   tableCellTintPaint.test.ts). */
 .obe-table td.obe-cell-selected {
-  background: hsl(var(--ring) / 0.16);
-  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.55);
+  box-shadow:
+    inset 0 0 0 2px hsl(var(--ring) / 0.55),
+    inset 0 0 0 999px hsl(var(--ring) / 0.16);
 }
-.obe-table-header td.obe-cell-selected { background: hsl(var(--ring) / 0.22); }
+.obe-table-header td.obe-cell-selected {
+  box-shadow:
+    inset 0 0 0 2px hsl(var(--ring) / 0.55),
+    inset 0 0 0 999px hsl(var(--ring) / 0.22);
+}
 .obe-cell-selecting ::selection { background: transparent; }
 .obe-cell-selecting ::-moz-selection { background: transparent; }
 .obe-table-add {
