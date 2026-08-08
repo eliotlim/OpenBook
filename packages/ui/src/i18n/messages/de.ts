@@ -342,6 +342,7 @@ export const de: PartialMessages = {
     exportBooksExcluded: 'Deine Bücher werden nicht aufgenommen. Ledger-Blöcke werden als Platzhalter exportiert.',
     exportBooksUnavailable: 'Deine Bücher können nicht aufgenommen werden, weil du keinen Zugriff auf die Daten hast. Ledger-Blöcke werden als Platzhalter exportiert.',
     exportBooksConfirm: 'Exportieren',
+    exportBooksCaptureFailed: 'Deine Bücher konnten nicht aufgenommen werden — die Datensätze ließen sich nicht vollständig lesen. Die Datei wurde ohne sie exportiert.',
   },
   home: {
     morning: 'Guten Morgen',

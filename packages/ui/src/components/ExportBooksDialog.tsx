@@ -1,11 +1,14 @@
 /**
- * LX-2: the export-time "Include your books" dialog. Shown ONLY when the
- * interactive-HTML export set contains `openbook.ledger/*` blocks:
+ * LX-2: the export-time "Include your books" dialog. Shown when the
+ * interactive-HTML export set contains `openbook.ledger/*` blocks, or when the
+ * crawl reached ledger content (`SiteBundle.ledgerReached`):
  *
  *  - Exporter can read the books (`canInclude`): a clearly visible toggle,
- *    DEFAULT ON (the owner decided owner-initiated exports carry the records by
- *    default), with a plain warning that the file will contain financial
- *    records. Unchecking swaps the warning for an "excluded" notice.
+ *    DEFAULT ON only for an owner/admin principal (`defaultOn` — the owner
+ *    decided owner-initiated exports carry the records by default; any other
+ *    reader starts OFF-but-available), with a warning callout that the file
+ *    will contain financial records. Unchecking swaps the warning for an
+ *    "excluded" notice.
  *  - Exporter cannot read the books (guest/viewer, or no seeded ledger): no
  *    toggle to flip — just the notice that the books are excluded and ledger
  *    blocks export as placeholders. Never an error, never an escalation: the
@@ -32,20 +35,26 @@ export type ExportBooksChoice = {includeBooks: boolean} | null;
 export function ExportBooksDialog({
   open,
   canInclude,
+  defaultOn = false,
   onClose,
 }: {
   open: boolean;
   /** Whether the exporting principal can read the ledger (probe + capture both
    *  run through their own client; this only selects the dialog's mode). */
   canInclude: boolean;
+  /** Whether the toggle STARTS checked. Pass true only for an owner/admin
+   *  principal: "root host readable" alone is not "these are your books", so a
+   *  non-owner with a read grant starts OFF-but-available (Sasha hardening). */
+  defaultOn?: boolean;
   onClose: (choice: ExportBooksChoice) => void;
 }) {
   const {t} = useTranslation();
-  // Default ON whenever records CAN be included — the owner's decision.
-  const [include, setInclude] = useState(canInclude);
+  // Default ON only when records CAN be included AND the exporter is the
+  // owner/admin (the owner's decision covers owner-initiated exports only).
+  const [include, setInclude] = useState(canInclude && defaultOn);
   useEffect(() => {
-    if (open) setInclude(canInclude);
-  }, [open, canInclude]);
+    if (open) setInclude(canInclude && defaultOn);
+  }, [open, canInclude, defaultOn]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose(null)}>

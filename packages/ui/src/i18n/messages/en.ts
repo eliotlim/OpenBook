@@ -497,6 +497,7 @@ export const en = {
     exportBooksExcluded: 'Your books will not be included. Ledger blocks will export as placeholders.',
     exportBooksUnavailable: 'Your books can’t be included in this export because you don’t have access to the records. Ledger blocks will export as placeholders.',
     exportBooksConfirm: 'Export',
+    exportBooksCaptureFailed: 'Your books couldn’t be included — the records couldn’t be read completely. The file was exported without them.',
     present: 'Present',
     presentFull: 'Full screen',
     presentPresenter: 'Presenter view',

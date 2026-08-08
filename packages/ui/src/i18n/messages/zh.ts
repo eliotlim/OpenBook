@@ -339,6 +339,7 @@ export const zh: PartialMessages = {
     exportBooksExcluded: '不会包含你的账簿。账本块将以占位符形式导出。',
     exportBooksUnavailable: '你没有这些记录的访问权限，无法在导出中包含账簿。账本块将以占位符形式导出。',
     exportBooksConfirm: '导出',
+    exportBooksCaptureFailed: '无法包含你的账簿——记录未能完整读取。文件已导出，但不含账簿数据。',
   },
   home: {
     morning: '早上好',

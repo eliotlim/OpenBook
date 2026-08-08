@@ -38,6 +38,7 @@ import {usePageThemeStyle, usePageHasBackground} from '@/components/appearance/P
 import {usePageFullWidth} from '@/lib/pageFullWidth';
 import {pageFontStyle, usePageFonts} from '@/lib/pageFont';
 import {setPageSaveStatus} from '@/lib/pageSaveStatus';
+import {showToast} from '@/components/ui/toast';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
@@ -389,13 +390,13 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // only when the export set contains ledger blocks; resolves to the exporter's
   // choice (or null on cancel). Promise-based like ConfirmProvider so the
   // export flow simply awaits it.
-  const [booksDialog, setBooksDialog] = useState<{canInclude: boolean} | null>(null);
+  const [booksDialog, setBooksDialog] = useState<{canInclude: boolean; defaultOn: boolean} | null>(null);
   const booksResolverRef = useRef<((choice: ExportBooksChoice) => void) | null>(null);
-  const askExportBooks = useCallback((canInclude: boolean): Promise<ExportBooksChoice> => {
+  const askExportBooks = useCallback((canInclude: boolean, defaultOn: boolean): Promise<ExportBooksChoice> => {
     booksResolverRef.current?.(null); // a fresh request supersedes a stale one
     return new Promise<ExportBooksChoice>((resolve) => {
       booksResolverRef.current = resolve;
-      setBooksDialog({canInclude});
+      setBooksDialog({canInclude, defaultOn});
     });
   }, []);
   const settleExportBooks = useCallback((choice: ExportBooksChoice) => {
@@ -501,16 +502,31 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         // so a guest/viewer can never receive records the API wouldn't serve
         // them — their dialog simply reports that the books are excluded.
         if (bundleHasLedgerBlocks(bundle.space) || bundle.ledgerReached) {
-          const canInclude = await client
-            .ledgerInfo()
-            .then((i) => i.exists)
-            .catch(() => false);
-          const choice = await askExportBooks(canInclude);
+          // Default the toggle ON only for the owner/admin: `ledgerInfo.exists`
+          // alone means "root host readable", which a granted reader also has —
+          // their toggle starts OFF-but-available. The role is the server-
+          // stamped effective role (InstanceInfo.youRole, the same signal
+          // useCanWrite trusts); unknown/unreachable resolves to OFF.
+          const [canInclude, isOwnerAdmin] = await Promise.all([
+            client
+              .ledgerInfo()
+              .then((i) => i.exists)
+              .catch(() => false),
+            client
+              .getInstanceInfo()
+              .then((i) => i.youRole === 'owner' || i.youRole === 'admin')
+              .catch(() => false),
+          ]);
+          const choice = await askExportBooks(canInclude, canInclude && isOwnerAdmin);
           if (!choice) return; // cancelled
           if (choice.includeBooks) {
-            // Fail-closed capture: null (revoked mid-flight, transport error)
-            // simply exports without records — placeholders, never half a book.
+            // Fail-closed capture: null (revoked mid-flight, transport error,
+            // partial row grant tripping the completeness check) exports
+            // without records — placeholders, never half a book. The exporter
+            // OPTED IN, so tell them the file shipped without their books
+            // rather than letting the warning imply the records are inside.
             bundle.ledger = (await gatherLedgerExportSection(client)) ?? undefined;
+            if (!bundle.ledger) showToast({message: t('page.exportBooksCaptureFailed')});
           }
         }
         // A whole-site export can embed images from every reachable page.
@@ -653,7 +669,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     <>
       {pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body}
       {/* LX-2: the export-time "Include your books" toggle + warning. */}
-      <ExportBooksDialog open={booksDialog !== null} canInclude={booksDialog?.canInclude ?? false} onClose={settleExportBooks} />
+      <ExportBooksDialog
+        open={booksDialog !== null}
+        canInclude={booksDialog?.canInclude ?? false}
+        defaultOn={booksDialog?.defaultOn ?? false}
+        onClose={settleExportBooks}
+      />
     </>
   );
 };
