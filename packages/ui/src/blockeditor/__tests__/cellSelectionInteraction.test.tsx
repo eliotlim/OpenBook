@@ -1,6 +1,7 @@
 import {describe, it, expect, afterEach, vi} from 'vitest';
-import {render, cleanup, fireEvent} from '@testing-library/react';
-import {createDoc, findBlock, blockText} from '../model';
+import {render, screen, cleanup, fireEvent} from '@testing-library/react';
+import * as Y from 'yjs';
+import {createDoc, findBlock, blockText, tableCellOwnColor} from '../model';
 import {registerArtifactKit} from '../kit';
 import {BlockEditor} from '../BlockEditor';
 
@@ -164,6 +165,164 @@ describe('tint × selection composition (TBL-4 × TBL-5)', () => {
     const c1 = tdOf('r0c1');
     expect(c1.classList.contains('obe-bg-blue')).toBe(false);
     expect(c1.classList.contains('obe-cell-selected')).toBe(true);
+  });
+});
+
+// ── TBL-6: the range-aware context menu, driven live ─────────────────────────
+// The menu variant is decided by the rect the table hands down from the
+// CellSelectionContext — so these drive the whole path: native span → range →
+// right-click → the range items acting on every selected cell.
+
+describe('range-aware cell context menu (TBL-6)', () => {
+  /** A 3×3 keyed table, no header, cells reading "r<row>c<col>". */
+  const seed3 = () =>
+    createDoc([
+      {
+        id: 'tbl',
+        type: 'table',
+        props: {header: false, 'col:c0': 'a0', 'col:c1': 'a1', 'col:c2': 'a2'},
+        children: [0, 1, 2].map((r) => ({
+          id: `row${r}`,
+          type: 'row' as const,
+          props: {ord: `a${r}`},
+          children: [0, 1, 2].map((c) => ({
+            id: `r${r}c${c}`,
+            type: 'cell' as const,
+            props: {col: `c${c}`},
+            text: [{t: `r${r}c${c}`}],
+          })),
+        })),
+      },
+    ]);
+
+  const build3 = () => {
+    const doc = seed3();
+    const {container} = render(<BlockEditor doc={doc} readOnly={false} />);
+    const el = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
+    const tdOf = (id: string) => el(id).closest('td') as HTMLElement;
+    /** Lay down a native intra-table span, then let the editor convert it. */
+    const selectRange = (fromId: string, toId: string) => {
+      const range = document.createRange();
+      range.setStart(el(fromId), 0);
+      range.setEnd(el(toId), el(toId).childNodes.length);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      fireEvent(document, new Event('selectionchange'));
+      fireEvent.mouseUp(document);
+    };
+    const selectedCells = () => container.querySelectorAll('td.obe-cell-selected').length;
+    /**
+     * A REAL right-click: the secondary mousedown lands first, then contextmenu.
+     * Firing only `contextMenu` would hide the two ways a live browser drops the
+     * range before the menu even mounts (the root's "any fresh press starts
+     * over" reset, and React's portal event propagation) — see the guards in
+     * BlockEditor's root onMouseDown / the cell capture handler.
+     */
+    const rightClick = (td: HTMLElement) => {
+      fireEvent.mouseDown(td, {button: 2, buttons: 2});
+      fireEvent.contextMenu(td);
+    };
+    return {doc, container, el, tdOf, selectRange, selectedCells, rightClick};
+  };
+
+  it('a 2×3 selection + a right-click INSIDE it opens the range menu', () => {
+    const {tdOf, selectRange, selectedCells, rightClick} = build3();
+    selectRange('r0c0', 'r1c2'); // rows 0–1 × columns 0–2
+    expect(selectedCells()).toBe(6);
+    rightClick(tdOf('r1c1'));
+    expect(selectedCells()).toBe(6); // the press did NOT collapse the range
+    expect(screen.getByText('Selection')).toBeTruthy();
+    expect(screen.getByText('Clear cells')).toBeTruthy();
+    expect(screen.getByText('Delete 2 rows')).toBeTruthy();
+    expect(screen.getByText('Delete 3 columns')).toBeTruthy();
+    expect(screen.queryByText('Duplicate row')).toBeNull();
+  });
+
+  it('a right-click OUTSIDE the rect collapses it and keeps the single-cell menu', () => {
+    const {tdOf, selectRange, selectedCells, rightClick} = build3();
+    selectRange('r0c0', 'r1c2');
+    rightClick(tdOf('r2c0')); // row 2 — below the rectangle
+    expect(screen.getByText('Duplicate row')).toBeTruthy();
+    expect(screen.getByText('Toggle header row')).toBeTruthy();
+    expect(screen.queryByText('Selection')).toBeNull();
+    expect(screen.queryByText('Clear cells')).toBeNull();
+    // A press outside the rectangle is an ordinary fresh press: it starts over.
+    expect(selectedCells()).toBe(0);
+  });
+
+  it('with NO range live, every cell still opens the single-cell menu', () => {
+    const {tdOf, rightClick} = build3();
+    rightClick(tdOf('r1c1'));
+    expect(screen.getByText('Duplicate row')).toBeTruthy();
+    expect(screen.queryByText('Clear cells')).toBeNull();
+  });
+
+  // React events travel the COMPONENT tree, so a press inside the portaled menu
+  // (a child of a trigger nested in the editor) reaches the editor root's
+  // mousedown. Without the root's "target outside my subtree" guard that reset
+  // dropped the range mid-menu, unmounting the submenu before its onSelect ran —
+  // the tint silently did nothing in a real browser.
+  it('a press inside the portaled menu does not drop the range', () => {
+    const {tdOf, selectRange, selectedCells, rightClick} = build3();
+    selectRange('r0c0', 'r1c2');
+    rightClick(tdOf('r1c1'));
+    fireEvent.mouseDown(screen.getByText('Tint cells'), {button: 0});
+    expect(selectedCells()).toBe(6);
+    expect(screen.getByText('Delete 2 rows')).toBeTruthy(); // still the range variant
+  });
+
+  it('Tint cells paints every selected cell, and only those, in the live table', () => {
+    const {doc, tdOf, selectRange, rightClick} = build3();
+    selectRange('r0c0', 'r1c2');
+    rightClick(tdOf('r1c1'));
+    fireEvent.mouseDown(screen.getByText('Tint cells'), {button: 0});
+    fireEvent.click(screen.getByText('Tint cells'));
+    fireEvent.click(screen.getByText('Green'));
+
+    for (const id of ['r0c0', 'r0c1', 'r0c2', 'r1c0', 'r1c1', 'r1c2']) {
+      expect(tdOf(id).classList.contains('obe-bg-green'), id).toBe(true);
+      // The selection survives the tint (the range stays actionable).
+      expect(tdOf(id).classList.contains('obe-cell-selected'), id).toBe(true);
+    }
+    for (const id of ['r2c0', 'r2c1', 'r2c2']) {
+      expect(tdOf(id).classList.contains('obe-bg-green'), id).toBe(false);
+    }
+
+    // Survives a reload: round-trip the doc and re-render from scratch.
+    const reloaded = new Y.Doc();
+    Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(doc));
+    expect(tableCellOwnColor(findBlock(reloaded, 'r1c2')!.block)).toBe('green');
+    cleanup();
+    const {container} = render(<BlockEditor doc={reloaded} readOnly={false} />);
+    const reloadedTd = (id: string) =>
+      (container.querySelector(`[data-block-text="${id}"]`) as HTMLElement).closest('td') as HTMLElement;
+    expect(reloadedTd('r0c0').classList.contains('obe-bg-green')).toBe(true);
+    expect(reloadedTd('r2c0').classList.contains('obe-bg-green')).toBe(false);
+  });
+
+  it('Delete N rows removes exactly the selected rows and drops the highlight', () => {
+    const {doc, container, tdOf, selectRange, rightClick} = build3();
+    selectRange('r0c0', 'r1c2');
+    rightClick(tdOf('r0c1'));
+    fireEvent.click(screen.getByText('Delete 2 rows'));
+
+    expect(findBlock(doc, 'row0')).toBeNull();
+    expect(findBlock(doc, 'row1')).toBeNull();
+    expect(findBlock(doc, 'row2')).toBeTruthy();
+    expect(container.querySelectorAll('tr')).toHaveLength(1);
+    // The rectangle addressed slots that no longer exist — it is gone.
+    expect(container.querySelectorAll('td.obe-cell-selected')).toHaveLength(0);
+  });
+
+  it('Clear cells empties exactly the selected cells', () => {
+    const {doc, tdOf, selectRange, rightClick} = build3();
+    selectRange('r0c0', 'r1c2');
+    rightClick(tdOf('r0c0'));
+    fireEvent.click(screen.getByText('Clear cells'));
+    const textOf = (id: string) => blockText(findBlock(doc, id)!.block)!.toString();
+    expect([textOf('r0c0'), textOf('r0c2'), textOf('r1c1')]).toEqual(['', '', '']);
+    expect(textOf('r2c0')).toBe('r2c0'); // outside the range
   });
 });
 

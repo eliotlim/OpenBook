@@ -316,6 +316,13 @@ export const en = {
       rowColour: 'Row colour',
       columnColour: 'Column colour',
       toggleHeader: 'Toggle header row',
+      // TBL-6 — the range variant of the cell menu (right-click inside a
+      // multi-cell selection). Singular counts reuse deleteRow/deleteColumn.
+      sectionSelection: 'Selection',
+      clearCells: 'Clear cells',
+      tintCells: 'Tint cells',
+      deleteRowsN: 'Delete {n} rows',
+      deleteColumnsN: 'Delete {n} columns',
     },
   },
   share: {

@@ -182,6 +182,11 @@ export const de: PartialMessages = {
       rowColour: 'Zeilenfarbe',
       columnColour: 'Spaltenfarbe',
       toggleHeader: 'Kopfzeile umschalten',
+      sectionSelection: 'Auswahl',
+      clearCells: 'Zellen leeren',
+      tintCells: 'Zellen einfärben',
+      deleteRowsN: '{n} Zeilen löschen',
+      deleteColumnsN: '{n} Spalten löschen',
     },
   },
   share: {

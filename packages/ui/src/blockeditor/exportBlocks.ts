@@ -65,13 +65,16 @@ type Props = Record<string, unknown> | undefined;
 const strProp = (p: Props, k: string): string | null => (typeof p?.[k] === 'string' && (p[k] as string) ? (p[k] as string) : null);
 
 /**
- * The composited tint token for a table cell in an export projection (TBL-4):
- * the ROW colour (`row.props.bg`) wins over the COLUMN colour
+ * The composited tint token for a table cell in an export projection (TBL-4 +
+ * TBL-6): the CELL colour (`cell.props.bg`) wins over the ROW colour
+ * (`row.props.bg`), which wins over the COLUMN colour
  * (`table.props['colbg:<colId>']`, keyed on the cell's `col` binding), matching
  * the editor's {@link tableCellColor} precedence. Returns the palette token, or
  * null. Column lookup is by colId so it is order-independent.
  */
 function tableCellTint(tableProps: Props, rowProps: Props, cellProps: Props): string | null {
+  const cellBg = strProp(cellProps, 'bg');
+  if (cellBg) return cellBg;
   const rowBg = strProp(rowProps, 'bg');
   if (rowBg) return rowBg;
   const colId = strProp(cellProps, 'col');
@@ -216,7 +219,8 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       const body = rows
         .map((row, r) => {
           const tag = header && r === 0 ? 'th' : 'td';
-          // TBL-4: carry row/column tints as inline styles into the clipboard HTML.
+          // TBL-4/TBL-6: carry cell/row/column tints as inline styles into the
+          // clipboard HTML.
           const cells = (row.children ?? [])
             .map((cell) => `<${tag}${tintStyle(tableCellTint(b.props, row.props, cell.props))}>${textHtml(cell.text)}</${tag}>`)
             .join('');
@@ -538,8 +542,8 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
       case 'table': {
         const rows = b.children ?? [];
         const content = rows.map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
-        // TBL-4: parallel per-cell tint tokens (row-over-column) so the static
-        // HTML/PDF exporter can paint them with COLOR_EXPORT_HEX.
+        // TBL-4/TBL-6: parallel per-cell tint tokens (cell-over-row-over-column)
+        // so the static HTML/PDF exporter can paint them with COLOR_EXPORT_HEX.
         const cellColors = rows.map((row) => (row.children ?? []).map((cell) => tableCellTint(b.props, row.props, cell.props)));
         sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content, cellColors}});
         i += 1;

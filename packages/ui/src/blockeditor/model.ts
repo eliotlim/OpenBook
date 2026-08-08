@@ -750,6 +750,8 @@ export function ensureNotEmpty(doc: Y.Doc): void {
  *   tableDeleteRow(doc, tableId, rowIndex)         deletes the row node
  *   tableDeleteColumn(doc, tableId, colIndex)      unregisters the column +
  *                                                  deletes its bound cells
+ *   tableDeleteRowRange(doc, tableId, top, bottom) the range variants (TBL-6) —
+ *   tableDeleteColumnRange(doc, id, left, right)   one transact for the whole set
  *   tableMoveRow(doc, tableId, rowId, toIndex)     key rewrite only
  *   tableMoveColumn(doc, tableId, colId, toIndex)  key rewrite only
  *   tableGrid(table)                               the sorted grid view
@@ -772,8 +774,10 @@ export const TABLE_COL_PREFIX = 'col:';
  * cell in a tinted column inherits via the colId → token lookup — nothing is
  * stored per cell), and clipboard/clone (it rides in table props like the `col:`
  * registry). A ROW tint is the ordinary block `bg` prop on the row block, so a
- * duplicated row keeps it for free ({@link tableDuplicateRow} clones props). At
- * render/export a cell composites ROW-over-COLUMN (see {@link tableCellColor}).
+ * duplicated row keeps it for free ({@link tableDuplicateRow} clones props). A
+ * CELL tint (TBL-6) is likewise the ordinary block `bg` prop, on the cell block.
+ * At render/export a cell composites CELL-over-ROW-over-COLUMN (see
+ * {@link tableCellColor}).
  */
 export const TABLE_COLBG_PREFIX = 'colbg:';
 
@@ -1231,13 +1235,30 @@ export function tableColumnColor(table: BlockMap, colId: string): string | null 
 }
 
 /**
- * The composited tint for a cell: the ROW colour wins over the COLUMN colour
- * where both apply (a row band reads as intentional over a column band), else
- * the column colour, else null. `colId` is the cell's `col` binding. Pure — the
+ * The palette token tinting a single CELL — its own block `bg` prop (TBL-6), or
+ * null. NOTE: `bg` is the ordinary universal block background prop, exactly as
+ * it is on a row (and every other block); the api2 block catalogue
+ * (`packages/sdk/src/blockCatalogue.ts`, on feat/api2-registry-validation)
+ * already declares `bg` universal, so nothing there needs a `cell`-specific
+ * entry and no drift is expected when the two branches merge.
+ */
+export function tableCellOwnColor(cell: BlockMap): string | null {
+  const v = blockProp<unknown>(cell, 'bg');
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/**
+ * The composited tint for a cell: the CELL colour (TBL-6) wins over the ROW
+ * colour, which wins over the COLUMN colour — narrowest intent first (a single
+ * tinted cell is the most deliberate mark, a row band reads as intentional over
+ * a column band). `colId` is the cell's `col` binding; `cell` is the cell block
+ * (optional — omit it for a structural gap, which has no own tint). Pure — the
  * one definition of cell-tint precedence shared by render and export.
  */
-export function tableCellColor(table: BlockMap, row: BlockMap, colId: string | null): string | null {
-  return tableRowColor(row) ?? (colId ? tableColumnColor(table, colId) : null);
+export function tableCellColor(table: BlockMap, row: BlockMap, colId: string | null, cell?: BlockMap | null): string | null {
+  return (
+    (cell ? tableCellOwnColor(cell) : null) ?? tableRowColor(row) ?? (colId ? tableColumnColor(table, colId) : null)
+  );
 }
 
 /**
@@ -1392,6 +1413,99 @@ export function clearCellRange(doc: Y.Doc, tableId: string, rect: CellRect): voi
         if (text && text.length > 0) text.delete(0, text.length);
       }
     }
+  }, 'local');
+}
+
+// ── Range-scoped table ops (TBL-6) ───────────────────────────────────────────
+// The range variants of the single-cell tint / delete ops. Each is ONE transact
+// (one undo step) and resolves the sorted grid once inside it, so a rectangle
+// captured before a reorder still targets the slots it now covers.
+
+/**
+ * Tint (or clear, with `token === null`) every cell of a rectangular range —
+ * writes each cell's own block `bg` prop (TBL-6). Gaps are skipped. One
+ * transact = one undo step for the whole range.
+ */
+export function setTableCellRangeColor(doc: Y.Doc, tableId: string, rect: CellRect, token: string | null): void {
+  doc.transact(() => {
+    for (const line of tableRangeCells(doc, tableId, rect)) {
+      for (const cell of line) {
+        if (cell) setBlockProp(cell, 'bg', token ?? undefined);
+      }
+    }
+  }, 'local');
+}
+
+/**
+ * Delete the rows at sorted positions `top…bottom` (inclusive) in ONE
+ * transaction. Deleting every row removes the table, matching
+ * {@link tableDeleteRow}. Row blocks are resolved from the sorted grid up front
+ * and removed by array index, so no index shifts mid-loop (the sorted-vs-array
+ * trap).
+ */
+export function tableDeleteRowRange(doc: Y.Doc, tableId: string, top: number, bottom: number): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    const rowsArr = blockChildren(table.block);
+    if (!rowsArr) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    const from = Math.max(0, Math.min(top, bottom));
+    const to = Math.min(grid.rows.length - 1, Math.max(top, bottom));
+    if (to < from) return;
+    if (to - from + 1 >= grid.rows.length) {
+      removeBlockInTx(doc, tableId);
+      return;
+    }
+    // Array indices of the doomed rows, descending — deleting from the back
+    // leaves the earlier indices valid.
+    const indices = grid.rows
+      .slice(from, to + 1)
+      .map((row) => indexOfBlock(rowsArr, blockId(row)))
+      .filter((i) => i >= 0)
+      .sort((a, b) => b - a);
+    for (const i of indices) rowsArr.delete(i, 1);
+  }, 'local');
+}
+
+/**
+ * Delete the columns at sorted positions `left…right` (inclusive) in ONE
+ * transaction — registry entries, their `colbg:` tints, and every bound cell.
+ * Deleting every column removes the table, matching {@link tableDeleteColumn}.
+ */
+export function tableDeleteColumnRange(doc: Y.Doc, tableId: string, left: number, right: number): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    if (!blockChildren(table.block)) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    const from = Math.max(0, Math.min(left, right));
+    const to = Math.min(grid.colIds.length - 1, Math.max(left, right));
+    if (to < from) return;
+    if (to - from + 1 >= grid.colIds.length) {
+      removeBlockInTx(doc, tableId);
+      return;
+    }
+    for (let c = from; c <= to; c += 1) {
+      setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[c], undefined);
+      setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[c], undefined);
+    }
+    grid.rows.forEach((row, r) => {
+      const cellsArr = blockChildren(row);
+      if (!cellsArr) return;
+      // Descending so the array indices behind us stay valid.
+      const indices: number[] = [];
+      for (let c = from; c <= to; c += 1) {
+        const cell = grid.cells[r][c];
+        if (!cell) continue;
+        const idx = indexOfBlock(cellsArr, blockId(cell));
+        if (idx >= 0) indices.push(idx);
+      }
+      indices.sort((a, b) => b - a);
+      for (const idx of indices) cellsArr.delete(idx, 1);
+    });
   }, 'local');
 }
 

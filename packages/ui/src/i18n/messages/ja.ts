@@ -181,6 +181,11 @@ export const ja: PartialMessages = {
       rowColour: '行の色',
       columnColour: '列の色',
       toggleHeader: 'ヘッダー行を切り替え',
+      sectionSelection: '選択範囲',
+      clearCells: 'セルを消去',
+      tintCells: 'セルに色を付ける',
+      deleteRowsN: '{n} 行を削除',
+      deleteColumnsN: '{n} 列を削除',
     },
   },
   share: {

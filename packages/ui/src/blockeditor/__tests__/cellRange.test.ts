@@ -1,6 +1,7 @@
 import {describe, it, expect} from 'vitest';
 import * as Y from 'yjs';
 import {
+  blockProp,
   blockText,
   clearCellRange,
   createDoc,
@@ -10,11 +11,18 @@ import {
   normalizeCellRect,
   cellInRect,
   rootBlocks,
+  setTableCellRangeColor,
+  setTableColumnColor,
+  tableCellOwnColor,
+  tableColumns,
+  tableDeleteColumnRange,
+  tableDeleteRowRange,
   tableGrid,
   tableMoveRow,
   tableMoveColumn,
   tableRangeCells,
   tableRangeRuns,
+  TABLE_COLBG_PREFIX,
   type TextRun,
 } from '../model';
 import {cellRangeToHtml, cellRangeToTsv} from '../exportBlocks';
@@ -133,6 +141,78 @@ describe('clearCellRange', () => {
       ['r1c0', 'r1c1', 'r1c2'],
       ['r2c0', 'r2c1', 'r2c2'],
     ]);
+  });
+});
+
+// ── TBL-6: the range-scoped delete + tint ops ────────────────────────────────
+
+describe('tableDeleteRowRange / tableDeleteColumnRange', () => {
+  it('deletes exactly the row band in ONE undo step', () => {
+    const doc = seedTable(4, 3);
+    const undo = new Y.UndoManager(rootBlocks(doc), {trackedOrigins: new Set(['local'])});
+    tableDeleteRowRange(doc, 'tbl', 1, 2);
+    expect(renderGrid(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r3c0', 'r3c1', 'r3c2'],
+    ]);
+    undo.undo(); // both rows come back together
+    expect(renderGrid(doc)).toHaveLength(4);
+  });
+
+  it('deletes exactly the column band, dropping their colbg tints', () => {
+    const doc = seedTable(2, 4);
+    const cols = tableColumns(tableBlock(doc));
+    setTableColumnColor(doc, 'tbl', cols[1].id, 'blue');
+    tableDeleteColumnRange(doc, 'tbl', 1, 2);
+    expect(renderGrid(doc)).toEqual([
+      ['r0c0', 'r0c3'],
+      ['r1c0', 'r1c3'],
+    ]);
+    expect(blockProp<string>(tableBlock(doc), TABLE_COLBG_PREFIX + cols[1].id)).toBeUndefined();
+  });
+
+  it('accepts reversed / out-of-range bounds by clamping (never throws)', () => {
+    const doc = seedTable(3, 3);
+    tableDeleteRowRange(doc, 'tbl', 2, 1); // reversed
+    expect(renderGrid(doc)).toEqual([['r0c0', 'r0c1', 'r0c2']]);
+    expect(() => tableDeleteRowRange(doc, 'tbl', 5, 9)).not.toThrow(); // wholly past the end
+    expect(renderGrid(doc)).toEqual([['r0c0', 'r0c1', 'r0c2']]);
+  });
+
+  it('a range covering every row / column removes the table (matches the single ops)', () => {
+    const rowsGone = seedTable(2, 2);
+    tableDeleteRowRange(rowsGone, 'tbl', 0, 1);
+    expect(findBlock(rowsGone, 'tbl')).toBeNull();
+
+    const colsGone = seedTable(2, 2);
+    tableDeleteColumnRange(colsGone, 'tbl', 0, 1);
+    expect(findBlock(colsGone, 'tbl')).toBeNull();
+  });
+
+  it('targets SORTED positions after a reorder (the sorted-vs-array trap)', () => {
+    const doc = seedTable(3, 3);
+    tableMoveRow(doc, 'tbl', 'row2', 0); // sorted: r2, r0, r1
+    tableDeleteRowRange(doc, 'tbl', 0, 1); // the two TOP-most rendered rows
+    expect(renderGrid(doc)).toEqual([['r1c0', 'r1c1', 'r1c2']]);
+  });
+});
+
+describe('setTableCellRangeColor', () => {
+  it('writes each cell’s own bg across the range in ONE undo step; clears with null', () => {
+    const doc = seedTable(3, 3);
+    const undo = new Y.UndoManager(rootBlocks(doc), {trackedOrigins: new Set(['local'])});
+    const rect = normalizeCellRect({row: 0, col: 0}, {row: 1, col: 1});
+    setTableCellRangeColor(doc, 'tbl', rect, 'green');
+    const own = (id: string) => tableCellOwnColor(findBlock(doc, id)!.block);
+    expect([own('r0c0'), own('r0c1'), own('r1c0'), own('r1c1')]).toEqual(['green', 'green', 'green', 'green']);
+    expect(own('r2c2')).toBeNull(); // outside
+
+    undo.undo();
+    expect(own('r0c0')).toBeNull();
+
+    setTableCellRangeColor(doc, 'tbl', rect, 'red');
+    setTableCellRangeColor(doc, 'tbl', rect, null);
+    expect([own('r0c0'), own('r1c1')]).toEqual([null, null]);
   });
 });
 

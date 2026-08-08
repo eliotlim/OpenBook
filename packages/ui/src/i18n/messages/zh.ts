@@ -181,6 +181,11 @@ export const zh: PartialMessages = {
       rowColour: '行颜色',
       columnColour: '列颜色',
       toggleHeader: '切换标题行',
+      sectionSelection: '所选区域',
+      clearCells: '清空单元格',
+      tintCells: '为单元格着色',
+      deleteRowsN: '删除 {n} 行',
+      deleteColumnsN: '删除 {n} 列',
     },
   },
   share: {
