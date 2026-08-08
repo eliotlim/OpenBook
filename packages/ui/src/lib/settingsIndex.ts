@@ -36,6 +36,7 @@ export const SETTINGS_SECTION_GENERAL_BEHAVIOR = 'settings-general-behavior';
 export const SETTINGS_SECTION_CUST_SHORTCUTS = 'settings-cust-shortcuts';
 export const SETTINGS_SECTION_CUST_BLOCKS = 'settings-cust-blocks';
 export const SETTINGS_SECTION_AGENTS_EDITS = 'settings-agents-edits';
+export const SETTINGS_SECTION_LEDGER_AUTOEXPORT = 'settings-admin-ledger-autoexport';
 export const SETTINGS_SECTION_AGENTS_MCP = 'settings-agents-mcp';
 export const SETTINGS_SECTION_AGENTS_USAGE = 'settings-agents-usage';
 
@@ -128,6 +129,13 @@ export const SETTINGS_SEARCH_INDEX: readonly SettingsSearchEntry[] = [
     labelKey: 'admin.title',
     hintKey: 'admin.description',
     keywords: 'data backups backup restore export storage',
+  },
+  {
+    tab: 'admin',
+    sectionId: SETTINGS_SECTION_LEDGER_AUTOEXPORT,
+    labelKey: 'ledgerAutoExport.title',
+    hintKey: 'ledgerAutoExport.description',
+    keywords: 'ledger auto export csv postings books accounting insurance file',
   },
   // ── Advanced ──────────────────────────────────────────────────────────────
   {
