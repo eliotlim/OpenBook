@@ -82,7 +82,11 @@ export class ForwardingApiError extends Error {
   constructor(
     public readonly path: string,
     public readonly status: number,
-    detail?: string,
+    /** The server's own JSON `{error}` string, when it sent one — kept as a
+     *  field (not just folded into the message) so callers can match the
+     *  server's VERDICT, not merely its status code (see the reattach
+     *  unknown-key discriminator). */
+    public readonly detail?: string,
   ) {
     super(detail ? `${path} → ${status} (${detail})` : `${path} → ${status}`);
     this.name = 'ForwardingApiError';
@@ -343,7 +347,19 @@ export class ForwardingClient {
   /** Map a reattach failure to the one re-provision verdict or a kept-identity error (see {@link reattach}). */
   private classifyReattachFailure(e: unknown): 'unknown-key' {
     if (e instanceof ForwardingApiError) {
-      if (e.path === '/api/sites/reattach' && e.status === 404) return 'unknown-key';
+      // The unknown-key verdict must be the SERVER's, not the transport's: a
+      // bare route-level 404 (account rollback/misdeploy where the reattach
+      // route itself is missing) also arrives as status 404, and treating it
+      // as "no site holds this key" would provision a replacement — a silent
+      // rename. So require the reattach route's own body string too.
+      // Cross-repo contract: open.book.pub packages/account/app/api/sites/
+      // reattach/route.ts responds `{error: 'no site for that key'}` (404).
+      // Follow-up (server-side, not this repo): also return a structured
+      // `{code: 'unknown-key'}` and match that first, keeping this string as
+      // the fallback.
+      if (e.path === '/api/sites/reattach' && e.status === 404 && e.detail === 'no site for that key') {
+        return 'unknown-key';
+      }
       if (e.path === '/api/sites/reattach' && e.status === 403) {
         throw new SiteReattachError(
           'wrong-account',
@@ -412,7 +428,15 @@ export class ForwardingClient {
     const {host} = await this.mintAttach(stored);
     const id = host && host !== stored.host ? {...stored, host} : stored;
     if (id !== stored) {
-      await this.opts.keyStore.save(id);
+      // Persist the heal ONLY if the slot still holds the identity we healed:
+      // an account switch between ensureSite and here re-points the (per-
+      // account) keystore slot, and writing `id` — private key included —
+      // would overwrite the other account's identity, or resurrect one into
+      // an empty slot. The heal is an optimization, so skipping the persist
+      // is always safe; the in-memory identity still carries the fresh host
+      // for this session's tunnel.
+      const current = await this.opts.keyStore.load();
+      if (current?.siteId === stored.siteId) await this.opts.keyStore.save(id);
       this.identity = id;
     }
     this.tunnel = new TunnelClient({

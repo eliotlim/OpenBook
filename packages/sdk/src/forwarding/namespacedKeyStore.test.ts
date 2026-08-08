@@ -72,6 +72,28 @@ describe('createNamespacedKeyStore — per-account slots', () => {
     expect(map.has(BASE)).toBe(true); // no adoption without an account to adopt into
   });
 
+  it('refuses to save while signed out — never writes the shared legacy slot', async () => {
+    // save() resolves the slot at call time, so a sign-out RACE mid-flight
+    // (e.g. during ensureSite) would otherwise land THIS account's identity in
+    // the legacy global slot — which the next account to sign in adopts.
+    const {backend, map, ops} = memoryBackend();
+    const store = createNamespacedKeyStore({backend, baseKey: BASE, getAccountId: () => null});
+
+    await expect(store.save(identity('site-a'))).rejects.toThrow('no active account');
+    expect(map.size).toBe(0);
+    expect(ops).toEqual([]); // nothing written anywhere
+  });
+
+  it('refuses to clear while signed out — never deletes a not-yet-adopted legacy identity', async () => {
+    const legacy = JSON.stringify(identity('legacy'));
+    const {backend, map, ops} = memoryBackend({[BASE]: legacy});
+    const store = createNamespacedKeyStore({backend, baseKey: BASE, getAccountId: () => null});
+
+    await expect(store.clear()).rejects.toThrow('no active account');
+    expect(map.get(BASE)).toBe(legacy); // the sole copy survives
+    expect(ops).toEqual([]);
+  });
+
   it('returns null for a corrupt entry instead of guessing at a private key', async () => {
     const {backend} = memoryBackend({[`${BASE}.A`]: 'not-json'});
     const store = createNamespacedKeyStore({backend, baseKey: BASE, getAccountId: () => 'A'});
@@ -97,6 +119,17 @@ describe('createNamespacedKeyStore — legacy-slot migration', () => {
     // Subsequent loads hit the namespaced slot directly; no further mutation.
     await store.load();
     expect(ops).toEqual([`set:${BASE}.A`, `delete:${BASE}`]);
+  });
+
+  it('account B loading AFTER A’s adoption gets a fresh start (null), not A’s key', async () => {
+    const legacy = identity('legacy');
+    const {backend} = memoryBackend({[BASE]: JSON.stringify(legacy)});
+    let account = 'A';
+    const store = createNamespacedKeyStore({backend, baseKey: BASE, getAccountId: () => account});
+
+    expect((await store.load())?.siteId).toBe('legacy'); // A adopts + retires the legacy slot
+    account = 'B';
+    expect(await store.load()).toBeNull(); // B provisions its own identity — no shared key
   });
 
   it('never deletes the legacy slot before the namespaced write is confirmed', async () => {

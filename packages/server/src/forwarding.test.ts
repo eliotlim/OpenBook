@@ -101,6 +101,27 @@ describe('ForwardingClient.ensureSite (the provisioning toggle)', () => {
       expect((await keyStore.load())?.siteId).toBe('new');
     });
 
+    it('a BARE 404 (no unknown-key body) does NOT provision — the verdict must be the server’s', async () => {
+      // A route-level 404 (account rollback/misdeploy where the reattach route
+      // itself is missing) has the same STATUS as "no site for that key" but
+      // not the reattach route's own body — it must never trigger a rename.
+      const {keyStore, stored} = await seeded();
+      const paths: string[] = [];
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+        if (path === '/api/sites/reattach') return json({error: 'not found'}, 404);
+        throw new Error(`unexpected ${path}`);
+      };
+      const err = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SiteReattachError);
+      expect((err as SiteReattachError).code).toBe('rejected');
+      expect(paths).not.toContain('/api/sites'); // never provisioned
+      expect((await keyStore.load())?.siteId).toBe(stored.siteId); // address kept
+    });
+
     it('503 (challenge-store outage) → retryable error, NO provision, identity intact', async () => {
       const {keyStore, stored} = await seeded();
       const paths: string[] = [];
@@ -468,5 +489,43 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
 
     expect(result).toEqual({host: 'p.book.cloud'});
     expect(saves()).toBe(0); // nothing to heal → no keychain write
+  });
+
+  it('skips the heal persist when the slot no longer holds the healed identity (account switch)', async () => {
+    // Between ensureSite's reattach and the heal save, an account switch can
+    // re-point the per-account keystore slot at ANOTHER account's identity
+    // (or an empty slot). The heal must not write A's identity — private key
+    // included — into it; skipping is always safe (the heal is an optimization).
+    const kpA = await mintSiteKeypair();
+    const kpB = await mintSiteKeypair();
+    const storedA: SiteIdentity = {siteId: 's1', prefix: 'p', host: 'p.book.pub', publicKey: kpA.publicKey, privateKey: kpA.privateKey};
+    const storedB: SiteIdentity = {siteId: 'sB', prefix: 'b', host: 'b.book.cloud', publicKey: kpB.publicKey, privateKey: kpB.privateKey};
+    let loads = 0;
+    const saved: SiteIdentity[] = [];
+    const keyStore: KeyStore = {
+      // load #1 (ensureSite) → A's identity; later loads (the heal guard) → B's
+      // slot contents, as if the account switched mid-start.
+      load: async () => (++loads === 1 ? storedA : storedB),
+      save: async (id) => {
+        saved.push(id);
+      },
+      clear: async () => undefined,
+    };
+    const client = new ForwardingClient({
+      accountUrl: 'https://account.book.cloud',
+      authToken: 'tok',
+      keyStore,
+      localOrigin: '',
+      fetchImpl: healFetch('p.book.cloud'), // canonical host differs → a heal is due
+      localFetchImpl: async () => new Response('[]', {status: 200}),
+      webSocketImpl: fakeWebSocket().ctor,
+    });
+
+    const result = await client.start();
+    client.stop();
+
+    expect(saved).toEqual([]); // never wrote over the other account's slot
+    expect(result).toEqual({host: 'p.book.cloud'}); // session still uses the fresh host
+    expect(client.site?.host).toBe('p.book.cloud'); // in-memory heal only
   });
 });

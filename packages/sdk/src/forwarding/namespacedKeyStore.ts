@@ -63,9 +63,11 @@ export interface NamespacedKeyStoreOptions {
  * legacy global `<baseKey>` entry (pre-NAME-2 installs stored the identity
  * there): it is copied into the account's slot and the legacy entry is deleted
  * ONLY after a read-back confirms the copy landed — a failed write can never
- * lose the identity. While signed out (`getAccountId()` → null) the legacy
- * global slot is used as-is; forwarding requires an account, so this only
- * covers incidental reads (e.g. showing the reserved address).
+ * lose the identity. While signed out (`getAccountId()` → null) READS fall
+ * back to the legacy global slot (forwarding requires an account, so this only
+ * covers incidental reads like showing the reserved address); WRITES refuse —
+ * `save()`/`clear()` throw rather than touch the shared legacy slot, which the
+ * next account to sign in would adopt as its own.
  */
 export function createNamespacedKeyStore(opts: NamespacedKeyStoreOptions): KeyStore {
   const slot = (): string => {
@@ -93,14 +95,30 @@ export function createNamespacedKeyStore(opts: NamespacedKeyStoreOptions): KeySt
       await opts.backend.set(key, legacy);
       // Delete the legacy entry ONLY once the namespaced copy is confirmed —
       // an unconfirmed write must never orphan the sole copy of the key.
+      // Residual trade-off (accepted): a crash BETWEEN the confirmed adopt and
+      // this delete leaves the legacy entry behind, so a LATER account's first
+      // load adopts the same key too — its reattach then 403s (wrong-account,
+      // surfaced, identity kept) until that account resets explicitly. Two
+      // copies recoverable-by-reset beats any window where the only copy of
+      // the private key can be lost ("two copies, never zero").
       if ((await opts.backend.get(key)) === legacy) await opts.backend.delete(opts.baseKey);
       return identity;
     },
     async save(identity) {
-      await opts.backend.set(slot(), JSON.stringify(identity));
+      // Writes are per-account ONLY. Resolving the slot at call time means a
+      // sign-out RACE (e.g. mid-ensureSite) would otherwise land this
+      // account's identity in the shared legacy slot — which the NEXT account
+      // to sign in adopts as its own. Refuse instead; reads stay permitted.
+      const accountId = opts.getAccountId();
+      if (!accountId) throw new Error('no active account — refusing to write the shared legacy slot');
+      await opts.backend.set(`${opts.baseKey}.${accountId}`, JSON.stringify(identity));
     },
     async clear() {
-      await opts.backend.delete(slot());
+      // Same guard as save(): a signed-out clear would delete the legacy slot
+      // — an identity no account has adopted yet — instead of "this account's".
+      const accountId = opts.getAccountId();
+      if (!accountId) throw new Error('no active account — refusing to write the shared legacy slot');
+      await opts.backend.delete(`${opts.baseKey}.${accountId}`);
     },
   };
 }
