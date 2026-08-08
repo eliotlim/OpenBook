@@ -1043,7 +1043,9 @@ export function toHtmlSite(
   // One island carries the WHOLE space bundle (pages + databases + nesting), the
   // `openbook.library.json` structure, so a site export re-imports with structure
   // intact. The visible sections are a render; this is the authoritative source.
-  const island = libraryIslandScript(bundle.rootId, bundle.space);
+  // LX-2: when the exporter opted in (and could read the books), the island
+  // additionally carries the ledger records under their own `ledger` key.
+  const island = libraryIslandScript(bundle.rootId, bundle.space, bundle.ledger ? {ledger: bundle.ledger} : {});
   // Hydrate through the viewer (its `#page=` hash nav replaces the legacy
   // router) only when the viewer can faithfully render the WHOLE bundle: every
   // page a block-doc, and no databases anywhere (the viewer has no database

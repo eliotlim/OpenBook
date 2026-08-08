@@ -10,6 +10,7 @@ import {
   type DataClient,
   type DatabaseRow,
   type DatabaseSchema,
+  type LedgerExportSection,
   type PageSnapshot,
   type LibrarySnapshot,
   type StoredDatabase,
@@ -47,10 +48,45 @@ export interface SiteBundle {
    * root uses the live in-memory snapshot so unsaved edits export faithfully.
    */
   space: LibrarySnapshot;
+  /**
+   * LX-2: the machine-readable ledger records, present ONLY when the exporter
+   * opted in AND could read the books through their own {@link DataClient}
+   * (see the SDK's `gatherLedgerExportSection` — capture is fail-closed, so a
+   * guest/viewer export never carries records they couldn't read via the API).
+   * Rides the island under its own `ledger` key, never mixed into `space`.
+   */
+  ledger?: LedgerExportSection;
 }
 
 /** A safety cap so a densely linked library can't produce a runaway file. */
 const MAX_PAGES = 400;
+
+/** The type prefix of every block the first-party ledger plugin registers. */
+const LEDGER_BLOCK_PREFIX = 'openbook.ledger/';
+
+/**
+ * Whether a RAW snapshot contains any `openbook.ledger/*` block. Detection runs
+ * on the raw block-doc (recursively — ledger blocks can sit inside columns/
+ * toggles), NOT on the export projection, which flattens plugin blocks into
+ * placeholder markup (LX-1) where the type only survives as an attribute.
+ */
+export function snapshotHasLedgerBlocks(snapshot: PageSnapshot | null | undefined): boolean {
+  const doc = snapshot as {editor?: string; blockdoc?: {blocks?: unknown[]}} | null | undefined;
+  if (!doc || doc.editor !== 'blocks' || !doc.blockdoc) return false;
+  const hasLedger = (blocks: unknown[]): boolean =>
+    blocks.some((b) => {
+      const block = b as {type?: unknown; children?: unknown[]} | null;
+      if (!block || typeof block !== 'object') return false;
+      if (typeof block.type === 'string' && block.type.startsWith(LEDGER_BLOCK_PREFIX)) return true;
+      return Array.isArray(block.children) && hasLedger(block.children);
+    });
+  return hasLedger(doc.blockdoc.blocks ?? []);
+}
+
+/** Whether any page in the (raw) export set contains a ledger block. */
+export function bundleHasLedgerBlocks(space: LibrarySnapshot): boolean {
+  return space.pages.some((p) => snapshotHasLedgerBlocks(p.data));
+}
 
 /** Page ids a snapshot references: subpage/database blocks and inline `@`-mentions. */
 export function referencedPageIds(rawSnapshot: PageSnapshot): string[] {
