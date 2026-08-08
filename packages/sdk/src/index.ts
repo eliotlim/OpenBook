@@ -260,7 +260,7 @@ export {
   type AccessCtx,
   type Decision,
 } from './authorize';
-export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock, type SnapshotSegment} from './content';
+export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
 export {
   snapshotBlocks,
   contentHash,

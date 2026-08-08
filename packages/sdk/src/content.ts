@@ -154,12 +154,59 @@ export interface AppendBlock {
   /** Plain text (text-carrying blocks). */
   text?: string;
   props?: Record<string, unknown>;
+  /**
+   * Nested children — the document model is ONE recursive shape, so a container
+   * block (`columns`/`column`, `table`/`row`/`cell`, `group`, `tabs`/`tab`,
+   * `accordion`/`accordionsection`) carries its contents here, to any depth. The
+   * projection below preserves them verbatim; the editor's `coerceNewBlock` /
+   * `makeBlock` build the real CRDT containers when the page opens. Dropping this
+   * field (as the pre-API-1 flat projection did) silently discards every nested
+   * block, so a table/columns payload landed as a single empty container.
+   */
+  children?: AppendBlock[];
+}
+
+/**
+ * One block in the blockdoc JSON projection (`blockdoc.blocks`) — the shape
+ * {@link projectAppendBlocks} emits and `decodeSnapshot` rebuilds a Y.Doc from.
+ */
+export interface ProjectedBlock {
+  id: string;
+  type: string;
+  text?: Array<{t: string}>;
+  props?: Record<string, unknown>;
+  children?: ProjectedBlock[];
+}
+
+/**
+ * Project {@link AppendBlock}s into the blockdoc JSON projection, RECURSIVELY —
+ * text becomes runs and `children` are projected at every level (the model is
+ * uniformly recursive, so a table is just `table → row → cell → blocks`).
+ *
+ * Ids are DERIVED FROM POSITION and stable per level (`p-0`, `p-0-1`, `p-0-1-2`),
+ * so the same payload always projects to the same ids — a nested child can be
+ * addressed afterwards (inspect_page_structure → update_block / delete_block)
+ * and a retried append doesn't invent fresh ids for identical content.
+ */
+export function projectAppendBlocks(blocks: AppendBlock[], idPrefix = 'gen'): ProjectedBlock[] {
+  return blocks.map((b, i) => {
+    const id = `${idPrefix}-${i}`;
+    return {
+      id,
+      type: b.type,
+      ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
+      ...(b.props ? {props: b.props} : {}),
+      ...(b.children && b.children.length > 0 ? {children: projectAppendBlocks(b.children, id)} : {}),
+    };
+  });
 }
 
 /**
  * Append blocks to a **block-editor** page's JSON projection, returning the new
  * snapshot — or `null` for legacy stored pages (use {@link appendTextToSnapshot}
- * there). This mutates only the JSON projection (`blockdoc.blocks`), NOT the
+ * there). Nested `children` are preserved (see {@link projectAppendBlocks}), so
+ * a `table`/`columns`/`group` payload materializes as a real container tree.
+ * This mutates only the JSON projection (`blockdoc.blocks`), NOT the
  * CRDT `update` — so a *live* editor on that page should apply the change
  * through the editor bridge instead (one CRDT transaction, undoable). This
  * server-side path exists for the MCP server, which has no live editor; a live
@@ -170,12 +217,7 @@ export function appendBlocksToSnapshot(data: PageSnapshot, blocks: AppendBlock[]
   if (data.editor !== 'blocks') return null;
   if (blocks.length === 0) return data;
   const blockdoc = (data.blockdoc as {blocks?: unknown[]; update?: string; v?: number} | undefined) ?? {blocks: []};
-  const projected = blocks.map((b, i) => ({
-    id: `${idPrefix}-${i}`,
-    type: b.type,
-    ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
-    ...(b.props ? {props: b.props} : {}),
-  }));
+  const projected = projectAppendBlocks(blocks, idPrefix);
   return {
     ...data,
     // Drop the stale CRDT `update` so the page rebuilds from the JSON projection
