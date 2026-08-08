@@ -41,6 +41,7 @@ import plotUmd from './vendor/plot.umd.min.js?raw';
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
 import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
+import {describeLedgerInteractiveBlock, ledgerExportRecords, renderLedgerReportBlock, type LedgerExportRecords} from './exportLedgerReports';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
@@ -152,6 +153,11 @@ interface RenderCtx {
   /** The exporting user's data-colour scheme, baked into chips/charts/status
    *  (the file is self-contained — no live CSS vars to read; OB-379). */
   scheme: DataColorScheme;
+  /** LX-3: the fold-ready ledger records recovered from the export's embedded
+   *  ledger section (LX-2), when the exporter included the books. Present ⇒
+   *  ledger REPORT blocks render as real static tables; absent ⇒ they keep the
+   *  LX-1 placeholder card. */
+  ledger?: LedgerExportRecords;
 }
 
 /**
@@ -599,7 +605,23 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       // drawn. Any text the block carried rides along. This is the final render
       // for decks, the PDF path and no-JS/no-hydrate exports; on the hydrate
       // path the viewer replaces it with its own missing-plugin card.
-      const {label, hint} = describeUnknownBlock(str(block.type));
+      //
+      // LX-3: ledger REPORT blocks are better than a placeholder when the
+      // export carries the books (LX-2's ledger section): compute the report
+      // with the same pure folds the in-app block uses and emit a real static
+      // table, honouring the block's persisted props. A fold refusal (corrupt
+      // stored amount, unlinkable journal entry) falls through to the card.
+      if (ctx.ledger) {
+        const table = renderLedgerReportBlock(str(block.type), (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
+        if (table !== null) {
+          html.push(table);
+          break;
+        }
+      }
+      // The four interactive ledger tools act on the LIVE books — no static
+      // render exists, records or not, so their card says "interactive"
+      // instead of implying a missing plugin.
+      const {label, hint} = describeLedgerInteractiveBlock(str(block.type)) ?? describeUnknownBlock(str(block.type));
       const text = str(d.text) ? inlineToHtml(parseInline(str(d.text)), ctx) : '';
       html.push(
         `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}">` +
@@ -1002,7 +1024,14 @@ export function toHtmlSite(
   const nameByCell = new Map<string, string>();
   for (const page of bundle.pages) loadSnapshot(page.snapshot, values, nameByCell);
 
+  // LX-3: when the bundle carries the books (LX-2), adapt the embedded rows to
+  // the report folds' inputs ONCE — every ledger report block on every page
+  // renders from the same recovered records. `null` (malformed section) means
+  // the report blocks keep their LX-1 placeholders.
+  const ledger = bundle.ledger ? ledgerExportRecords(bundle.ledger) : null;
+
   const ctx: RenderCtx = {
+    ...(ledger ? {ledger} : {}),
     values,
     nameByCell,
     sliders: [],
@@ -1172,6 +1201,22 @@ figure.ob-artifact { margin: 1.2em 0; }
 .ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
 .ob-plugin-block > p.ob-plugin-block-hint { font-size: .85rem; opacity: .65; margin-top: 2px; }
 .ob-plugin-block > p.ob-plugin-block-text { margin-top: 8px; }
+/* Ledger report tables (LX-3). Money columns are right-aligned tabular digits;
+   totals carry the double-rule emphasis; a report never splits across a PDF
+   page (same discipline as the placeholder card above). */
+figure.ob-ledger-report { margin: 1.2em 0; break-inside: avoid; page-break-inside: avoid; }
+figure.ob-ledger-report > figcaption.ob-ledger-title { font-weight: 700; margin-bottom: 6px; }
+.ob-ledger-sub { font-weight: 400; opacity: .7; font-size: .9em; }
+table.ledger-table { border-collapse: collapse; width: 100%; margin: .4em 0; font-size: .92em; font-variant-numeric: tabular-nums; }
+table.ledger-table th, table.ledger-table td { border: 1px solid rgba(127,127,127,.3); padding: 5px 10px; text-align: left; vertical-align: top; }
+table.ledger-table thead th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.ledger-table th.num, table.ledger-table td.num { text-align: right; white-space: nowrap; }
+table.ledger-table tr.ledger-section th { background: rgba(127,127,127,.08); font-weight: 700; }
+table.ledger-table tr.ledger-total td { font-weight: 700; border-top: 2px solid rgba(127,127,127,.55); }
+table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }
+.ledger-reversed { opacity: .6; font-size: .9em; }
+.ob-ledger-note { font-size: .85rem; opacity: .8; margin: 4px 0 0; }
+.ob-ledger-note.is-alarm { color: #b91c1c; font-weight: 600; opacity: 1; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
