@@ -4,6 +4,11 @@ How an OpenBook library — and above all its **ledger** — is backed up, what 
 backup contains, how to restore one, and how CI proves the whole story on every
 change (LGR-15 / OB-603).
 
+> Looking for the ledger-specific "which source do I restore from" decision —
+> HTML export, CSV/Beancount, auto-export file? Start at the
+> **[ledger recovery runbook](./recovery-runbook.md)** (LX-4); this document is
+> its lane 1.
+
 ## Backup architecture
 
 ### What runs
