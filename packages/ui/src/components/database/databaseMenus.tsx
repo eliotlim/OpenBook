@@ -676,7 +676,7 @@ export const PropertyMenu = React.forwardRef<
           <div style={{position: 'fixed', left: pointer.x, top: pointer.y}} aria-hidden />
         </PopoverAnchor>
       )}
-      <PopoverContent align="start" className="w-64 space-y-2 p-2.5">
+      <PopoverContent align="start" className="w-64 space-y-1.5 p-2">
         <input
           defaultValue={property.name}
           onBlur={(e) => e.target.value.trim() !== property.name && db.updateProperty(property.id, {name: e.target.value})}
