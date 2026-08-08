@@ -492,13 +492,15 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               databases: [],
             },
           };
-        // LX-2: the export set shows ledger blocks → ask about embedding the
+        // LX-2: the export set shows ledger blocks — OR the crawl reached
+        // ledger content (a subpage/mention to a host page; always pruned from
+        // the generic bundle, see gatherSite) → ask about embedding the
         // machine-readable records. Detection runs on the RAW snapshots in the
         // island bundle (the projection flattens plugin blocks to placeholders).
         // The probe AND the capture both go through this principal's own client,
         // so a guest/viewer can never receive records the API wouldn't serve
         // them — their dialog simply reports that the books are excluded.
-        if (bundleHasLedgerBlocks(bundle.space)) {
+        if (bundleHasLedgerBlocks(bundle.space) || bundle.ledgerReached) {
           const canInclude = await client
             .ledgerInfo()
             .then((i) => i.exists)
