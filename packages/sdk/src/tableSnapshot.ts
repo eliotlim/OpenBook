@@ -718,6 +718,10 @@ export function applyTableOpToSnapshot(
     break;
   }
   case 'table_set_cell': {
+    // Writes ONE plain run, so any inline formatting in the cell is dropped —
+    // the same trade the snapshot `update_block` path makes (a JSON projection
+    // has no cursor or diff to preserve marks against; the live-editor path's
+    // `replaceText` splices minimally and does keep marks on unchanged ends).
     const cell = grid.cells[op.rowIndex ?? 0]?.[op.colIndex ?? 0];
     // A merge gap has no cell node — materialize one bound to that column, so
     // set_cell can fill a ragged/legacy table instead of failing on a hole.
