@@ -2357,7 +2357,24 @@ export class LedgerStore {
     if (parsed.book.periods.length > 0 && !parsed.book.accounts.some((a) => a.type === 'equity')) {
       throw new LedgerError('invalid-input', 'the embedded ledger records close accounting periods but carry no equity account to close into');
     }
-    const run = this.doRestoreSection(section, parsed.book, actor).finally(() => {
+    // The provenance content hash, over the VALIDATED projection and BEFORE
+    // the first write (Sasha F1). Hashing the raw wire section here instead
+    // was a post-replay landmine: the parser deliberately ignores nothing
+    // (strict envelope), but any future gap — or a pathological-yet-valid
+    // shape — would then blow up AFTER the book landed, leaving a marker-less
+    // import the empty-target gate blocks from retrying. Hashing the typed
+    // book is bounded by construction, and any failure here is a clean
+    // refusal with the target untouched.
+    let bundleSha: string;
+    try {
+      bundleSha = await sha256Hex(canonicalLedgerJson(parsed.book as unknown as Record<string, unknown>));
+    } catch (err) {
+      throw new LedgerError(
+        'invalid-input',
+        `the embedded ledger records could not be canonically hashed (${err instanceof Error ? err.message : String(err)}) — nothing was restored`,
+      );
+    }
+    const run = this.doRestoreSection(parsed.book, bundleSha, actor).finally(() => {
       this.restoringSection = null;
     });
     this.restoringSection = run;
@@ -2394,8 +2411,8 @@ export class LedgerStore {
   }
 
   private async doRestoreSection(
-    section: LedgerExportSection,
     book: LedgerSectionBook,
+    bundleSha: string,
     actor?: Principal,
   ): Promise<LedgerSectionRestoreResult> {
     await this.assertEmptyLedgerForRestore();
@@ -2407,221 +2424,267 @@ export class LedgerStore {
     // is documented in the recovery runbook.
     await this.assertEmptyLedgerForRestore();
 
+    // Counters hoisted OUT of the replay: on a mid-replay failure they are
+    // what the partial-restore marker and the typed error report (Quinn 3).
+    const totalEntries = book.transactions.length;
+    let transactionsReplayed = 0;
+    let postingsReplayed = 0;
+    let reconciliationsReplayed = 0;
+    let reconciliationsDowngraded = 0;
+    let periodEntriesReplayed = 0;
+    try {
     // ── Accounts. Created OPEN and without the evidence gate: a closed status
     // would refuse the very postings being replayed into it, and the evidence
     // gate would refuse bare replays (the bytes are not in an HTML export).
     // Both are re-asserted at the end, after all posting activity.
-    const accountMap = new Map<string, string>();
-    for (const a of book.accounts) {
-      const created = await this.createAccount({name: a.name, type: a.type, currency: a.currency}, actor);
-      accountMap.set(a.id, created.id);
-    }
-    const mappedAccount = (sourceId: string): string => {
-      const id = accountMap.get(sourceId);
-      if (!id) throw new LedgerError('invalid-state', `restore bug: no replayed account for source account ${sourceId}`);
-      return id;
-    };
+      const accountMap = new Map<string, string>();
+      for (const a of book.accounts) {
+        const created = await this.createAccount({name: a.name, type: a.type, currency: a.currency}, actor);
+        accountMap.set(a.id, created.id);
+      }
+      const mappedAccount = (sourceId: string): string => {
+        const id = accountMap.get(sourceId);
+        if (!id) throw new LedgerError('invalid-state', `restore bug: no replayed account for source account ${sourceId}`);
+        return id;
+      };
 
-    // Closing entries and reopen reversals are NOT replayed directly — the
-    // period replay below regenerates them through closePeriod/reopenPeriod,
-    // the only doors that may write them.
-    const periodEntries = new Set<string>();
-    for (const p of book.periods) {
-      if (p.closingEntryId) periodEntries.add(p.closingEntryId);
-      if (p.reopenEntryId) periodEntries.add(p.reopenEntryId);
-    }
+      // Closing entries and reopen reversals are NOT replayed directly — the
+      // period replay below regenerates them through closePeriod/reopenPeriod,
+      // the only doors that may write them.
+      const periodEntries = new Set<string>();
+      for (const p of book.periods) {
+        if (p.closingEntryId) periodEntries.add(p.closingEntryId);
+        if (p.reopenEntryId) periodEntries.add(p.reopenEntryId);
+      }
 
-    // ── Journal entries, in the section's replay order (entry number, drafts
-    // last). Ordinary entries first; reversals re-enacted through `reverse`
-    // afterwards so the pair-link and void flip are the writer's own.
-    const txMap = new Map<string, string>();
-    const postingMap = new Map<string, string>();
-    const mapPostingsInOrder = (source: LedgerSectionTransaction, landedPostings: LedgerPosting[]): void => {
+      // ── Journal entries, in the section's replay order (entry number, drafts
+      // last). Ordinary entries first; reversals re-enacted through `reverse`
+      // afterwards so the pair-link and void flip are the writer's own.
+      const txMap = new Map<string, string>();
+      const postingMap = new Map<string, string>();
+      const mapPostingsInOrder = (source: LedgerSectionTransaction, landedPostings: LedgerPosting[]): void => {
       // createDraft inserts postings in input order and postingsForTx reads
       // them back by `position`, so a positional zip is exact.
-      source.postings.forEach((p, i) => {
-        const landed = landedPostings[i];
-        if (landed) postingMap.set(p.id, landed.id);
-      });
-    };
-    let transactionsReplayed = 0;
-    let postingsReplayed = 0;
-    for (const tx of book.transactions) {
-      if (periodEntries.has(tx.id) || tx.reverses !== null) continue;
-      const postings: LedgerPostingInput[] = tx.postings.map((p) => ({
-        accountId: mappedAccount(p.accountId),
-        amountMinor: p.amountMinor,
-        // A draft's cleared ticks can only be set AT creation (the flip surface
-        // rejects drafts); a posted entry's are replayed later, after the
-        // reconciliation pass, so a finish can never freeze the wrong set.
-        ...(tx.state === 'draft' && p.cleared === 'cleared' ? {cleared: 'cleared' as const} : {}),
-        memo: p.memo,
-      }));
-      const draft = await this.createDraft({date: tx.date, description: tx.description, postings}, actor);
-      const landed = tx.state === 'draft' ? draft : await this.post(draft.id, actor);
-      txMap.set(tx.id, landed.id);
-      mapPostingsInOrder(tx, landed.postings);
-      transactionsReplayed += 1;
-      postingsReplayed += landed.postings.length;
-    }
-    for (const tx of book.transactions) {
-      if (periodEntries.has(tx.id) || tx.reverses === null) continue;
-      const originalId = txMap.get(tx.reverses);
-      if (!originalId) throw new LedgerError('invalid-state', `restore bug: reversal ${tx.id} replayed before its original ${tx.reverses}`);
-      const reversal = await this.reverse(originalId, {date: tx.date, description: tx.description}, actor);
-      txMap.set(tx.id, reversal.id);
-      // The writer negates the ORIGINAL's legs in the original's order; the
-      // section's reversal was born the same way, so the positional zip holds
-      // here too (the parser verified leg-for-leg negation).
-      mapPostingsInOrder(tx, reversal.postings);
-      transactionsReplayed += 1;
-      postingsReplayed += reversal.postings.length;
-    }
+        source.postings.forEach((p, i) => {
+          const landed = landedPostings[i];
+          if (landed) postingMap.set(p.id, landed.id);
+        });
+      };
+      for (const tx of book.transactions) {
+        if (periodEntries.has(tx.id) || tx.reverses !== null) continue;
+        const postings: LedgerPostingInput[] = tx.postings.map((p) => ({
+          accountId: mappedAccount(p.accountId),
+          amountMinor: p.amountMinor,
+          // A draft's cleared ticks can only be set AT creation (the flip surface
+          // rejects drafts); a posted entry's are replayed later, after the
+          // reconciliation pass, so a finish can never freeze the wrong set.
+          ...(tx.state === 'draft' && p.cleared === 'cleared' ? {cleared: 'cleared' as const} : {}),
+          memo: p.memo,
+        }));
+        const draft = await this.createDraft({date: tx.date, description: tx.description, postings}, actor);
+        const landed = tx.state === 'draft' ? draft : await this.post(draft.id, actor);
+        txMap.set(tx.id, landed.id);
+        mapPostingsInOrder(tx, landed.postings);
+        transactionsReplayed += 1;
+        postingsReplayed += landed.postings.length;
+      }
+      for (const tx of book.transactions) {
+        if (periodEntries.has(tx.id) || tx.reverses === null) continue;
+        const originalId = txMap.get(tx.reverses);
+        if (!originalId) throw new LedgerError('invalid-state', `restore bug: reversal ${tx.id} replayed before its original ${tx.reverses}`);
+        const reversal = await this.reverse(originalId, {date: tx.date, description: tx.description}, actor);
+        txMap.set(tx.id, reversal.id);
+        // The writer negates the ORIGINAL's legs in the original's order; the
+        // section's reversal was born the same way, so the positional zip holds
+        // here too (the parser verified leg-for-leg negation).
+        mapPostingsInOrder(tx, reversal.postings);
+        transactionsReplayed += 1;
+        postingsReplayed += reversal.postings.length;
+      }
 
-    // ── Reconciliations, per account: ENDED ones (finished/abandoned) in
-    // creation order, the at-most-one OPEN one last — the one-open-per-account
-    // rule replayed in the only order that satisfies it.
-    const postingsByRec = new Map<string, LedgerSectionPosting[]>();
-    for (const tx of book.transactions) {
-      for (const p of tx.postings) {
-        if (p.reconciliationId !== null) {
-          postingsByRec.set(p.reconciliationId, [...(postingsByRec.get(p.reconciliationId) ?? []), p]);
+      // ── Reconciliations, per account: ENDED ones (finished/abandoned) in
+      // creation order, the at-most-one OPEN one last — the one-open-per-account
+      // rule replayed in the only order that satisfies it.
+      const postingsByRec = new Map<string, LedgerSectionPosting[]>();
+      for (const tx of book.transactions) {
+        for (const p of tx.postings) {
+          if (p.reconciliationId !== null) {
+            postingsByRec.set(p.reconciliationId, [...(postingsByRec.get(p.reconciliationId) ?? []), p]);
+          }
         }
       }
-    }
-    const recsByAccount = new Map<string, LedgerSectionReconciliation[]>();
-    for (const rec of book.reconciliations) {
-      recsByAccount.set(rec.accountId, [...(recsByAccount.get(rec.accountId) ?? []), rec]);
-    }
-    let reconciliationsReplayed = 0;
-    let reconciliationsDowngraded = 0;
-    for (const recs of recsByAccount.values()) {
-      const ordered = [...recs].sort((a, b) => {
-        if ((a.status === 'open') !== (b.status === 'open')) return a.status === 'open' ? 1 : -1;
-        return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1;
-      });
-      for (const rec of ordered) {
-        const started = await this.startReconciliation(
-          {accountId: mappedAccount(rec.accountId), statementDate: rec.statementDate, statementBalanceMinor: rec.statementBalanceMinor},
-          actor,
-        );
-        reconciliationsReplayed += 1;
-        if (rec.status === 'abandoned') {
-          await this.abandonReconciliation(started.id, actor);
-          continue;
-        }
-        if (rec.status === 'open') continue; // stays open, ticks are re-made below
-        // Finished: tick exactly the postings this reconciliation froze, then
-        // finish — the difference recomputes to zero because the ticked set and
-        // the statement balance are the source book's own zero.
-        for (const p of postingsByRec.get(rec.id) ?? []) {
-          const postingId = postingMap.get(p.id);
-          if (!postingId) throw new LedgerError('invalid-state', `restore bug: no replayed posting for frozen source posting ${p.id}`);
-          await this.setReconciliationPostingCleared(started.id, postingId, 'cleared', actor);
-        }
-        try {
-          await this.finishReconciliation(started.id, actor);
-        } catch (err) {
-          if (err instanceof LedgerError && err.code === 'reconciliation-unbalanced') {
+      const recsByAccount = new Map<string, LedgerSectionReconciliation[]>();
+      for (const rec of book.reconciliations) {
+        recsByAccount.set(rec.accountId, [...(recsByAccount.get(rec.accountId) ?? []), rec]);
+      }
+      for (const recs of recsByAccount.values()) {
+        const ordered = [...recs].sort((a, b) => {
+          if ((a.status === 'open') !== (b.status === 'open')) return a.status === 'open' ? 1 : -1;
+          return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1;
+        });
+        for (const rec of ordered) {
+          const started = await this.startReconciliation(
+            {accountId: mappedAccount(rec.accountId), statementDate: rec.statementDate, statementBalanceMinor: rec.statementBalanceMinor},
+            actor,
+          );
+          reconciliationsReplayed += 1;
+          if (rec.status === 'abandoned') {
+            await this.abandonReconciliation(started.id, actor);
+            continue;
+          }
+          if (rec.status === 'open') continue; // stays open, ticks are re-made below
+          // Finished: tick exactly the postings this reconciliation froze, then
+          // finish — the difference recomputes to zero because the ticked set and
+          // the statement balance are the source book's own zero.
+          for (const p of postingsByRec.get(rec.id) ?? []) {
+            const postingId = postingMap.get(p.id);
+            if (!postingId) throw new LedgerError('invalid-state', `restore bug: no replayed posting for frozen source posting ${p.id}`);
+            await this.setReconciliationPostingCleared(started.id, postingId, 'cleared', actor);
+          }
+          try {
+            await this.finishReconciliation(started.id, actor);
+          } catch (err) {
+            if (err instanceof LedgerError && err.code === 'reconciliation-unbalanced') {
             // An exotic source history (a finish whose balance leaned on a
             // reconciliation that was later reopened) cannot be re-frozen
             // exactly. Degrade HONESTLY: abandon the attempt (audited), leave
             // the ticks cleared, count it — workflow metadata only, the
             // amounts and report numbers are untouched.
-            await this.abandonReconciliation(started.id, actor);
-            reconciliationsDowngraded += 1;
-            continue;
+              await this.abandonReconciliation(started.id, actor);
+              reconciliationsDowngraded += 1;
+              continue;
+            }
+            throw err;
           }
-          throw err;
         }
       }
-    }
 
-    // ── Cleared ticks on posted/void entries (drafts were born with theirs).
-    // After the reconciliation pass, so a replayed finish freezes only its own.
-    for (const tx of book.transactions) {
-      if (txMap.get(tx.id) === undefined || tx.state === 'draft') continue;
-      for (const p of tx.postings) {
-        if (p.cleared !== 'cleared') continue;
-        const postingId = postingMap.get(p.id);
-        if (!postingId) throw new LedgerError('invalid-state', `restore bug: no replayed posting for source posting ${p.id}`);
-        const landed = await this.getPosting(postingId);
-        if (landed && landed.cleared === 'pending') await this.setPostingCleared(postingId, 'cleared', actor);
+      // ── Cleared ticks on posted/void entries (drafts were born with theirs).
+      // After the reconciliation pass, so a replayed finish freezes only its own.
+      for (const tx of book.transactions) {
+        if (txMap.get(tx.id) === undefined || tx.state === 'draft') continue;
+        for (const p of tx.postings) {
+          if (p.cleared !== 'cleared') continue;
+          const postingId = postingMap.get(p.id);
+          if (!postingId) throw new LedgerError('invalid-state', `restore bug: no replayed posting for source posting ${p.id}`);
+          const landed = await this.getPosting(postingId);
+          if (landed && landed.cleared === 'pending') await this.setPostingCleared(postingId, 'cleared', actor);
+        }
       }
-    }
 
-    // ── Periods, replayed in the source's own close/reopen chronology (a
-    // reopen may legally precede a later, lower-ranged close — interleaving by
-    // timestamp is what keeps closePeriod's chronological-order rule satisfied
-    // exactly as the source satisfied it).
-    const periodEvents: Array<{at: string; kind: 'close' | 'reopen'; period: LedgerPeriod}> = [];
-    for (const p of book.periods) {
-      periodEvents.push({at: p.closedAt || '', kind: 'close', period: p});
-      if (p.status === 'reopened') periodEvents.push({at: p.reopenedAt || p.closedAt || '', kind: 'reopen', period: p});
-    }
-    periodEvents.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind === b.kind ? 0 : a.kind === 'close' ? -1 : 1));
-    const periodMap = new Map<string, string>();
-    let periodEntriesReplayed = 0;
-    const retainedEarningsFor = (period: LedgerPeriod): string | undefined => {
+      // ── Periods, replayed in the source's own close/reopen chronology (a
+      // reopen may legally precede a later, lower-ranged close — interleaving by
+      // timestamp is what keeps closePeriod's chronological-order rule satisfied
+      // exactly as the source satisfied it).
+      const periodEvents: Array<{at: string; kind: 'close' | 'reopen'; period: LedgerPeriod}> = [];
+      for (const p of book.periods) {
+        periodEvents.push({at: p.closedAt || '', kind: 'close', period: p});
+        if (p.status === 'reopened') periodEvents.push({at: p.reopenedAt || p.closedAt || '', kind: 'reopen', period: p});
+      }
+      periodEvents.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind === b.kind ? 0 : a.kind === 'close' ? -1 : 1));
+      const periodMap = new Map<string, string>();
+      const retainedEarningsFor = (period: LedgerPeriod): string | undefined => {
       // The account the source's closing entry swept INTO: its non-income leg.
-      if (period.closingEntryId) {
-        const closing = book.transactions.find((t) => t.id === period.closingEntryId);
-        const equityLeg = closing?.postings.find((p) => {
-          const account = book.accounts.find((a) => a.id === p.accountId);
-          return account !== undefined && !isIncomeStatementAccountType(account.type);
-        });
-        if (equityLeg) return mappedAccount(equityLeg.accountId);
+        if (period.closingEntryId) {
+          const closing = book.transactions.find((t) => t.id === period.closingEntryId);
+          const equityLeg = closing?.postings.find((p) => {
+            const account = book.accounts.find((a) => a.id === p.accountId);
+            return account !== undefined && !isIncomeStatementAccountType(account.type);
+          });
+          if (equityLeg) return mappedAccount(equityLeg.accountId);
+        }
+        // A close with nothing to sweep still resolves a retained-earnings
+        // account: prefer the conventional name, else any equity account.
+        const byName = book.accounts.find((a) => a.name === LEDGER_RETAINED_EARNINGS_ACCOUNT && a.type === 'equity');
+        const equity = byName ?? book.accounts.find((a) => a.type === 'equity');
+        return equity ? mappedAccount(equity.id) : undefined;
+      };
+      for (const ev of periodEvents) {
+        if (ev.kind === 'close') {
+          const retainedEarningsAccountId = retainedEarningsFor(ev.period);
+          const closed = await this.closePeriod(
+            {start: ev.period.start, end: ev.period.end, ...(retainedEarningsAccountId ? {retainedEarningsAccountId} : {})},
+            actor,
+          );
+          periodMap.set(ev.period.id, closed.period.id);
+          if (closed.closingEntry) {
+            periodEntriesReplayed += 1;
+            if (ev.period.closingEntryId) txMap.set(ev.period.closingEntryId, closed.closingEntry.id);
+          }
+        } else {
+          const landedId = periodMap.get(ev.period.id);
+          if (!landedId) throw new LedgerError('invalid-state', `restore bug: period ${ev.period.id} reopened before it was closed`);
+          const reopened = await this.reopenPeriod(landedId, actor);
+          if (reopened.reversal) {
+            periodEntriesReplayed += 1;
+            if (ev.period.reopenEntryId) txMap.set(ev.period.reopenEntryId, reopened.reversal.id);
+          }
+        }
       }
-      // A close with nothing to sweep still resolves a retained-earnings
-      // account: prefer the conventional name, else any equity account.
-      const byName = book.accounts.find((a) => a.name === LEDGER_RETAINED_EARNINGS_ACCOUNT && a.type === 'equity');
-      const equity = byName ?? book.accounts.find((a) => a.type === 'equity');
-      return equity ? mappedAccount(equity.id) : undefined;
-    };
-    for (const ev of periodEvents) {
-      if (ev.kind === 'close') {
-        const retainedEarningsAccountId = retainedEarningsFor(ev.period);
-        const closed = await this.closePeriod(
-          {start: ev.period.start, end: ev.period.end, ...(retainedEarningsAccountId ? {retainedEarningsAccountId} : {})},
+
+      // ── Account finalization: the closed statuses and evidence gates deferred
+      // above, now that no further posting will touch them. Closing succeeds
+      // because the replayed balances equal the source's, where the invariant
+      // "closed ⇒ zero posted balance" already held.
+      for (const a of book.accounts) {
+        if (a.status !== 'closed' && !a.evidenceRequired) continue;
+        await this.updateAccount(
+          mappedAccount(a.id),
+          {...(a.status === 'closed' ? {status: 'closed' as const} : {}), ...(a.evidenceRequired ? {evidenceRequired: true} : {})},
           actor,
         );
-        periodMap.set(ev.period.id, closed.period.id);
-        if (closed.closingEntry) {
-          periodEntriesReplayed += 1;
-          if (ev.period.closingEntryId) txMap.set(ev.period.closingEntryId, closed.closingEntry.id);
-        }
-      } else {
-        const landedId = periodMap.get(ev.period.id);
-        if (!landedId) throw new LedgerError('invalid-state', `restore bug: period ${ev.period.id} reopened before it was closed`);
-        const reopened = await this.reopenPeriod(landedId, actor);
-        if (reopened.reversal) {
-          periodEntriesReplayed += 1;
-          if (ev.period.reopenEntryId) txMap.set(ev.period.reopenEntryId, reopened.reversal.id);
-        }
       }
-    }
-
-    // ── Account finalization: the closed statuses and evidence gates deferred
-    // above, now that no further posting will touch them. Closing succeeds
-    // because the replayed balances equal the source's, where the invariant
-    // "closed ⇒ zero posted balance" already held.
-    for (const a of book.accounts) {
-      if (a.status !== 'closed' && !a.evidenceRequired) continue;
-      await this.updateAccount(
-        mappedAccount(a.id),
-        {...(a.status === 'closed' ? {status: 'closed' as const} : {}), ...(a.evidenceRequired ? {evidenceRequired: true} : {})},
-        actor,
+    } catch (err) {
+      // THE MID-REPLAY FAILURE CONTRACT (Quinn 3). The replay is not one
+      // transaction, so a failure here has left a PARTIAL book. Two duties,
+      // in order: (1) best-effort, stamp the book ITSELF with a failed
+      // `ledger.restore` marker — same action, same derived-hash shape, with
+      // `failed: true` and the honest N-of-M — so even a caller who never
+      // sees this error (crashed client, lost response) finds the evidence in
+      // the audit stream; (2) rethrow TYPED, naming the partial state and the
+      // way out. Never swallow the original cause.
+      const replayedEntries = transactionsReplayed + periodEntriesReplayed;
+      const failedPayload: Record<string, unknown> = {
+        bundleSha,
+        source: 'export-section',
+        failed: true,
+        replayedEntries,
+        totalEntries,
+      };
+      try {
+        await this.db.begin(async (tx) => {
+          await this.appendAuditTx(
+            tx,
+            actor,
+            'ledger.restore',
+            [],
+            failedPayload,
+            null,
+            await sha256Hex(canonicalLedgerJson(ledgerRestorePayloadContent(failedPayload))),
+          );
+        });
+        this.notifyMutation();
+      } catch {
+        // Best-effort by design: if even the marker cannot be written the
+        // typed error below still names the partial state.
+      }
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new LedgerError(
+        'invalid-state',
+        `restore failed midway — this ledger now holds a PARTIAL book (${replayedEntries} of ${totalEntries} journal entries replayed; cause: ${cause}). ` +
+          'Do not use it without review: clear this library (or restore into a fresh one) and retry. The audit stream carries a failed ledger.restore marker.',
       );
     }
 
     // ── Provenance (LGR-15's `ledger.restore` convention, extended — one
     // payload family, ONE derived shape shared with the verifier). Bracketing
     // the replay: every event before this one carries the restored content;
-    // this one names the actor, the section's content hash, the source book's
+    // this one names the actor, the validated book's content hash (computed
+    // BEFORE the first write — see restoreExportSection), the source book's
     // exported chain anchor, and the honest degradation counters.
     const tally = await this.db.query<{n: number | string}>('SELECT COUNT(*) AS n FROM ledger_audit');
     const payload: Record<string, unknown> = {
-      bundleSha: await sha256Hex(canonicalLedgerJson(section as unknown as Record<string, unknown>)),
+      bundleSha,
       auditEvents: Number(tally[0]?.n ?? 0),
       assets: 0,
       source: 'export-section',

@@ -936,7 +936,11 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
  *    audit-chain anchor, carried so the provenance names WHICH chain head the
  *    source book was at when it was exported;
  *  - `evidenceDropped`/`reconciliationsDowngraded` (LX-4): the replay's honest
- *    degradation counters.
+ *    degradation counters;
+ *  - `failed`/`replayedEntries`/`totalEntries` (LX-4): the PARTIAL-restore
+ *    marker — a section replay that aborted midway appends this event
+ *    best-effort so the book itself carries the evidence that it holds an
+ *    incomplete import (see `LedgerStore.restoreExportSection`).
  */
 export function ledgerRestorePayloadContent(p: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -948,6 +952,9 @@ export function ledgerRestorePayloadContent(p: Record<string, unknown>): Record<
     ...(typeof p.sourceAuditHeadHash === 'string' ? {sourceAuditHeadHash: p.sourceAuditHeadHash} : {}),
     ...(typeof p.evidenceDropped === 'number' ? {evidenceDropped: p.evidenceDropped} : {}),
     ...(typeof p.reconciliationsDowngraded === 'number' ? {reconciliationsDowngraded: p.reconciliationsDowngraded} : {}),
+    ...(typeof p.failed === 'boolean' ? {failed: p.failed} : {}),
+    ...(typeof p.replayedEntries === 'number' ? {replayedEntries: p.replayedEntries} : {}),
+    ...(typeof p.totalEntries === 'number' ? {totalEntries: p.totalEntries} : {}),
   };
 }
 

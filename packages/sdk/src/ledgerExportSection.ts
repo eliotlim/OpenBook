@@ -48,6 +48,7 @@ import {
   LEDGER_PROP,
   LEDGER_RECONCILIATION_STATUSES,
   LEDGER_TRANSACTION_STATES,
+  isIncomeStatementAccountType,
   isValidLedgerAccountName,
   isValidLedgerDate,
   ledgerAuditEventHash,
@@ -59,7 +60,7 @@ import {
   type LedgerReconciliationStatus,
   type LedgerTransactionState,
 } from './ledger';
-import {isValidCurrencyCode, isValidMinor, sumAmounts} from './money';
+import {isValidCurrencyCode, isValidMinor} from './money';
 
 /** Mirrors the server writer's free-text cap (`MAX_DESCRIPTION_LENGTH`) so a
  *  section that would be refused mid-replay is refused BEFORE the first write. */
@@ -267,6 +268,14 @@ const oneOf = <T extends string>(v: unknown, list: readonly T[]): v is T =>
 /** Refusal helper: every `ok: false` reason is prefixed consistently. */
 const refuse = (reason: string): LedgerSectionParseResult => ({ok: false, reason});
 
+/** Overflow-refusing minor-unit addition: `null` when the sum leaves the safe
+ *  integer range (±2^53) — the caller turns that into a typed refusal, never a
+ *  thrown MoneyError mid-parse (the total-refusal contract). */
+const addMinor = (a: number, b: number): number | null => {
+  const sum = a + b;
+  return Number.isSafeInteger(sum) ? sum : null;
+};
+
 /**
  * Parse + deep-validate a {@link LedgerExportSection} into a replayable
  * {@link LedgerSectionBook}, or refuse with a reason. Refusals are TOTAL —
@@ -294,11 +303,47 @@ export function parseLedgerExportSection(section: LedgerExportSection): LedgerSe
   if (!Array.isArray(section.library.pages) || !Array.isArray(section.library.databases)) {
     return refuse('the section library does not carry pages[] and databases[]');
   }
+  // STRICT envelope (Sasha F1's root): every key of the section, its settings,
+  // and its library must be one this parser reads. An unread key is a place
+  // arbitrarily deep/large junk can hide — junk the validated projection (and
+  // therefore the provenance hash) would silently exclude — so its presence is
+  // a refusal, not a shrug. A future exporter that adds a key must teach this
+  // parser to read it (fail closed beats silently dropping new content).
+  for (const key of Object.keys(section)) {
+    if (key !== 'settings' && key !== 'library' && key !== 'auditHead') {
+      return refuse(`unexpected section key ${JSON.stringify(key)} — this export is newer than this importer, or the file was tampered with`);
+    }
+  }
+  for (const key of Object.keys(section.settings)) {
+    if (key !== 'ledgerDb' && key !== 'ledgerPeriods') {
+      return refuse(`unexpected settings key ${JSON.stringify(key)}`);
+    }
+  }
+  for (const key of Object.keys(section.library)) {
+    if (key !== 'pages' && key !== 'databases') {
+      return refuse(`unexpected library key ${JSON.stringify(key)}`);
+    }
+  }
+  // Element-level shape guards (Sasha F2): the arrays are untrusted too — a
+  // null/primitive element must refuse before anything dereferences it.
+  for (const p of section.library.pages) {
+    if (!isRecord(p) || typeof p.id !== 'string' || p.id === '') {
+      return refuse('a library page entry is not a record with a string id');
+    }
+  }
+  for (const d of section.library.databases) {
+    if (!isRecord(d) || typeof d.id !== 'string' || d.id === '' || typeof d.pageId !== 'string') {
+      return refuse('a library database entry is not a record with string id and pageId');
+    }
+  }
   let auditHead: LedgerExportSection['auditHead'] = null;
   if (section.auditHead !== null && section.auditHead !== undefined) {
     const {seq, hash} = section.auditHead as {seq?: unknown; hash?: unknown};
-    if (typeof seq !== 'number' || !Number.isFinite(seq) || typeof hash !== 'string') {
-      return refuse('the section auditHead is not null or {seq, hash}');
+    // The hash is copied verbatim into the provenance payload (an append-only
+    // audit row), so it is bounded to exactly what a chain hash IS — 64 hex
+    // chars — and the seq to a non-negative safe integer (Quinn 4).
+    if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0 || typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) {
+      return refuse('the section auditHead is not null or {seq: non-negative integer, hash: 64 hex chars}');
     }
     auditHead = {seq, hash};
   }
@@ -433,7 +478,12 @@ export function parseLedgerExportSection(section: LedgerExportSection): LedgerSe
     if (state !== 'draft') {
       if (entryNo === null) return refuse(`${state} entry ${page.id} has no entry number`);
       if (ordered.length < 2) return refuse(`${state} entry ${page.id} has fewer than 2 postings`);
-      if (sumAmounts(ordered.map((p) => p.amountMinor)) !== 0) return refuse(`${state} entry ${page.id} does not balance to zero`);
+      let balance: number | null = 0;
+      for (const p of ordered) {
+        balance = addMinor(balance, p.amountMinor);
+        if (balance === null) return refuse(`${state} entry ${page.id} postings overflow the safe integer range`);
+      }
+      if (balance !== 0) return refuse(`${state} entry ${page.id} does not balance to zero`);
     } else if (ordered.some((p) => p.cleared === 'reconciled')) {
       return refuse(`draft entry ${page.id} carries a reconciled posting`);
     }
@@ -470,8 +520,11 @@ export function parseLedgerExportSection(section: LedgerExportSection): LedgerSe
     if (tx.state === 'draft') return refuse(`reversal ${tx.id} is a draft`);
     if (original.state !== 'void') return refuse(`reversal ${tx.id} reverses entry ${original.id}, which is ${original.state}, not void`);
     const legs = new Map<string, number>();
-    for (const p of original.postings) legs.set(p.accountId, (legs.get(p.accountId) ?? 0) + p.amountMinor);
-    for (const p of tx.postings) legs.set(p.accountId, (legs.get(p.accountId) ?? 0) + p.amountMinor);
+    for (const p of [...original.postings, ...tx.postings]) {
+      const next = addMinor(legs.get(p.accountId) ?? 0, p.amountMinor);
+      if (next === null) return refuse(`reversal ${tx.id} postings overflow the safe integer range`);
+      legs.set(p.accountId, next);
+    }
     if ([...legs.values()].some((v) => v !== 0)) {
       return refuse(`reversal ${tx.id} does not negate entry ${original.id} leg for leg`);
     }
@@ -544,6 +597,104 @@ export function parseLedgerExportSection(section: LedgerExportSection): LedgerSe
   for (const tx of transactions) {
     if (tx.kind === 'closing' && !claimedClosings.has(tx.id)) {
       return refuse(`closing entry ${tx.id} is not referenced by any period record`);
+    }
+  }
+
+  // ── Period entries must be workflow-PRISTINE (Quinn 1). The restore
+  // REGENERATES closing entries and reopen reversals through
+  // closePeriod/reopenPeriod, whose legs are always born `pending`/unowned —
+  // a cleared tick on one would be silently dropped, and a leg frozen by a
+  // finished reconciliation could not be re-frozen at all (its posting is
+  // minted after the reconciliation pass). Either way the section cannot
+  // replay faithfully: refuse totally, and point at the lane that can.
+  const closingIds = new Set(transactions.filter((t) => t.kind === 'closing').map((t) => t.id));
+  for (const tx of transactions) {
+    const isPeriodEntry = tx.kind === 'closing' || (tx.reverses !== null && closingIds.has(tx.reverses));
+    if (!isPeriodEntry) continue;
+    for (const p of tx.postings) {
+      if (p.cleared !== 'pending' || p.reconciliationId !== null) {
+        return refuse(
+          `period entry ${tx.id} carries workflow state on a posting (a cleared tick or a reconciliation freeze) that a document-export restore cannot replay — restore from a backup bundle instead`,
+        );
+      }
+    }
+  }
+
+  // ── The closing sweeps must REPLAY to what the section records (Quinn 2).
+  // The restore's closePeriod recomputes each sweep over the FULLY-replayed
+  // books, while the source computed it over the books as they stood at close
+  // time — and the store legally admits entries dated in or before a period
+  // that were posted after its close (the date lock only covers dates INSIDE
+  // a closed range). Simulate every close in the replay's own chronology and
+  // refuse totally on any divergence, so per-account balances can never
+  // silently differ after a "successful" restore.
+  if (periods.length > 0) {
+    const incomeIds = new Set(accounts.filter((a) => isIncomeStatementAccountType(a.type)).map((a) => a.id));
+    const periodEntryIds = new Set<string>();
+    for (const p of periods) {
+      if (p.closingEntryId) periodEntryIds.add(p.closingEntryId);
+      if (p.reopenEntryId) periodEntryIds.add(p.reopenEntryId);
+    }
+    // What exists when the period replay starts: every ordinary posted/void
+    // entry (the replay lands them all first). Period entries join as their
+    // close/reopen events are replayed. State (posted vs void) is irrelevant —
+    // the store's sweep counts BOTH (a void original is offset by its posted
+    // reversal), so existence alone decides.
+    const onBooks = new Set(transactions.filter((t) => t.state !== 'draft' && !periodEntryIds.has(t.id)).map((t) => t.id));
+    const events: Array<{at: string; kind: 'close' | 'reopen'; period: LedgerPeriod}> = [];
+    for (const p of periods) {
+      events.push({at: p.closedAt || '', kind: 'close', period: p});
+      if (p.status === 'reopened') events.push({at: p.reopenedAt || p.closedAt || '', kind: 'reopen', period: p});
+    }
+    events.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind === b.kind ? 0 : a.kind === 'close' ? -1 : 1));
+    for (const ev of events) {
+      if (ev.kind === 'reopen') {
+        if (ev.period.reopenEntryId) onBooks.add(ev.period.reopenEntryId);
+        continue;
+      }
+      // The sweep closePeriod will regenerate: every income account's
+      // cumulative balance over on-the-books entries dated ≤ end.
+      const balances = new Map<string, number>();
+      for (const tx of transactions) {
+        if (!onBooks.has(tx.id) || tx.date > ev.period.end) continue;
+        for (const p of tx.postings) {
+          if (!incomeIds.has(p.accountId)) continue;
+          const next = addMinor(balances.get(p.accountId) ?? 0, p.amountMinor);
+          if (next === null) return refuse(`the income sweep for period ${ev.period.id} overflows the safe integer range`);
+          balances.set(p.accountId, next);
+        }
+      }
+      for (const [accountId, balance] of balances) {
+        if (balance === 0) balances.delete(accountId);
+      }
+      const mismatch = (): LedgerSectionParseResult =>
+        refuse(
+          `the closing entry recorded for period ${ev.period.start} – ${ev.period.end} does not match the sweep a restore would regenerate — entries dated in or before the period were posted after it was closed. This book cannot round-trip through a document export; restore from a backup bundle instead`,
+        );
+      const closing = ev.period.closingEntryId === null ? undefined : txById.get(ev.period.closingEntryId);
+      if (!closing) {
+        if (balances.size > 0) return mismatch();
+        continue; // nothing to sweep, nothing recorded — consistent
+      }
+      // Recorded legs, netted per account; must be exactly: one leg per
+      // nonzero income balance (negated) plus ONE non-income (retained-
+      // earnings) leg carrying the sweep total.
+      const legs = new Map<string, number>();
+      for (const p of closing.postings) {
+        const next = addMinor(legs.get(p.accountId) ?? 0, p.amountMinor);
+        if (next === null) return refuse(`closing entry ${closing.id} postings overflow the safe integer range`);
+        legs.set(p.accountId, next);
+      }
+      let total: number | null = 0;
+      for (const [accountId, balance] of balances) {
+        if (legs.get(accountId) !== -balance) return mismatch();
+        legs.delete(accountId);
+        total = addMinor(total, balance);
+        if (total === null) return refuse(`the income sweep for period ${ev.period.id} overflows the safe integer range`);
+      }
+      const rest = [...legs.entries()];
+      if (rest.length !== 1 || incomeIds.has(rest[0][0]) || rest[0][1] !== total) return mismatch();
+      onBooks.add(closing.id);
     }
   }
 

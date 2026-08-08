@@ -46,7 +46,7 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
-import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, verifyLedgerAuditChain} from '@book.dev/sdk';
+import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
@@ -1195,15 +1195,19 @@ export class PageStore {
     }
 
     // 7. Provenance: bracket the installed history with an attributable event,
-    // chained from the restored tail. afterHash derives from the payload (the
-    // verifier re-derives it); prev_hash is the tail event's canonical hash —
-    // the same digest `appendAuditTx` computes from the raw row.
+    // chained from the restored tail. afterHash derives from the payload
+    // through the ONE shared shape (`ledgerRestorePayloadContent` — the same
+    // function the verifier re-derives with and the LX-4 section restore
+    // writes with; for this three-field payload the projection is the
+    // identity, so pre-existing events verify unchanged); prev_hash is the
+    // tail event's canonical hash — the same digest `appendAuditTx` computes
+    // from the raw row.
     const restorePayload = {
       bundleSha: opts.bundleSha,
       auditEvents: events.length,
       assets: (section.assets ?? []).length,
     };
-    const afterHash = await assetHash(new TextEncoder().encode(canonicalLedgerJson(restorePayload)));
+    const afterHash = await assetHash(new TextEncoder().encode(canonicalLedgerJson(ledgerRestorePayloadContent(restorePayload))));
     const prevHash = await ledgerAuditEventHash(events[events.length - 1]);
     await tx.query(
       `INSERT INTO ledger_audit (id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash)
