@@ -131,9 +131,42 @@ export interface StoredPlugin extends PluginPackage {
 const te = new TextEncoder();
 
 /**
- * Deterministic bytes for signing: the manifest (sorted-key JSON), then each
- * file in sorted path order, every part length-prefixed so boundaries can't
- * be confused (`a + bc` ≠ `ab + c`).
+ * Canonical JSON for signing: objects emit ALL keys, sorted, at EVERY depth;
+ * arrays are positional; primitives follow JSON.stringify semantics.
+ * `undefined`, functions, and symbols are rejected outright (never silently
+ * dropped) — anything the signer skips is something an attacker can vary for
+ * free.
+ *
+ * Deliberately NOT `JSON.stringify(value, sortedKeysArray)`: a replacer ARRAY
+ * allowlists those keys at every depth, so nested keys absent from the top
+ * level (e.g. `agentTools[0].action`) silently vanish from the signed bytes.
+ *
+ * Mirrored byte-for-byte by the store's server-side port
+ * (open-book-pub `packages/store/lib/canonical.ts`) — change both together.
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+    throw new TypeError(`canonical JSON cannot contain ${typeof value}`);
+  }
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const members = Object.keys(obj)
+    .sort()
+    .map((k) => {
+      if (obj[k] === undefined || typeof obj[k] === 'function' || typeof obj[k] === 'symbol') {
+        throw new TypeError(`canonical JSON cannot contain ${typeof obj[k]} (at key "${k}")`);
+      }
+      return `${JSON.stringify(k)}:${canonicalJson(obj[k])}`;
+    });
+  return `{${members.join(',')}}`;
+}
+
+/**
+ * Deterministic bytes for signing: the manifest (canonical JSON — keys sorted
+ * recursively, see {@link canonicalJson}), then each file in sorted path
+ * order, every part length-prefixed so boundaries can't be confused
+ * (`a + bc` ≠ `ab + c`).
  */
 function canonicalBytes(manifest: PluginManifest, files: Record<string, string>): Uint8Array {
   const parts: Uint8Array[] = [];
@@ -143,7 +176,7 @@ function canonicalBytes(manifest: PluginManifest, files: Record<string, string>)
     new DataView(len.buffer).setUint32(0, bytes.length);
     parts.push(len, bytes);
   };
-  push(JSON.stringify(manifest, Object.keys(manifest).sort()));
+  push(canonicalJson(manifest));
   for (const path of Object.keys(files).sort()) {
     push(path);
     push(files[path]);
@@ -186,6 +219,24 @@ export async function signPlugin(
   const digest = await canonicalDigest(pkg.manifest, pkg.files);
   const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', key, te.encode(digest) as BufferSource));
   return {registry, publicKey: publicKeyBase64, signature: toBase64(sig), algorithm: 'ed25519'};
+}
+
+/**
+ * Verify an Ed25519 signature (base64, raw 64 bytes) over a UTF-8 message
+ * with a base64 RAW 32-byte public key. Returns false — never throws — on
+ * malformed inputs. The registry protocol signs the UTF-8 bytes of the
+ * lowercase hex canonical digest with exactly this scheme, for the publisher
+ * signature, the notary countersignature, and revocation entries alike.
+ */
+export async function verifyEd25519Message(publicKeyBase64: string, message: string, signatureBase64: string): Promise<boolean> {
+  try {
+    const raw = fromBase64(publicKeyBase64);
+    if (raw.length !== 32) return false;
+    const key = await crypto.subtle.importKey('raw', raw as BufferSource, 'Ed25519', false, ['verify']);
+    return await crypto.subtle.verify('Ed25519', key, fromBase64(signatureBase64) as BufferSource, te.encode(message) as BufferSource);
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 import {Hono} from 'hono';
 import {API, validateManifest, type PluginPackage} from '@book.dev/sdk';
-import type {PageStore} from './store';
+import {PluginDowngradeError, type PageStore} from './store';
 import type {AppEnv} from './appEnv';
 import {requireCreate} from './access';
 
@@ -46,7 +46,15 @@ export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
     if (!(pkg!.manifest.main in pkg!.files)) {
       return c.json({error: `entry file "${pkg!.manifest.main}" is not in the package`}, 400);
     }
-    return c.json(await store.upsertPlugin({manifest: pkg!.manifest, files: pkg!.files, signature: pkg!.signature}), 201);
+    // Downgrades are refused unless the caller says so explicitly (OB-641):
+    // an older version can silently reopen holes a newer one fixed.
+    const allowDowngrade = c.req.query('allowDowngrade') === '1';
+    try {
+      return c.json(await store.upsertPlugin({manifest: pkg!.manifest, files: pkg!.files, signature: pkg!.signature}, {allowDowngrade}), 201);
+    } catch (err) {
+      if (err instanceof PluginDowngradeError) return c.json({error: err.message}, 409);
+      throw err;
+    }
   });
 
   app.patch(`${API.plugins}/:id`, async (c) => {

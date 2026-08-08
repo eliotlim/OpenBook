@@ -80,7 +80,7 @@ export const openbook_ledger: PluginPackage = {
   signature: {
     "registry": "OpenBook Test Registry",
     "publicKey": "nI4eBQzqrIyVPEmJSEzGtqC9B0+kfWTXKyN5t8Yki/E=",
-    "signature": "ksIVmem0t9odhTY1ouT/f7hLSsrCr2M+7q5+4Ejv7bedOFi87ms7dFdOPkmUZO4DPFlm/Wo7hrGj2sLr7wW6Bw==",
+    "signature": "JG92tvk+1AcbJIVxYRbTh9eeOnS+WZjN1F7Uz//xK9rmlTBV2W0ehUoRTo7JseyJgZya1mkyjbexuuSeqfZJAw==",
     "algorithm": "ed25519"
   },
 };

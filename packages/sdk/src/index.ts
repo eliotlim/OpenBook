@@ -368,9 +368,11 @@ export {
 } from './ledgerExportSection';
 export {
   canonicalDigest,
+  canonicalJson,
   generateRegistryKeys,
   signPlugin,
   verifyPlugin,
+  verifyEd25519Message,
   validateManifest,
   pluginApiVersionError,
   OPENBOOK_REGISTRY,
@@ -407,6 +409,28 @@ export {
   type UnknownBlockType,
   type PluginBlockSource,
 } from './blockCatalogue';
+export {
+  RegistryClient,
+  RegistryError,
+  fetchRegistryDocument,
+  registryBaseUrlProblem,
+  registryKeyFingerprint,
+  revocationMatches,
+  REVOCATION_STALENESS_MS,
+  isSemver,
+  compareSemver,
+  type RegistryDocument,
+  type RegistryIndexEntry,
+  type RegistryIndexPage,
+  type RegistryNotarization,
+  type RegistryPluginMeta,
+  type RegistryPluginVersion,
+  type RegistryRevocation,
+  type RegistryRevocationHead,
+  type RegistryPin,
+  type RegistryTrust,
+  type VerifiedDownload,
+} from './registryClient';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export type {
   CommentRun,

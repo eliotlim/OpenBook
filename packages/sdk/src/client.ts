@@ -212,7 +212,12 @@ export interface DataClient {
 
   // ── Extensions (installed plugins, stored server-side per library) ───────
   listPlugins(): Promise<StoredPlugin[]>;
-  installPlugin(pkg: PluginPackage): Promise<StoredPlugin>;
+  /**
+   * Install or upgrade a plugin. The server preserves the enabled state and
+   * install time of an existing plugin, and REJECTS a downgrade (an older
+   * semver than what's installed) unless `opts.allowDowngrade` is explicit.
+   */
+  installPlugin(pkg: PluginPackage, opts?: {allowDowngrade?: boolean}): Promise<StoredPlugin>;
   setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin>;
   removePlugin(id: string): Promise<boolean>;
   /**
@@ -1829,8 +1834,9 @@ export class HttpDataClient implements DataClient {
     return this.request<StoredPlugin[]>('GET', API.plugins);
   }
 
-  async installPlugin(pkg: PluginPackage): Promise<StoredPlugin> {
-    return this.request<StoredPlugin>('POST', API.plugins, pkg);
+  async installPlugin(pkg: PluginPackage, opts: {allowDowngrade?: boolean} = {}): Promise<StoredPlugin> {
+    const path = opts.allowDowngrade ? `${API.plugins}?allowDowngrade=1` : API.plugins;
+    return this.request<StoredPlugin>('POST', path, pkg);
   }
 
   async setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin> {

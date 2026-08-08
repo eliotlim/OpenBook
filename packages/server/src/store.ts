@@ -47,6 +47,7 @@ import type {
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
+import {compareSemver, isSemver} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
@@ -71,6 +72,26 @@ const USAGE_DB_SETTING_KEY = 'aiUsageDb';
  * bytes (content-addressed dedup). The upload route maps this to a friendly 507
  * (Insufficient Storage). Carries the numbers for a useful message/log.
  */
+/**
+ * Thrown by {@link PageStore.upsertPlugin} when an install would replace a
+ * newer installed version of the same plugin (OB-641). Downgrades roll back
+ * security fixes, so they require an explicit `allowDowngrade`; the plugin
+ * route maps this to a 409.
+ */
+export class PluginDowngradeError extends Error {
+  constructor(
+    readonly pluginId: string,
+    readonly installed: string,
+    readonly incoming: string,
+  ) {
+    super(
+      `refusing to downgrade plugin "${pluginId}" from v${installed} to v${incoming} — ` +
+        're-install with allowDowngrade if this is deliberate',
+    );
+    this.name = 'PluginDowngradeError';
+  }
+}
+
 export class AssetBudgetError extends Error {
   constructor(
     readonly currentBytes: number,
@@ -2296,17 +2317,32 @@ export class PageStore {
     return rows.length > 0 ? pluginFromRow(rows[0]) : null;
   }
 
-  /** Install or update a plugin (idempotent on id; updates re-enable). */
-  async upsertPlugin(pkg: PluginPackage): Promise<StoredPlugin> {
+  /**
+   * Install or upgrade a plugin (idempotent on id). A fresh install lands
+   * enabled; an update of an EXISTING plugin preserves the user's enabled
+   * choice and the original `installed_at` (an upgrade is not a re-install,
+   * and it must never force-enable a plugin the user turned off). A DOWNGRADE
+   * — an incoming semver strictly below the installed one — is refused unless
+   * `opts.allowDowngrade` is explicit; equal versions re-install freely (the
+   * repair/re-sign path). Non-semver versions (legacy dev packages) are not
+   * comparable and pass through.
+   */
+  async upsertPlugin(pkg: PluginPackage, opts: {allowDowngrade?: boolean} = {}): Promise<StoredPlugin> {
+    if (!opts.allowDowngrade) {
+      const existing = await this.getPlugin(pkg.manifest.id);
+      const from = existing?.manifest.version;
+      const to = pkg.manifest.version;
+      if (existing && typeof from === 'string' && isSemver(from) && isSemver(to) && compareSemver(to, from) < 0) {
+        throw new PluginDowngradeError(pkg.manifest.id, from, to);
+      }
+    }
     const rows = await this.db.query<PluginRow>(
       `INSERT INTO plugins (id, manifest, files, signature, enabled)
        VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, TRUE)
        ON CONFLICT (id) DO UPDATE
          SET manifest = EXCLUDED.manifest,
              files = EXCLUDED.files,
-             signature = EXCLUDED.signature,
-             enabled = TRUE,
-             installed_at = now()
+             signature = EXCLUDED.signature
        RETURNING id, manifest, files, signature, enabled, installed_at`,
       [pkg.manifest.id, JSON.stringify(pkg.manifest), JSON.stringify(pkg.files), pkg.signature ? JSON.stringify(pkg.signature) : null],
     );
