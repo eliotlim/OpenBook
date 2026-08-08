@@ -103,6 +103,14 @@ interface ForwardingContextValue {
   enable: () => Promise<void>;
   /** Turn forwarding off: drop the tunnel but keep the site key (stable address). */
   disable: () => void;
+  /**
+   * Explicitly forget the stored site identity: drop any live tunnel and clear
+   * the keystore slot, so the next enable provisions a FRESH address. The only
+   * sanctioned identity-overwrite path (NAME-1) — reattach failures (outage,
+   * wrong account, locked keychain) surface via `error` and keep the address;
+   * intended to sit behind a future user-confirmed "reset address" affordance.
+   */
+  resetSiteIdentity: () => Promise<void>;
 }
 
 const DEFAULT: ForwardingContextValue = {
@@ -121,6 +129,7 @@ const DEFAULT: ForwardingContextValue = {
   signInPending: false,
   enable: async () => undefined,
   disable: () => undefined,
+  resetSiteIdentity: async () => undefined,
 };
 
 const ForwardingContext = createContext<ForwardingContextValue>(DEFAULT);
@@ -403,16 +412,29 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     })();
   }, [audienceDeps]);
 
+  // The explicit "abandon this address" path (NAME-1): stop the tunnel, forget
+  // the stored identity, and let the resume effect (when still enabled) — or the
+  // next enable — provision a fresh address. Every OTHER path keeps the identity:
+  // reattach failures surface through `error`/`status` above and never clear it.
+  const resetSiteIdentity = useCallback(async () => {
+    clientRef.current?.stop();
+    clientRef.current = null;
+    setStatus('offline');
+    setError(null);
+    setHost(null);
+    await forwarding?.keyStore.clear();
+  }, [forwarding]);
+
   const value = useMemo<ForwardingContextValue>(
     () => ({
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable,
+      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     }),
     [
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable,
+      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     ],
   );
 
