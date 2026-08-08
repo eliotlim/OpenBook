@@ -241,6 +241,56 @@ describe('table ops: editor / agent-proposal / snapshot paths agree (API-3)', ()
   });
 });
 
+/**
+ * A RAGGED table: the second row is one cell short, so after migration it has a
+ * genuine merge GAP (a null slot) at the last column — the shape every other
+ * parity test lacks (they all seed rectangular tables). Reachable in the wild via
+ * `append_blocks` with unequal row lengths.
+ */
+const RAGGED: AppendBlock[] = [
+  {
+    type: 'table',
+    props: {header: true},
+    children: [
+      {type: 'row', children: [{type: 'cell', text: 'A'}, {type: 'cell', text: 'B'}, {type: 'cell', text: 'C'}]},
+      {type: 'row', children: [{type: 'cell', text: 'D'}, {type: 'cell', text: 'E'}]}, // gap at col 2
+    ],
+  },
+];
+
+const raggedPage = (): PageSnapshot => appendBlocksToSnapshot(emptyPage(), RAGGED, 't')!;
+
+describe('table_set_cell on a merge GAP materializes identically (API-3, Quinn 2.1)', () => {
+  // One structural op migrates the table (registers c0..c2) while KEEPING the
+  // short row's missing last cell as a keyed null slot — the merge gap.
+  const migrate: Step = {kind: 'table_insert_row', address: {rowIndex: 2}};
+  const fillGap: Step = {kind: 'table_set_cell', address: {rowIndex: 1, colIndex: 2, text: 'FILLED'}};
+
+  it('the live/proposal path fills the gap the SAME way the snapshot path does', () => {
+    // PROPOSAL/live path (what an accepted suggestion runs against an open editor).
+    const proposalDoc = openDoc(raggedPage());
+    runProposal(proposalDoc, migrate);
+    // Precondition: the gap really is an empty null slot before the write.
+    expect(gridText(proposalDoc)[1]).toEqual(['D', 'E', '']);
+    runProposal(proposalDoc, fillGap);
+
+    // SNAPSHOT path (what the MCP tools run with no live editor).
+    let snapshot = raggedPage();
+    snapshot = runSnapshot(snapshot, migrate);
+    snapshot = runSnapshot(snapshot, fillGap);
+    const snapshotDoc = openDoc(snapshot);
+
+    // The gap is materialized, not skipped — and both paths agree on text…
+    const expected = gridText(snapshotDoc);
+    expect(expected[1]).toEqual(['D', 'E', 'FILLED']);
+    expect(gridText(proposalDoc)).toEqual(expected);
+    // …and on the keyed metadata: the materialized cell binds to the EXISTING
+    // column (c2), so neither path mints a fresh column.
+    expect(gridMeta(proposalDoc)).toEqual(gridMeta(snapshotDoc));
+    expect(gridMeta(proposalDoc).colIds).toEqual(['c0', 'c1', 'c2']);
+  });
+});
+
 describe('table proposals: payload → apply round trip (API-3)', () => {
   const proposal = (kind: TableOpKind, payload: Record<string, unknown>) => ({
     id: 'p1',
