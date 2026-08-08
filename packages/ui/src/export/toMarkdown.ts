@@ -156,7 +156,11 @@ function blockToMd(block: DocBlock): string {
     // and the HTML export use), plus any text the block carried.
     const {label, hint} = describeUnknownBlock(block.raw);
     const text = inlineToMd(block.runs).trim();
-    return `> **${escapeMd(label)}** — ${hint}${text ? `\n>\n> ${text}` : ''}`;
+    // `hint` carries untrusted strings (plugin display name / verbatim block
+    // type); escape it so an exported .md can't inject markup downstream. Keep
+    // it on its own blockquote line — joined with an em-dash it read as a
+    // run-on with a mid-sentence capital.
+    return `> **${escapeMd(label)}**\n>\n> ${escapeMd(hint)}${text ? `\n>\n> ${text}` : ''}`;
   }
   default:
     return '';

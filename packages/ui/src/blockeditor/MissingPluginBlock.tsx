@@ -22,7 +22,7 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
   const [error, setError] = useState<string | null>(null);
 
   // Parse `pluginId/blockName` from the block type (shared with the exporters).
-  const {pluginId, blockName} = describeUnknownBlock(type);
+  const {pluginId, blockName, label} = describeUnknownBlock(type);
 
   const bundled = pluginId ? getBundledPlugin(pluginId) : undefined;
   const displayName = bundled?.name ?? pluginId ?? type;
@@ -56,8 +56,13 @@ export const MissingPluginBlock: React.FC<{type: string}> = ({type}) => {
         {bundled?.icon ?? <Puzzle className="h-5 w-5" />}
       </span>
       <div className="obe-missing-plugin-body">
+        {/* Lead with the block name, like the static HTML and Markdown exports
+            do — then the plugin requirement, then the technical id. */}
         <p className="obe-missing-plugin-title">
-          This block requires the <strong>{displayName}</strong> plugin
+          <strong>{label}</strong>
+        </p>
+        <p className="obe-missing-plugin-title">
+          Requires the <strong>{displayName}</strong> plugin
         </p>
         <p className="obe-missing-plugin-meta">
           {pluginId}{blockName ? ` / ${blockName}` : ''}
