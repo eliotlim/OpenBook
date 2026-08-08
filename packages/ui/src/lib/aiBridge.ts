@@ -1,16 +1,22 @@
 import type * as Y from 'yjs';
 import {resolveAgentEdits, type AgentEditsMode, type AgentProposal, type DataClient, type StoredSuggestion} from '@book.dev/sdk';
 import {
+  blockChildren,
+  blockId,
   blockText,
+  blockType,
   coerceNewBlock,
   decodeSnapshot,
   encodeSnapshot,
   findBlock,
   makeBlock,
+  parentBlockOf,
   patchBlock,
+  removeBlock,
   replaceText,
   rootBlocks,
   type BlockDocSnapshot,
+  type BlockMap,
   type NewBlock,
 } from '@/blockeditor/model';
 import {findInput, setInputValue} from '@/blockeditor/kit/scope';
@@ -117,6 +123,34 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 /** The subset of the data client the agent write path calls. */
 export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage'>;
 
+/**
+ * When deleting `found` would empty its table, the id of the TABLE to delete
+ * instead — matching the editor's rule that a table losing its last row/column
+ * is removed whole (model.ts tableDeleteRow/tableDeleteColumn). Returns null for
+ * an ordinary delete (any non-final row/cell, or a non-table block).
+ */
+const tableDeleteTarget = (
+  doc: Y.Doc,
+  found: {block: BlockMap; parent: Y.Array<BlockMap>; index: number},
+): string | null => {
+  const type = blockType(found.block);
+  const parent = parentBlockOf(doc, found.parent);
+  if (!parent) return null;
+  // Last row of a table → the table empties, so remove the table.
+  if (type === 'row' && blockType(parent) === 'table' && found.parent.length === 1) {
+    return blockId(parent);
+  }
+  // Only cell of a row → if that row is the table's only row, the table empties.
+  if (type === 'cell' && blockType(parent) === 'row' && found.parent.length === 1) {
+    const row = findBlock(doc, blockId(parent));
+    const table = row && parentBlockOf(doc, row.parent);
+    if (row && table && blockType(table) === 'table' && (blockChildren(table)?.length ?? 0) === 1) {
+      return blockId(table);
+    }
+  }
+  return null;
+};
+
 /** Mutate a live Y.Doc in one transaction (origin 'local' → tracked by the
  *  shared UndoManager, so an agent apply is undoable exactly like a manual edit). */
 export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
@@ -147,8 +181,13 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
         .map(makeBlock);
       if (built.length > 0) list.push(built);
     } else if (p.kind === 'delete_block') {
-      const found = findBlock(doc, String(payload.blockId));
-      if (found) found.parent.delete(found.index, 1);
+      const id = String(payload.blockId);
+      const found = findBlock(doc, id);
+      // Delete through the model's removeBlock (prunes empty columns, keeps the
+      // doc non-empty), and honor the table rule: a table that would lose its
+      // LAST row — or the only cell of its only row — is removed WHOLE, matching
+      // the editor's tableDeleteRow/tableDeleteColumn (a table can't be rowless).
+      if (found) removeBlock(doc, tableDeleteTarget(doc, found) ?? id);
     } else if (p.kind === 'set_block_props') {
       const found = findBlock(doc, String(payload.blockId));
       if (found) {
