@@ -281,6 +281,15 @@ export const API = {
    * page/row mutation (server-managed) — only these ledger routes write them.
    */
   ledger: '/api/ledger',
+  /**
+   * LX-4: restore an export's embedded ledger-records section into an EMPTY
+   * ledger by replaying it through the server's ledger writer. `POST` with a
+   * {@link LedgerExportSection} body; instance-administration gated (the same
+   * gate as {@link API.importLibrary} — it writes a whole book). A target that
+   * already keeps any ledger data refuses with a typed 409 (`invalid-state`) —
+   * merging is explicitly out of scope.
+   */
+  ledgerRestoreSection: '/api/ledger/restore-section',
   /** Accounts: `GET` (list) / `POST` (create — hierarchical colon-delimited name). */
   ledgerAccounts: '/api/ledger/accounts',
   /** One account: `GET` / `PATCH` (rename; close — rejected at nonzero balance). */

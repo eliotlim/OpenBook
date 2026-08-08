@@ -40,13 +40,17 @@
  */
 import {
   ICON_PROPERTY_ID,
+  LedgerError,
   importDoc,
+  parseLedgerExportSection,
   readIsland,
   readLibraryIsland,
   type AssetBytes,
   type BookPageRecord,
   type ImportedBlock,
   type ImportWriteClient,
+  type LedgerExportSection,
+  type LedgerSectionRestoreResult,
   type PageSnapshot,
   type LibraryIsland,
   type StoredPage,
@@ -60,6 +64,10 @@ export type HtmlIsland =
 /** The client surface an island import drives (a real DataClient satisfies it). */
 export type IslandImportClient = ImportWriteClient & {
   putAsset(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string}>;
+  /** LX-4: restore an embedded ledger-records section through the server's
+   *  ledger writer. Optional — a client without it simply cannot restore
+   *  records, and the import reports that instead of silently dropping them. */
+  ledgerRestoreSection?(section: LedgerExportSection): Promise<LedgerSectionRestoreResult>;
 };
 
 // ── Detection ─────────────────────────────────────────────────────────────────
@@ -172,6 +180,43 @@ export function summarizeHtmlIsland(found: HtmlIsland): IslandSummary {
   return {pages: pages.length - rows, databases: databases.length, rows, images};
 }
 
+// ── Ledger records (LX-4) ─────────────────────────────────────────────────────
+
+/** What the import preview can say about an island's embedded ledger records. */
+export type IslandLedgerPreview =
+  /** A coherent book: the tallies the preview shows. */
+  | {ok: true; accounts: number; entries: number; evidenceDropped: number}
+  /** Present but incoherent — offered as "cannot be restored", never landed. */
+  | {ok: false; reason: string};
+
+/**
+ * Preview the LX-2 ledger records a space island embeds, or `null` when it
+ * carries none. Runs the SAME deep validation the server runs before writing
+ * (`parseLedgerExportSection` — one validator, two callers), so the dialog
+ * can say "these records cannot be restored" BEFORE the user commits.
+ */
+export function summarizeIslandLedger(found: HtmlIsland): IslandLedgerPreview | null {
+  if (found.kind !== 'space' || !found.island.ledger) return null;
+  const parsed = parseLedgerExportSection(found.island.ledger);
+  if (!parsed.ok) return {ok: false, reason: parsed.reason};
+  return {
+    ok: true,
+    accounts: parsed.book.accounts.length,
+    entries: parsed.book.transactions.length,
+    evidenceDropped: parsed.book.evidenceDropped,
+  };
+}
+
+/** How the ledger half of an island import ended. */
+export type IslandLedgerOutcome =
+  /** Replayed into the target's (empty) ledger. */
+  | {status: 'restored'; result: LedgerSectionRestoreResult}
+  /** The target already keeps books — the server refused (merge is out of
+   *  scope); `message` is the server's actionable refusal. Pages still landed. */
+  | {status: 'refused'; message: string}
+  /** Anything else (validation, transport, a client with no restore surface). */
+  | {status: 'failed'; message: string};
+
 // ── Landing ──────────────────────────────────────────────────────────────────
 
 /** What an island import landed, plus honest asset-recovery stats. */
@@ -187,6 +232,9 @@ export interface IslandImportResult {
    * exists in the target space). Degraded, never dropped.
    */
   assetsMissing: string[];
+  /** LX-4: how the embedded ledger records landed, when the caller asked for
+   *  them (`restoreLedger`) and the island carried any. Absent otherwise. */
+  ledger?: IslandLedgerOutcome;
 }
 
 /** A synthesized one-page space, for a page island that isn't block-editor
@@ -219,6 +267,13 @@ export async function runIslandImport(
   client: IslandImportClient,
   found: HtmlIsland,
   assetBytes: Map<string, AssetBytes>,
+  opts: {
+    /** LX-4: also restore the space island's embedded ledger records (when it
+     *  carries any) through the server's ledger writer. The PAGE landing is a
+     *  copy and always proceeds; the ledger half restores only into an empty
+     *  ledger and reports `refused` otherwise — it never aborts the pages. */
+    restoreLedger?: boolean;
+  } = {},
 ): Promise<IslandImportResult> {
   // assetId → the ISLAND page that references it (its landed id anchors the
   // asset's read-gate ref; the first referencing page suffices).
@@ -291,5 +346,29 @@ export async function runIslandImport(
       assetsMissing.push(assetId); // degrade, never abort the import
     }
   }
-  return {pageIds, assetsRestored, assetsMissing};
+
+  // ── Ledger records (LX-4): AFTER the pages landed — a refused ledger must
+  // never cost the user their document import, and the two surfaces are
+  // independent (the ledger lives outside the document tree).
+  let ledger: IslandLedgerOutcome | undefined;
+  if (opts.restoreLedger && found.kind === 'space' && found.island.ledger) {
+    ledger = await restoreIslandLedger(client, found.island.ledger);
+  }
+  return {pageIds, assetsRestored, assetsMissing, ...(ledger ? {ledger} : {})};
+}
+
+/** The ledger half of an island import, as a typed outcome (never a throw). */
+async function restoreIslandLedger(client: IslandImportClient, section: LedgerExportSection): Promise<IslandLedgerOutcome> {
+  if (!client.ledgerRestoreSection) {
+    return {status: 'failed', message: 'this connection has no ledger-restore surface'};
+  }
+  try {
+    return {status: 'restored', result: await client.ledgerRestoreSection(section)};
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    // The one EXPECTED refusal: the target already keeps books (the server's
+    // empty-ledger gate, typed `invalid-state`). Everything else is a failure.
+    if (e instanceof LedgerError && e.code === 'invalid-state') return {status: 'refused', message};
+    return {status: 'failed', message};
+  }
 }

@@ -64,6 +64,20 @@ import {describeUnknownBlock} from '../blockeditor/unknownBlock';
 /** The type prefix of every block the first-party ledger plugin registers. */
 const LEDGER_PREFIX = 'openbook.ledger/';
 
+/** Whether a block type belongs to the first-party ledger plugin. */
+export const isLedgerBlockType = (type: string): boolean => type.startsWith(LEDGER_PREFIX);
+
+/**
+ * The identity of the block being rendered: its plugin type and its stable
+ * block id. Both ride into the static markup so the hydrating viewer can find
+ * this render and PRESERVE it (LX-5) instead of drawing an install-plugin card
+ * over real numbers.
+ */
+export interface LedgerBlockRef {
+  type: string;
+  id: string;
+}
+
 // ── Adapter: LibrarySnapshot rows → fold inputs ──────────────────────────────
 
 /** The typed report inputs recovered from an embedded ledger section. */
@@ -197,7 +211,10 @@ export function describeLedgerInteractiveBlock(type: string): {label: string; hi
   if (!INTERACTIVE_BLOCKS.has(type)) return null;
   return {
     label: describeUnknownBlock(type).label,
-    hint: 'Interactive ledger tool — it works on the live books and has no static view. Open the page in OpenBook to use it.',
+    // Ends on "OpenBook", not "OpenBook to use it": the longer tail wrapped in
+    // the card and left an orphaned "it." on its own line on all four (Devon F1),
+    // and "to use it" adds nothing the sentence hasn't already said.
+    hint: 'Interactive ledger tool — it works on the live books and has no static view. Open the page in OpenBook.',
   };
 }
 
@@ -228,6 +245,28 @@ export function describeLedgerReportBlock(type: string): {label: string; hint: s
 
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
+
+/**
+ * LX-5 — the attribute marking a static render the hydrating viewer must KEEP
+ * rather than replace with its own missing-plugin card. The viewer itself never
+ * reads the name: the export's boot script harvests
+ * `[data-ob-keep-static][data-block-id]` nodes out of the static body BEFORE it
+ * swaps in the viewer host and hands them to `mount` keyed by block id, so the
+ * viewer bundle gains no ledger knowledge (and no ledger bytes) at all. The
+ * value documents WHY this node is authoritative.
+ */
+export const KEEP_STATIC_ATTR = 'data-ob-keep-static';
+
+/**
+ * `data-block-id` plus the keep marker, for a ledger block whose static render
+ * (a real report table, or the exporter's own honest placeholder wording) is
+ * authoritative on the hydrate path. A block with no id gets neither attribute:
+ * without a key the viewer could not match the node to a block, and a marker
+ * nothing can claim is just noise.
+ */
+export function keepStaticAttrs(id: string): string {
+  return id ? ` data-block-id="${esc(id)}" ${KEEP_STATIC_ATTR}="ledger"` : '';
+}
 
 /** Local-clock ISO date — byte-for-byte the plugin's `todayIso` (model.ts), so
  *  a defaulted as-of/period resolves exactly as the in-app block resolves it. */
@@ -272,10 +311,12 @@ const note = (text: string, alarm = false): string =>
 /** The report frame: caption (+ subtitle, + currency) around table + notes.
  *  `currency` (Devon 1) rides in the caption — "Amounts in USD" — because a
  *  statement handed to an accountant must state its currency; `null` (mixed
- *  books, malformed code, or a frame with no amounts) omits it gracefully. */
-function frame(type: string, title: string, sub: string, body: string, currency: string | null = null): string {
+ *  books, malformed code, or a frame with no amounts) omits it gracefully.
+ *  The figure carries the block's identity and the LX-5 keep marker, so the
+ *  hydrating viewer re-attaches this table instead of replacing it. */
+function frame(block: LedgerBlockRef, title: string, sub: string, body: string, currency: string | null = null): string {
   return (
-    `<figure class="ob-ledger-report" data-block-type="${esc(type)}">` +
+    `<figure class="ob-ledger-report" data-block-type="${esc(block.type)}"${keepStaticAttrs(block.id)}>` +
     `<figcaption class="ob-ledger-title">${esc(title)}${sub ? ` <span class="ob-ledger-sub">${esc(sub)}</span>` : ''}` +
     `${currency ? `<span class="ob-ledger-currency">Amounts in ${esc(currency)}</span>` : ''}</figcaption>` +
     body +
@@ -313,23 +354,23 @@ const totalRow = (label: string, value: string): string =>
  * carries them verbatim under `data.props`, LX-1).
  */
 export function renderLedgerReportBlock(
-  type: string,
+  block: LedgerBlockRef,
   props: Record<string, unknown>,
   records: LedgerExportRecords,
 ): string | null {
-  if (!type.startsWith(LEDGER_PREFIX)) return null;
+  if (!isLedgerBlockType(block.type)) return null;
   try {
-    switch (type.slice(LEDGER_PREFIX.length)) {
+    switch (block.type.slice(LEDGER_PREFIX.length)) {
     case 'trial-balance':
-      return trialBalanceTable(type, props, records);
+      return trialBalanceTable(block, props, records);
     case 'balance-sheet':
-      return balanceSheetTable(type, props, records);
+      return balanceSheetTable(block, props, records);
     case 'income-statement':
-      return incomeStatementTable(type, props, records);
+      return incomeStatementTable(block, props, records);
     case 'account-register':
-      return accountRegisterTable(type, props, records);
+      return accountRegisterTable(block, props, records);
     case 'journal-entry':
-      return journalEntryTable(type, props, records);
+      return journalEntryTable(block, props, records);
     default:
       return null;
     }
@@ -340,7 +381,7 @@ export function renderLedgerReportBlock(
   }
 }
 
-function trialBalanceTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
+function trialBalanceTable(block: LedgerBlockRef, props: Record<string, unknown>, records: LedgerExportRecords): string {
   const tb = buildTrialBalance(records.accounts, records.transactions, {
     includeZero: propBool(props, 'ledgerTbShowZero', false),
   });
@@ -355,10 +396,10 @@ function trialBalanceTable(type: string, props: Record<string, unknown>, records
   const notes =
     note(assertion.text, !assertion.ok) +
     (assertion.ok || !assertion.culprits ? '' : note(assertion.culprits, true));
-  return frame(type, 'Trial balance', '', table + notes, records.currency);
+  return frame(block, 'Trial balance', '', table + notes, records.currency);
 }
 
-function balanceSheetTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
+function balanceSheetTable(block: LedgerBlockRef, props: Record<string, unknown>, records: LedgerExportRecords): string {
   // Same defaulting as the in-app block: an empty prop means "today", resolved
   // at render (export) time on the local clock.
   const asOf = propStr(props, 'ledgerBsAsOf') || todayIso();
@@ -381,10 +422,10 @@ function balanceSheetTable(type: string, props: Record<string, unknown>, records
     note(assertion.text, !assertion.ok) +
     (assertion.ok || !assertion.culprits ? '' : note(assertion.culprits, true)) +
     (assertion.unclassified ? note(assertion.unclassified, true) : '');
-  return frame(type, 'Balance sheet', `as of ${asOf}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
+  return frame(block, 'Balance sheet', `as of ${asOf}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
 }
 
-function incomeStatementTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
+function incomeStatementTable(block: LedgerBlockRef, props: Record<string, unknown>, records: LedgerExportRecords): string {
   // Same defaulting as the in-app block: year-to-date on the local clock.
   const today = todayIso();
   const from = propStr(props, 'ledgerIsFrom') || startOfYear(today);
@@ -403,20 +444,20 @@ function incomeStatementTable(type: string, props: Record<string, unknown>, reco
     note(describeNetIncome(statement)) +
     (statement.unclassifiedMinor !== 0 ? note(`Unclassified (deleted accounts): ${formatWithSide(statement.unclassifiedMinor)} is outside these figures.`, true) : '') +
     (closing ? note(closing) : '');
-  return frame(type, 'Income statement', `${from} to ${to}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
+  return frame(block, 'Income statement', `${from} to ${to}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
 }
 
-function accountRegisterTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
+function accountRegisterTable(block: LedgerBlockRef, props: Record<string, unknown>, records: LedgerExportRecords): string {
   const accountId = propStr(props, 'ledgerRegAccount');
   if (accountId === '') {
-    return frame(type, 'Account register', '', note('No account selected — open the page in OpenBook to pick one.'));
+    return frame(block, 'Account register', '', note('No account selected — open the page in OpenBook to pick one.'));
   }
   const from = propStr(props, 'ledgerRegFrom');
   const to = propStr(props, 'ledgerRegTo');
   const cleared = parseClearedProp(propStr(props, 'ledgerRegCleared'));
   const register = buildAccountRegister(accountId, records.accounts, records.transactions, {from, to, cleared}, records.reconciliations);
   if (!register.exists) {
-    return frame(type, 'Account register', '', note(`Unknown account (${accountId}) — it may have been deleted since this block was configured.`, true));
+    return frame(block, 'Account register', '', note(`Unknown account (${accountId}) — it may have been deleted since this block was configured.`, true));
   }
   const opening = register.filter.from !== null
     ? `<tr><td colspan="4">Opening balance</td><td class="num"></td><td class="num"></td><td class="num">${esc(formatWithSide(register.openingMinor))}</td></tr>`
@@ -424,14 +465,14 @@ function accountRegisterTable(type: string, props: Record<string, unknown>, reco
   const body = register.rows
     .map(
       (r) =>
-        `<tr><td>${esc(r.date)}</td><td class="num">${r.entryNo === null ? '' : `#${r.entryNo}`}</td>` +
+        `<tr><td class="date">${esc(r.date)}</td><td class="num">${r.entryNo === null ? '' : `#${r.entryNo}`}</td>` +
         `<td>${esc(r.description)}${r.reversed ? ' <span class="ledger-reversed">(reversed)</span>' : ''}</td>` +
         `<td>${esc(r.contra)}</td>${drCrCells(r.amountMinor)}` +
         `<td class="num">${esc(formatWithSide(r.runningMinor))}</td></tr>`,
     )
     .join('');
   const table =
-    '<table class="ledger-table"><thead><tr><th>Date</th><th class="num">Entry</th><th>Description</th><th>Contra account</th>' +
+    '<table class="ledger-table"><thead><tr><th class="date">Date</th><th class="num">Entry</th><th>Description</th><th>Contra account</th>' +
     '<th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>' +
     `<tbody>${opening}${body}</tbody>` +
     `<tfoot><tr class="ledger-total"><td colspan="4">Totals</td><td class="num">${formatAmount(register.totalDebitMinor)}</td>` +
@@ -439,10 +480,10 @@ function accountRegisterTable(type: string, props: Record<string, unknown>, reco
   const range = register.filter.from || register.filter.to
     ? `${register.filter.from ?? '…'} to ${register.filter.to ?? '…'}`
     : '';
-  return frame(type, 'Account register', [register.accountName, range].filter(Boolean).join(' — '), table + note(describeRegisterSummary(register)), records.currency);
+  return frame(block, 'Account register', [register.accountName, range].filter(Boolean).join(' — '), table + note(describeRegisterSummary(register)), records.currency);
 }
 
-function journalEntryTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string | null {
+function journalEntryTable(block: LedgerBlockRef, props: Record<string, unknown>, records: LedgerExportRecords): string | null {
   // The block persists its draft's id (`ledgerDraftId`); posting keeps the id,
   // so a posted entry is found under the same key. No id, or an id the books
   // don't hold (never posted / trimmed) → null → the LX-1 placeholder.
@@ -474,5 +515,5 @@ function journalEntryTable(type: string, props: Record<string, unknown>, records
       : tx.state === 'void'
         ? note('Reversed — this entry was voided by a reversal.')
         : note('Draft — not yet posted; drafts are excluded from every report.');
-  return frame(type, 'Journal entry', `${tx.date}${tx.description ? ` — ${tx.description}` : ''}`, table + state, records.currency);
+  return frame(block, 'Journal entry', `${tx.date}${tx.description ? ` — ${tx.description}` : ''}`, table + state, records.currency);
 }

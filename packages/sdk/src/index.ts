@@ -354,7 +354,18 @@ export {
   type LibraryToBookFilesOptions,
   type LibraryIsland,
 } from './bookFolder';
-export {gatherLedgerExportSection, type LedgerExportSection} from './ledgerExportSection';
+export {
+  gatherLedgerExportSection,
+  parseLedgerExportSection,
+  type LedgerExportSection,
+  type LedgerSectionAccount,
+  type LedgerSectionBook,
+  type LedgerSectionParseResult,
+  type LedgerSectionPosting,
+  type LedgerSectionReconciliation,
+  type LedgerSectionRestoreResult,
+  type LedgerSectionTransaction,
+} from './ledgerExportSection';
 export {
   canonicalDigest,
   generateRegistryKeys,
@@ -530,6 +541,7 @@ export {
   ledgerErrorStatus,
   replayLedgerAudit,
   ledgerAuditEventHash,
+  ledgerRestorePayloadContent,
   verifyLedgerAuditChain,
   canonicalLedgerJson,
   isValidLedgerAccountName,

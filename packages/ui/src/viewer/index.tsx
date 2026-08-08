@@ -112,6 +112,11 @@ function installAssetPayload(assets: Record<string, ViewerAssetEntry>): () => vo
 /**
  * Render `source` into `container`, locked-but-interactive. Returns a handle
  * whose `unmount()` tears the viewer down and releases the container.
+ *
+ * `opts.staticBlocks` lets the host keep its own render for blocks this bundle
+ * has no renderer for (LX-5): the exported file hands over the static ledger
+ * report tables it already computed, and the viewer replants them instead of
+ * covering real numbers with a missing-plugin card.
  */
 export function mount(container: HTMLElement, source: ViewerSource, opts?: ViewerMountOptions): ViewerHandle {
   if (!container || !(container instanceof HTMLElement)) {
@@ -122,7 +127,7 @@ export function mount(container: HTMLElement, source: ViewerSource, opts?: Viewe
   }
   const uninstallAssets = opts?.assets && Object.keys(opts.assets).length > 0 ? installAssetPayload(opts.assets) : null;
   const root = createRoot(container);
-  root.render(<ViewerApp source={source} initialPage={opts?.page} />);
+  root.render(<ViewerApp source={source} initialPage={opts?.page} staticBlocks={opts?.staticBlocks} />);
   return {
     unmount(): void {
       root.unmount();

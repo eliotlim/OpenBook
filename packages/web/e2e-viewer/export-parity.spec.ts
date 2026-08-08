@@ -40,7 +40,7 @@ function watch(page: Page): {network: string[]; errors: string[]} {
 }
 
 test.beforeAll(() => {
-  for (const f of ['export-page.html', 'export-site.html']) {
+  for (const f of ['export-page.html', 'export-site.html', 'export-ledger-reports.html', 'export-ledger-norecords.html']) {
     if (!existsSync(path.join(GENERATED, f))) {
       throw new Error(
         `Missing generated fixture ${f} — run: pnpm --filter @book.dev/ui exec vitest run src/export/__tests__/exportParityFixtures.test.ts`,
@@ -196,6 +196,93 @@ test.describe('site export, hydrated', () => {
     await expect(page.locator('.obe-formula-out')).toHaveText('242');
 
     expect(await page.locator('script[type="application/openbook+json"]').textContent()).toBe(islandBefore);
+    expect(network).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+});
+
+/**
+ * LX-5 — the hydrated export keeps its ledger REPORT tables.
+ *
+ * LX-3 computes trial balance / balance sheet / income statement / register /
+ * journal entry into real static tables. Before LX-5, hydration threw them away:
+ * the viewer has no ledger renderer, so a reader who simply double-clicked the
+ * file (JS on) lost every number to an "install the plugin" card, and the tables
+ * survived only with JS off or in print/PDF. These tests are the regression wall
+ * for the JS-ON path, in a real browser.
+ */
+const REPORT_BLOCKS = ['journal-entry', 'trial-balance', 'balance-sheet', 'income-statement', 'account-register'];
+const INTERACTIVE_BLOCKS = ['bank-import', 'reconcile', 'period-close', 'beancount-export'];
+const ledgerType = (name: string): string => `[data-block-type="openbook.ledger/${name}"]`;
+
+test.describe('ledger reports export, records ON', () => {
+  test('hydrated, every report block is still a real table', async ({page}) => {
+    const {network, errors} = watch(page);
+    await page.goto(fileUrl('export-ledger-reports.html'));
+
+    const viewer = page.locator('.ob-viewer');
+    await expect(viewer).toBeVisible(); // hydration happened…
+    await expect(page.locator('main')).toHaveCount(0);
+
+    // …and the numbers came with it.
+    for (const name of REPORT_BLOCKS) {
+      const figure = viewer.locator(`figure.ob-ledger-report${ledgerType(name)}`);
+      await expect(figure, `${name} kept its table`).toBeVisible();
+      await expect(figure.locator('table.ledger-table')).toBeVisible();
+    }
+    await expect(viewer.getByText('Assets:Bank:Checking').first()).toBeVisible();
+    await expect(viewer.getByText('Amounts in USD').first()).toBeVisible(); // Devon 1 caption
+    // The trial balance still SAYS whether it balances.
+    await expect(viewer.locator('.ob-ledger-note').first()).toBeVisible();
+
+    // The four live-books tools are honest about being interactive, and no
+    // ledger block anywhere claims a plugin is missing.
+    for (const name of INTERACTIVE_BLOCKS) {
+      await expect(viewer.locator(`.ob-plugin-block${ledgerType(name)}`)).toContainText('Interactive ledger tool');
+    }
+    await expect(page.getByText('requires the Ledger plugin')).toHaveCount(0);
+
+    // Scoped: a third-party plugin block still gets the viewer's install card.
+    await expect(viewer.locator('.obe-missing-plugin[data-block-type="org.example.future/widget"]')).toBeVisible();
+
+    expect(network).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test('the no-JS render and the hydrated render show the same tables', async ({browser}) => {
+    // The point of LX-5: the two readings of the same file agree. Compare the
+    // rendered text of every report table with JS off vs on.
+    const tablesOf = async (javaScriptEnabled: boolean): Promise<string[]> => {
+      const ctx = await browser.newContext({javaScriptEnabled});
+      const p = await ctx.newPage();
+      await p.goto(fileUrl('export-ledger-reports.html'));
+      if (javaScriptEnabled) await p.locator('.ob-viewer').waitFor();
+      const out = await p.locator('figure.ob-ledger-report table.ledger-table').allInnerTexts();
+      await ctx.close();
+      return out;
+    };
+    const off = await tablesOf(false);
+    const on = await tablesOf(true);
+    expect(off.length).toBe(REPORT_BLOCKS.length);
+    expect(on).toEqual(off);
+  });
+});
+
+test.describe('ledger reports export, records OFF', () => {
+  test('hydrated, report blocks say the books were not included', async ({page}) => {
+    const {network, errors} = watch(page);
+    await page.goto(fileUrl('export-ledger-norecords.html'));
+
+    const viewer = page.locator('.ob-viewer');
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator('figure.ob-ledger-report')).toHaveCount(0); // no fabricated tables
+    for (const name of REPORT_BLOCKS) {
+      await expect(viewer.locator(`.ob-plugin-block${ledgerType(name)}`))
+        .toContainText('the books weren\'t included in this export');
+    }
+    // The ledger is first-party — "install the plugin" would be a wrong diagnosis.
+    await expect(page.getByText('requires the Ledger plugin')).toHaveCount(0);
+
     expect(network).toEqual([]);
     expect(errors).toEqual([]);
   });

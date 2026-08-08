@@ -31,6 +31,7 @@ import type {
   LedgerClearedState,
   LedgerDraftInput,
   LedgerDraftPatch,
+  LedgerExportSection,
   LedgerInfo,
   LedgerPeriod,
   LedgerPeriodCloseInput,
@@ -43,6 +44,7 @@ import type {
   LedgerReconciliationStatus,
   LedgerReconciliationSummary,
   LedgerReverseOptions,
+  LedgerSectionRestoreResult,
   LedgerTransaction,
   LedgerTransactionState,
   LedgerVerifyReport,
@@ -455,6 +457,19 @@ export class LocalDataClient implements DataClient {
     const info = await this.store.ledger.ensureSetup(localPrincipal());
     if (!before) await this.broadcastList();
     return info;
+  }
+
+  async ledgerRestoreSection(section: LedgerExportSection): Promise<LedgerSectionRestoreResult> {
+    // LX-4: replay an export's embedded ledger records through the ONE writer.
+    // In-process transport = the machine owner; the HTTP route additionally
+    // gates on instance administration.
+    const before = await this.store.ledgerIds();
+    const result = await this.store.ledger.restoreExportSection(section, localPrincipal());
+    if (!before) await this.broadcastList();
+    await Promise.all(
+      (['accounts', 'transactions', 'postings', 'reconciliations'] as const).map((key) => this.broadcastLedgerRows(key)),
+    );
+    return result;
   }
 
   ledgerListAccounts(): Promise<LedgerAccount[]> {
