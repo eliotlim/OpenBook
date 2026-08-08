@@ -3,7 +3,13 @@ import {mkdirSync, writeFileSync} from 'fs';
 import {dirname, resolve} from 'path';
 import {fileURLToPath} from 'url';
 import {toHtml, toHtmlSite} from '../src/export/toHtml';
-import {parityExportSnapshot, parityExportAssets, paritySiteBundle} from '../src/export/__tests__/parityFixtureDoc';
+import {
+  parityExportSnapshot,
+  parityExportAssets,
+  paritySiteBundle,
+  PARITY_PLUGIN_BLOCKS,
+  LEDGER_BLOCK_TYPES,
+} from '../src/export/__tests__/parityFixtureDoc';
 
 /**
  * Generates the exported-HTML fixtures the Playwright parity harness opens
@@ -38,6 +44,24 @@ describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.t
     expect(toHtml(snap, 'Parity fixture', '🧪', parityExportAssets(), meta)).toBe(html); // byte-stable
     mkdirSync(OUT_DIR, {recursive: true});
     writeFileSync(resolve(OUT_DIR, 'export-page.html'), html);
+  });
+
+  // LX-1: the plugin-block page. Exported HTML must show every plugin block as a
+  // labelled placeholder — no block may vanish into an empty paragraph.
+  it('writes a plugin-block export where every unrenderable block is visibly labelled', () => {
+    const snap = parityExportSnapshot(PARITY_PLUGIN_BLOCKS);
+    const meta = {id: 'lx-root', updatedAt: '2026-07-04T00:00:00.000Z'};
+    const html = toHtml(snap, 'Ledger plugin blocks', '📒', parityExportAssets(), meta);
+    expect(toHtml(snap, 'Ledger plugin blocks', '📒', parityExportAssets(), meta)).toBe(html); // byte-stable
+    mkdirSync(OUT_DIR, {recursive: true});
+    writeFileSync(resolve(OUT_DIR, 'export-plugin-blocks.html'), html);
+
+    const body = html.slice(0, html.indexOf('<script type="application/openbook+json"'));
+    expect(body).not.toMatch(/<p>\s*<\/p>/); // the LX-1 regression: silent empty paragraphs
+    for (const type of LEDGER_BLOCK_TYPES) expect(body).toContain(`data-block-type="${type}"`);
+    expect(body).toContain('Trial balance');
+    expect(body).toContain('Beancount export');
+    expect(body).toContain('requires the Ledger plugin');
   });
 
   it('writes a deterministic site-bundle export', () => {

@@ -315,6 +315,7 @@ export {
   type LibraryToBookFilesOptions,
   type LibraryIsland,
 } from './bookFolder';
+export {gatherLedgerExportSection, type LedgerExportSection} from './ledgerExportSection';
 export {
   canonicalDigest,
   generateRegistryKeys,

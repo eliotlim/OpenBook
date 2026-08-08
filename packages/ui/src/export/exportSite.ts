@@ -10,6 +10,7 @@ import {
   type DataClient,
   type DatabaseRow,
   type DatabaseSchema,
+  type LedgerExportSection,
   type PageSnapshot,
   type LibrarySnapshot,
   type StoredDatabase,
@@ -47,10 +48,55 @@ export interface SiteBundle {
    * root uses the live in-memory snapshot so unsaved edits export faithfully.
    */
   space: LibrarySnapshot;
+  /**
+   * LX-2: the machine-readable ledger records, present ONLY when the exporter
+   * opted in AND could read the books through their own {@link DataClient}
+   * (see the SDK's `gatherLedgerExportSection` — capture is fail-closed, so a
+   * guest/viewer export never carries records they couldn't read via the API).
+   * Rides the island under its own `ledger` key, never mixed into `space`.
+   */
+  ledger?: LedgerExportSection;
+  /**
+   * True when the crawl REACHED seeded ledger content (the restricted host
+   * page, a managed database's host page, or a row page) via a subpage/database
+   * block or an `@`-mention. That content is ALWAYS pruned from the generic
+   * bundle (see {@link gatherSite}); this flag tells the export flow that
+   * ledger records are implicated so it can run the SAME consent dialog it
+   * shows for in-page ledger blocks — a crawled reference must never ship
+   * records without the dialog, the toggle, and the fail-closed capture.
+   */
+  ledgerReached?: boolean;
 }
 
 /** A safety cap so a densely linked library can't produce a runaway file. */
 const MAX_PAGES = 400;
+
+/** The type prefix of every block the first-party ledger plugin registers. */
+const LEDGER_BLOCK_PREFIX = 'openbook.ledger/';
+
+/**
+ * Whether a RAW snapshot contains any `openbook.ledger/*` block. Detection runs
+ * on the raw block-doc (recursively — ledger blocks can sit inside columns/
+ * toggles), NOT on the export projection, which flattens plugin blocks into
+ * placeholder markup (LX-1) where the type only survives as an attribute.
+ */
+export function snapshotHasLedgerBlocks(snapshot: PageSnapshot | null | undefined): boolean {
+  const doc = snapshot as {editor?: string; blockdoc?: {blocks?: unknown[]}} | null | undefined;
+  if (!doc || doc.editor !== 'blocks' || !doc.blockdoc) return false;
+  const hasLedger = (blocks: unknown[]): boolean =>
+    blocks.some((b) => {
+      const block = b as {type?: unknown; children?: unknown[]} | null;
+      if (!block || typeof block !== 'object') return false;
+      if (typeof block.type === 'string' && block.type.startsWith(LEDGER_BLOCK_PREFIX)) return true;
+      return Array.isArray(block.children) && hasLedger(block.children);
+    });
+  return hasLedger(doc.blockdoc.blocks ?? []);
+}
+
+/** Whether any page in the (raw) export set contains a ledger block. */
+export function bundleHasLedgerBlocks(space: LibrarySnapshot): boolean {
+  return space.pages.some((p) => snapshotHasLedgerBlocks(p.data));
+}
 
 /** Page ids a snapshot references: subpage/database blocks and inline `@`-mentions. */
 export function referencedPageIds(rawSnapshot: PageSnapshot): string[] {
@@ -75,10 +121,44 @@ export function referencedPageIds(rawSnapshot: PageSnapshot): string[] {
 }
 
 /**
+ * The seeded ledger's identity — the restricted root host page id plus the four
+ * managed database ids — resolved through the exporting principal's OWN client
+ * (the same `ledgerInfo` read LX-2's `gatherLedgerExportSection` starts from).
+ * `null` when no ledger exists, or when the server hides it from this caller
+ * (the existence-hiding body), or on transport failure. Identification is thus
+ * exactly as good as the caller's own read authority — a principal the ledger
+ * hides from can only ever crawl what their generic reads already serve, so no
+ * escalation rides on a `null` here.
+ */
+async function resolveLedgerIds(client: DataClient): Promise<{hostPageId: string; databaseIds: Set<string>} | null> {
+  try {
+    const info = await client.ledgerInfo();
+    if (!info.exists || !info.hostPageId || !info.databases) return null;
+    return {hostPageId: info.hostPageId, databaseIds: new Set(Object.values(info.databases))};
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Crawl from `rootId` and return every reachable page. The root's live content is
  * supplied via `root` (so unsaved edits export faithfully); every other page is
  * fetched from the store. Hosted databases contribute their schema, rows, and the
  * row pages themselves.
+ *
+ * ## Ledger content is ALWAYS pruned from the crawl (LX-2 consent, Sasha #2)
+ * A subpage/database block or `@`-mention can reach the ledger's host pages,
+ * whose managed databases would otherwise pull the full books (schema + rows)
+ * into the VISIBLE bundle and the source island — outside the consent dialog,
+ * the toggle, and the fail-closed capture. So the crawl identifies ledger
+ * content by the seeded ids ({@link resolveLedgerIds}) and drops it
+ * unconditionally: the consent-gated {@link SiteBundle.ledger} section is the
+ * ONE sanctioned carrier of ledger records (which also rules out double
+ * embedding when the exporter opts in). Reaching ledger content sets
+ * {@link SiteBundle.ledgerReached} so the export flow still asks for consent.
+ * Edge case: when the ROOT itself is a ledger page (exporting a host page
+ * directly) the page the user is looking at stays, but its managed database
+ * (schema + rows) and every other ledger page are still pruned.
  */
 export async function gatherSite(
   client: DataClient,
@@ -92,6 +172,17 @@ export async function gatherSite(
   const spaceDatabases = new Map<string, StoredDatabase>();
   const queue: string[] = [rootId];
 
+  const ledger = await resolveLedgerIds(client);
+  /** Whether this crawled record is ledger content: the restricted root host
+   *  page (by id, so even an unreadable reference is recognised), a managed
+   *  database's host page, or one of its row pages. */
+  const isLedgerPage = (id: string, stored: StoredPage | null): boolean =>
+    ledger != null &&
+    (id === ledger.hostPageId ||
+      (stored?.hostedDatabaseId != null && ledger.databaseIds.has(stored.hostedDatabaseId)) ||
+      (stored?.databaseId != null && ledger.databaseIds.has(stored.databaseId)));
+  let ledgerReached = false;
+
   while (queue.length > 0 && pages.size < MAX_PAGES) {
     const id = queue.shift()!;
     if (pages.has(id)) continue;
@@ -99,6 +190,14 @@ export async function gatherSite(
     const stored = await client.getPage(id).catch(() => null);
     // The root may be brand-new/unsaved; fall back to its live snapshot.
     const isRoot = id === rootId;
+    // Ledger content never rides the generic crawl (see the doc comment): flag
+    // it (so the export flow asks for consent) and prune it. The root itself is
+    // kept — the user is exporting the page in front of them — but its managed
+    // database is still pruned below.
+    if (isLedgerPage(id, stored)) {
+      ledgerReached = true;
+      if (!isRoot) continue;
+    }
     if (!stored && !isRoot) continue;
 
     // Resolve any database-bound kit charts on this page to their series live,
@@ -125,7 +224,14 @@ export async function gatherSite(
 
     for (const ref of referencedPageIds(snapshot)) if (!pages.has(ref)) queue.push(ref);
 
-    const databaseId = stored?.hostedDatabaseId ?? null;
+    let databaseId = stored?.hostedDatabaseId ?? null;
+    // A managed ledger database NEVER rides the generic crawl (schema + rows =
+    // the whole book) — only the consent-gated section may carry it. Reachable
+    // only via the kept root: every non-root ledger page was pruned above.
+    if (databaseId && ledger?.databaseIds.has(databaseId)) {
+      ledgerReached = true;
+      databaseId = null;
+    }
     if (databaseId) {
       const [db, rows] = await Promise.all([
         client.getDatabase(databaseId).catch(() => null),
@@ -142,7 +248,7 @@ export async function gatherSite(
   // Root first, so it is the page shown when the file opens.
   const ordered = [pages.get(rootId)!, ...[...pages.values()].filter((p) => p.id !== rootId)].filter(Boolean);
   const space: LibrarySnapshot = {pages: [...spacePages.values()], databases: [...spaceDatabases.values()]};
-  return {rootId, pages: ordered, space};
+  return {rootId, pages: ordered, space, ...(ledgerReached ? {ledgerReached: true} : {})};
 }
 
 /** The root's raw record for the island: the persisted page with its `data`

@@ -2,6 +2,7 @@ import type {StoredPage, PageSnapshot} from './types';
 import type {StoredDatabase} from './database';
 import {pageToBookHtml, bookHtmlToPage, slugify, BOOK_RUNTIME_FILE} from './bookfile';
 import {islandScript, readIsland} from './island';
+import type {LedgerExportSection} from './ledgerExportSection';
 
 /**
  * Whole-space → folder-of-files serialisation, shared by every "dump my books
@@ -56,6 +57,9 @@ export interface LibraryIsland {
   version: 1;
   rootId: string;
   space: LibrarySnapshot;
+  /** LX-2: the embedded ledger records, when the export opted in (see
+   *  {@link LedgerExportSection} for the shape + authorization contract). */
+  ledger?: LedgerExportSection;
 }
 
 /**
@@ -70,16 +74,73 @@ interface LibraryIslandWire {
   library?: Partial<LibrarySnapshot>;
   /** @deprecated legacy key (pre-LIB-4). Read-only fallback — never written. */
   space?: Partial<LibrarySnapshot>;
+  /** LX-2: ledger records (additive — absent on older exports and whenever the
+   *  exporter opted out or could not read the books). */
+  ledger?: LedgerExportSection;
 }
 
-/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
+/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped).
+ *  `opts.ledger` additionally embeds the LX-2 ledger records — pass it ONLY with
+ *  a section captured through the exporting principal's own read paths
+ *  ({@link gatherLedgerExportSection}). */
 export function libraryIslandScript(
   rootId: string,
   space: LibrarySnapshot,
-  opts: {attrs?: string; indent?: string} = {},
+  opts: {attrs?: string; indent?: string; ledger?: LedgerExportSection} = {},
 ): string {
   // Writer emits ONLY the new `library` key; the reader dual-reads for back-compat.
-  return islandScript({version: 1, rootId, library: space}, opts);
+  return islandScript({version: 1, rootId, library: space, ...(opts.ledger ? {ledger: opts.ledger} : {})}, opts);
+}
+
+/** Keys that must never survive a parse of untrusted island JSON: an own
+ *  `__proto__`/`constructor`/`prototype` data property (JSON.parse creates them
+ *  as plain own properties) becomes a prototype-pollution gadget the moment a
+ *  consumer deep-merges or `Object.assign`s the settings into a live object. */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** Deep-copy a JSON value, dropping every {@link UNSAFE_KEYS} property. */
+function stripUnsafeKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => stripUnsafeKeys(v)) as unknown as T;
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      if (UNSAFE_KEYS.has(key)) continue;
+      out[key] = stripUnsafeKeys((value as Record<string, unknown>)[key]);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Deep-validate the LX-2 `ledger` island key (the parse boundary LX-4's import
+ * inherits — island text is UNTRUSTED input): `settings` a plain object (with
+ * `__proto__`/`constructor`/`prototype` keys stripped, recursively), `library`
+ * a real {@link LibrarySnapshot} (pages[] of records with a string `id`,
+ * databases[] of records with string `id` + `pageId`), and `auditHead` either
+ * `null` or `{seq: number, hash: string}`. Any mismatch drops the whole key
+ * (returns `null`) — never a throw, and never a section import code can't trust.
+ */
+function readLedgerSection(raw: unknown): LedgerExportSection | null {
+  if (!isPlainObject(raw)) return null;
+  const {settings, library, auditHead} = raw as Partial<LedgerExportSection>;
+  if (!isPlainObject(settings)) return null;
+  if (!isPlainObject(library) || !Array.isArray(library.pages) || !Array.isArray(library.databases)) return null;
+  if (!library.pages.every((p: unknown) => isPlainObject(p) && typeof p.id === 'string')) return null;
+  if (!library.databases.every((d: unknown) => isPlainObject(d) && typeof d.id === 'string' && typeof d.pageId === 'string')) return null;
+  let head: LedgerExportSection['auditHead'] = null;
+  if (auditHead !== null && auditHead !== undefined) {
+    if (!isPlainObject(auditHead) || typeof auditHead.seq !== 'number' || !Number.isFinite(auditHead.seq) || typeof auditHead.hash !== 'string') return null;
+    head = {seq: auditHead.seq, hash: auditHead.hash};
+  }
+  return {
+    settings: stripUnsafeKeys(settings),
+    library: {pages: library.pages, databases: library.databases},
+    auditHead: head,
+  };
 }
 
 /**
@@ -91,6 +152,10 @@ export function readLibraryIsland(html: string): LibraryIsland | null {
   const parsed = readIsland<LibraryIslandWire>(html);
   const bundle = parsed?.library ?? parsed?.space;
   if (!bundle || !Array.isArray(bundle.pages)) return null;
+  // Deep-validate the LX-2 ledger key (island text is untrusted input): carry
+  // it only when it IS a real section, so import code can trust the type — a
+  // malformed/hostile key is dropped, never thrown on (see readLedgerSection).
+  const ledger = readLedgerSection(parsed?.ledger);
   return {
     version: 1,
     rootId: parsed?.rootId ?? '',
@@ -98,6 +163,7 @@ export function readLibraryIsland(html: string): LibraryIsland | null {
       pages: bundle.pages,
       databases: Array.isArray(bundle.databases) ? bundle.databases : [],
     },
+    ...(ledger ? {ledger} : {}),
   };
 }
 
