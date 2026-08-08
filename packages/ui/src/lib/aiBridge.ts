@@ -288,7 +288,18 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
     // transaction, and `tableGrid` is only valid until the table changes.
     const grid = tableGrid(table.block);
     const cell = grid.cells[op.rowIndex!]?.[op.colIndex!];
-    const text = cell && blockText(cell);
+    if (!cell) {
+      // A merge gap has no cell node — materialize one bound to that column, so
+      // set_cell can fill a ragged/legacy table instead of throwing on a hole.
+      // Mirrors the snapshot path (tableSnapshot.ts `table_set_cell`): same
+      // column binding, one plain run.
+      const row = grid.rows[op.rowIndex!];
+      const colId = grid.colIds[op.colIndex!];
+      const rowCells = row && blockChildren(row);
+      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: [{t: op.text ?? ''}]})]);
+      return;
+    }
+    const text = blockText(cell);
     if (!text) throw new Error(`row ${op.rowIndex} column ${op.colIndex} of table ${table.id} has no cell to write`);
     replaceText(text, op.text ?? '');
     return;
