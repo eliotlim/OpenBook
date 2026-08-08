@@ -190,6 +190,7 @@ async function mountStore(context: BrowserContext, store: FakeStore): Promise<vo
                 icon: '⭐',
                 category: null,
                 publisher: 'Acme Corp',
+                pinnedKeys: [store.publisher.raw],
                 pinnedKey: store.publisher.raw,
                 latestVersion: store.latest,
                 digest: latest.digest,
@@ -237,7 +238,16 @@ async function mountStore(context: BrowserContext, store: FakeStore): Promise<vo
 
     if (path === '/api/v1/revocations') {
       const since = Number(url.searchParams.get('since') ?? '0');
-      return route.fulfill(json({policy: 'e2e', maxSeq: store.maxSeq, revocations: store.revocations.filter((r) => (r.seq as number) > since)}));
+      const generatedAt = new Date().toISOString();
+      const head = store.notary
+        ? {
+          maxSeq: store.maxSeq,
+          generatedAt,
+          publicKey: store.notary.raw,
+          signature: store.notary.sign(canonicalJson({generatedAt, maxSeq: store.maxSeq})),
+        }
+        : null;
+      return route.fulfill(json({policy: 'e2e', maxSeq: store.maxSeq, head, revocations: store.revocations.filter((r) => (r.seq as number) > since)}));
     }
 
     return route.fulfill(json({error: 'not_found', message: path}, 404));
