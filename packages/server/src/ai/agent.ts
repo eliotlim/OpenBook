@@ -153,10 +153,18 @@ interface ToolDef {
   /** True for third-party MCP tools (`mcp__*`): their first use pauses for
    *  consent (Q4) and TAINTS the run so later writes go through review (Q2). */
   external?: boolean;
+  /** True for tools whose whole result the model needs verbatim (e.g. the
+   *  list_block_types catalogue) — clipped at a much larger bound than the
+   *  default 1500-char transcript clip. */
+  fullResult?: boolean;
   run: (args: Record<string, unknown>) => Promise<string>;
 }
 
 const clip = (s: string, n = 1500): string => (s.length > n ? `${s.slice(0, n)}…` : s);
+
+/** Result-size bound for {@link ToolDef.fullResult} tools (fits the whole
+ *  block-type catalogue with plugins; still bounded against runaway output). */
+const FULL_RESULT_CLIP = 12000;
 
 const obj = (props: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({
   type: 'object',
@@ -381,6 +389,9 @@ export class AgentRunner {
           'List every block type add_blocks / update_block_props / create_artifact_page accept — core blocks, the interactive kit, and installed plugin blocks — with each type\'s nature (container/text/void), where child-only types must sit, declared props, and whether it publishes a reactive kit value.',
         args: '{}',
         schema: obj({}),
+        // The catalogue must reach the model (and the activity pane) whole —
+        // a 400/1500-char clip would truncate it mid-list.
+        fullResult: true,
         run: async () => blockCatalogueText((await this.installedPlugins()) ?? undefined),
       },
       {
@@ -1426,9 +1437,14 @@ export class AgentRunner {
         const message = err instanceof Error ? err.message : String(err);
         result = `Error: the "${tool.name}" tool failed — ${message}. Check the arguments and try again or take a different approach.`;
       }
-      await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, 400)});
+      await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, tool.fullResult ? FULL_RESULT_CLIP : 400)});
       return result;
     };
+
+    // Transcript clip for one tool's result — `fullResult` tools get the large
+    // bound so e.g. the block-type catalogue reaches the model whole.
+    const traceClip = (name: string, s: string): string =>
+      clip(s, this.tools.find((t) => t.name === name)?.fullResult ? FULL_RESULT_CLIP : undefined);
 
     // Flush whatever changes the write tools produced this run: directly-applied
     // edits (the user granted access) as one `apply`, reviewable ones as `suggestions`.
@@ -1518,7 +1534,7 @@ export class AgentRunner {
             if (this.interactive) break;
             const result = await runTool(call.name, call.args);
             toolTrace.push(`Assistant: ${JSON.stringify({tool: call.name, args: call.args})}`);
-            toolTrace.push(`TOOL RESULT (${call.name}):\n${clip(result)}`);
+            toolTrace.push(`TOOL RESULT (${call.name}):\n${traceClip(call.name, result)}`);
           }
           // An interactive tool paused the run to ask the user something.
           if (this.interactive) {
@@ -1541,7 +1557,7 @@ export class AgentRunner {
         const args = action.args ?? {};
         const result = await runTool(String(action.tool), args);
         toolTrace.push(`Assistant: ${JSON.stringify({tool: action.tool, args})}`);
-        toolTrace.push(`TOOL RESULT (${String(action.tool)}):\n${clip(result)}`);
+        toolTrace.push(`TOOL RESULT (${String(action.tool)}):\n${traceClip(String(action.tool), result)}`);
         if (this.interactive) {
           await pause();
           return;

@@ -1,0 +1,191 @@
+/**
+ * The block-type catalogue (API-2): internal consistency, type validation
+ * (core/kit/plugin), the consolidated structure rules (children-carrier,
+ * child-only placement, square tables, caps), permissive-but-typed prop
+ * validation, and the generated tool text every type must appear in.
+ */
+import {describe, expect, it} from 'vitest';
+import {
+  addBlocksGuidance,
+  BLOCK_TYPE_CATALOGUE,
+  blockCatalogueText,
+  blockTreeError,
+  blockTypeInfo,
+  CHILD_ONLY_PARENT,
+  CONTAINER_BLOCK_TYPES,
+  findUnknownBlockType,
+  invalidBlockProps,
+  isPluginBlockType,
+  KNOWN_BLOCK_TYPE_IDS,
+  MAX_BLOCK_DEPTH,
+  MAX_BLOCK_NODES,
+  pluginIdOfBlockType,
+  TEXT_BLOCK_TYPES,
+  unknownBlockTypeMessage,
+} from './blockCatalogue';
+
+describe('catalogue integrity', () => {
+  it('has unique type ids', () => {
+    const ids = BLOCK_TYPE_CATALOGUE.map((e) => e.type);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('every child-only parent is itself a catalogued container', () => {
+    for (const [child, parent] of Object.entries(CHILD_ONLY_PARENT)) {
+      expect(blockTypeInfo(child), child).toBeDefined();
+      expect(blockTypeInfo(parent)?.nature, `${child} → ${parent}`).toBe('container');
+    }
+  });
+
+  it('kit-value publishers are kit-category void blocks with a name prop', () => {
+    for (const e of BLOCK_TYPE_CATALOGUE.filter((x) => x.kitValue)) {
+      expect(e.category, e.type).toBe('kit');
+      expect(e.nature, e.type).toBe('void');
+      expect(e.props?.name, e.type).toBe('string');
+    }
+  });
+
+  it('derived sets partition by nature', () => {
+    for (const e of BLOCK_TYPE_CATALOGUE) {
+      expect(CONTAINER_BLOCK_TYPES.has(e.type as never), e.type).toBe(e.nature === 'container');
+      expect(TEXT_BLOCK_TYPES.has(e.type as never), e.type).toBe(e.nature === 'text');
+    }
+  });
+});
+
+describe('type validation', () => {
+  it('accepts every catalogued type, nested or not', () => {
+    for (const e of BLOCK_TYPE_CATALOGUE) {
+      expect(findUnknownBlockType([{type: e.type}]), e.type).toBeNull();
+    }
+    expect(findUnknownBlockType([{type: 'group', children: [{type: 'kitchart'}]}])).toBeNull();
+  });
+
+  it('rejects unknown and missing types (nested too), with the tool pointer', () => {
+    expect(findUnknownBlockType([{type: 'paragraf'}])).toEqual({type: 'paragraf', reason: 'unknown'});
+    expect(findUnknownBlockType([{type: 'group', children: [{type: 'blink'}]}])?.type).toBe('blink');
+    expect(findUnknownBlockType([{}])?.type).toBe('(missing type)');
+    expect(findUnknownBlockType(['nope'])?.type).toBe('(not a block)');
+    expect(unknownBlockTypeMessage(findUnknownBlockType([{type: 'blink'}]))).toContain('list_block_types');
+  });
+
+  it('plugin types pass by pattern without a listing, and by lookup with one', () => {
+    expect(isPluginBlockType('openbook.ledger/journal-entry')).toBe(true);
+    expect(isPluginBlockType('paragraph')).toBe(false);
+    expect(pluginIdOfBlockType('openbook.ledger/journal-entry')).toBe('openbook.ledger');
+    // No listing available → accepted opaquely (as the apply layer always has).
+    expect(findUnknownBlockType([{type: 'openbook.ledger/journal-entry'}])).toBeNull();
+    // Listing available → the plugin must actually be installed.
+    const installed = new Set(['openbook.ledger']);
+    expect(findUnknownBlockType([{type: 'openbook.ledger/journal-entry'}], {installedPluginIds: installed})).toBeNull();
+    const bad = findUnknownBlockType([{type: 'acme.books/widget'}], {installedPluginIds: installed});
+    expect(bad).toEqual({type: 'acme.books/widget', reason: 'plugin-not-installed'});
+    expect(unknownBlockTypeMessage(bad)).toContain('not installed');
+  });
+});
+
+describe('structure validation (children-carrier + child-only + square tables)', () => {
+  it('accepts a real nested layout', () => {
+    expect(
+      blockTreeError([
+        {
+          type: 'columns',
+          children: [
+            {type: 'column', props: {span: 6}, children: [{type: 'slider', props: {name: 'x'}}]},
+            {type: 'column', props: {span: 6}, children: [{type: 'group', children: [{type: 'paragraph', text: 'hi'}]}]},
+          ],
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it('rejects children on a non-container (they would be silently dropped)', () => {
+    expect(blockTreeError([{type: 'paragraph', children: [{type: 'paragraph'}]}])).toContain('can\'t hold children');
+    // `cell` is a TEXT leaf, not a container.
+    expect(
+      blockTreeError([
+        {type: 'table', children: [{type: 'row', children: [{type: 'cell', children: [{type: 'paragraph'}]}]}]},
+      ]),
+    ).toContain('"cell"');
+  });
+
+  it('rejects a child-only type outside its parent', () => {
+    expect(blockTreeError([{type: 'row', children: [{type: 'cell'}]}])).toContain('can\'t be top-level');
+    expect(blockTreeError([{type: 'table', children: [{type: 'cell'}]}])).toContain('direct child of a "row"');
+  });
+
+  it('rejects a ragged table and names the offending row', () => {
+    const err = blockTreeError([
+      {
+        type: 'table',
+        children: [
+          {type: 'row', children: [{type: 'cell', text: 'a'}, {type: 'cell', text: 'b'}]},
+          {type: 'row', children: [{type: 'cell', text: 'only'}]},
+        ],
+      },
+    ]);
+    expect(err).toContain('same number of cells');
+    expect(err).toContain('row 2 has 1');
+    // A square table (and a childless one) is fine.
+    expect(
+      blockTreeError([
+        {
+          type: 'table',
+          children: [
+            {type: 'row', children: [{type: 'cell'}, {type: 'cell'}]},
+            {type: 'row', children: [{type: 'cell'}, {type: 'cell'}]},
+          ],
+        },
+        {type: 'table', children: []},
+      ]),
+    ).toBeNull();
+  });
+
+  it('enforces the depth and node caps', () => {
+    let deep: Record<string, unknown> = {type: 'paragraph'};
+    for (let i = 0; i < MAX_BLOCK_DEPTH; i += 1) deep = {type: 'group', children: [deep]};
+    expect(blockTreeError([deep])).toContain('nested too deeply');
+    const wide = Array.from({length: MAX_BLOCK_NODES + 1}, () => ({type: 'paragraph'}));
+    expect(blockTreeError(wide)).toContain('Too many blocks');
+    // Caps are overridable per caller.
+    expect(blockTreeError(wide, {maxNodes: MAX_BLOCK_NODES + 1})).toBeNull();
+  });
+});
+
+describe('prop value validation (permissive but typed)', () => {
+  it('checks declared props, passes unknown props, null removals, and unknown types', () => {
+    expect(invalidBlockProps('heading', {level: 2})).toBeNull();
+    expect(invalidBlockProps('heading', {level: 'two'})).toContain('"level"');
+    expect(invalidBlockProps('todo', {checked: 'yes'})).toContain('boolean');
+    expect(invalidBlockProps('slider', {value: '50'})).toContain('number');
+    expect(invalidBlockProps('checklist', {selected: 'a,b'})).toContain('array');
+    expect(invalidBlockProps('column', {span: 6})).toBeNull();
+    // Unknown props pass — the editor ignores what it doesn't know.
+    expect(invalidBlockProps('heading', {mystery: {deep: true}})).toBeNull();
+    // null removes a key, so it always passes.
+    expect(invalidBlockProps('heading', {level: null})).toBeNull();
+    // Common block chrome is typed everywhere.
+    expect(invalidBlockProps('paragraph', {bg: 42})).toContain('"bg"');
+    // Plugin/unknown types pass entirely (their props are theirs).
+    expect(invalidBlockProps('openbook.ledger/journal-entry', {ledgerRows: 7})).toBeNull();
+  });
+});
+
+describe('generated tool text', () => {
+  it('list_block_types text covers every catalogued type and declared plugin blocks', () => {
+    const text = blockCatalogueText([
+      {manifest: {id: 'openbook.ledger', name: 'Ledger', blocks: [{type: 'journal-entry', description: 'Record a transaction'}]}, enabled: true},
+    ]);
+    for (const e of BLOCK_TYPE_CATALOGUE) expect(text).toContain(`- ${e.type} (`);
+    expect(text).toContain('openbook.ledger/journal-entry');
+    expect(text).toContain('Record a transaction');
+    // Without a listing, the plugin section says so instead of guessing.
+    expect(blockCatalogueText()).toContain('listing unavailable');
+    expect(blockCatalogueText([])).toContain('none.');
+  });
+
+  it('add_blocks guidance names every catalogued type (the old prose drifted)', () => {
+    const guidance = addBlocksGuidance();
+    for (const type of KNOWN_BLOCK_TYPE_IDS) expect(guidance).toContain(type);
+  });
+});
