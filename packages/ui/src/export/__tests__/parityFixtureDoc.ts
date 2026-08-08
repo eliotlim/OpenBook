@@ -155,10 +155,13 @@ export const PARITY_PLUGIN_BLOCKS: NewBlock[] = [
     type,
     props: LEDGER_BLOCK_PROPS[type],
   })),
-  // Forward compatibility: a props-only type from no plugin at all, and one that
-  // carries text (whose content must still reach the reader).
+  // Forward compatibility: a type from a plugin nothing knows about, and a type
+  // with no `{pluginId}/` shape at all (the plain unsupported-block path). Note
+  // neither can carry text — `makeBlock` only creates a Y.Text for core
+  // TEXT_BLOCKS — so text-carrying unknowns are covered against a hand-built
+  // projection instead (see exportPluginBlocks.test.tsx).
   {id: 'lx-future', type: 'org.example.future/widget', props: {shape: 'hexagon'}},
-  {id: 'lx-texty', type: 'not-a-plugin-type', text: [{t: 'text carried by an unknown block'}]},
+  {id: 'lx-nameless', type: 'not-a-plugin-type', props: {any: 'thing'}},
 ];
 
 /** The export assets bundle the fixture needs: the artifact document text

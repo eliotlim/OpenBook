@@ -55,8 +55,11 @@ export function describeUnknownBlock(type: string, pluginName?: string): Unknown
       blockName: null,
       pluginLabel: null,
       label: humanize(raw) || 'Unsupported block',
+      // The raw type stays in the words: it is the only clue a reader (or a
+      // support thread) has about what the block was, and Markdown has no
+      // attribute to hide it in.
       hint: raw
-        ? `Unsupported block “${raw}” — open the page in OpenBook to see it.`
+        ? `Unsupported block type “${raw}” — open the page in OpenBook to see it.`
         : 'Unsupported block — open the page in OpenBook to see it.',
     };
   }
