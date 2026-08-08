@@ -712,8 +712,12 @@ export function ensureNotEmpty(doc: Y.Doc): void {
  *                                             index in its row array is NOT
  *                                             its column.
  *
- * Order keys are fractional base-62 strings (`orderKeys.ts`): plain string
- * `<` is the comparator. Render order:
+ * Order keys are fractional base-62 strings (`orderKeys.ts`, which re-exports
+ * the shared implementation from `@book.dev/sdk` — the SERVER-SIDE twin of these
+ * ops, `packages/sdk/src/tableSnapshot.ts`, mints keys with the same algebra so
+ * a table migrated by the MCP tools and one migrated here are identical; the
+ * cross-path invariant is pinned by `__tests__/tableOpParity.test.ts`): plain
+ * string `<` is the comparator. Render order:
  *   rows    — sort by (ord, id); rows without `ord` keep array order, after
  *             all keyed rows (only possible mid-merge with a legacy peer).
  *   columns — registry entries sorted by (key, id). A row's cells bind to
