@@ -32,6 +32,8 @@ export {
   TunnelClient,
   MemoryKeyStore,
   SITE_VISIBILITIES,
+  SiteReattachError,
+  type SiteReattachErrorCode,
   mintSiteKeypair,
   signWithSiteKey,
   verifyWithSiteKey,

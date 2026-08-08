@@ -1,5 +1,13 @@
 import {describe, expect, it} from 'vitest';
-import {ForwardingClient, FORWARDED_HEADER, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@book.dev/sdk';
+import {
+  ForwardingClient,
+  FORWARDED_HEADER,
+  MemoryKeyStore,
+  SiteReattachError,
+  mintSiteKeypair,
+  type KeyStore,
+  type SiteIdentity,
+} from '@book.dev/sdk';
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'}});
@@ -15,7 +23,7 @@ const waitFor = async (pred: () => boolean, timeoutMs = 2000): Promise<void> => 
   }
 };
 
-const opts = (keyStore: MemoryKeyStore, fetchImpl: typeof fetch) => ({
+const opts = (keyStore: KeyStore, fetchImpl: typeof fetch) => ({
   accountUrl: 'https://account.book.pub',
   authToken: 'device-token',
   keyStore,
@@ -64,22 +72,150 @@ describe('ForwardingClient.ensureSite (the provisioning toggle)', () => {
     expect(paths).toEqual(['/api/sites/challenge', '/api/sites/reattach']);
   });
 
-  it('re-provisions when reattach fails (stale/rotated key)', async () => {
-    const kp = await mintSiteKeypair();
-    const keyStore = new MemoryKeyStore();
-    await keyStore.save({siteId: 'old', prefix: 'p', host: 'p.book.pub', publicKey: kp.publicKey, privateKey: kp.privateKey});
-
-    const fetchImpl: typeof fetch = async (input) => {
-      const path = new URL(String(input)).pathname;
-      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
-      if (path === '/api/sites/reattach') return json({error: 'unknown site'}, 404);
-      if (path === '/api/sites') return json({site: {id: 'new', prefix: 'q', host: 'q.book.pub', publicKey: 'P2'}, privateKey: 'K2'}, 201);
-      throw new Error(`unexpected ${path}`);
+  // The instance name is a pure hash of the site key, so replacing the stored
+  // identity RENAMES the published address. ensureSite may provision over a held
+  // identity in exactly one case: the account itself confirmed no site holds the
+  // key (reattach 404). Every other reattach failure keeps the identity and
+  // surfaces a SiteReattachError (NAME-1).
+  describe('reattach failures (name stability)', () => {
+    const seeded = async (): Promise<{keyStore: MemoryKeyStore; stored: SiteIdentity}> => {
+      const kp = await mintSiteKeypair();
+      const stored: SiteIdentity = {siteId: 'old', prefix: 'p', host: 'p.book.pub', publicKey: kp.publicKey, privateKey: kp.privateKey};
+      const keyStore = new MemoryKeyStore();
+      await keyStore.save(stored);
+      return {keyStore, stored};
     };
-    const id = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite();
 
-    expect(id.siteId).toBe('new');
-    expect((await keyStore.load())?.siteId).toBe('new');
+    it('re-provisions ONLY on 404 — the account confirmed no site holds this key', async () => {
+      const {keyStore} = await seeded();
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+        if (path === '/api/sites/reattach') return json({error: 'no site for that key'}, 404);
+        if (path === '/api/sites') return json({site: {id: 'new', prefix: 'q', host: 'q.book.pub', publicKey: 'P2'}, privateKey: 'K2'}, 201);
+        throw new Error(`unexpected ${path}`);
+      };
+      const id = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite();
+
+      expect(id.siteId).toBe('new');
+      expect((await keyStore.load())?.siteId).toBe('new');
+    });
+
+    it('503 (challenge-store outage) → retryable error, NO provision, identity intact', async () => {
+      const {keyStore, stored} = await seeded();
+      const paths: string[] = [];
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+        if (path === '/api/sites/reattach') return json({error: 'challenge store unavailable'}, 503);
+        throw new Error(`unexpected ${path}`);
+      };
+      const err = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SiteReattachError);
+      expect((err as SiteReattachError).code).toBe('unreachable');
+      expect((err as SiteReattachError).retryable).toBe(true);
+      expect(paths).not.toContain('/api/sites'); // never provisioned
+      expect((await keyStore.load())?.siteId).toBe(stored.siteId); // address kept
+    });
+
+    it('network failure → retryable error, NO provision, identity intact', async () => {
+      const {keyStore, stored} = await seeded();
+      const fetchImpl: typeof fetch = async () => {
+        throw new TypeError('fetch failed');
+      };
+      const err = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SiteReattachError);
+      expect((err as SiteReattachError).code).toBe('unreachable');
+      expect((await keyStore.load())?.siteId).toBe(stored.siteId);
+    });
+
+    it('403 (site belongs to another account) → distinct error, NO provision, NO overwrite', async () => {
+      const {keyStore, stored} = await seeded();
+      const paths: string[] = [];
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+        if (path === '/api/sites/reattach') return json({error: 'site belongs to another account'}, 403);
+        throw new Error(`unexpected ${path}`);
+      };
+      const err = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SiteReattachError);
+      expect((err as SiteReattachError).code).toBe('wrong-account');
+      expect((err as SiteReattachError).retryable).toBe(false);
+      expect(paths).not.toContain('/api/sites');
+      expect((await keyStore.load())?.siteId).toBe(stored.siteId);
+    });
+
+    it('400 (stale nonce) → ONE fresh-challenge retry, then reattaches without provisioning', async () => {
+      const {keyStore, stored} = await seeded();
+      let challenges = 0;
+      let reattaches = 0;
+      const paths: string[] = [];
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path === '/api/sites/challenge') return json({nonce: `n${++challenges}`, ts: Date.now()});
+        if (path === '/api/sites/reattach') {
+          reattaches += 1;
+          return reattaches === 1 ? json({error: 'unknown or already-used challenge'}, 400) : json({ok: true});
+        }
+        throw new Error(`unexpected ${path}`);
+      };
+      const id = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite();
+
+      expect(id.siteId).toBe(stored.siteId); // same site, same name
+      expect(challenges).toBe(2); // the retry minted a FRESH challenge
+      expect(reattaches).toBe(2); // exactly one retry, not a loop
+      expect(paths).not.toContain('/api/sites');
+    });
+
+    it('refuses to save over a DIFFERENT identity that appeared mid-provision', async () => {
+      const kp = await mintSiteKeypair();
+      const other: SiteIdentity = {siteId: 'other', prefix: 'o', host: 'o.book.pub', publicKey: kp.publicKey, privateKey: kp.privateKey};
+      // load() reports empty (→ provision path), but by save time the slot holds
+      // ANOTHER account's identity (e.g. an account switch swapped the namespaced
+      // slot mid-flight) — ensureSite must refuse rather than clobber it.
+      let loads = 0;
+      let saved: SiteIdentity | null = null;
+      const keyStore: KeyStore = {
+        load: async () => (++loads === 1 ? null : other),
+        save: async (id) => {
+          saved = id;
+        },
+        clear: async () => undefined,
+      };
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === '/api/sites') return json({site: {id: 'new', prefix: 'q', host: 'q.book.pub', publicKey: 'P2'}, privateKey: 'K2'}, 201);
+        throw new Error(`unexpected ${path}`);
+      };
+      const err = await new ForwardingClient(opts(keyStore, fetchImpl)).ensureSite().catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(SiteReattachError);
+      expect(saved).toBeNull(); // the held identity was never overwritten
+    });
+
+    it('resetSiteIdentity() is the explicit path to a fresh address', async () => {
+      const {keyStore, stored} = await seeded();
+      const fetchImpl: typeof fetch = async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === '/api/sites') return json({site: {id: 'new', prefix: 'q', host: 'q.book.pub', publicKey: 'P2'}, privateKey: 'K2'}, 201);
+        throw new Error(`unexpected ${path}`);
+      };
+      const client = new ForwardingClient(opts(keyStore, fetchImpl));
+
+      await client.resetSiteIdentity();
+      expect(await keyStore.load()).toBeNull(); // slot cleared, on purpose
+
+      const id = await client.ensureSite(); // now — and only now — a new name
+      expect(id.siteId).toBe('new');
+      expect(id.siteId).not.toBe(stored.siteId);
+    });
   });
 });
 

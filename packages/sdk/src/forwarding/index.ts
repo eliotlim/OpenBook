@@ -12,6 +12,8 @@ export {
   ForwardingClient,
   MemoryKeyStore,
   SITE_VISIBILITIES,
+  SiteReattachError,
+  type SiteReattachErrorCode,
   type KeyStore,
   type SiteIdentity,
   type SiteVisibility,
