@@ -20,6 +20,7 @@
 
 import {mkdirSync, readFileSync, readdirSync, writeFileSync, statSync} from 'fs';
 import {join, relative, resolve} from 'path';
+import ts from 'typescript';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..');
 const OUT = resolve(import.meta.dirname, '..', 'src', 'plugins', 'bundled.gen.ts');
@@ -27,6 +28,39 @@ const FOLDS_OUT_DIR = resolve(import.meta.dirname, '..', 'src', 'export', 'ledge
 
 /** The ledger plugin's pure fold modules the export renderer compiles in. */
 const LEDGER_FOLD_MODULES = ['reports.ts', 'statements.ts'] as const;
+
+/**
+ * Every module specifier `source` can pull in at build or run time, found by
+ * walking the real TypeScript AST — not a regex. Covers static imports
+ * (default/named/namespace AND bare side-effect `import 'x'`, either quote
+ * style), re-exports (`export ... from 'x'`), dynamic `import('x')`,
+ * `import x = require('x')`, and CommonJS `require('x')` calls. A dynamic
+ * import/require whose argument is not a string literal is unauditable, so it
+ * is reported as a sentinel specifier the allowlist can never match — the
+ * purity gate fails CLOSED on anything it cannot read.
+ */
+function moduleSpecifiers(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const specs: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined) {
+      specs.push(ts.isStringLiteralLike(node.moduleSpecifier) ? node.moduleSpecifier.text : '<non-literal specifier>');
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      if (isDynamicImport || isRequire) {
+        const arg = node.arguments[0];
+        specs.push(arg !== undefined && ts.isStringLiteralLike(arg) ? arg.text : '<non-literal specifier>');
+      }
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const expr = node.moduleReference.expression;
+      specs.push(ts.isStringLiteralLike(expr) ? expr.text : '<non-literal specifier>');
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return specs;
+}
 
 /** Recursively collect all files under `dir`, returning paths relative to `base`. */
 function walk(dir: string, base: string): string[] {
@@ -113,14 +147,16 @@ console.log(`wrote ${relative(process.cwd(), OUT)} (${PLUGINS.length} plugin(s))
 // a mirrored module may import only `@book.dev/plugin-sdk` (rewritten to the
 // host `@book.dev/sdk`) or a sibling fold module — anything else (React, the
 // block components, host APIs) fails the build loudly rather than silently
-// dragging the plugin runtime into the export bundle.
+// dragging the plugin runtime into the export bundle. The specifiers come
+// from the TypeScript AST (moduleSpecifiers), so side-effect imports, dynamic
+// import()/require() and both quote styles are all caught — "any
+// non-sanctioned import fails the build" is airtight, not regex-deep.
 mkdirSync(FOLDS_OUT_DIR, {recursive: true});
 for (const file of LEDGER_FOLD_MODULES) {
   const srcPath = resolve(ROOT, 'examples/plugins/ledger/src', file);
   const source = readFileSync(srcPath, 'utf-8');
   const siblingNames = LEDGER_FOLD_MODULES.map((f) => f.replace(/\.ts$/, ''));
-  for (const m of source.matchAll(/from\s+'([^']+)'/g)) {
-    const spec = m[1];
+  for (const spec of moduleSpecifiers(file, source)) {
     const ok = spec === '@book.dev/plugin-sdk' || siblingNames.some((s) => spec === `./${s}`);
     if (!ok) throw new Error(`ledger fold mirror: ${file} imports ${spec} — not a pure fold module`);
   }
