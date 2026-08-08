@@ -332,6 +332,9 @@ describe('LX-3 — golden: Startup Books export renders fold-exact report tables
       const [card] = placeholders(html, T(name));
       expect(card).toBeTruthy();
       expect(card).toContain('Interactive ledger tool');
+      // The tail ends on "OpenBook" — the longer "…OpenBook to use it." wrapped
+      // inside the card and orphaned "it." on a line of its own (Devon F1).
+      expect(card).toContain('has no static view. Open the page in OpenBook.</p>');
     }
     expect(describeLedgerInteractiveBlock(T('trial-balance'))).toBeNull();
   });

@@ -184,7 +184,10 @@ const LEDGER_DB = {accounts: 'lgdb-acc', transactions: 'lgdb-tx', postings: 'lgd
 const LEDGER_HOSTS = {accounts: 'lghost-acc', transactions: 'lghost-tx', postings: 'lghost-po', reconciliations: 'lghost-rec'};
 
 export const PARITY_LEDGER_BLOCKS: NewBlock[] = [
-  {id: 'lg-h1', type: 'heading', props: {level: 1}, text: [{t: 'Startup books'}]},
+  // NOT the page name ("Startup books"): the viewer renders the page title
+  // itself, so a matching H1 read as a duplicate-title bug in the LX-5 design
+  // captures (Devon F5).
+  {id: 'lg-h1', type: 'heading', props: {level: 1}, text: [{t: 'Reports'}]},
   {id: 'lg-p1', type: 'paragraph', text: [{t: 'Reports computed by the exporter — they must survive hydration.'}]},
   {id: 'lg-journal', type: 'openbook.ledger/journal-entry' as never, props: {ledgerRows: '', ledgerDraftId: 'lgtx-0'}},
   {id: 'lg-tb', type: 'openbook.ledger/trial-balance' as never, props: {ledgerTbShowZero: false}},

@@ -211,7 +211,10 @@ export function describeLedgerInteractiveBlock(type: string): {label: string; hi
   if (!INTERACTIVE_BLOCKS.has(type)) return null;
   return {
     label: describeUnknownBlock(type).label,
-    hint: 'Interactive ledger tool — it works on the live books and has no static view. Open the page in OpenBook to use it.',
+    // Ends on "OpenBook", not "OpenBook to use it": the longer tail wrapped in
+    // the card and left an orphaned "it." on its own line on all four (Devon F1),
+    // and "to use it" adds nothing the sentence hasn't already said.
+    hint: 'Interactive ledger tool — it works on the live books and has no static view. Open the page in OpenBook.',
   };
 }
 
@@ -462,14 +465,14 @@ function accountRegisterTable(block: LedgerBlockRef, props: Record<string, unkno
   const body = register.rows
     .map(
       (r) =>
-        `<tr><td>${esc(r.date)}</td><td class="num">${r.entryNo === null ? '' : `#${r.entryNo}`}</td>` +
+        `<tr><td class="date">${esc(r.date)}</td><td class="num">${r.entryNo === null ? '' : `#${r.entryNo}`}</td>` +
         `<td>${esc(r.description)}${r.reversed ? ' <span class="ledger-reversed">(reversed)</span>' : ''}</td>` +
         `<td>${esc(r.contra)}</td>${drCrCells(r.amountMinor)}` +
         `<td class="num">${esc(formatWithSide(r.runningMinor))}</td></tr>`,
     )
     .join('');
   const table =
-    '<table class="ledger-table"><thead><tr><th>Date</th><th class="num">Entry</th><th>Description</th><th>Contra account</th>' +
+    '<table class="ledger-table"><thead><tr><th class="date">Date</th><th class="num">Entry</th><th>Description</th><th>Contra account</th>' +
     '<th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>' +
     `<tbody>${opening}${body}</tbody>` +
     `<tfoot><tr class="ledger-total"><td colspan="4">Totals</td><td class="num">${formatAmount(register.totalDebitMinor)}</td>` +

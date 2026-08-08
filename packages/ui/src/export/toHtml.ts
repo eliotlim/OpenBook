@@ -1248,11 +1248,16 @@ figure.ob-artifact { margin: 1.2em 0; }
 .ob-artifact-label { font-weight: 600; }
 .ob-artifact-hint { font-size: .85rem; opacity: .65; }
 /* Plugin / unknown block placeholder (LX-1). Same dashed-card language as the
-   artifact placeholder above; kept whole across a PDF page break. */
-.ob-plugin-block { margin: 1.2em 0; padding: 14px 16px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; background: rgba(127,127,127,.05); break-inside: avoid; page-break-inside: avoid; }
-.ob-plugin-block > p { margin: 0; }
+   artifact placeholder above; kept whole across a PDF page break.
+   Metrics match the app's .obe-missing-plugin card (Devon F2): a hydrated
+   export can show BOTH families on one page — a preserved ledger card next to
+   the viewer's install card (LX-5) — and mismatched padding/tint made their
+   left text edges disagree by a couple of pixels down the page. Same padding,
+   same untinted ground, same 0.8rem body. */
+.ob-plugin-block { margin: 1.2em 0; padding: 0.6rem 0.75rem; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; break-inside: avoid; page-break-inside: avoid; }
+.ob-plugin-block > p { margin: 0; font-size: .8rem; line-height: 1.3; }
 .ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
-.ob-plugin-block > p.ob-plugin-block-hint { font-size: .85rem; opacity: .65; margin-top: 2px; }
+.ob-plugin-block > p.ob-plugin-block-hint { opacity: .65; margin-top: 2px; }
 .ob-plugin-block > p.ob-plugin-block-text { margin-top: 8px; }
 /* Ledger report tables (LX-3). Money columns are right-aligned tabular digits;
    totals carry the double-rule emphasis; a report never splits across a PDF
@@ -1271,6 +1276,9 @@ table.ledger-table tr { break-inside: avoid; page-break-inside: avoid; }
 table.ledger-table th, table.ledger-table td { border: 1px solid rgba(127,127,127,.3); padding: 5px 10px; text-align: left; vertical-align: top; }
 table.ledger-table thead th { background: rgba(127,127,127,.08); font-weight: 600; }
 table.ledger-table th.num, table.ledger-table td.num { text-align: right; white-space: nowrap; }
+/* An ISO date is one token, not two: the register's narrow date column used to
+   break it as "2026-" / "07-09" (Devon F3). */
+table.ledger-table th.date, table.ledger-table td.date { white-space: nowrap; }
 table.ledger-table tr.ledger-section th { background: rgba(127,127,127,.08); font-weight: 700; }
 table.ledger-table tr.ledger-total td { font-weight: 700; border-top: 2px solid rgba(127,127,127,.55); }
 table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }
