@@ -286,6 +286,22 @@ const refuse = (reason: string): LedgerSectionParseResult => ({ok: false, reason
  *    exactly one period, and closed ranges do not overlap.
  */
 export function parseLedgerExportSection(section: LedgerExportSection): LedgerSectionParseResult {
+  // The HTTP door hands this raw request JSON — hold the whole envelope to the
+  // same suspicion as its contents (a null/array body must refuse, not throw).
+  if (!isRecord(section) || !isRecord(section.settings) || !isRecord(section.library)) {
+    return refuse('the section is not a {settings, library, auditHead} object');
+  }
+  if (!Array.isArray(section.library.pages) || !Array.isArray(section.library.databases)) {
+    return refuse('the section library does not carry pages[] and databases[]');
+  }
+  let auditHead: LedgerExportSection['auditHead'] = null;
+  if (section.auditHead !== null && section.auditHead !== undefined) {
+    const {seq, hash} = section.auditHead as {seq?: unknown; hash?: unknown};
+    if (typeof seq !== 'number' || !Number.isFinite(seq) || typeof hash !== 'string') {
+      return refuse('the section auditHead is not null or {seq, hash}');
+    }
+    auditHead = {seq, hash};
+  }
   const rawIds = section.settings?.[
     'ledgerDb'
   ] as Partial<{hostPageId: string} & LedgerDatabases & {hostPages: Record<string, string>}> | undefined;
@@ -542,6 +558,6 @@ export function parseLedgerExportSection(section: LedgerExportSection): LedgerSe
   const evidenceDropped = transactions.reduce((n, t) => n + t.evidenceCount, 0);
   return {
     ok: true,
-    book: {accounts, transactions, reconciliations, periods, auditHead: section.auditHead ?? null, evidenceDropped},
+    book: {accounts, transactions, reconciliations, periods, auditHead, evidenceDropped},
   };
 }
