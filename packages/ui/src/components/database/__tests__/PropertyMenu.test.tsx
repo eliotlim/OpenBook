@@ -6,12 +6,16 @@ import {PropertyMenu} from '../databaseMenus';
 import type {PropertyMenuHandle} from '../databaseMenus';
 import type {UseDatabase} from '../useDatabase';
 
-// PropertyMenu itself pulls no provider hooks, but its module does — stub the
-// provider surface so the component mounts without the full app tree.
-vi.mock('@/providers', () => ({
-  useNavigation: () => ({pages: [], pageLabel: () => ''}),
-  useTranslation: () => ({t: (k: string) => k}),
-}));
+// PropertyMenu's module pulls provider hooks — stub the provider surface so the
+// component mounts without the full app tree. The shared ColumnMenuItems stack
+// translates its labels, so hand it the real (English) `t`.
+vi.mock('@/providers', async () => {
+  const {t} = await import('@/i18n');
+  return {
+    useNavigation: () => ({pages: [], pageLabel: () => ''}),
+    useTranslation: () => ({t}),
+  };
+});
 
 afterEach(cleanup);
 
@@ -23,6 +27,9 @@ const makeDb = (): UseDatabase =>
     database: {schema: {properties: [property]}},
     updateProperty: vi.fn().mockResolvedValue(undefined),
     deleteProperty: vi.fn().mockResolvedValue(undefined),
+    updateView: vi.fn().mockResolvedValue(undefined),
+    insertProperty: vi.fn().mockResolvedValue('p-new'),
+    duplicateProperty: vi.fn().mockResolvedValue(undefined),
   }) as unknown as UseDatabase;
 
 describe('PropertyMenu openAtPointer handle (CM-4 rework)', () => {
@@ -56,5 +63,26 @@ describe('PropertyMenu openAtPointer handle (CM-4 rework)', () => {
     act(() => ref.current!.openAtPointer({clientX: 0, clientY: 0}));
     fireEvent.click(screen.getByText('Delete property'));
     expect(db.deleteProperty).toHaveBeenCalledWith('p1');
+  });
+
+  // TBL-9: the `⋯` editor and the header right-click render the SAME shared
+  // column item list (ColumnMenuItems) — the popover shows it as a button stack.
+  it('shows the shared column action list (sort / filter / hide / insert)', () => {
+    render(<PropertyMenu property={property} db={makeDb()} index={0} count={1} />);
+    fireEvent.click(screen.getByLabelText('Property options'));
+    expect(screen.getByText('Sort ascending')).toBeTruthy();
+    expect(screen.getByText('Sort descending')).toBeTruthy();
+    expect(screen.getByText('Filter by Priority')).toBeTruthy();
+    expect(screen.getByText('Hide in view')).toBeTruthy();
+    expect(screen.getByText('Insert left')).toBeTruthy();
+    expect(screen.getByText('Insert right')).toBeTruthy();
+  });
+
+  it('inserts a column beside this one through the shared list', () => {
+    const db = makeDb();
+    render(<PropertyMenu property={property} db={db} index={0} count={1} />);
+    fireEvent.click(screen.getByLabelText('Property options'));
+    fireEvent.click(screen.getByText('Insert right'));
+    expect(db.insertProperty).toHaveBeenCalledWith({name: '', type: 'text'}, 'p1', 'right', 'v1');
   });
 });

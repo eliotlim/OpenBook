@@ -170,6 +170,14 @@ export interface UseDatabase {
   addPropertyForView: (viewId: string, input: NewPropertyInput, field: ViewPropertyField) => Promise<string | undefined>;
   /** Clone a property (its full config) into a new column just after it. */
   duplicateProperty: (propertyId: string) => Promise<void>;
+  /**
+   * Create a property inserted immediately left/right of `anchorId` in the
+   * schema order — and, when `viewId` names a view with an explicit
+   * `visiblePropertyIds` list, spliced in beside the anchor there too (one
+   * atomic schema write, so the new column can't land hidden or trailing).
+   * Returns the new property id.
+   */
+  insertProperty: (input: NewPropertyInput, anchorId: string, side: 'left' | 'right', viewId?: string) => Promise<string | undefined>;
   updateProperty: (propertyId: string, patch: PropertyPatch) => Promise<void>;
   /** Move a property left/right among the columns (delta -1 or +1). */
   moveProperty: (propertyId: string, delta: number) => Promise<void>;
@@ -856,6 +864,29 @@ export function useDatabase(
     [database, saveSchema],
   );
 
+  const insertProperty = useCallback(
+    async (input: NewPropertyInput, anchorId: string, side: 'left' | 'right', viewId?: string): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const property = buildProperty(input, database.schema.properties);
+      const props = [...database.schema.properties];
+      const at = props.findIndex((p) => p.id === anchorId);
+      props.splice(at < 0 ? props.length : side === 'left' ? at : at + 1, 0, property);
+      // A view with a pinned column list orders (and gates) its columns by
+      // `visiblePropertyIds` — splice the new column in beside the anchor there
+      // too, else "insert left/right" would create an invisible property.
+      const views = database.schema.views.map((v) => {
+        if (v.id !== viewId || !v.visiblePropertyIds?.length) return v;
+        const ids = [...v.visiblePropertyIds];
+        const vat = ids.indexOf(anchorId);
+        ids.splice(vat < 0 ? ids.length : side === 'left' ? vat : vat + 1, 0, property.id);
+        return {...v, visiblePropertyIds: ids};
+      });
+      await saveSchema({...database.schema, properties: props, views});
+      return property.id;
+    },
+    [database, saveSchema],
+  );
+
   const reorderProperty = useCallback(
     async (propertyId: string, beforeId: string | null): Promise<void> => {
       if (!database || propertyId === beforeId) return;
@@ -1134,6 +1165,7 @@ export function useDatabase(
     addProperty,
     addPropertyForView,
     duplicateProperty,
+    insertProperty,
     updateProperty,
     moveProperty,
     reorderProperty,

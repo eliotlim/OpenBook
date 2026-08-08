@@ -4,12 +4,18 @@ import {RowContextMenu} from '../databaseLayouts';
 import type {UseDatabase} from '../useDatabase';
 
 // databaseLayouts pulls in the navigation provider at module load; stub it so the
-// component tree mounts without the full provider stack. RowContextMenu itself
-// copies a row link through useCopyPageLink — mock that with a hoisted spy so the
-// copy-link test can assert the row id it was handed.
-vi.mock('@/providers', () => ({
-  useNavigation: () => ({setPageHint: vi.fn()}),
-}));
+// component tree mounts without the full provider stack. The shared RowMenuItems
+// list translates its labels — hand it the real (English) `t` so the assertions
+// below read like the UI. RowContextMenu copies a row link through
+// useCopyPageLink — mock that with a hoisted spy so the copy-link test can
+// assert the row id it was handed.
+vi.mock('@/providers', async () => {
+  const {t} = await import('@/i18n');
+  return {
+    useNavigation: () => ({setPageHint: vi.fn()}),
+    useTranslation: () => ({t}),
+  };
+});
 const {copyLink} = vi.hoisted(() => ({copyLink: vi.fn()}));
 vi.mock('@/lib/useCopyPageLink', () => ({
   useCopyPageLink: () => copyLink,
@@ -25,6 +31,7 @@ const makeDb = (): UseDatabase =>
     hostPageId: 'db-host',
     openRow: vi.fn(),
     openRowIn: vi.fn(),
+    addRowBefore: vi.fn().mockResolvedValue(undefined),
     addRowAfter: vi.fn().mockResolvedValue(undefined),
     duplicateRow: vi.fn().mockResolvedValue(undefined),
     deleteRow: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +53,7 @@ describe('RowContextMenu', () => {
     expect(screen.getByText('Open in new tab')).toBeTruthy();
     expect(screen.getByText('Open in new window')).toBeTruthy();
     expect(screen.getByText('Copy link')).toBeTruthy();
+    expect(screen.getByText('Insert above')).toBeTruthy();
     expect(screen.getByText('Insert below')).toBeTruthy();
     expect(screen.getByText('Duplicate')).toBeTruthy();
     expect(screen.getByText('Delete')).toBeTruthy();
@@ -95,5 +103,12 @@ describe('RowContextMenu', () => {
     renderMenu(db2);
     fireEvent.click(screen.getByText('Delete'));
     expect(db2.deleteRow).toHaveBeenCalledWith('row-1');
+  });
+
+  it('inserts a row above via the shared item list (TBL-9)', () => {
+    const db = makeDb();
+    renderMenu(db);
+    fireEvent.click(screen.getByText('Insert above'));
+    expect(db.addRowBefore).toHaveBeenCalledWith('row-1');
   });
 });

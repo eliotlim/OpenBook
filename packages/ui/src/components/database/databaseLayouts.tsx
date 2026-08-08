@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
-import {AppWindow, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy, ExternalLink, GripVertical, Link2, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
+import {ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, GripVertical, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -36,10 +36,10 @@ import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
-import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
 import type {UseDatabase} from './useDatabase';
+import {RowMenuItems} from './databaseMenuItems';
 import {cellValue, formatCellValue, SelectChip} from './databaseCells';
 import {dotStyle, swatchColor} from './databaseColors';
 import {RowHoverCard} from './DatabaseCard';
@@ -219,47 +219,21 @@ export function rowColor(row: DatabaseRow, view: DbView, properties: DatabasePro
  * ({@link PageMenuItems}); `openRowIn` seeds the title hint so a freshly opened
  * surface shows the row's name at once.
  */
-export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children: React.ReactNode}> = ({db, rowId, children}) => {
-  const copyLink = useCopyPageLink();
-  return (
-    <ContextMenu>
-      {/* `data-row-anchor` marks the row's DOM node so a copied row link
-          (`?page=<hostDb>&row=<id>`) can scroll to + flash it on load. asChild
-          forwards the attribute onto the wrapped card/row element (Radix Slot). */}
-      <ContextMenuTrigger asChild data-row-anchor={rowId}>
-        {children}
-      </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
-        <ContextMenuItem onSelect={() => db.openRow(rowId)}>
-          <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'tab')}>
-          <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'window')}>
-          <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* Anchor at the host database page, not the row-as-standalone-page, so
-            the link reopens the row IN CONTEXT (scrolled to + highlighted). */}
-        <ContextMenuItem onSelect={() => copyLink(db.hostPageId, {row: rowId})}>
-          <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.addRowAfter(rowId)}>
-          <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.duplicateRow(rowId)}>
-          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void db.deleteRow(rowId)} className="text-destructive focus:text-destructive">
-          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-};
+export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children: React.ReactNode}> = ({db, rowId, children}) => (
+  <ContextMenu>
+    {/* `data-row-anchor` marks the row's DOM node so a copied row link
+        (`?page=<hostDb>&row=<id>`) can scroll to + flash it on load. asChild
+        forwards the attribute onto the wrapped card/row element (Radix Slot). */}
+    <ContextMenuTrigger asChild data-row-anchor={rowId}>
+      {children}
+    </ContextMenuTrigger>
+    <ContextMenuContent className="w-52">
+      {/* The shared row item list — the same items as the table's cell
+          right-click and the row `⋯` dropdown (TBL-9, single source). */}
+      <RowMenuItems db={db} rowId={rowId} menu="context" />
+    </ContextMenuContent>
+  </ContextMenu>
+);
 
 /** The in-menu rename field: an input pre-filled with the group's label, committing
  *  on Enter/blur and cancelling on Escape (a `done` latch prevents the unmount blur

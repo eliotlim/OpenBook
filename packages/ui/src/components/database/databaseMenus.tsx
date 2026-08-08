@@ -1,4 +1,4 @@
-import React, {useImperativeHandle, useState} from 'react';
+import React, {useImperativeHandle, useMemo, useState} from 'react';
 import {Select} from '@/components/ui/select';
 import {
   ArrowDownAZ,
@@ -9,9 +9,7 @@ import {
   Calendar,
   ChevronDown,
   Columns3,
-  Copy,
   Eye,
-  EyeOff,
   Filter,
   GanttChartSquare,
   GripVertical,
@@ -76,6 +74,7 @@ import {cn} from '@/lib/utils';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
 import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
+import {ColumnMenuItems, popoverColumnComponents} from './databaseMenuItems';
 
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'text', label: 'Text'},
@@ -641,6 +640,9 @@ export const PropertyMenu = React.forwardRef<
   // trigger button. Cleared on close so a later `⋯` click re-anchors normally.
   const [pointer, setPointer] = useState<{x: number; y: number} | null>(null);
   const numeric = property.type === 'number' || property.type === 'formula' || property.type === 'expr' || property.type === 'rollup';
+  // The shared column items rendered as a popover button stack; any action
+  // closes the popover (the same UX as picking a menu item).
+  const popoverComponents = useMemo(() => popoverColumnComponents(() => setOpen(false)), []);
 
   useImperativeHandle(
     ref,
@@ -874,29 +876,6 @@ export const PropertyMenu = React.forwardRef<
           className={cn(fieldClass, 'w-full text-xs')}
         />
 
-        {db.activeView && (
-          <div className="flex items-center gap-1 border-t border-border pt-2">
-            <button
-              onClick={() => {
-                setOpen(false);
-                void db.updateView(db.activeView!.id, {sorts: [{propertyId: property.id, direction: 'asc'}]});
-              }}
-              className={cn(toolButtonClass, 'flex-1 justify-center')}
-            >
-              <ArrowDownAZ className="h-3.5 w-3.5" /> Sort asc
-            </button>
-            <button
-              onClick={() => {
-                setOpen(false);
-                void db.updateView(db.activeView!.id, {sorts: [{propertyId: property.id, direction: 'desc'}]});
-              }}
-              className={cn(toolButtonClass, 'flex-1 justify-center')}
-            >
-              <ArrowUpAZ className="h-3.5 w-3.5" /> Sort desc
-            </button>
-          </div>
-        )}
-
         <div className="flex items-center gap-1 border-t border-border pt-2">
           <button
             disabled={index <= 0}
@@ -913,37 +892,20 @@ export const PropertyMenu = React.forwardRef<
             Right <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
-        <button
-          onClick={() => {
-            setOpen(false);
-            void db.duplicateProperty(property.id);
-          }}
-          className={cn(toolButtonClass, 'w-full justify-center')}
-        >
-          <Copy className="h-3.5 w-3.5" /> Duplicate property
-        </button>
+        {/* The shared column action list (sort / filter / group / hide / insert /
+            duplicate / delete) — the same items as the header's right-click
+            ColumnContextMenu, rendered as a button stack (TBL-9, single source).
+            No "Edit property…" here: this popover IS the editor. */}
         {db.activeView && (
-          <button
-            onClick={() => {
-              setOpen(false);
-              const all = (db.database?.schema.properties ?? []).map((p) => p.id);
-              const current = db.activeView!.visiblePropertyIds?.length ? db.activeView!.visiblePropertyIds : all;
-              void db.updateView(db.activeView!.id, {visiblePropertyIds: current.filter((id) => id !== property.id)});
-            }}
-            className={cn(toolButtonClass, 'w-full justify-center')}
-          >
-            <EyeOff className="h-3.5 w-3.5" /> Hide in view
-          </button>
+          <div className="border-t border-border pt-1.5">
+            <ColumnMenuItems
+              db={db}
+              view={db.activeView}
+              property={property}
+              components={popoverComponents}
+            />
+          </div>
         )}
-        <button
-          onClick={() => {
-            setOpen(false);
-            void db.deleteProperty(property.id);
-          }}
-          className={cn(toolButtonClass, 'w-full justify-center text-destructive hover:text-destructive')}
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete property
-        </button>
       </PopoverContent>
     </Popover>
   );

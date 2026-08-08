@@ -1,15 +1,13 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
   flattenRowTree,
   groupRowsBy,
   PARENT_GROUP_ID,
-  shortId,
   summarizeColumn,
   TITLE_PROPERTY_ID,
-  type DatabaseFilter,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
@@ -47,12 +45,12 @@ import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
-import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {useNavigation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
 import {useDatabase, type UseDatabase} from './useDatabase';
+import {addQuickFilter, ColumnMenuItems, RowMenuItems, type RowMenuBulk} from './databaseMenuItems';
 import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
 import type {PropertyMenuHandle} from './databaseMenus';
@@ -79,15 +77,10 @@ import {dotStyle} from './databaseColors';
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
   row.exports[property.cellName ?? property.name];
 
-/** Per-row overflow menu: open in split, insert below, duplicate, delete. */
-const RowMenu: React.FC<{
-  onOpen: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onSaveTemplate: () => void;
-  onInsertBelow?: () => void;
-  onInsertAbove?: () => void;
-}> = ({onOpen, onDuplicate, onDelete, onSaveTemplate, onInsertBelow, onInsertAbove}) => (
+/** Per-row `⋯` overflow menu: the shared row item list ({@link RowMenuItems})
+ *  rendered through the dropdown family — the same items as the right-click
+ *  menus, so the two surfaces can't drift (TBL-9). */
+const RowMenu: React.FC<{db: UseDatabase; rowId: string; bulk?: RowMenuBulk | null}> = ({db, rowId, bulk}) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
       <IconButton
@@ -98,35 +91,8 @@ const RowMenu: React.FC<{
         <MoreHorizontal className="h-4 w-4" />
       </IconButton>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-44">
-      <DropdownMenuItem onClick={onOpen}>
-        <PanelRightOpen className="mr-2 h-4 w-4" />
-        Open in split
-      </DropdownMenuItem>
-      {onInsertAbove && (
-        <DropdownMenuItem onClick={onInsertAbove}>
-          <Plus className="mr-2 h-4 w-4" />
-          Insert above
-        </DropdownMenuItem>
-      )}
-      {onInsertBelow && (
-        <DropdownMenuItem onClick={onInsertBelow}>
-          <Plus className="mr-2 h-4 w-4" />
-          Insert below
-        </DropdownMenuItem>
-      )}
-      <DropdownMenuItem onClick={onDuplicate}>
-        <Copy className="mr-2 h-4 w-4" />
-        Duplicate
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={onSaveTemplate}>
-        <Save className="mr-2 h-4 w-4" />
-        Save as template
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-        <Trash2 className="mr-2 h-4 w-4" />
-        Delete
-      </DropdownMenuItem>
+    <DropdownMenuContent align="end" className="w-52">
+      <RowMenuItems db={db} rowId={rowId} menu="dropdown" withTemplate bulk={bulk} />
     </DropdownMenuContent>
   </DropdownMenu>
 );
@@ -244,17 +210,12 @@ const DATE_FILTER_PRESETS: {operator: FilterOperator; label: string}[] = [
   {operator: 'is_next_week', label: 'Next week'},
 ];
 
-/** Append a leaf condition to the active view's filter tree (clearing the legacy flat list). */
-function addQuickFilter(db: UseDatabase, view: DbView, propertyId: string, operator: FilterOperator, value: unknown): void {
-  const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
-  const condition: DatabaseFilter = {id: shortId('filter'), propertyId, operator, value};
-  void db.updateView(view.id, {filterRoot: {...root, filters: [...root.filters, condition]}, filters: []});
-}
-
 /**
  * Right-click any row cell for quick actions: filter the view by the cell's value,
- * sort by its column, or act on the row (open / insert / duplicate / delete).
- * `property` is omitted for the title cell (row actions only).
+ * sort by its column, or act on the row (open / insert / duplicate / delete —
+ * the shared {@link RowMenuItems} list). `property` is omitted for the title
+ * cell (row actions only). When the row is inside a 2+ selection, `bulk`
+ * appends the whole-selection duplicate/delete pair.
  */
 const CellContextMenu: React.FC<{
   db: UseDatabase;
@@ -262,10 +223,10 @@ const CellContextMenu: React.FC<{
   row: DatabaseRow;
   property?: DatabaseProperty;
   value?: unknown;
+  bulk?: RowMenuBulk | null;
   children: React.ReactNode;
-}> = ({db, view, row, property, value, children}) => {
+}> = ({db, view, row, property, value, bulk, children}) => {
   const filter = property && view ? quickFilter(property, value) : null;
-  const copyLink = useCopyPageLink();
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -313,30 +274,7 @@ const CellContextMenu: React.FC<{
             <ContextMenuSeparator />
           </>
         )}
-        <ContextMenuItem onSelect={() => db.openRow(row.id)}>
-          <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'tab')}>
-          <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'window')}>
-          <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => copyLink(db.hostPageId, {row: row.id})}>
-          <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.addRowAfter(row.id)}>
-          <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.duplicateRow(row.id)}>
-          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void db.deleteRow(row.id)} className="text-destructive focus:text-destructive">
-          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-        </ContextMenuItem>
+        <RowMenuItems db={db} rowId={row.id} menu="context" bulk={bulk} />
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -359,11 +297,6 @@ const ColumnContextMenu: React.FC<{
   // The right-click point, captured so "Edit property…" can anchor the full
   // editor where the user clicked (parity with the `⋯` button position).
   const pointer = useRef({clientX: 0, clientY: 0});
-  const hide = (): void => {
-    const all = db.database!.schema.properties.map((p) => p.id);
-    const current = view.visiblePropertyIds?.length ? view.visiblePropertyIds : all;
-    void db.updateView(view.id, {visiblePropertyIds: current.filter((id) => id !== property.id)});
-  };
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -375,49 +308,24 @@ const ColumnContextMenu: React.FC<{
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'asc'}]})}>
-          <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> Sort ascending
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'desc'}]})}>
-          <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> Sort descending
-        </ContextMenuItem>
-        {view.groupByPropertyId === property.id ? (
-          <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: undefined})}>
-            <Rows3 className="mr-2 h-3.5 w-3.5" /> Ungroup
-          </ContextMenuItem>
-        ) : (
-          <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: property.id})}>
-            <Rows3 className="mr-2 h-3.5 w-3.5" /> Group by {property.name}
-          </ContextMenuItem>
-        )}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={hide}>
-          <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide in view
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void db.duplicateProperty(property.id)}>
-          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void db.deleteProperty(property.id)} className="text-destructive focus:text-destructive">
-          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onSelect={() => {
+        <ColumnMenuItems
+          db={db}
+          view={view}
+          property={property}
+          menu="context"
+          onEditProperty={() => {
             // Defer a tick so the ContextMenu's dismiss doesn't race the
             // PropertyMenu Popover open (both react to the same interaction).
             const pt = pointer.current;
             setTimeout(() => onEditProperty(pt), 0);
           }}
-        >
-          <Pencil className="mr-2 h-3.5 w-3.5" /> Edit property…
-        </ContextMenuItem>
+        />
       </ContextMenuContent>
     </ContextMenu>
   );
 };
 
-const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, row, drag, tree, selection}) => {
+const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}; bulk?: RowMenuBulk | null}> = ({db, columns, row, drag, tree, selection, bulk}) => {
   // Colour rules resolve against the rollup rows/properties so a rule on a
   // cross-database rollup matches the value the cells display.
   const accent = db.activeView ? rowColor(row, db.activeView, db.rollupProperties, db.rollupRows) : undefined;
@@ -463,60 +371,57 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
           selection?.selected ? 'bg-accent/40' : 'bg-card',
         )}
       >
-        <div className="relative flex items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            {selection && (
-              <input
-                type="checkbox"
-                checked={selection.selected}
-                onChange={selection.onToggle}
-                onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  'h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary transition-opacity',
-                  !selection.selected && 'opacity-0 group-hover:opacity-100',
-                )}
-                aria-label="Select row"
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <TitleCell row={row} db={db} dragHandle={handle} tree={tree} />
+        {/* The title cell right-clicks into the same row menu as every other
+            cell (no property section — there's no title quick-filter). */}
+        <CellContextMenu db={db} view={db.activeView} row={row} bulk={bulk}>
+          <div className="relative flex items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              {selection && (
+                <input
+                  type="checkbox"
+                  checked={selection.selected}
+                  onChange={selection.onToggle}
+                  onClick={(e) => e.stopPropagation()}
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary transition-opacity',
+                    !selection.selected && 'opacity-0 group-hover:opacity-100',
+                  )}
+                  aria-label="Select row"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <TitleCell row={row} db={db} dragHandle={handle} tree={tree} />
+              </div>
             </div>
-          </div>
-          {/* Row actions float over the cell's tail on hover instead of
-              reserving permanent width — the name keeps the full column.
-              (Centered via inset-y + items-center, not translate: the desktop
-              WKWebView doesn't apply Tailwind v4's `translate` property.) */}
-          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 rounded-md bg-card pl-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-            {tree && (
+            {/* Row actions float over the cell's tail on hover instead of
+                reserving permanent width — the name keeps the full column.
+                (Centered via inset-y + items-center, not translate: the desktop
+                WKWebView doesn't apply Tailwind v4's `translate` property.) */}
+            <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 rounded-md bg-card pl-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              {tree && (
+                <IconButton
+                  size="sm"
+                  onClick={tree.onAddSub}
+                  className="text-muted-foreground/60"
+                  aria-label="Add sub-item"
+                  title="Add sub-item"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </IconButton>
+              )}
               <IconButton
                 size="sm"
-                onClick={tree.onAddSub}
+                onClick={() => db.openRow(row.id)}
                 className="text-muted-foreground/60"
-                aria-label="Add sub-item"
-                title="Add sub-item"
+                aria-label="Open row"
+                title="Open in split"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <PanelRightOpen className="h-3.5 w-3.5" />
               </IconButton>
-            )}
-            <IconButton
-              size="sm"
-              onClick={() => db.openRow(row.id)}
-              className="text-muted-foreground/60"
-              aria-label="Open row"
-              title="Open in split"
-            >
-              <PanelRightOpen className="h-3.5 w-3.5" />
-            </IconButton>
-            <RowMenu
-              onOpen={() => db.openRow(row.id)}
-              onInsertAbove={() => void db.addRowBefore(row.id)}
-              onInsertBelow={() => void db.addRowAfter(row.id)}
-              onDuplicate={() => void db.duplicateRow(row.id)}
-              onSaveTemplate={() => void db.saveAsTemplate(row.id)}
-              onDelete={() => void db.deleteRow(row.id)}
-            />
+              <RowMenu db={db} rowId={row.id} bulk={bulk} />
+            </div>
           </div>
-        </div>
+        </CellContextMenu>
       </td>
       {columns.map((property) => {
         // A cross-database rollup is unknowable until its foreign rows load —
@@ -524,7 +429,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
         const value = db.pendingRollups.has(property.id) ? undefined : cellValue(row, property, db.rollupProperties, db.rollupRows);
         return (
           <td key={property.id} className="border-l border-border/70 align-middle">
-            <CellContextMenu db={db} view={db.activeView} row={row} property={property} value={value}>
+            <CellContextMenu db={db} view={db.activeView} row={row} property={property} value={value} bulk={bulk}>
               <PropertyValueCell
                 property={property}
                 value={value}
@@ -643,6 +548,10 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   // The first select/status column, offered as a one-shot bulk edit.
   const bulkSetProps = schema.filter((p) => p.type === 'select' || p.type === 'status');
   const selectionOf = (id: string) => ({selected: selected.has(id), onToggle: () => toggleSelect(id)});
+  // Right-clicking (or ⋯-ing) a row that's part of a 2+ selection offers the
+  // whole-selection duplicate/delete pair alongside the single-row actions.
+  const bulkFor = (id: string): RowMenuBulk | null =>
+    selected.size > 1 && selected.has(id) ? {count: selected.size, onDuplicate: bulkDuplicate, onDelete: bulkDelete} : null;
 
   const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
   const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
@@ -901,7 +810,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                   </tr>
                   {!isCollapsed &&
                   group.rows.map((row) => (
-                    <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} selection={selectionOf(row.id)} />
+                    <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} selection={selectionOf(row.id)} bulk={bulkFor(row.id)} />
                   ))}
                   {!isCollapsed && (
                     <NewRowRow
@@ -921,7 +830,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
           ) : (
             <tbody>
               {treeRows.map((node) => (
-                <DataRow key={node.row.id} db={db} columns={columns} schema={schema} row={node.row} drag={drag} tree={treeInfo(node)} selection={selectionOf(node.row.id)} />
+                <DataRow key={node.row.id} db={db} columns={columns} schema={schema} row={node.row} drag={drag} tree={treeInfo(node)} selection={selectionOf(node.row.id)} bulk={bulkFor(node.row.id)} />
               ))}
               {db.visibleRows.length === 0 && (
                 <tr>
@@ -978,12 +887,7 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
           <RowChips row={row} properties={columns} rows={db.rollupRows} resolveProperties={db.rollupProperties} pending={db.pendingRollups} labelled />
         </div>
         <div onClick={(e) => e.stopPropagation()}>
-          <RowMenu
-            onOpen={() => db.openRow(row.id)}
-            onDuplicate={() => void db.duplicateRow(row.id)}
-            onSaveTemplate={() => void db.saveAsTemplate(row.id)}
-            onDelete={() => void db.deleteRow(row.id)}
-          />
+          <RowMenu db={db} rowId={row.id} />
         </div>
       </div>
     </RowContextMenu>
