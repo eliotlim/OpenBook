@@ -73,7 +73,9 @@ const CATALOGUE_LITERAL = [
   {type: 'notes', category: 'core', nature: 'text', hint: 'speaker note — presenter view only, never exported'},
   {type: 'divider', category: 'core', nature: 'void'},
   // ── Core media leaves ──────────────────────────────────────────────────────
-  {type: 'image', category: 'core', nature: 'void', props: {assetId: 'string', src: 'string', alt: 'string', width: 'number'}, hint: '{assetId|src,alt?,width?}'},
+  // `width` is a CSS length STRING (the editor writes percentages: '30%',
+  // '60%', `${pct}%` — see ui/blockeditor/imageBlock.ts + ImageBlockView).
+  {type: 'image', category: 'core', nature: 'void', props: {assetId: 'string', src: 'string', alt: 'string', width: 'string'}, hint: '{assetId|src,alt?,width?:"60%"}'},
   {type: 'htmlArtifact', category: 'core', nature: 'void', props: {assetId: 'string', name: 'string', height: 'number'}, hint: 'sandboxed HTML document {assetId,name?,height?}'},
   // ── Core containers (children hold ordinary blocks) ────────────────────────
   {type: 'columns', category: 'core', nature: 'container', hint: 'side-by-side layout → column children (spans sum to 12)'},
@@ -184,6 +186,7 @@ interface LooseBlock {
 export function findUnknownBlockType(
   blocks: readonly unknown[],
   opts: {installedPluginIds?: ReadonlySet<string>} = {},
+  depth = 1,
 ): UnknownBlockType | null {
   for (const raw of blocks) {
     if (!raw || typeof raw !== 'object') return {type: '(not a block)', reason: 'unknown'};
@@ -196,13 +199,20 @@ export function findUnknownBlockType(
         return {type, reason: 'plugin-not-installed'};
       }
     }
-    if (Array.isArray(b.children)) {
-      const nested = findUnknownBlockType(b.children, opts);
+    // Depth ceiling: never let a pathological payload exhaust the stack. Types
+    // below this are left to {@link blockTreeError}, which rejects any payload
+    // deeper than MAX_BLOCK_DEPTH anyway (callers run both checks).
+    if (Array.isArray(b.children) && depth < TYPE_WALK_MAX_DEPTH) {
+      const nested = findUnknownBlockType(b.children, opts, depth + 1);
       if (nested) return nested;
     }
   }
   return null;
 }
+
+/** Recursion ceiling for {@link findUnknownBlockType} — generous headroom over
+ *  {@link MAX_BLOCK_DEPTH}, purely a stack-exhaustion guard. */
+const TYPE_WALK_MAX_DEPTH = 64;
 
 /** A caller-facing message for an {@link UnknownBlockType}, or null. */
 export function unknownBlockTypeMessage(bad: UnknownBlockType | null): string | null {
@@ -254,6 +264,10 @@ export function blockTreeError(
       deepest = depth;
       deepestPath = path;
     }
+    // Once past the cap the payload is already refused ("nested too deeply");
+    // stop descending so a pathologically deep tree (tens of thousands of
+    // levels) reports cleanly instead of exhausting the stack.
+    if (depth > maxDepth) return;
     for (const [i, raw] of list.entries()) {
       count += 1;
       if (!raw || typeof raw !== 'object') continue; // findUnknownBlockType reports these
@@ -318,7 +332,10 @@ export function invalidBlockProps(type: string, props: Record<string, unknown>):
   if (!info) return null;
   const declared = {...COMMON_PROPS, ...info.props};
   for (const [key, value] of Object.entries(props)) {
-    const expect = declared[key];
+    // Own-property gate: a prop named after an Object.prototype member
+    // (`toString`, `constructor`, …) must read as UNDECLARED, not as the
+    // inherited function. (hasOwnProperty.call — the SDK targets pre-ES2022.)
+    const expect = Object.prototype.hasOwnProperty.call(declared, key) ? declared[key] : undefined;
     if (!expect || value === null || value === undefined) continue;
     const actual = Array.isArray(value) ? 'array' : typeof value;
     if (actual !== expect) {

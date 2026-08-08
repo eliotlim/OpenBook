@@ -47,6 +47,30 @@ export const TABLE_COL_PREFIX = 'col:';
 /** Prefix of the per-column colour entries (`colbg:<colId>` → palette token). */
 export const TABLE_COLBG_PREFIX = 'colbg:';
 
+/**
+ * The table order-contract PRIVATE keys (TBL-1): `row.props.ord`,
+ * `cell.props.col`, the `col:<id>` column registry, and the `colbg:<id>`
+ * column tints. They encode a table's cell order/identity — writing them
+ * through a generic props tool corrupts or hides cells, so EVERY
+ * update_block_props surface (MCP server AND the in-app agent) refuses them
+ * with {@link tableOrderContractRefusal} and points at the sanctioned table
+ * structure tools. Returns the offending key, or null when `props` touches
+ * none.
+ */
+export function tableOrderContractKey(props: Record<string, unknown>): string | null {
+  return (
+    Object.keys(props).find(
+      (k) => k === 'ord' || k === 'col' || k.startsWith(TABLE_COL_PREFIX) || k.startsWith(TABLE_COLBG_PREFIX),
+    ) ?? null
+  );
+}
+
+/** The shared refusal message for a {@link tableOrderContractKey} hit — the
+ *  SAME wording on both write surfaces, naming the table tools that own the
+ *  keys. */
+export const tableOrderContractRefusal = (key: string): string =>
+  `"${key}" is a private table order-contract key — use the table tools (inspect_table, then table_insert_row / table_move_row / table_insert_column / table_move_column / table_set_row_color / table_set_column_color) to change a table's structure, not update_block_props.`;
+
 /** One block of the `blockdoc` JSON projection, as these ops mutate it. */
 export interface SnapshotBlock {
   id?: string;

@@ -178,6 +178,45 @@ describe('update_block_props: catalogue-typed props and type changes', () => {
     expect(result).toContain('SUGGESTED for review');
   });
 
+  it('refuses the private table order-contract keys with the shared table-tools message', async () => {
+    const page = await blockPage(`ordkey-${seq}`);
+    for (const props of [{ord: 'a0'}, {col: 'c1'}, {'col:abc': 'a0'}, {'colbg:abc': 'amber'}]) {
+      const {result, events} = await runTool('update_block_props', {pageId: page.id, blockId: 'b1', props});
+      expect(result, JSON.stringify(props)).toContain('private table order-contract key');
+      expect(result).toContain('table tools');
+      expect(events.some((e) => e.type === 'suggestions')).toBe(false);
+    }
+  });
+
+  it('refuses retyping to a child-only type outside its parent, and container→leaf with children', async () => {
+    const page = await store.upsertPage({
+      name: `retype-guard-${seq}`,
+      data: {
+        editor: 'blocks',
+        blockdoc: {
+          blocks: [
+            {id: 'p1', type: 'paragraph', text: [{t: 'top-level'}]},
+            {id: 'g1', type: 'group', children: [{id: 'p2', type: 'paragraph', text: [{t: 'inside'}]}]},
+            {id: 't1', type: 'table', children: [{id: 'r1', type: 'row', children: [{id: 'c1', type: 'cell', text: [{t: 'x'}]}]}]},
+          ],
+        },
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+      },
+    });
+    // A top-level paragraph cannot become a cell (its parent is not a row).
+    const toCell = await runTool('update_block_props', {pageId: page.id, blockId: 'p1', type: 'cell'});
+    expect(toCell.result).toContain('must sit directly inside a "row"');
+    // A table holding rows cannot silently become a paragraph (children dropped).
+    const toLeaf = await runTool('update_block_props', {pageId: page.id, blockId: 't1', type: 'paragraph'});
+    expect(toLeaf.result).toContain('would silently drop');
+    // A row keeping the right parent CAN be retyped among containers... but the
+    // legitimate everyday case: retyping a childless paragraph works.
+    const ok = await runTool('update_block_props', {pageId: page.id, blockId: 'p2', type: 'todo'});
+    expect(ok.result).toContain('SUGGESTED for review');
+  });
+
   it('validates a TYPE change against the catalogue (and props against the NEW type)', async () => {
     const page = await blockPage(`retype-${seq}`);
     const bad = await runTool('update_block_props', {pageId: page.id, blockId: 'b1', type: 'blink'});

@@ -13,6 +13,8 @@ import {
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   TEXT_BLOCK_TYPES,
   unknownBlockTypeMessage,
   projectAppendBlocks,
@@ -394,21 +396,10 @@ export interface NestedBlockInput {
 // server (packages/server), which refuses an oversized request outright; the
 // caps just turn a would-be silent mis-render into an actionable message.
 
-/**
- * The table order-contract PRIVATE keys (TBL-1, model.ts): `row.props.ord`,
- * `cell.props.col`, the `col:<id>` column registry, and the `colbg:<id>` column
- * tints. They encode a table's cell order/identity — writing them through the
- * generic `update_block_props` corrupts or hides cells, so it's refused and the
- * client is pointed at the sanctioned table tools. Returns the offending key, or
- * null when `props` touches none.
- */
-function tableOrderContractKey(props: Record<string, unknown>): string | null {
-  return (
-    Object.keys(props).find(
-      (k) => k === 'ord' || k === 'col' || k.startsWith('col:') || k.startsWith('colbg:'),
-    ) ?? null
-  );
-}
+// The table order-contract private-key guard (`ord` / `col` / `col:*` /
+// `colbg:*`) is the SDK's `tableOrderContractKey` + `tableOrderContractRefusal`
+// (tableSnapshot.ts) — shared verbatim with the in-app agent's
+// update_block_props so neither surface can corrupt a table's order contract.
 
 // Schema descriptions shared by both block schemas — the type enumerations are
 // GENERATED from the SDK catalogue so they can't drift from what validation
@@ -1021,7 +1012,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       if (tableKey) {
         // The table tools this points at are the API-3 ones registered below —
         // they own these keys and maintain the order contract while writing them.
-        return failure(`"${tableKey}" is a private table order-contract key — use the table tools (inspect_table, then table_insert_row / table_move_row / table_insert_column / table_move_column / table_set_row_color / table_set_column_color) to change a table's structure, not update_block_props.`);
+        return failure(tableOrderContractRefusal(tableKey));
       }
       const info = blockInfoInSnapshot(page.data, blockId);
       if (!info) return failure(missing);

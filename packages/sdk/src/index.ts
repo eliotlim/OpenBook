@@ -283,6 +283,8 @@ export {
   snapshotTables,
   tableOpError,
   tableOpRemovesTable,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   tableShapeOf,
   type SnapshotBlock,
   type SnapshotTableGrid,

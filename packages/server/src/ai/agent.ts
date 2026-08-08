@@ -3,11 +3,14 @@ import {
   addBlocksGuidance,
   blockCatalogueText,
   blockTreeError,
+  CHILD_ONLY_PARENT,
   CONTAINER_BLOCK_TYPES,
   findUnknownBlockType,
   invalidBlockProps,
   providerSettings,
   snapshotText,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   textSnapshot,
   unknownBlockTypeMessage,
   type AgentProposal,
@@ -766,9 +769,24 @@ export class AgentRunner {
           if (type) {
             const bad = unknownBlockTypeMessage(findUnknownBlockType([{type}], {installedPluginIds: await this.installedPluginIds()}));
             if (bad) return bad;
+            // Retype guards — the same structural contract add_blocks enforces:
+            // a child-only type only directly inside its matching container, and
+            // a block that HOLDS children must stay a container (otherwise its
+            // children are silently dropped on accept).
+            const needs = CHILD_ONLY_PARENT[type];
+            if (needs && info.parentType !== needs) {
+              return `A "${type}" block must sit directly inside a "${needs}" block — this block's parent is ${info.parentType ? `a "${info.parentType}" block` : 'the page root'}, so it can't become a "${type}".`;
+            }
+            if (info.hasChildren && !(CONTAINER_BLOCK_TYPES as ReadonlySet<string>).has(type)) {
+              return `This block holds child blocks; retyping it to "${type}" (not a container) would silently drop them. Move or delete the children first.`;
+            }
           }
           const props = args.props && typeof args.props === 'object' && !Array.isArray(args.props) ? (args.props as Record<string, unknown>) : undefined;
           if (!type && !props) return 'Provide a new type and/or props to change.';
+          // The table order-contract keys (ord/col/col:*/colbg:*) are private —
+          // same guard + message as the MCP server's update_block_props.
+          const tableKey = props ? tableOrderContractKey(props) : null;
+          if (tableKey) return tableOrderContractRefusal(tableKey);
           // Permissive-but-typed prop check: only props the catalogue declares for
           // the (new) type are validated; unknown props pass through untouched.
           const propErr = props ? invalidBlockProps(type ?? info.type, props) : null;
@@ -1792,21 +1810,24 @@ function blockTextById(data: {editor?: string; blockdoc?: unknown} | null | unde
 function blockInfoById(
   data: {editor?: string; blockdoc?: unknown} | null | undefined,
   id: string,
-): {type: string; props: Record<string, unknown>} | null {
+): {type: string; props: Record<string, unknown>; parentType: string | null; hasChildren: boolean} | null {
   const blocks = blockdocBlocks(data);
   if (!blocks) return null;
-  let found: {type: string; props: Record<string, unknown>} | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
+  let found: {type: string; props: Record<string, unknown>; parentType: string | null; hasChildren: boolean} | null = null;
+  const walk = (list: AnyJsonBlock[], parentType: string | null): void => {
     for (const b of list) {
       if (found) return;
       if (b.id === id) {
-        found = {type: b.type ?? '?', props: b.props ?? {}};
+        // parentType/hasChildren feed update_block_props' retype guards: a
+        // child-only type needs the matching parent, and a container holding
+        // children must stay a container (or its children silently vanish).
+        found = {type: b.type ?? '?', props: b.props ?? {}, parentType, hasChildren: (b.children?.length ?? 0) > 0};
         return;
       }
-      if (b.children) walk(b.children);
+      if (b.children) walk(b.children, b.type ?? null);
     }
   };
-  walk(blocks);
+  walk(blocks, null);
   return found;
 }
 

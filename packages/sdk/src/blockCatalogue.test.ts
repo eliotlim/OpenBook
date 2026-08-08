@@ -169,6 +169,28 @@ describe('prop value validation (permissive but typed)', () => {
     // Plugin/unknown types pass entirely (their props are theirs).
     expect(invalidBlockProps('openbook.ledger/journal-entry', {ledgerRows: 7})).toBeNull();
   });
+
+  it('image width is a CSS length STRING (the editor writes "30%"/"60%", never numbers)', () => {
+    expect(invalidBlockProps('image', {width: '60%'})).toBeNull();
+    expect(invalidBlockProps('image', {width: 60})).toContain('"width"');
+    expect(blockTypeInfo('image')?.hint).toContain('"60%"');
+    // htmlArtifact height stays numeric (CSS pixels from the resize handle).
+    expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
+  });
+
+  it('props named after Object.prototype members read as undeclared, not inherited', () => {
+    expect(invalidBlockProps('paragraph', {toString: 'x'})).toBeNull();
+    expect(invalidBlockProps('heading', {constructor: 1, hasOwnProperty: true})).toBeNull();
+  });
+});
+
+describe('pathological depth (stack-exhaustion guards)', () => {
+  it('a tens-of-thousands-deep payload is refused cleanly, not with a RangeError', () => {
+    let deep: Record<string, unknown> = {type: 'paragraph'};
+    for (let i = 0; i < 40_000; i += 1) deep = {type: 'group', children: [deep]};
+    expect(blockTreeError([deep])).toContain('nested too deeply');
+    expect(findUnknownBlockType([deep])).toBeNull(); // stops descending, never throws
+  });
 });
 
 describe('generated tool text', () => {
