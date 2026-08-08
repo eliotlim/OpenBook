@@ -447,6 +447,20 @@ describe('TableCellMenu — range variant (TBL-6)', () => {
       ['r2c0', 'r2c1', 'r2c2'],
     ]);
   });
+
+  it('clears the range selection after merging so the cell menu becomes reachable', () => {
+    const doc = seedTableDoc(3, 3);
+    let clearCount = 0;
+    openMenuWithRange(doc, 'r0c0', {top: 0, left: 0, bottom: 1, right: 1}, () => {
+      clearCount += 1;
+    });
+
+    fireEvent.click(screen.getByText('Merge cells'));
+
+    expect(clearCount).toBe(1);
+    expect(blockProp(findBlock(doc, 'r0c0')!.block, 'colspan')).toBe(2);
+    expect(blockProp(findBlock(doc, 'r0c0')!.block, 'rowspan')).toBe(2);
+  });
 });
 
 // ── TBL-6: per-cell tint ─────────────────────────────────────────────────────

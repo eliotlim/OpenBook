@@ -1020,7 +1020,7 @@ export function tableInsertRow(doc: Y.Doc, tableId: string, rowIndex: number): v
         if (s.kind !== 'cell' || s.rowspan === 1) continue;
         if (r < at && at < r + s.rowspan) {
           const anchor = grid.cells[r][c];
-          if (anchor) setBlockProp(anchor, 'rowspan', s.rowspan + 1);
+          if (anchor) setCellSpan(anchor, 'rowspan', s.rowspan + 1);
           for (let cc = c; cc < c + s.colspan; cc += 1) covered.add(cc);
         }
       }
@@ -1145,7 +1145,7 @@ export function tableInsertColumn(doc: Y.Doc, tableId: string, colIndex: number)
         const slot = spans[r][c];
         if (slot.kind !== 'cell' || slot.colspan === 1 || !(c < at && at < c + slot.colspan)) continue;
         const anchor = grid.cells[r][c];
-        if (anchor) setBlockProp(anchor, 'colspan', slot.colspan + 1);
+        if (anchor) setCellSpan(anchor, 'colspan', slot.colspan + 1);
         for (let rr = r; rr < r + slot.rowspan; rr += 1) covered.add(rr);
       }
     }
@@ -1699,6 +1699,7 @@ function removeBlockInTx(doc: Y.Doc, id: string): void {
  * is discarded, and the whole merge is one transaction (one undo step), so it
  * is fully reversible. Splitting keeps all content in the anchor (Docs
  * unmerge) and restores empty cells in the covered slots.
+ * Concurrent anchor-row deletion vs promotion-target deletion may lose anchor content; replicas still converge deterministically.
  */
 
 /** Sanity ceiling for a stored span (a hostile/corrupt doc can't OOM render). */
@@ -1829,6 +1830,17 @@ export function tableSnapRectToSpans(table: BlockMap, rect: CellRect): CellRect 
  * merge is fully reversible.
  */
 export function tableMergeCells(doc: Y.Doc, tableId: string, rect: CellRect): void {
+  // Refuse a hostile cell with no real Y.Text before ensureTableOrderInTx gets
+  // any chance to migrate/backfill the table: refusal must be mutation-free.
+  const candidate = findBlock(doc, tableId);
+  if (candidate && blockType(candidate.block) === 'table' && blockChildren(candidate.block)) {
+    const candidateGrid = tableGrid(candidate.block);
+    if (candidateGrid.rows.length > 0 && candidateGrid.width > 0) {
+      const snapped = tableSnapRectToSpans(candidate.block, rect);
+      const candidateAnchor = candidateGrid.cells[snapped.top]?.[snapped.left];
+      if (candidateAnchor && blockType(candidateAnchor) === 'cell' && !(candidateAnchor.get('text') instanceof Y.Text)) return;
+    }
+  }
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table || blockType(table.block) !== 'table') return;
@@ -1840,6 +1852,8 @@ export function tableMergeCells(doc: Y.Doc, tableId: string, rect: CellRect): vo
     if (top === bottom && left === right) return; // one slot — nothing to merge
     const anchor = grid.cells[top]?.[left];
     if (!anchor || blockType(anchor) !== 'cell') return; // nothing to anchor on
+    const text = anchor.get('text');
+    if (!(text instanceof Y.Text)) return; // hostile doc — never discard covered runs
     // Survey the rect first: refuse if it holds a non-cell child (a STAB-1
     // poison block — merging over it would hide content), and count real cells.
     const doomed: Array<{row: BlockMap; cell: BlockMap}> = [];
@@ -1855,10 +1869,9 @@ export function tableMergeCells(doc: Y.Doc, tableId: string, rect: CellRect): vo
     // MOVE content: append each covered cell's runs to the anchor, in reading
     // order, one newline between non-empty cells (the Google Docs policy — no
     // data loss; undo restores the original grid in one step).
-    const text = blockText(anchor);
     for (const {row, cell} of doomed) {
       const runs = cellRuns(cell).filter((run) => run.t.length > 0);
-      if (text && runs.length > 0) {
+      if (runs.length > 0) {
         if (text.length > 0) text.insert(text.length, '\n', {});
         let at = text.length;
         for (const run of runs) {

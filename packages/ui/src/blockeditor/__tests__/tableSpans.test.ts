@@ -111,6 +111,17 @@ describe('TBL-8 merge / split model', () => {
     expect(tableCellAt(grid, 0, 1, spans)).toBe(anchor);
     expect(tableCellAt(grid, 0, 2, spans)).toBe(findBlock(doc, 'r0c2')!.block);
   });
+
+  it('refuses a merge without mutating when the anchor has no Y.Text', () => {
+    const doc = seedTable(2, 2);
+    doc.transact(() => findBlock(doc, 'r0c0')!.block.delete('text'));
+    const before = Y.encodeStateAsUpdate(doc);
+
+    tableMergeCells(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1});
+
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
+    expect(textAt(doc, 0, 1)).toBe('r0c1');
+  });
 });
 
 describe('TBL-8 span-aware structural ops and navigation', () => {
@@ -196,6 +207,14 @@ describe('TBL-8 HTML export / import', () => {
     const anchor = importedTable.children![0].children![0];
     expect(anchor.props).toMatchObject({colspan: 2, rowspan: 2});
     expect(importedTable.children![1].children).toHaveLength(1);
+    const importedGrid = tableGrid(imported.getArray<BlockMap>('blocks').get(0));
+    expect(
+      importedGrid.cells.map((row) => row.map((cell) => (cell ? blockText(cell)?.toString() ?? '' : null))),
+    ).toEqual([
+      ['r0c0\nr0c1\nr1c0\nr1c1', null, 'r0c2'],
+      [null, null, 'r1c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
 
     const projected = projectBlocksForExport(json).blocks.find((block) => block.type === 'table')!;
     expect((projected.data as {cellSpans: unknown[][]}).cellSpans[0][0]).toEqual({colspan: 2, rowspan: 2});

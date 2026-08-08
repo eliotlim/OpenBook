@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Combine,
   Copy,
   Eraser,
   EyeOff,
@@ -21,6 +20,7 @@ import {
   LockOpen,
   Plus,
   RefreshCw,
+  TableCellsMerge,
   TableCellsSplit,
   Trash2,
 } from 'lucide-react';
@@ -2556,9 +2556,9 @@ const TableColorSubmenu: React.FC<{
  *   Delete N rows      exactly rect.top…rect.bottom
  *   Delete N columns   exactly rect.left…rect.right
  *
- * The two deletes drop the selection afterwards (`onClearRange`) — its
- * coordinates address slots that no longer exist. A clear/tint keeps it, matching
- * the keyboard clear (the highlight persists so the range stays actionable).
+ * Merge and the two deletes drop the selection afterwards (`onClearRange`) —
+ * its coordinates address slots that no longer exist. A clear/tint keeps it,
+ * matching the keyboard clear (the highlight persists so the range stays actionable).
  * A range of one row / one column falls back to the singular labels, so we never
  * render "Delete 1 rows" and never need plural rules in the catalogues.
  */
@@ -2596,8 +2596,13 @@ const TableRangeMenuContent: React.FC<{
       <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>
         <Eraser className="mr-2 h-3.5 w-3.5" /> {t('menu.table.clearCells')}
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => tableMergeCells(doc, tableId, rect)}>
-        <Combine className="mr-2 h-3.5 w-3.5" /> {t('menu.table.mergeCells')}
+      <ContextMenuItem
+        onSelect={() => {
+          tableMergeCells(doc, tableId, rect);
+          onClearRange?.();
+        }}
+      >
+        <TableCellsMerge className="mr-2 h-3.5 w-3.5" /> {t('menu.table.mergeCells')}
       </ContextMenuItem>
       <TableColorSubmenu
         label={t('menu.table.tintCells')}
