@@ -39,6 +39,10 @@ export interface SelectProps {
   wrapperClassName?: string
   align?: "start" | "center" | "end"
   "aria-label"?: string
+  /** Id of the element describing this control — read out on focus, not just on
+   *  change. Forwarded to the trigger so a live hint below the picker can be its
+   *  accessible description (the native `<select>` behaviour this control replaced). */
+  "aria-describedby"?: string
   id?: string
   name?: string
 }
@@ -153,6 +157,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
             role="combobox"
             aria-expanded={open}
             aria-label={rest["aria-label"]}
+            aria-describedby={rest["aria-describedby"]}
             data-value={current}
             disabled={disabled}
             className={cn(

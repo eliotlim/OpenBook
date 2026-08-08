@@ -207,6 +207,19 @@ export interface InstanceInfo {
    * identity and falls back to a reachability-only probe. */
   instanceId?: string | null;
   ownerSubject: string | null;
+  /**
+   * Whether this instance has an owner at all — WITHOUT saying who (PUB-1 / Sasha
+   * M-1). {@link ownerSubject} cannot answer this: GATE-7 nulls it for an anonymous
+   * caller on a claimed instance, so `ownerSubject === null` means either "unclaimed"
+   * or "claimed, but you may not know the owner". A client that needs the CLAIM
+   * STATE — e.g. to warn that an unclaimed library ignores `defaultVisibility`
+   * entirely (authorize rule 0 short-circuits on the guest gate alone) — must read
+   * this instead. Deliberately non-sensitive: a boolean "someone owns this" leaks no
+   * identity and no recon surface beyond what the guest gate's own behaviour already
+   * reveals. Optional: absent on a pre-PUB-1 server / a test fixture — a client then
+   * knows nothing and should stay silent rather than guess a claim state.
+   */
+  claimed?: boolean;
   trustedIssuers: string[];
   /** This server's audience identifier, so a client can request an `aud`-scoped
    *  identity token (OB-177). `null` for the single-server (unscoped) model. */
