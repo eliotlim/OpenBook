@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import {shortId} from '@book.dev/sdk';
+import {CONTAINER_BLOCK_TYPES, shortId, TEXT_BLOCK_TYPES, type CoreBlockType} from '@book.dev/sdk';
 import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 
 /**
@@ -28,39 +28,18 @@ import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from '.
  * Both are stored in the page snapshot (see `encodeSnapshot`).
  */
 
-export type BlockType =
-  | 'paragraph'
-  | 'heading'
-  | 'list'
-  | 'todo'
-  | 'quote'
-  | 'callout'
-  | 'code'
-  // A speaker note: editable on the page, shown only in the presenter view —
-  // never to the audience deck or any export.
-  | 'notes'
-  // A native image (Assets A0). Leaf block — no text, no children; the picture
-  // lives in props (`src` is a `data:` URL in phase-1, an `assetId` after A2).
-  // See blockeditor/imageBlock.ts for props + ingest.
-  | 'image'
-  // An untrusted-HTML artifact rendered in a sandboxed iframe (SandboxedHtml).
-  // Leaf block — no text, no children; the document lives in the asset store
-  // (`assetId`). See blockeditor/htmlArtifactBlock.ts for props + ingest.
-  | 'htmlArtifact'
-  | 'divider'
-  | 'columns'
-  | 'column'
-  | 'table'
-  | 'row'
-  | 'cell'
-  | 'group'
-  // Interactive-kit containers (June 2026). Tabs/accordion hold one child per
-  // tab/section; each tab/section block holds arbitrary blocks. They reuse the
-  // group container infra (child storage, DnD, lock context).
-  | 'tabs'
-  | 'tab'
-  | 'accordion'
-  | 'accordionsection';
+/**
+ * The core block `type` union. Defined by the SDK's block-type catalogue
+ * (`@book.dev/sdk` blockCatalogue.ts) — the shared, types-only source of truth
+ * the server agent and MCP server also validate against — so the editor and
+ * the write paths cannot drift apart. Notable members: `notes` (a speaker
+ * note, presenter view only), `image` (native picture leaf — props in
+ * blockeditor/imageBlock.ts), `htmlArtifact` (sandboxed-iframe HTML leaf —
+ * props in blockeditor/htmlArtifactBlock.ts), and the interactive-kit
+ * containers `tabs`/`tab`/`accordion`/`accordionsection` (June 2026), which
+ * reuse the group container infra (child storage, DnD, lock context).
+ */
+export type BlockType = CoreBlockType;
 
 /** Inline formatting attributes carried by Y.Text runs. */
 export interface InlineAttrs {
@@ -94,24 +73,12 @@ export interface BlockJSON {
   children?: BlockJSON[];
 }
 
-/** Block types that carry editable rich text. */
-export const TEXT_BLOCKS: ReadonlySet<BlockType> = new Set([
-  'paragraph',
-  'heading',
-  'list',
-  'todo',
-  'quote',
-  'callout',
-  'code',
-  'notes',
-  'cell',
-]);
+/** Block types that carry editable rich text — the catalogue's `text` nature. */
+export const TEXT_BLOCKS: ReadonlySet<BlockType> = TEXT_BLOCK_TYPES;
 
-/** Block types whose `children` hold ordinary blocks. */
-export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = new Set([
-  'columns', 'column', 'table', 'row', 'group',
-  'tabs', 'tab', 'accordion', 'accordionsection',
-]);
+/** Block types whose `children` hold ordinary blocks — the catalogue's
+ *  `container` nature. */
+export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = CONTAINER_BLOCK_TYPES;
 
 export type BlockMap = Y.Map<unknown>;
 

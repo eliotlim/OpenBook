@@ -4,6 +4,17 @@ import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
   applyTableOpToSnapshot,
+  BLOCK_TYPE_CATALOGUE,
+  blockCatalogueText,
+  blockTreeError,
+  CONTAINER_BLOCK_TYPES,
+  findUnknownBlockType,
+  invalidBlockProps,
+  KNOWN_BLOCK_TYPE_IDS,
+  MAX_BLOCK_DEPTH,
+  MAX_BLOCK_NODES,
+  TEXT_BLOCK_TYPES,
+  unknownBlockTypeMessage,
   projectAppendBlocks,
   resolveTableOp,
   snapshotTableIdFor,
@@ -374,50 +385,14 @@ export interface NestedBlockInput {
   children?: NestedBlockInput[];
 }
 
-/**
- * Max nesting depth of one payload (top-level blocks are depth 1). Deep enough
- * for every real layout — `columns → column → table → row → cell → group →
- * paragraph` is 7 — and shallow enough that a runaway/recursive model response
- * can't build a pathological tree the editor then has to render. Rejected with a
- * message naming the offending path, not silently truncated.
- */
-const MAX_BLOCK_DEPTH = 8;
-
-/**
- * Max TOTAL blocks (all levels) in one call. A 20×8 table is 180 nodes, so this
- * fits any sane single write while bounding one request's cost; a bigger document
- * is several appends. Counted over the whole tree, not per level.
- *
- * These caps (and the parent/child guard below) are a UX backstop — the HARD DoS
- * boundary is the 1 MiB `mcpHttp` body limit on the server (packages/server), which
- * refuses an oversized request outright. The caps just turn a would-be silent
- * mis-render into an actionable message.
- */
-const MAX_BLOCK_NODES = 400;
-
-/**
- * Container types whose `children` hold ordinary blocks — MIRRORS
- * `CONTAINER_BLOCKS` in packages/ui/src/blockeditor/model.ts (`makeBlock` only
- * builds a `children` Y.Array for these). A `children` array on ANY OTHER type is
- * silently dropped by the model, so we reject it here instead of letting the write
- * land a leaf whose nested blocks vanish. (`cell` is a TEXT leaf, not a container.)
- */
-const CONTAINER_BLOCKS = new Set([
-  'columns', 'column', 'table', 'row', 'group', 'tabs', 'tab', 'accordion', 'accordionsection',
-]);
-
-/**
- * Child-only types → the ONE container they must sit directly inside. Placing one
- * anywhere else (a `row` at top level, a `cell` straight under a `table`) renders
- * as an "Unsupported block" placeholder, so we reject it naming the offending type.
- */
-const CHILD_ONLY_PARENT: Record<string, string> = {
-  column: 'columns',
-  row: 'table',
-  cell: 'row',
-  tab: 'tabs',
-  accordionsection: 'accordion',
-};
+// The structural rules for one payload (children only on container-nature
+// types, child-only placement, square tables) and the depth/node caps now live
+// in the SDK's block-type catalogue (`blockTreeError` / MAX_BLOCK_DEPTH /
+// MAX_BLOCK_NODES, imported above) — the same source the in-app agent
+// validates with, so the two write paths cannot drift. The caps are a UX
+// backstop — the HARD DoS boundary is the 1 MiB `mcpHttp` body limit on the
+// server (packages/server), which refuses an oversized request outright; the
+// caps just turn a would-be silent mis-render into an actionable message.
 
 /**
  * The table order-contract PRIVATE keys (TBL-1, model.ts): `row.props.ord`,
@@ -435,12 +410,13 @@ function tableOrderContractKey(props: Record<string, unknown>): string | null {
   );
 }
 
-/** Text description shared by both block schemas. */
-const BLOCK_TEXT_DESC = 'Text content (paragraph/heading/todo/quote/callout/code/list, and a table `cell`).';
+// Schema descriptions shared by both block schemas — the type enumerations are
+// GENERATED from the SDK catalogue so they can't drift from what validation
+// accepts.
+const BLOCK_TEXT_DESC = `Text content — for the text-carrying types: ${[...TEXT_BLOCK_TYPES].join(', ')}.`;
 
-/** Children description shared by both block schemas. */
 const BLOCK_CHILDREN_DESC =
-  'Nested blocks — ONLY for container types: columns→column, table→row→cell, group, tabs→tab, accordion→accordionsection. ' +
+  `Nested blocks — ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}); child-only types sit directly inside their parent (columns→column, table→row→cell, tabs→tab, accordion→accordionsection). ` +
   `Nest to at most ${MAX_BLOCK_DEPTH} levels, ${MAX_BLOCK_NODES} blocks total per call.`;
 
 /** A recursive block schema: `children` refers back to itself via `z.lazy`. */
@@ -457,64 +433,23 @@ function nestedBlockSchema(typeDesc: string, propsDesc: string): z.ZodType<Neste
 }
 
 /**
- * Validate a nested payload against {@link MAX_BLOCK_DEPTH} / {@link MAX_BLOCK_NODES}
- * AND the container parent/child contract (a `children` array only on a container
- * type; a child-only type only under its matching container). Returns an error
+ * Validate a nested payload's STRUCTURE — the container parent/child contract
+ * (a `children` array only on a container-nature type; a child-only type only
+ * under its matching container; every table square), plus the
+ * {@link MAX_BLOCK_DEPTH} / {@link MAX_BLOCK_NODES} caps. Returns an error
  * message for the client, or null when the payload is fine. Applies to BOTH
  * `append_blocks` and `create_artifact_page`, so a `{type:'row',children:[…]}`
  * payload is refused with a clear message instead of silently dropping to a
  * wall of "Unsupported block" placeholders.
  *
- * Block TYPES are otherwise unvalidated here (the apply layer is type-agnostic so
- * custom/plugin leaves keep working) — only the STRUCTURE the model would silently
- * discard is rejected.
+ * The rules are the SDK block-type catalogue's (`blockTreeError`) — one source
+ * shared with the in-app agent. Block TYPES are otherwise unvalidated here for
+ * `append_blocks` (the apply layer is type-agnostic so custom/plugin leaves
+ * keep working) — only the STRUCTURE the model would silently discard is
+ * rejected. `create_artifact_page` additionally gates types (see below).
  */
-function blockPayloadError(blocks: NestedBlockInput[]): string | null {
-  let count = 0;
-  let deepest = 0;
-  let deepestPath = '';
-  let structural: string | null = null;
-  const walk = (list: NestedBlockInput[], depth: number, path: string, parentType: string | null): void => {
-    if (depth > deepest) {
-      deepest = depth;
-      deepestPath = path;
-    }
-    for (const [i, b] of list.entries()) {
-      count += 1;
-      const here = path ? `${path} > ${b.type}` : b.type;
-      const hasChildren = Array.isArray(b.children) && b.children.length > 0;
-      if (structural === null) {
-        const needs = CHILD_ONLY_PARENT[b.type];
-        if (needs && parentType !== needs) {
-          structural = parentType
-            ? `A "${b.type}" block must be a direct child of a "${needs}" block, not a "${parentType}" block (at "${here}").`
-            : `A "${b.type}" block can't be top-level — it belongs directly inside a "${needs}" block (at "${here}").`;
-        } else if (hasChildren && !CONTAINER_BLOCKS.has(b.type)) {
-          structural = `A "${b.type}" block can't hold children — only container blocks (${[...CONTAINER_BLOCKS].join(', ')}) do (at "${here}"). The nested blocks would be dropped.`;
-        }
-      }
-      if (hasChildren) walk(b.children!, depth + 1, `${here}[${i}]`, b.type);
-    }
-  };
-  walk(blocks, 1, '', null);
-  if (structural) return structural;
-  if (deepest > MAX_BLOCK_DEPTH) {
-    return `Blocks are nested too deeply: ${deepest} levels (max ${MAX_BLOCK_DEPTH}) at "${deepestPath}". Flatten the payload or split it across calls.`;
-  }
-  if (count > MAX_BLOCK_NODES) {
-    return `Too many blocks in one call: ${count} (max ${MAX_BLOCK_NODES}, counting nested children). Split it into several append_blocks calls.`;
-  }
-  return null;
-}
-
-/** Every block type in a payload, all levels (for the artifact type gate). */
-function blockTypesIn(blocks: NestedBlockInput[], out: string[] = []): string[] {
-  for (const b of blocks) {
-    out.push(b.type);
-    if (b.children) blockTypesIn(b.children, out);
-  }
-  return out;
-}
+const blockPayloadError = (blocks: NestedBlockInput[]): string | null =>
+  blockTreeError(blocks, {maxDepth: MAX_BLOCK_DEPTH, maxNodes: MAX_BLOCK_NODES});
 
 /**
  * The write-tool kind an MCP mutation maps to (the same identifiers the in-app
@@ -709,26 +644,27 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     },
   );
 
-  // The block types an artifact page may contain, with loose prop schemas —
-  // unknown props pass through (the editor ignores what it doesn't know),
-  // unknown TYPES are rejected so a typo'd artifact can't render as a wall
-  // of "Unsupported block" placeholders. Container + table types are in the set
-  // so an artifact can be LAID OUT (columns/group/tabs/accordion) and hold a
-  // table; the gate runs over EVERY level of the payload, not just the top.
-  const ARTIFACT_TYPES = new Set([
-    'heading', 'paragraph', 'todo', 'quote', 'callout', 'divider', 'code', 'list',
-    'slider', 'formula', 'number', 'textfield', 'radio', 'checklist', 'toggle',
-    'location', 'actionbutton', 'kitchart', 'statuslight', 'tooltipcard', 'linkcard',
-    'columns', 'column', 'table', 'row', 'cell', 'group',
-    'tabs', 'tab', 'accordion', 'accordionsection',
-  ]);
+  // The block types an artifact page may contain are the SDK block-type
+  // catalogue's (core + kit — the same set the in-app agent accepts), plus
+  // installed plugins' namespaced types. Unknown props pass through (the
+  // editor ignores what it doesn't know); unknown TYPES are rejected so a
+  // typo'd artifact can't render as a wall of "Unsupported block"
+  // placeholders. The gate runs over EVERY level of the payload, not just the
+  // top. Plugin types (`<pluginId>/<type>`) are checked against the installed
+  // plugins; when the server can't list plugins (older server), they are
+  // accepted opaquely — never crash on them.
+  const installedPluginIds = async (): Promise<ReadonlySet<string> | undefined> => {
+    try {
+      return new Set((await client.listPlugins()).map((p) => p.manifest.id));
+    } catch {
+      return undefined;
+    }
+  };
 
+  // Both enumerations below are generated from the catalogue (no drift).
   const artifactBlock = nestedBlockSchema(
-    'Block type, e.g. heading | paragraph | number | slider | radio | checklist | toggle | kitchart | statuslight | actionbutton | formula | linkcard | tooltipcard | location | textfield — or a container: columns | column | table | row | cell | group | tabs | tab | accordion | accordionsection',
-    'Block props. Inputs publish {name} into a shared scope: number {name,value,min,max,step}; slider {name,value,min,max}; radio/checklist {name,options:"A, B",value|selected}; toggle {name,value}. ' +
-      'Consumers evaluate expressions over the scope: kitchart {kind:line|area|bar|pie|donut|scatter|funnel, source:"[n, n*2]", title, labels}; statuslight {label, source, okAt, warnAt}; formula {source}. ' +
-      'actionbutton {btnlabel, action:increment|set|toggle|link, target, amount, url}; linkcard {title, description, url}; tooltipcard {term, tip}; heading {level}. ' +
-      'Layout: column {span} (12-unit grid); table row {header:true} for the header row.',
+    `Block type — one of: ${[...KNOWN_BLOCK_TYPE_IDS].join(' | ')}; or an installed plugin block "<pluginId>/<type>" (call list_block_types for the full catalogue).`,
+    `Type-specific props (list_block_types declares each type's props). Key shapes: ${BLOCK_TYPE_CATALOGUE.filter((e) => e.hint && e.props).map((e) => `${e.type} ${e.hint}`).join('; ')}.`,
   );
 
   server.registerTool(
@@ -749,8 +685,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       if (limit) return failure(limit);
       // The type gate runs over EVERY level — a typo'd nested type would otherwise
       // render as an "Unsupported block" placeholder inside an otherwise fine page.
-      const bad = blockTypesIn(blocks).find((t) => !ARTIFACT_TYPES.has(t));
-      if (bad) return failure(`Unknown block type "${bad}". Use one of: ${[...ARTIFACT_TYPES].join(', ')}.`);
+      const bad = unknownBlockTypeMessage(findUnknownBlockType(blocks, {installedPluginIds: await installedPluginIds()}));
+      if (bad) return failure(bad);
       // Recursive projection (children preserved, text→runs at every level) — the
       // same helper `append_blocks` uses, so the two paths can never drift.
       const projected = projectAppendBlocks(blocks, 'mcp');
@@ -853,6 +789,27 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   );
 
   server.registerTool(
+    'list_block_types',
+    {
+      title: 'List block types',
+      description:
+        'List every block type append_blocks / create_artifact_page / update_block_props accept — core blocks, the interactive kit, and installed plugin blocks — with each type\'s nature (container/text/void), where child-only types must sit, declared props, and whether it publishes a reactive kit value.',
+      inputSchema: {},
+    },
+    async () => {
+      // Failure-tolerant: an older server without the plugins endpoint still
+      // gets the core + kit catalogue, with the plugin section saying so.
+      let plugins;
+      try {
+        plugins = await client.listPlugins();
+      } catch {
+        plugins = undefined;
+      }
+      return text(blockCatalogueText(plugins));
+    },
+  );
+
+  server.registerTool(
     'get_kit_values',
     {
       title: 'Get kit values',
@@ -930,8 +887,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // layer is type-agnostic, and a type gate here would reject blocks the editor can
   // render perfectly well. Structure (depth/size) IS bounded — see blockPayloadError.
   const appendBlock = nestedBlockSchema(
-    'Block type: paragraph | heading | todo | quote | callout | code | list | divider | image, a container (columns | column | table | row | cell | group | tabs | tab | accordion | accordionsection), or any kit block (slider, number, toggle, radio, checklist, textfield, kitchart, statuslight, formula, …).',
-    'Block props, e.g. heading {level}, list {kind}, todo {checked}, callout {variant}, code {language}, column {span} (12-unit grid), table row {header:true}.',
+    `Block type — any catalogued type (${[...KNOWN_BLOCK_TYPE_IDS].join(' | ')}) or a plugin/custom block's registered type. Call list_block_types for the full catalogue.`,
+    'Type-specific props — list_block_types declares each type\'s props (e.g. heading {level}, list {kind}, todo {checked}, column {span} on a 12-unit grid, table row {header:true}).',
   );
 
   /** Total blocks in a payload, nested children included (for the write summary). */
@@ -1068,6 +1025,11 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       }
       const info = blockInfoInSnapshot(page.data, blockId);
       if (!info) return failure(missing);
+      // Permissive-but-typed prop check against the catalogue: only props the
+      // catalogue declares for this block's type are validated; unknown props
+      // (and plugin/custom types) pass through untouched.
+      const propErr = invalidBlockProps(info.type, props);
+      if (propErr) return failure(propErr);
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const summary = `Update props of ${info.type} block ${blockId} on "${page.name ?? 'Untitled'}"`;
         // `applyKind: set_block_props` is the editor bridge's identifier for this

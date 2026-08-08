@@ -1,8 +1,15 @@
 import {randomUUID} from 'node:crypto';
 import {
+  addBlocksGuidance,
+  blockCatalogueText,
+  blockTreeError,
+  CONTAINER_BLOCK_TYPES,
+  findUnknownBlockType,
+  invalidBlockProps,
   providerSettings,
   snapshotText,
   textSnapshot,
+  unknownBlockTypeMessage,
   type AgentProposal,
   type AiEffort,
   type AiProvider,
@@ -278,6 +285,27 @@ export class AgentRunner {
     return db ? {db} : {db: null, err: 'That page hosts no database.'};
   }
 
+  /**
+   * The installed plugins (cached per run) — the block-type catalogue's
+   * per-library `plugin` category. Failure-tolerant: a store that cannot list
+   * plugins yields an EMPTY list for the `list_block_types` listing but an
+   * UNDEFINED id set for validation, so plugin-namespaced block types are then
+   * accepted opaquely rather than rejected (never crash on them).
+   */
+  private plugins?: Promise<Awaited<ReturnType<PageStore['listPlugins']>> | null>;
+
+  private installedPlugins(): Promise<Awaited<ReturnType<PageStore['listPlugins']>> | null> {
+    this.plugins ??= this.store.listPlugins().catch(() => null);
+    return this.plugins;
+  }
+
+  /** Installed plugin ids for block-type validation, or undefined when the
+   *  listing is unavailable (⇒ accept plugin types by pattern alone). */
+  private async installedPluginIds(): Promise<ReadonlySet<string> | undefined> {
+    const plugins = await this.installedPlugins();
+    return plugins ? new Set(plugins.map((p) => p.manifest.id)) : undefined;
+  }
+
   /** May the caller CREATE a new top-level page/database here? (default-deny). */
   private async canCreate(): Promise<boolean> {
     if (!this.principal) return false;
@@ -346,6 +374,14 @@ export class AgentRunner {
           const lines = blockTree(page.data);
           return lines.length ? lines.join('\n') : '(empty document)';
         },
+      },
+      {
+        name: 'list_block_types',
+        description:
+          'List every block type add_blocks / update_block_props / create_artifact_page accept — core blocks, the interactive kit, and installed plugin blocks — with each type\'s nature (container/text/void), where child-only types must sit, declared props, and whether it publishes a reactive kit value.',
+        args: '{}',
+        schema: obj({}),
+        run: async () => blockCatalogueText((await this.installedPlugins()) ?? undefined),
       },
       {
         name: 'get_kit_values',
@@ -716,9 +752,16 @@ export class AgentRunner {
           const info = blockInfoById(page.data, blockId);
           if (!info) return `No block "${blockId}" on that page — use inspect_page_structure.`;
           const type = typeof args.type === 'string' && args.type.trim() ? args.type.trim() : undefined;
-          if (type && !KNOWN_BLOCK_TYPES.has(type)) return `Unsupported block type "${type}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          if (type) {
+            const bad = unknownBlockTypeMessage(findUnknownBlockType([{type}], {installedPluginIds: await this.installedPluginIds()}));
+            if (bad) return bad;
+          }
           const props = args.props && typeof args.props === 'object' && !Array.isArray(args.props) ? (args.props as Record<string, unknown>) : undefined;
           if (!type && !props) return 'Provide a new type and/or props to change.';
+          // Permissive-but-typed prop check: only props the catalogue declares for
+          // the (new) type are validated; unknown props pass through untouched.
+          const propErr = props ? invalidBlockProps(type ?? info.type, props) : null;
+          if (propErr) return propErr;
           const describe = (t: string, p: Record<string, unknown>): string =>
             `${t}${Object.keys(p).length ? ` ${JSON.stringify(p)}` : ''}`;
           // Compute the `after` preview with the SAME null-aware merge the apply
@@ -842,14 +885,16 @@ export class AgentRunner {
         type: {type: 'string', description: 'Block type — see the catalogue in this tool\'s description.'},
         text: {description: 'For text blocks: a plain string, or rich runs like [{"t":"bold","a":{"b":true}}].'},
         props: {type: 'object', description: 'Type-specific props (level, value, min/max, opts, source, …).'},
-        children: {type: 'array', items: {type: 'object'}, description: 'Child blocks, for containers (columns/column/group/accordion/tabs).'},
+        children: {type: 'array', items: {type: 'object'}, description: `Child blocks, ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}).`},
       },
       ['type'],
     );
     return [
       {
         name: 'add_blocks',
-        description: BLOCK_CATALOGUE,
+        // Generated from the SDK block-type catalogue — the same source the
+        // validation below reads, so guidance and validation cannot drift.
+        description: addBlocksGuidance(),
         args: '{"pageId": string, "blocks": Block[]}',
         schema: obj(
           {
@@ -865,8 +910,13 @@ export class AgentRunner {
           if (!page) return 'Page not found.';
           const blocks = Array.isArray(args.blocks) ? (args.blocks as unknown[]) : [];
           if (blocks.length === 0) return 'No blocks to add.';
-          const bad = invalidBlockType(blocks);
-          if (bad) return `Unsupported block type "${bad}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          // Structure first (children only on containers, child-only placement,
+          // square tables, depth/size caps), then types — both against the SDK
+          // block-type catalogue, the same source the MCP server validates with.
+          const structural = blockTreeError(blocks);
+          if (structural) return structural;
+          const bad = unknownBlockTypeMessage(findUnknownBlockType(blocks, {installedPluginIds: await this.installedPluginIds()}));
+          if (bad) return bad;
           return this.propose({
             kind: 'append_blocks',
             summary: `Add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}": ${summarizeBlocks(blocks)}`,
@@ -1611,41 +1661,12 @@ function resolveRowValues(schema: DatabaseSchema, input: Record<string, unknown>
 
 // ── Layout / rich-block + appearance helpers ─────────────────────────────────────
 
-/** Block types `add_blocks` may create — mirrors the editor's registry (core +
- *  kit). Kept here so the agent can reject unknown types with a clear list. */
-const KNOWN_BLOCK_TYPES = new Set<string>([
-  // Text + structure.
-  'paragraph', 'heading', 'list', 'todo', 'quote', 'callout', 'code', 'divider',
-  // Layout containers.
-  'columns', 'column', 'group', 'accordion', 'accordionsection', 'tabs', 'tab',
-  // Interactive kit inputs.
-  'slider', 'number', 'textfield', 'longtext', 'toggle', 'radio', 'checklist',
-  'dropdown', 'choicecards', 'searchselect', 'tagfield', 'location',
-  // Reactive display.
-  'kitchart', 'statuslight', 'progressbar', 'formula', 'linkcard',
-]);
-
 /** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
 const THEME_IDS = new Set<string>([
   'default', 'amber', 'forest', 'graphite', 'ocean', 'rose', 'sandstone', 'slate', 'sunset', 'teal', 'violet',
 ]);
 const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
 const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);
-
-/** The first block type (anywhere in the tree) that isn't creatable, or null. */
-function invalidBlockType(blocks: unknown[]): string | null {
-  for (const raw of blocks) {
-    if (!raw || typeof raw !== 'object') return '(not a block)';
-    const b = raw as {type?: unknown; children?: unknown};
-    const type = String(b.type ?? '');
-    if (!KNOWN_BLOCK_TYPES.has(type)) return type || '(missing type)';
-    if (Array.isArray(b.children)) {
-      const nested = invalidBlockType(b.children);
-      if (nested) return nested;
-    }
-  }
-  return null;
-}
 
 /** A short "type ×n" summary of a block list (for the review card). */
 function summarizeBlocks(blocks: unknown[]): string {
@@ -1686,17 +1707,6 @@ function buildInterviewSteps(raw: unknown): InterviewStep[] {
   }
   return steps;
 }
-
-/** The `add_blocks` tool description: the full block catalogue the model builds against. */
-const BLOCK_CATALOGUE = [
-  'Append rich blocks to a page — interactive inputs, layouts, charts, and headings. User approves before they are added.',
-  'Each block is {type, text?, props?, children?}. `text` is a plain string (or rich runs [{"t","a":{b,i,u,s,c,a}}]); `children` nests blocks inside containers.',
-  'TEXT/STRUCTURE: paragraph; heading {level:1|2|3}; list {kind:"bullet"|"number"}; todo {checked?}; quote; callout {variant:"info"|"warn"|"success"}; code {language?,live?,name?,collapsed?}; divider.',
-  'LAYOUT (use children): columns → column {span:1-12} → blocks (side-by-side, spans sum to 12); group {name?,locked?}; accordion {name?,gated?} → accordionsection {label,collapsed?} → blocks; tabs → tab {label} → blocks.',
-  'INPUTS (give each a props.name OR props.label so charts/formulas can reference it): slider/number {name,label,value,min,max,step}; textfield/longtext {name,label,value,placeholder}; toggle {name,label,value:boolean}; dropdown/radio {name,label,value,opts:[{label,value}]}; checklist {name,label,selected:[],opts}; choicecards {name,label,value,opts:[{label,value,icon?}],multi?}; searchselect {name,label,value,opts,multi?}; tagfield {name,label,selected:[],freeEntry?}; location {name,label}.',
-  'REACTIVE DISPLAY (props.source is a JS expression over input names): kitchart {kind:"line"|"area"|"bar"|"pie"|"donut"|"scatter"|"funnel",title?,labels?,source}; statuslight {label?,source,okAt,warnAt}; progressbar {label?,source,max?,format?}; formula {source}; linkcard {title,url,description?}.',
-  'Example: a budget widget → [{"type":"heading","text":"Budget","props":{"level":2}},{"type":"columns","children":[{"type":"column","props":{"span":5},"children":[{"type":"slider","props":{"name":"spent","label":"Spent","value":80,"min":0,"max":200}},{"type":"number","props":{"name":"budget","label":"Budget","value":120}}]},{"type":"column","props":{"span":7},"children":[{"type":"kitchart","props":{"kind":"bar","title":"Spent vs budget","labels":"Spent, Budget","source":"[spent, budget]"}},{"type":"statuslight","props":{"label":"On track","source":"budget - spent","okAt":0,"warnAt":-20}}]}]}].',
-].join('\n');
 
 // ── Snapshot helpers (read-only inspection over the JSON projection) ─────────────
 
