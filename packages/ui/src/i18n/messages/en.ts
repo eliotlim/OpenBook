@@ -1100,6 +1100,7 @@ export const en = {
     ledgerEvidenceDroppedOne: '{count} evidence attachment couldn’t be restored from this file; recover it from a backup.',
     ledgerRefused: 'Ledger records were NOT restored: {error}',
     ledgerFailed: 'Restoring the ledger records failed: {error} Your pages were still imported.',
+    ledgerAdminOnly: 'This export includes ledger records, but only a library admin can restore them — the pages will still import.',
   },
   templates: {
     title: 'Start with a template',

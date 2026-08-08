@@ -512,6 +512,12 @@ export const zh: PartialMessages = {
     ledgerEntriesOne: '{count} 笔分录',
     ledgerRestored: '账簿数据已恢复 — {accounts}、{entries}。',
     ledgerRefused: '未恢复账簿数据：{error}',
+    ledgerEvidenceNote: 'HTML 导出不包含票据等凭证文件 — 请通过恢复备份找回它们。',
+    ledgerUnreadable: '此导出包含账簿数据，但无法恢复：{reason}',
+    ledgerEvidenceDropped: '{count} 个凭证附件无法从此文件恢复；请从备份中找回。',
+    ledgerEvidenceDroppedOne: '{count} 个凭证附件无法从此文件恢复；请从备份中找回。',
+    ledgerFailed: '账簿数据恢复失败：{error} 页面已照常导入。',
+    ledgerAdminOnly: '此导出包含账簿数据，但只有文库管理员才能恢复 — 页面仍会照常导入。',
   },
   slash: {
     text: {label: '文本', hint: '普通段落'},

@@ -27,6 +27,7 @@ import {
 } from '@/lib/importContent';
 import {htmlToImportedDoc, parseHtmlImport} from '@/lib/htmlImport';
 import {runIslandImport, summarizeIslandLedger, type HtmlIsland, type IslandLedgerOutcome} from '@/lib/islandImport';
+import {useIsSettingsAdmin} from '@/components/settings/adminGate';
 import {artifactChoiceFor, runArtifactImport, type ArtifactImportChoice} from '@/lib/artifactImport';
 import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
 
@@ -117,6 +118,11 @@ export default function ImportDialog() {
   // a space island carries a coherent section; default on — the user asked for
   // their content back, and a non-empty target refuses server-side anyway).
   const [restoreLedger, setRestoreLedger] = useState(true);
+  // The restore route is instance-administration gated server-side; a CONFIRMED
+  // non-admin gets a plain note instead of a toggle that could only ever fail.
+  // `null` (probe in flight / inconclusive) keeps the toggle — the server gate
+  // stays authoritative.
+  const isAdmin = useIsSettingsAdmin();
 
   // Reset to a clean picker each time the dialog opens, so a previous import's
   // result or error never greets the next one; abort any parse still running
@@ -304,7 +310,7 @@ export default function ImportDialog() {
           // reported below; the page import always stands on its own).
           const ledgerOk = summarizeIslandLedger(island.found)?.ok === true;
           const landed = await runIslandImport(client, island.found, island.assets, {
-            restoreLedger: restoreLedger && ledgerOk,
+            restoreLedger: restoreLedger && ledgerOk && isAdmin !== false,
           });
           ledger = landed.ledger;
           result = landed;
@@ -332,7 +338,7 @@ export default function ImportDialog() {
         importingRef.current = false;
       }
     },
-    [client, downloadUrls, reload, restoreLedger, t],
+    [client, downloadUrls, isAdmin, reload, restoreLedger, t],
   );
 
   // LX-4: what the staged island says about embedded ledger records — `null`
@@ -466,9 +472,15 @@ export default function ImportDialog() {
             {/* An OpenBook export restores exactly from its embedded source —
                 the conversion notes below don't apply. */}
             {phase.island && <p className="text-xs text-muted-foreground">{t('importer.losslessNote')}</p>}
-            {/* LX-4: the export carries ledger records — offer the restore
-                (empty-ledger only; the server refuses a non-empty target). */}
-            {ledgerPreview?.ok && (
+            {/* LX-4: the export carries ledger records. A CONFIRMED non-admin
+                gets the plain fact (the restore route is admin-gated) instead
+                of a toggle that could only land in `failed`. */}
+            {ledgerPreview?.ok && isAdmin === false && (
+              <p className="text-xs text-muted-foreground">{t('importer.ledgerAdminOnly')}</p>
+            )}
+            {/* Otherwise: offer the restore (empty-ledger only; the server
+                refuses a non-empty target). */}
+            {ledgerPreview?.ok && isAdmin !== false && (
               <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted p-3">
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-sm font-medium">{t('importer.ledgerToggle')}</span>

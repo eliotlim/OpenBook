@@ -24,6 +24,10 @@ import {SETTINGS_SECTION_LEDGER_AUTOEXPORT} from '@/lib/settingsIndex';
  * disabled control and a lock hint. Hidden entirely when the server does not
  * surface the field (a pre-LGR-7 server, or an anonymous caller the identity
  * gate hides it from).
+ *
+ * i18n: the `ledgerAutoExport.*` strings are English-only BY PRECEDENT — the
+ * partial locales (de/ja/zh) carry no admin-surface namespaces at all (see
+ * `agentEdits`, `aiUsage`), and the i18n layer falls back to `en` per key.
  */
 export default function LedgerAutoExportSettings() {
   const client = useData();

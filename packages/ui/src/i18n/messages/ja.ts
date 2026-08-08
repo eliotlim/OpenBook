@@ -514,6 +514,12 @@ export const ja: PartialMessages = {
     ledgerEntriesOne: '{count} 件の仕訳',
     ledgerRestored: '帳簿データを復元しました — {accounts}、{entries}。',
     ledgerRefused: '帳簿データは復元されませんでした：{error}',
+    ledgerEvidenceNote: 'レシートなどの証憑ファイルは HTML エクスポートには含まれません — バックアップを復元して取り戻してください。',
+    ledgerUnreadable: 'このエクスポートには帳簿データが含まれていますが、復元できません：{reason}',
+    ledgerEvidenceDropped: '{count} 件の証憑添付はこのファイルから復元できませんでした。バックアップから復元してください。',
+    ledgerEvidenceDroppedOne: '{count} 件の証憑添付はこのファイルから復元できませんでした。バックアップから復元してください。',
+    ledgerFailed: '帳簿データの復元に失敗しました：{error} ページは通常どおり取り込まれました。',
+    ledgerAdminOnly: 'このエクスポートには帳簿データが含まれていますが、復元できるのはライブラリ管理者のみです — ページは通常どおり取り込まれます。',
   },
   slash: {
     text: {label: 'テキスト', hint: 'プレーンな段落'},

@@ -519,6 +519,12 @@ export const de: PartialMessages = {
     ledgerEntriesOne: '{count} Buchung',
     ledgerRestored: 'Buchhaltungsdaten wiederhergestellt — {accounts} und {entries}.',
     ledgerRefused: 'Buchhaltungsdaten wurden NICHT wiederhergestellt: {error}',
+    ledgerEvidenceNote: 'Belege und andere Nachweisdateien sind in HTML-Exporten nicht enthalten — stelle ein Backup wieder her, um sie zurückzubekommen.',
+    ledgerUnreadable: 'Dieser Export enthält Buchhaltungsdaten, die sich aber nicht wiederherstellen lassen: {reason}',
+    ledgerEvidenceDropped: '{count} Nachweis-Anhänge konnten aus dieser Datei nicht wiederhergestellt werden; stelle sie aus einem Backup wieder her.',
+    ledgerEvidenceDroppedOne: '{count} Nachweis-Anhang konnte aus dieser Datei nicht wiederhergestellt werden; stelle ihn aus einem Backup wieder her.',
+    ledgerFailed: 'Die Wiederherstellung der Buchhaltungsdaten ist fehlgeschlagen: {error} Deine Seiten wurden trotzdem importiert.',
+    ledgerAdminOnly: 'Dieser Export enthält Buchhaltungsdaten, aber nur Bibliotheks-Admins können sie wiederherstellen — die Seiten werden trotzdem importiert.',
   },
   slash: {
     text: {label: 'Text', hint: 'Einfacher Absatz'},
