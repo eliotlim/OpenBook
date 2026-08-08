@@ -195,12 +195,25 @@ export async function verifyPlugin(
 /**
  * The pinned first-party registry key. Every OpenBook build trusts this;
  * additional registries are user-added keys on top (Settings → Extensions).
- * NOTE: a placeholder development key until the real registry launches —
- * regenerate and replace before publishing plugins for real.
+ *
+ * THIS CONSTANT IS THE ONE PLACE THE PRODUCTION KEY LIVES. The key ceremony
+ * (docs/plugin-signing.md) is: run `node scripts/gen-registry-key.mjs`, commit
+ * the printed PUBLIC key here, and store the private half as the
+ * `OPENBOOK_REGISTRY_PRIVATE_KEY` GitHub Actions secret — the release build
+ * signs the bundled first-party plugins with it (packages/ui/scripts/
+ * bundlePlugins.ts). Rotation = add-then-remove: ship a build that ALSO
+ * trusts the new key (see the runbook) before signing with it exclusively.
+ *
+ * NOTE: currently a PLACEHOLDER key whose private half was generated in
+ * memory and destroyed — nothing can ever sign for it, so first-party
+ * bundles show Unverified until the owner performs the key ceremony. It
+ * deliberately does NOT match scripts/test-registry-key.json: the committed
+ * test key must never be a production trust anchor (its private half is
+ * public), and CI guards enforce that (.github/workflows/release.yml).
  */
 export const OPENBOOK_REGISTRY = {
   name: 'OpenBook Registry',
-  publicKey: 'nI4eBQzqrIyVPEmJSEzGtqC9B0+kfWTXKyN5t8Yki/E=',
+  publicKey: 'auvZjhjbcZgepWphhILsmuQNl82djsb6dkao+/S+7zU=',
 };
 
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/;
