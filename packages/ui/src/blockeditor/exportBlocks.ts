@@ -281,14 +281,16 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       break;
     }
     default: {
-      if (isCoreTextType(b.type)) {
+      // Only PLUGIN-shaped types get the placeholder card here. Core kit blocks
+      // (slider, kitchart, …) have no case in this exporter either, and calling
+      // them “unsupported” in a paste would be a lie — they keep their
+      // historical plain-text output.
+      const {pluginId, label, hint} = describeUnknownBlock(b.type);
+      if (pluginId === null) {
         parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
         i += 1;
         break;
       }
-      // Plugin / forward-compat block: a labelled placeholder that names what
-      // the reader is missing, keeping any text the block carried.
-      const {label, hint} = describeUnknownBlock(b.type);
       const body = textHtml(b.text);
       parts.push(
         `<div class="obe-x-plugin" data-block-type="${escapeHtml(b.type)}">` +
@@ -401,11 +403,12 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       break;
     }
     default: {
-      if (isCoreTextType(b.type)) {
+      // Plugin-shaped types only — see the note in `blocksToHtml`.
+      const {pluginId, label, hint} = describeUnknownBlock(b.type);
+      if (pluginId === null) {
         out.push(textMd(b.text));
         break;
       }
-      const {label, hint} = describeUnknownBlock(b.type);
       const body = textMd(b.text);
       out.push(`> **${label}** — ${hint}${body ? `\n>\n> ${body}` : ''}`);
     }

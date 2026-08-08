@@ -136,7 +136,6 @@ describe('clipboard/standalone block exporters', () => {
 
   it('labels plugin blocks in clipboard HTML', () => {
     const html = blocksToHtml(json);
-    expect(html).not.toMatch(/<p>\s*(&nbsp;)?\s*<\/p>/);
     expect(html).toContain('data-block-type="openbook.ledger/trial-balance"');
     expect(html).toContain('Trial balance');
     expect(html).toContain('requires the Ledger plugin');
@@ -145,8 +144,13 @@ describe('clipboard/standalone block exporters', () => {
   it('labels plugin blocks in clipboard Markdown', () => {
     const md = blocksToMarkdown(json);
     expect(md).toContain('> **Beancount export** — This block requires the Ledger plugin');
-    // A type with no `{pluginId}/` shape still names itself, verbatim.
-    expect(md).toContain('> **Not a plugin type** — Unsupported block type “not-a-plugin-type”');
+  });
+
+  it('leaves non-plugin types on their historical plain-text path', () => {
+    // Deliberately narrow: core kit blocks fall through this exporter's switch
+    // too, and labelling a slider “unsupported” in a paste would be a lie.
+    expect(blocksToMarkdown(json)).not.toContain('Unsupported block type');
+    expect(blocksToHtml([{id: 's', type: 'slider', props: {name: 'm', value: 1}}])).toBe('<p>&nbsp;</p>');
   });
 
   it('keeps text a hand-built unknown block carried', () => {
