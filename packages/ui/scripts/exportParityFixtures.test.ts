@@ -61,7 +61,14 @@ describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.t
     for (const type of LEDGER_BLOCK_TYPES) expect(body).toContain(`data-block-type="${type}"`);
     expect(body).toContain('Trial balance');
     expect(body).toContain('Beancount export');
-    expect(body).toContain('requires the Ledger plugin');
+    // The FIRST-PARTY ledger blocks get ledger-aware hints, not the generic
+    // "install the plugin" line (LX-3 replaced that wording and this assertion
+    // was left behind): a report says the books weren't included, an
+    // interactive tool says it has no static view. Only a genuinely unknown
+    // third-party block still names a plugin to install.
+    expect(body).toContain('the books weren\'t included in this export');
+    expect(body).toContain('Interactive ledger tool');
+    expect(body).toContain('requires the Future plugin');
   });
 
   it('writes a deterministic site-bundle export', () => {
