@@ -108,14 +108,19 @@ export async function gatherLedgerExportSection(client: DataClient): Promise<Led
     const reconciliations = await client.ledgerListReconciliations();
     if (rowCount.reconciliations !== reconciliations.length) return null;
     const transactions = await client.ledgerListTransactions({limit: LEDGER_MAX_TRANSACTION_LIMIT});
-    // The typed transaction read is capped; the check is only sound when the
-    // result is known-complete. Beyond the cap the accounts tripwire above
-    // still catches the (uniform) filtered-principal case.
-    if (transactions.length < LEDGER_MAX_TRANSACTION_LIMIT) {
-      if (rowCount.transactions !== transactions.length) return null;
-      const postings = transactions.reduce((n, t) => n + t.postings.length, 0);
-      if (rowCount.postings !== postings) return null;
-    }
+    // The typed transaction read is CAPPED (the server clamps `limit` to
+    // LEDGER_MAX_TRANSACTION_LIMIT), so the parity check is only sound when
+    // the result is known-complete — strictly under the cap. AT the cap there
+    // is no requireLedger-gated, uncapped count surface to prove completeness
+    // against (`ledgerVerify` is admin-gated, not a read surface), so fail
+    // CLOSED: a >=1000-tx book with partially-granted row pages would
+    // otherwise ship a complete chart of accounts plus a silently partial
+    // journal. Never embed half a book — a book that big belongs in a real
+    // backup (LGR-15), not a document export.
+    if (transactions.length >= LEDGER_MAX_TRANSACTION_LIMIT) return null;
+    if (rowCount.transactions !== transactions.length) return null;
+    const postings = transactions.reduce((n, t) => n + t.postings.length, 0);
+    if (rowCount.postings !== postings) return null;
 
     // The stored `ledgerDb` settings-row shape (server `LedgerIds`), rebuilt
     // from reads the principal is authorized for.
