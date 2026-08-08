@@ -300,6 +300,16 @@ function readActiveId(): string | null {
   }
 }
 
+/**
+ * The persisted active account id, readable synchronously outside React. The
+ * desktop shell uses this to namespace per-account secret slots that are
+ * constructed before any provider mounts — e.g. the forwarding site-identity
+ * keychain slot (`forwarding.site-identity.<accountId>`, NAME-2), so an
+ * account switch selects that account's identity instead of clobbering the
+ * global slot. Null while signed out.
+ */
+export const readActiveAccountId = (): string | null => readActiveId();
+
 function writeActiveId(id: string | null): void {
   try {
     if (id) localStorage.setItem(ACTIVE_KEY, id);

@@ -19,6 +19,12 @@ export {
   type SiteVisibility,
   type ForwardingClientOptions,
 } from './forwardingClient';
+export {
+  createNamespacedKeyStore,
+  KeychainLockedError,
+  type NamespacedKeyStoreOptions,
+  type RawSecretStore,
+} from './namespacedKeyStore';
 export {TunnelClient, type TunnelStatus, type TunnelClientOptions} from './tunnelClient';
 export {mintSiteKeypair, signWithSiteKey, verifyWithSiteKey, type SiteKeypair} from './siteKey';
 export {

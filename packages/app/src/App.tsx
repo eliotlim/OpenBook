@@ -17,6 +17,7 @@ import {
   PreferencesProvider,
   ThemeProvider,
   LibraryProvider,
+  readActiveAccountId,
   type PlatformCapabilities,
   type WindowControls,
 } from '@book.dev/ui';
@@ -148,7 +149,10 @@ const platform: PlatformCapabilities = {
     // can't be reattached by the next, and forwarding re-provisions a new site
     // (new `library-*` host) each run. A localStorage store survives rebuilds; the
     // keychain is correct for a signed release build (stable identity across versions).
-    keyStore: import.meta.env.DEV ? createLocalStorageKeyStore() : createTauriKeyStore(),
+    // Namespaced per account (NAME-2): the slot is resolved from the ACTIVE
+    // account id at each call, so switching accounts switches site identities
+    // instead of overwriting one address with another.
+    keyStore: import.meta.env.DEV ? createLocalStorageKeyStore(readActiveAccountId) : createTauriKeyStore(readActiveAccountId),
     // Serve forwarded requests over the SAME transport the local data client uses
     // (see createDesktopClient): the Unix-socket IPC bridge in a managed release
     // build, but plain loopback HTTP in dev — the `pnpm dev` server is TCP-only and
