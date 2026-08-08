@@ -78,6 +78,10 @@ export const getRegistrySnapshot = (): number => registryVersion;
 
 export const getCustomBlock = (type: string): CustomBlockDef | undefined => registry.get(type);
 
+/** Every registered custom block type id (drift-guard tests enumerate this
+ *  against the SDK block-type catalogue). */
+export const registeredBlockTypes = (): string[] => [...registry.keys()];
+
 export const customSlashItems = (): CustomBlockDef[] => [...registry.values()].filter((d) => d.slash);
 
 export const subscribeRegistry = (cb: () => void): (() => void) => {

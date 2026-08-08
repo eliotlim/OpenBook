@@ -1788,6 +1788,13 @@ a.obe-mention {
 /* Exported groups (static HTML). */
 .obe-x-group { border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
 .obe-x-group-name { margin: 0 0 0.35rem; font-size: 0.9rem; }
+/* Exported plugin-block placeholder (LX-1): a block whose plugin the reader
+   doesn't have. Readable unstyled too (bold label + hint), since a paste target
+   rarely carries this sheet. */
+.obe-x-plugin { border: 1px dashed #d4d4d8; border-radius: 10px; padding: 0.6rem 0.9rem; margin: 0.75rem 0; }
+.obe-x-plugin > p { margin: 0; }
+.obe-x-plugin > p.obe-x-plugin-hint { font-size: 0.85rem; opacity: 0.65; }
+.obe-x-plugin > p.obe-x-plugin-text { margin-top: 0.4rem; }
 
 /* Tables */
 .obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 2px 1.4rem 1.4rem 0; }

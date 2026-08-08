@@ -26,6 +26,7 @@ import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '
 import {assetsIslandScript, isSafeHref, pageIslandScript, libraryIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {describeUnknownBlock} from '../blockeditor/unknownBlock';
 import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -40,6 +41,7 @@ import plotUmd from './vendor/plot.umd.min.js?raw';
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
 import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
+import {describeLedgerInteractiveBlock, describeLedgerReportBlock, ledgerExportRecords, renderLedgerReportBlock, type LedgerExportRecords} from './exportLedgerReports';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
@@ -151,6 +153,11 @@ interface RenderCtx {
   /** The exporting user's data-colour scheme, baked into chips/charts/status
    *  (the file is self-contained — no live CSS vars to read; OB-379). */
   scheme: DataColorScheme;
+  /** LX-3: the fold-ready ledger records recovered from the export's embedded
+   *  ledger section (LX-2), when the exporter included the books. Present ⇒
+   *  ledger REPORT blocks render as real static tables; absent ⇒ they keep the
+   *  LX-1 placeholder card. */
+  ledger?: LedgerExportRecords;
 }
 
 /**
@@ -590,8 +597,49 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       );
       break;
     }
-    default:
+    default: {
+      // A plugin-contributed (`{pluginId}/{blockName}`) or newer-version block
+      // type. The projection now preserves its identity (LX-1), so render the
+      // same labelled placeholder the app shows for a missing plugin rather
+      // than dropping the block: the reader sees WHAT is here and why it isn't
+      // drawn. Any text the block carried rides along. This is the final render
+      // for decks, the PDF path and no-JS/no-hydrate exports; on the hydrate
+      // path the viewer replaces it with its own missing-plugin card.
+      //
+      // LX-3: ledger REPORT blocks are better than a placeholder when the
+      // export carries the books (LX-2's ledger section): compute the report
+      // with the same pure folds the in-app block uses and emit a real static
+      // table, honouring the block's persisted props. A fold refusal (corrupt
+      // stored amount, unlinkable journal entry) falls through to the card.
+      if (ctx.ledger) {
+        const table = renderLedgerReportBlock(str(block.type), (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
+        if (table !== null) {
+          html.push(table);
+          break;
+        }
+      }
+      // The four interactive ledger tools act on the LIVE books — no static
+      // render exists, records or not, so their card says "interactive"
+      // instead of implying a missing plugin. A ledger REPORT block with no
+      // usable books (records off) gets its own ledger-aware hint too: the
+      // plugin is first-party, so "install the plugin" would be the wrong
+      // diagnosis — the books just weren't included in this export. With
+      // records ON, a report the renderer refused (fold error, unlinkable
+      // journal entry) keeps the generic card.
+      const {label, hint} =
+        describeLedgerInteractiveBlock(str(block.type)) ??
+        (ctx.ledger ? null : describeLedgerReportBlock(str(block.type))) ??
+        describeUnknownBlock(str(block.type));
+      const text = str(d.text) ? inlineToHtml(parseInline(str(d.text)), ctx) : '';
+      html.push(
+        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}">` +
+          `<p class="ob-plugin-block-label">${escapeHtml(label)}</p>` +
+          `<p class="ob-plugin-block-hint">${escapeHtml(hint)}</p>` +
+          (text ? `<p class="ob-plugin-block-text">${text}</p>` : '') +
+          '</div>',
+      );
       break;
+    }
     }
   }
   return html.join('\n');
@@ -984,7 +1032,23 @@ export function toHtmlSite(
   const nameByCell = new Map<string, string>();
   for (const page of bundle.pages) loadSnapshot(page.snapshot, values, nameByCell);
 
+  // LX-3: when the bundle carries the books (LX-2), adapt the embedded rows to
+  // the report folds' inputs ONCE — every ledger report block on every page
+  // renders from the same recovered records. `null` (malformed section) means
+  // the report blocks keep their LX-1 placeholders. The adapter null-guards
+  // its own inputs, but this call is belt-and-braces wrapped too: NOTHING a
+  // malformed ledger section carries may crash the whole site export.
+  let ledger: LedgerExportRecords | null = null;
+  if (bundle.ledger) {
+    try {
+      ledger = ledgerExportRecords(bundle.ledger);
+    } catch {
+      ledger = null;
+    }
+  }
+
   const ctx: RenderCtx = {
+    ...(ledger ? {ledger} : {}),
     values,
     nameByCell,
     sliders: [],
@@ -1025,7 +1089,9 @@ export function toHtmlSite(
   // One island carries the WHOLE space bundle (pages + databases + nesting), the
   // `openbook.library.json` structure, so a site export re-imports with structure
   // intact. The visible sections are a render; this is the authoritative source.
-  const island = libraryIslandScript(bundle.rootId, bundle.space);
+  // LX-2: when the exporter opted in (and could read the books), the island
+  // additionally carries the ledger records under their own `ledger` key.
+  const island = libraryIslandScript(bundle.rootId, bundle.space, bundle.ledger ? {ledger: bundle.ledger} : {});
   // Hydrate through the viewer (its `#page=` hash nav replaces the legacy
   // router) only when the viewer can faithfully render the WHOLE bundle: every
   // page a block-doc, and no databases anywhere (the viewer has no database
@@ -1065,6 +1131,8 @@ const SCHEME_DUAL = `
     --obtc-yellow: #fcd34d; --obtc-green: #4ade80; --obtc-blue: #60a5fa;
     --obtc-purple: #c084fc; --obtc-pink: #f472b6; --obtc-red: #f87171;
   }
+  /* The ledger alarm red (#b91c1c) goes muddy on the dark page — lighten it. */
+  .ob-ledger-note.is-alarm { color: #f87171; }
 }
 `;
 
@@ -1145,6 +1213,36 @@ figure.ob-artifact { margin: 1.2em 0; }
 .ob-artifact-placeholder { display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; }
 .ob-artifact-label { font-weight: 600; }
 .ob-artifact-hint { font-size: .85rem; opacity: .65; }
+/* Plugin / unknown block placeholder (LX-1). Same dashed-card language as the
+   artifact placeholder above; kept whole across a PDF page break. */
+.ob-plugin-block { margin: 1.2em 0; padding: 14px 16px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; background: rgba(127,127,127,.05); break-inside: avoid; page-break-inside: avoid; }
+.ob-plugin-block > p { margin: 0; }
+.ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
+.ob-plugin-block > p.ob-plugin-block-hint { font-size: .85rem; opacity: .65; margin-top: 2px; }
+.ob-plugin-block > p.ob-plugin-block-text { margin-top: 8px; }
+/* Ledger report tables (LX-3). Money columns are right-aligned tabular digits;
+   totals carry the double-rule emphasis; a report never splits across a PDF
+   page (same discipline as the placeholder card above). */
+figure.ob-ledger-report { margin: 1.2em 0; break-inside: avoid; page-break-inside: avoid; }
+figure.ob-ledger-report > figcaption.ob-ledger-title { font-weight: 700; margin-bottom: 6px; }
+.ob-ledger-sub { font-weight: 400; opacity: .7; font-size: .9em; }
+.ob-ledger-currency { float: right; font-weight: 400; font-size: .85em; opacity: .75; }
+table.ledger-table { border-collapse: collapse; width: 100%; margin: .4em 0; font-size: .92em; font-variant-numeric: tabular-nums; }
+/* An oversized register CAN outgrow a page despite the figure's break-inside:
+   avoid — when it splits, repeat the header on every page and keep rows (and
+   the Totals foot) whole instead of orphaning half a money row. */
+table.ledger-table thead { display: table-header-group; }
+table.ledger-table tfoot { display: table-footer-group; }
+table.ledger-table tr { break-inside: avoid; page-break-inside: avoid; }
+table.ledger-table th, table.ledger-table td { border: 1px solid rgba(127,127,127,.3); padding: 5px 10px; text-align: left; vertical-align: top; }
+table.ledger-table thead th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.ledger-table th.num, table.ledger-table td.num { text-align: right; white-space: nowrap; }
+table.ledger-table tr.ledger-section th { background: rgba(127,127,127,.08); font-weight: 700; }
+table.ledger-table tr.ledger-total td { font-weight: 700; border-top: 2px solid rgba(127,127,127,.55); }
+table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }
+.ledger-reversed { opacity: .6; font-size: .9em; }
+.ob-ledger-note { font-size: .85rem; opacity: .8; margin: 4px 0 0; }
+.ob-ledger-note.is-alarm { color: #b91c1c; font-weight: 600; opacity: 1; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }

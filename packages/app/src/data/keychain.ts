@@ -1,31 +1,60 @@
 import {invoke} from '@tauri-apps/api/core';
-import type {KeyStore, SiteIdentity} from '@book.dev/sdk';
+import {createNamespacedKeyStore, KeychainLockedError, type KeyStore, type RawSecretStore} from '@book.dev/sdk';
 import type {AccountSecretStore} from '@book.dev/ui';
 
 /**
- * A {@link KeyStore} backed by the OS keychain (via the Rust `keychain_*`
- * commands). The forwarding site identity — including the Ed25519 private key —
- * is stored here as JSON, so the secret never lands on disk in the clear.
+ * The forwarding site identity — including the Ed25519 private key — is stored
+ * as JSON in the OS keychain (via the Rust `keychain_*` commands), one entry
+ * per account: `forwarding.site-identity.<accountId>` (NAME-2), with the bare
+ * key as the pre-namespacing legacy slot a first load adopts from. The secret
+ * never lands on disk in the clear, and switching accounts switches identities
+ * instead of clobbering one with the other (the name — and so the address — is
+ * a pure hash of this key).
  */
 const SITE_IDENTITY_KEY = 'forwarding.site-identity';
 
-export const createTauriKeyStore = (): KeyStore => ({
-  async load() {
-    const raw = await invoke<string | null>('keychain_get', {key: SITE_IDENTITY_KEY});
-    if (!raw) return null;
+/**
+ * The typed error prefix the Rust `keychain_get` uses for a locked keychain /
+ * denied access prompt (vs `NoEntry` → `null`). Mapped here to
+ * {@link KeychainLockedError} so an unreadable identity surfaces as a retryable
+ * "unlock your keychain" failure — NEVER as "no identity", which would send the
+ * client down the re-provision path and silently rename the site.
+ */
+const KEYCHAIN_LOCKED_PREFIX = 'keychain-locked:';
+
+const rethrowKeychainError = (e: unknown): never => {
+  const msg = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+  if (msg.startsWith(KEYCHAIN_LOCKED_PREFIX)) throw new KeychainLockedError(msg.slice(KEYCHAIN_LOCKED_PREFIX.length).trim());
+  throw e instanceof Error ? e : new Error(msg);
+};
+
+const keychainBackend: RawSecretStore = {
+  async get(key) {
     try {
-      return JSON.parse(raw) as SiteIdentity;
-    } catch {
-      return null; // corrupt entry — treat as none, the client re-provisions
+      return await invoke<string | null>('keychain_get', {key});
+    } catch (e) {
+      return rethrowKeychainError(e);
     }
   },
-  async save(identity) {
-    await invoke('keychain_set', {key: SITE_IDENTITY_KEY, value: JSON.stringify(identity)});
+  async set(key, value) {
+    try {
+      await invoke('keychain_set', {key, value});
+    } catch (e) {
+      rethrowKeychainError(e);
+    }
   },
-  async clear() {
-    await invoke('keychain_delete', {key: SITE_IDENTITY_KEY});
+  async delete(key) {
+    try {
+      await invoke('keychain_delete', {key});
+    } catch (e) {
+      rethrowKeychainError(e);
+    }
   },
-});
+};
+
+/** A per-account {@link KeyStore} backed by the OS keychain (see {@link SITE_IDENTITY_KEY}). */
+export const createTauriKeyStore = (getAccountId: () => string | null | undefined): KeyStore =>
+  createNamespacedKeyStore({backend: keychainBackend, baseKey: SITE_IDENTITY_KEY, getAccountId});
 
 /**
  * A dev-only {@link KeyStore} backed by `localStorage`. Dev builds are adhoc /
@@ -35,27 +64,25 @@ export const createTauriKeyStore = (): KeyStore => ({
  * provisioning a fresh site. `localStorage` lives in the webview data store
  * (keyed by origin, not the binary), so the identity survives rebuilds. It's
  * plaintext on disk — acceptable for dev; a signed release build uses the
- * keychain above, where the identity is stable across versions.
+ * keychain above, where the identity is stable across versions. Namespaced per
+ * account exactly like the keychain store, with the same legacy-slot adoption.
  */
 const DEV_SITE_IDENTITY_KEY = 'openbook.dev.forwarding.site-identity';
 
-export const createLocalStorageKeyStore = (): KeyStore => ({
-  async load() {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(DEV_SITE_IDENTITY_KEY) : null;
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as SiteIdentity;
-    } catch {
-      return null;
-    }
+const localStorageBackend: RawSecretStore = {
+  async get(key) {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
   },
-  async save(identity) {
-    localStorage.setItem(DEV_SITE_IDENTITY_KEY, JSON.stringify(identity));
+  async set(key, value) {
+    localStorage.setItem(key, value);
   },
-  async clear() {
-    localStorage.removeItem(DEV_SITE_IDENTITY_KEY);
+  async delete(key) {
+    localStorage.removeItem(key);
   },
-});
+};
+
+export const createLocalStorageKeyStore = (getAccountId: () => string | null | undefined): KeyStore =>
+  createNamespacedKeyStore({backend: localStorageBackend, baseKey: DEV_SITE_IDENTITY_KEY, getAccountId});
 
 /**
  * An {@link AccountSecretStore} backed by the OS keychain (via the `keychain_*`

@@ -27,6 +27,10 @@ export default tseslint.config(
       'packages/ui/src/components/ui/**',
       // Vendored UMD bundles (d3 / Observable Plot) inlined into the HTML export.
       'packages/ui/src/export/vendor/**',
+      // Generated mirror of the ledger plugin's PURE report folds (LX-3) —
+      // byte-copies of examples/plugins/ledger/src with one import rewritten
+      // (see ui scripts/bundlePlugins.ts). Fix the plugin source, regenerate.
+      'packages/ui/src/export/ledgerFolds.gen/**',
       // Generated sidecar assets: `build:sidecar` copies the vendored viewer
       // bundle + PGlite wasm/data here for the bun-compiled binary. All
       // generated/vendored (the dir is gitignored); never lint them.

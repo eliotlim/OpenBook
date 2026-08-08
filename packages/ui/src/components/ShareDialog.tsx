@@ -258,6 +258,9 @@ function PublishRow({
   // Scope + address both resolve public, but the guest gate is closed — a signed-out
   // visitor still 404s. Explain the one thing the publish flow can't paper over
   // (reusing the SiteVisibilityControl caveat idiom) rather than under-/over-claiming.
+  // Deliberately the PUBLISHED-intent variant (not `guestOffCaveatPublic`): the owner
+  // is publishing ONE page here, so the honest minimum fix is per-page publishing —
+  // never widening the whole library to "Anyone can view".
   if (guestOff) {
     return (
       <p

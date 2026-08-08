@@ -497,7 +497,16 @@ fn keychain_set(key: String, value: String) -> Result<(), String> {
 fn keychain_get(key: String) -> Result<Option<String>, String> {
     match keyring::Entry::new(KEYCHAIN_SERVICE, &key).and_then(|e| e.get_password()) {
         Ok(value) => Ok(Some(value)),
+        // Only a confirmed "no such entry" may read as absent.
         Err(keyring::Error::NoEntry) => Ok(None),
+        // A locked keychain or a denied access prompt means the entry is
+        // UNREADABLE, not absent — surface the typed `keychain-locked:` prefix
+        // the TS side maps to a retryable KeychainLockedError, so it can never
+        // be mistaken for "no identity stored" (the re-provision path, which
+        // would silently rename the forwarded site).
+        Err(e @ (keyring::Error::NoStorageAccess(_) | keyring::Error::PlatformFailure(_))) => {
+            Err(format!("keychain-locked: {e}"))
+        }
         Err(e) => Err(e.to_string()),
     }
 }

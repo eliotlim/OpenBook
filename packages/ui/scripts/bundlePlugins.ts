@@ -11,12 +11,23 @@
  * trusts it explicitly). Ed25519 is deterministic, so the git-tracked output
  * is byte-stable across regenerations with the same key.
  *
+ * ALSO mirrors the ledger plugin's PURE report-fold modules (`reports.ts`,
+ * `statements.ts` — no React, no IO, no host calls) into
+ * `src/export/ledgerFolds.gen/` as compilable TypeScript, with the loader-only
+ * `@book.dev/plugin-sdk` import rewritten to `@book.dev/sdk` (the host module
+ * those money functions come from anyway). The static HTML export (LX-3)
+ * imports the folds from there to render ledger REPORT blocks as real tables —
+ * the plugin source stays the single source of truth, and the export bundle
+ * never gains the plugin runtime (the mirrored modules are pure functions).
+ *
  * Run: `npx tsx scripts/bundlePlugins.ts`
- * Output: `src/plugins/bundled.gen.ts` (git-tracked, regenerated on build)
+ * Output: `src/plugins/bundled.gen.ts` + `src/export/ledgerFolds.gen/*.ts`
+ * (git-tracked, regenerated on build)
  */
 
-import {readFileSync, readdirSync, writeFileSync, statSync} from 'fs';
+import {mkdirSync, readFileSync, readdirSync, writeFileSync, statSync} from 'fs';
 import {join, relative, resolve} from 'path';
+import ts from 'typescript';
 import {OPENBOOK_REGISTRY_KEYS} from '@book.dev/sdk';
 import {resolveSigningKey, signBundledPackage} from './bundleSigning';
 
@@ -26,6 +37,43 @@ const OUT = resolve(import.meta.dirname, '..', 'src', 'plugins', 'bundled.gen.ts
 // assert the built bundle is signed by a pinned key without parsing/executing
 // bundled.gen.ts (scripts/check-bundled-signatures.mjs).
 const SIG_OUT = resolve(import.meta.dirname, '..', 'src', 'plugins', 'bundled.signatures.json');
+const FOLDS_OUT_DIR = resolve(import.meta.dirname, '..', 'src', 'export', 'ledgerFolds.gen');
+
+/** The ledger plugin's pure fold modules the export renderer compiles in. */
+const LEDGER_FOLD_MODULES = ['reports.ts', 'statements.ts'] as const;
+
+/**
+ * Every module specifier `source` can pull in at build or run time, found by
+ * walking the real TypeScript AST — not a regex. Covers static imports
+ * (default/named/namespace AND bare side-effect `import 'x'`, either quote
+ * style), re-exports (`export ... from 'x'`), dynamic `import('x')`,
+ * `import x = require('x')`, and CommonJS `require('x')` calls. A dynamic
+ * import/require whose argument is not a string literal is unauditable, so it
+ * is reported as a sentinel specifier the allowlist can never match — the
+ * purity gate fails CLOSED on anything it cannot read.
+ */
+function moduleSpecifiers(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const specs: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined) {
+      specs.push(ts.isStringLiteralLike(node.moduleSpecifier) ? node.moduleSpecifier.text : '<non-literal specifier>');
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      if (isDynamicImport || isRequire) {
+        const arg = node.arguments[0];
+        specs.push(arg !== undefined && ts.isStringLiteralLike(arg) ? arg.text : '<non-literal specifier>');
+      }
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const expr = node.moduleReference.expression;
+      specs.push(ts.isStringLiteralLike(expr) ? expr.text : '<non-literal specifier>');
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return specs;
+}
 
 /** Recursively collect all files under `dir`, returning paths relative to `base`. */
 function walk(dir: string, base: string): string[] {
@@ -102,6 +150,26 @@ for (const plugin of PLUGINS) {
     throw new Error(`entry file "${manifest.main}" not found in ${plugin.dir}`);
   }
 
+  // Drift guard for the manifest's `blocks` declaration (PluginManifest.blocks
+  // — what the server's/agent's `list_block_types` enumerates without running
+  // plugin code): the declared types must EXACTLY match the `blocks.register`
+  // calls in the plugin source. A bundled plugin whose manifest lies about its
+  // blocks fails the build here instead of drifting silently.
+  const registered = new Set<string>();
+  for (const content of Object.values(filesRecord)) {
+    for (const m of content.matchAll(/blocks\.register\(\{\s*type:\s*'([^']+)'/g)) registered.add(m[1]);
+  }
+  const declared = new Set<string>(((manifest.blocks ?? []) as Array<{type: string}>).map((b) => b.type));
+  const missing = [...registered].filter((t) => !declared.has(t));
+  const stale = [...declared].filter((t) => !registered.has(t));
+  if (missing.length || stale.length) {
+    throw new Error(
+      `${plugin.dir}: openbook.json "blocks" drifted from the source's blocks.register calls` +
+        `${missing.length ? ` — undeclared: ${missing.join(', ')}` : ''}` +
+        `${stale.length ? ` — declared but never registered: ${stale.join(', ')}` : ''}`,
+    );
+  }
+
   // Sign the exact package literal being emitted — registry provenance for
   // the auto-installed first-party plugins (verified per sync in host.ts).
   const signature = await signBundledPackage({manifest, files: filesRecord}, signingKey);
@@ -135,3 +203,35 @@ writeFileSync(SIG_OUT, `${JSON.stringify(emittedSignatures, null, 2)}\n`);
 console.log(
   `wrote ${relative(process.cwd(), OUT)} (${PLUGINS.length} plugin(s), signed by ${signingKey.registry} [${signingKey.source}])`,
 );
+
+// ── Ledger fold mirror (LX-3) ────────────────────────────────────────────────
+// Compilable copies of the PURE fold modules, so the export renderer can call
+// the exact arithmetic the in-app report blocks use. Purity is enforced here:
+// a mirrored module may import only `@book.dev/plugin-sdk` (rewritten to the
+// host `@book.dev/sdk`) or a sibling fold module — anything else (React, the
+// block components, host APIs) fails the build loudly rather than silently
+// dragging the plugin runtime into the export bundle. The specifiers come
+// from the TypeScript AST (moduleSpecifiers), so side-effect imports, dynamic
+// import()/require() and both quote styles are all caught — "any
+// non-sanctioned import fails the build" is airtight, not regex-deep.
+mkdirSync(FOLDS_OUT_DIR, {recursive: true});
+for (const file of LEDGER_FOLD_MODULES) {
+  const srcPath = resolve(ROOT, 'examples/plugins/ledger/src', file);
+  const source = readFileSync(srcPath, 'utf-8');
+  const siblingNames = LEDGER_FOLD_MODULES.map((f) => f.replace(/\.ts$/, ''));
+  for (const spec of moduleSpecifiers(file, source)) {
+    const ok = spec === '@book.dev/plugin-sdk' || siblingNames.some((s) => spec === `./${s}`);
+    if (!ok) throw new Error(`ledger fold mirror: ${file} imports ${spec} — not a pure fold module`);
+  }
+  const rewritten = source.replace(/from '@book\.dev\/plugin-sdk'/g, 'from \'@book.dev/sdk\'');
+  const header =
+    '/* eslint-disable */\n' +
+    '/**\n' +
+    ' * AUTO-GENERATED by scripts/bundlePlugins.ts — do not edit by hand.\n' +
+    ` * Mirror of examples/plugins/ledger/src/${file} (the pure report folds),\n` +
+    ' * with \'@book.dev/plugin-sdk\' rewritten to \'@book.dev/sdk\'.\n' +
+    ' * Re-generate: `pnpm run gen:bundled-plugins`\n' +
+    ' */\n';
+  writeFileSync(join(FOLDS_OUT_DIR, file), header + rewritten);
+}
+console.log(`wrote ${relative(process.cwd(), FOLDS_OUT_DIR)} (${LEDGER_FOLD_MODULES.length} fold module(s))`);

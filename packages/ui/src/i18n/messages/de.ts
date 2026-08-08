@@ -336,6 +336,14 @@ export const de: PartialMessages = {
     exportPlugin: 'Plugin (.zip)',
     exportPluginFailed: 'Diese Seite lässt sich nicht als Plugin exportieren',
     exportPluginFailedOk: 'OK',
+    exportBooksTitle: 'Deine Bücher in diesen Export aufnehmen?',
+    exportBooksWarning: 'Die Datei wird deine Finanzdaten enthalten — Konten, Buchungen, Positionen und Abstimmungen. Jeder, der die Datei öffnen kann, kann sie lesen.',
+    exportBooksInclude: 'Deine Bücher aufnehmen (Ledger-Daten)',
+    exportBooksExcluded: 'Deine Bücher werden nicht aufgenommen. Ledger-Blöcke werden als Platzhalter exportiert.',
+    exportBooksUnavailable: 'Deine Bücher können nicht aufgenommen werden, weil du keinen Zugriff auf die Daten hast. Ledger-Blöcke werden als Platzhalter exportiert.',
+    exportBooksConfirm: 'Exportieren',
+    exportBooksConfirmInclude: 'Mit Büchern exportieren',
+    exportBooksCaptureFailed: 'Deine Bücher konnten nicht aufgenommen werden — die Datensätze ließen sich nicht vollständig lesen. Die Datei wurde ohne sie exportiert.',
   },
   home: {
     morning: 'Guten Morgen',
@@ -840,8 +848,19 @@ export const de: PartialMessages = {
     defaultAccess: 'Standardzugriff',
     defaultAccessHint: 'Legt fest, was Personen tun können, die diese Bibliothek ohne Anmeldung erreichen — über das Netzwerk oder einen geteilten ✦.book.cloud-Link — sowie die Standardsichtbarkeit neuer Seiten. Dein eigener Zugriff bleibt unberührt.',
     accessPrivate: 'Privat (nur Mitglieder)',
+    accessPublished: 'Nur veröffentlichte Seiten',
     accessView: 'Alle können ansehen',
     accessEdit: 'Alle können bearbeiten',
+    accessPrivateHint: 'Besucher können nichts öffnen — diese Bibliothek ist nur für Mitglieder.',
+    accessPublishedHint:
+      'Besucher können nur die Seiten öffnen, die du ausdrücklich veröffentlichst. Alles andere bleibt privat.',
+    accessViewHint: 'Besucher können jede Seite dieser Bibliothek lesen, aber nichts ändern.',
+    accessEditHint: 'Besucher können jede Seite dieser Bibliothek lesen und ändern.',
+    accessEditHintClaimed:
+      'Besucher können jede Seite dieser Bibliothek lesen. Nur Mitglieder können Seiten ändern.',
+    accessUnclaimedCaveat:
+      'Solange diese Bibliothek keine Inhaberin bzw. keinen Inhaber hat, kann jede Person mit Zugang jede Seite ansehen.',
+    accessAuthenticatedCaveat: 'Alle Angemeldeten können auch nicht veröffentlichte Seiten lesen.',
     ownerLocked: 'Nur die Inhaberin bzw. der Inhaber der Bibliothek kann das ändern.',
     saveError: 'Zugriff konnte nicht aktualisiert werden — {error}',
   },
@@ -892,7 +911,9 @@ export const de: PartialMessages = {
       authenticatedHint: 'Jede angemeldete Person kann diese Bibliothek sehen.',
       membersHint: 'Nur Mitglieder der Bibliothek können diese Bibliothek sehen.',
       guestOffCaveat:
-        'Der Gastzugriff ist aus, daher lassen sich veröffentlichte Seiten für nicht angemeldete Besucher trotzdem nicht öffnen. Aktiviere die Gastansicht in den Freigabe-Einstellungen der Bibliothek.',
+        'Der Gastzugriff ist aus, daher lassen sich veröffentlichte Seiten für nicht angemeldete Besucher trotzdem nicht öffnen. Setze unter „Gäste & Zugriff“ den „Standardzugriff“ auf „Nur veröffentlichte Seiten“.',
+      guestOffCaveatPublic:
+        'Der Gastzugriff ist aus, daher lässt sich diese Bibliothek für nicht angemeldete Besucher trotzdem nicht öffnen. Setze unter „Gäste & Zugriff“ den „Standardzugriff“ auf „Alle können ansehen“.',
       manageOnWeb: 'Im Web verwalten',
       error: 'Adresszugriff konnte nicht aktualisiert werden. Versuche es erneut.',
     },

@@ -20,6 +20,7 @@
  */
 
 import type {StoredSuggestion} from './suggestions';
+import type {TableOpKind} from './tableSnapshot';
 
 export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai' | 'claude';
 
@@ -258,8 +259,25 @@ export interface AgentChatMessage {
 export interface AgentProposal {
   /** Stable id within the turn's change set. */
   id: string;
-  /** Which write tool produced it (drives how the bridge applies it). */
-  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks' | 'set_page_theme' | 'delete_block' | 'set_block_props';
+  /**
+   * Which write tool produced it (drives how the bridge applies it). The
+   * `table_*` kinds (API-3) are the TABLE STRUCTURE ops — the bridge replays each
+   * by calling the editor's own `model.ts` op inside the proposal's single CRDT
+   * transaction, so an accepted table suggestion is one undo step and behaves
+   * exactly like the context-menu item. Their payloads carry SORTED (render-order)
+   * coordinates — `{tableId, rowIndex}` / `{tableId, colIndex}` / `{tableId,
+   * rowIndex, toIndex}` / `{tableId, rowIndex, colIndex, text}` — or a `cellId`
+   * (which resolves both indices), matching `cellPosition`.
+   */
+  kind:
+    | 'set_kit_value'
+    | 'set_db_cell'
+    | 'update_block'
+    | 'append_blocks'
+    | 'set_page_theme'
+    | 'delete_block'
+    | 'set_block_props'
+    | TableOpKind;
   /** One-line human summary, e.g. `Set "budget" = 1200`. */
   summary: string;
   /** The page this change targets (for block/kit writes). */

@@ -55,7 +55,10 @@ export type DocBlock =
   | {type: 'light'; label: string; status: string; value: unknown}
   | {type: 'progress'; label: string; pct: number; readout: string}
   | {type: 'image'; src: string; alt: string; caption: string; width?: string}
-  | {type: 'unknown'; raw: string};
+  /** A block no exporter can draw — a plugin-contributed or newer-version type.
+   *  `raw` is the verbatim block type (renderers derive the display name from
+   *  it, see `describeUnknownBlock`); `runs` is any text the block carried. */
+  | {type: 'unknown'; raw: string; runs: InlineRun[]};
 
 export interface DocModel {
   title: string;
@@ -304,7 +307,10 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets =
       break;
     }
     default:
-      out.push({type: 'unknown', raw: block.type ?? 'unknown'});
+      // Plugin-contributed / newer-version types land here (since LX-1 the
+      // projection preserves them instead of relabelling them `paragraph`), and
+      // render as a named placeholder — never as nothing.
+      out.push({type: 'unknown', raw: block.type ?? 'unknown', runs: parseInline(str(data.text))});
       break;
     }
   }

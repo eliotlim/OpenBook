@@ -111,6 +111,59 @@ export const PARITY_BLOCKS: NewBlock[] = [
   {id: 'fx-artifact', type: 'htmlArtifact', props: {assetId: PARITY_ARTIFACT_ID, title: 'Counter widget'}},
 ];
 
+/**
+ * **Plugin-block fixture (LX-1).** Every block type the bundled Ledger plugin
+ * contributes, in one page, plus two forward-compatibility unknowns (a
+ * props-only type from a hypothetical newer version, and a text-carrying one).
+ *
+ * None of these renderers exist in an export (or in an app without the plugin
+ * installed), so this fixture is the guard for the *placeholder* contract:
+ * every one of them must survive the export projection with its `type` +
+ * `props` intact and render as a visibly labelled block — never the empty
+ * `<p></p>` the old flatten produced.
+ */
+export const LEDGER_BLOCK_TYPES = [
+  'openbook.ledger/journal-entry',
+  'openbook.ledger/trial-balance',
+  'openbook.ledger/account-register',
+  'openbook.ledger/bank-import',
+  'openbook.ledger/reconcile',
+  'openbook.ledger/balance-sheet',
+  'openbook.ledger/income-statement',
+  'openbook.ledger/period-close',
+  'openbook.ledger/beancount-export',
+] as const;
+
+/** The seed props each Ledger block is created with (see examples/plugins/ledger). */
+const LEDGER_BLOCK_PROPS: Record<string, Record<string, unknown>> = {
+  'openbook.ledger/journal-entry': {ledgerRows: '2026-08-01 Rent | Expenses:Rent 1200 | Assets:Bank -1200'},
+  'openbook.ledger/trial-balance': {ledgerTbShowZero: false},
+  'openbook.ledger/account-register': {ledgerRegAccount: 'Assets:Bank'},
+  'openbook.ledger/bank-import': {ledgerImport: '1'},
+  'openbook.ledger/reconcile': {ledgerRecId: 'rec-2026-08'},
+  'openbook.ledger/balance-sheet': {ledgerBsAsOf: '2026-08-31'},
+  'openbook.ledger/income-statement': {ledgerIsFrom: '2026-08-01', ledgerIsTo: '2026-08-31'},
+  'openbook.ledger/period-close': {ledgerPeriodStart: '2026-08-01'},
+  'openbook.ledger/beancount-export': {ledgerBeancount: '1'},
+};
+
+export const PARITY_PLUGIN_BLOCKS: NewBlock[] = [
+  {id: 'lx-h1', type: 'heading', props: {level: 1}, text: [{t: 'Ledger plugin blocks'}]},
+  {id: 'lx-p1', type: 'paragraph', text: [{t: 'Each block below needs a plugin this export cannot run.'}]},
+  ...LEDGER_BLOCK_TYPES.map((type) => ({
+    id: `lx-${type.slice(type.indexOf('/') + 1)}`,
+    type,
+    props: LEDGER_BLOCK_PROPS[type],
+  })),
+  // Forward compatibility: a type from a plugin nothing knows about, and a type
+  // with no `{pluginId}/` shape at all (the plain unsupported-block path). Note
+  // neither can carry text — `makeBlock` only creates a Y.Text for core
+  // TEXT_BLOCKS — so text-carrying unknowns are covered against a hand-built
+  // projection instead (see exportPluginBlocks.test.tsx).
+  {id: 'lx-future', type: 'org.example.future/widget', props: {shape: 'hexagon'}},
+  {id: 'lx-nameless', type: 'not-a-plugin-type', props: {any: 'thing'}},
+];
+
 /** The export assets bundle the fixture needs: the artifact document text
  *  keyed by its assetId (no async store — the parity generator is synchronous).
  *  The image rides its inline data-URI, so nothing goes in the image map. */

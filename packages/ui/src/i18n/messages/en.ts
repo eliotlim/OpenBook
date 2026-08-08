@@ -491,6 +491,14 @@ export const en = {
     exportPlugin: 'Plugin (.zip)',
     exportPluginFailed: 'Can’t export this page as a plugin',
     exportPluginFailedOk: 'OK',
+    exportBooksTitle: 'Include your books in this export?',
+    exportBooksWarning: 'The file will contain your financial records — accounts, transactions, postings and reconciliations. Anyone who can open the file can read them.',
+    exportBooksInclude: 'Include your books (ledger records)',
+    exportBooksExcluded: 'Your books will not be included. Ledger blocks will export as placeholders.',
+    exportBooksUnavailable: 'Your books can’t be included in this export because you don’t have access to the records. Ledger blocks will export as placeholders.',
+    exportBooksConfirm: 'Export',
+    exportBooksConfirmInclude: 'Export with books',
+    exportBooksCaptureFailed: 'Your books couldn’t be included — the records couldn’t be read completely. The file was exported without them.',
     present: 'Present',
     presentFull: 'Full screen',
     presentPresenter: 'Presenter view',
@@ -1483,8 +1491,24 @@ export const en = {
       membersHint: 'Only library members can see this library.',
       // The one caveat the productized publish flow can’t paper over: an open
       // address still can’t serve a signed-out visitor while the guest gate is off.
+      //
+      // TWO variants, because the fix depends on what the owner was going for. Both
+      // name the exact controls to touch, so they must stay in sync with
+      // `sharing.title` ("Guests & access"), `sharing.defaultAccess` ("Default
+      // access") and the option they point at — `sharing.accessPublished` /
+      // `sharing.accessView` respectively. Never say "Sharing settings": one consumer
+      // (`SiteVisibilityControl`) already lives on that screen, so it would be a
+      // pointer to nowhere.
+      //
+      // `guestOffCaveat` — published intent (the Share dialog, and a `published`-scope
+      // address): the minimum fix is per-page publishing, NOT whole-library viewing.
       guestOffCaveat:
-        'Guest access is off, so published pages still won’t open for signed-out visitors. Turn on guest viewing in the library’s Sharing settings.',
+        'Guest access is off, so published pages still won’t open for signed-out visitors. Under Guests & access, set Default access to “Only published pages”.',
+      // `guestOffCaveatPublic` — a `public`-scope address: the owner asked for the
+      // WHOLE library to be readable, so pointing at per-page publishing would
+      // under-deliver on that intent.
+      guestOffCaveatPublic:
+        'Guest access is off, so this library still won’t open for signed-out visitors. Under Guests & access, set Default access to “Anyone can view”.',
       manageOnWeb: 'Manage on the web',
       error: 'Couldn’t update address access. Try again.',
     },
@@ -1592,8 +1616,35 @@ export const en = {
     defaultAccess: 'Default access',
     defaultAccessHint: 'Sets what people who reach this library without signing in can do — over the network or a shared ✦.book.cloud link — and the default visibility for new pages. Your own access is never affected.',
     accessPrivate: 'Private (members only)',
+    // PUB-1: the state a freshly-claimed library already sits in — the guest gate
+    // is open to reading, but only pages the owner explicitly publishes resolve to
+    // `public`, so everything else stays private. Word-for-word the published
+    // address's `forwarding.visibility.publishedOption` (minus its "(Recommended)"):
+    // both controls can appear on the same screen, so an inverted word order would
+    // read as a DIFFERENT concept. Keep the two in lockstep.
+    accessPublished: 'Only published pages',
     accessView: 'Anyone can view',
     accessEdit: 'Anyone can edit',
+    // One honest line per state, shown beneath the picker for whichever is selected.
+    // Visitor-first and strictly parallel ("Visitors can …") so the four read as one
+    // scale. `defaultAccessHint` above already establishes "without signing in", so
+    // these never repeat it. "Everything else stays private." is the verbatim echo of
+    // `forwarding.visibility.publishedHint` — keep it identical in every locale.
+    accessPrivateHint: 'Visitors can’t open anything — this library is members-only.',
+    accessPublishedHint:
+      'Visitors can open only the pages you explicitly publish. Everything else stays private.',
+    accessViewHint: 'Visitors can read every page in this library, but can’t change anything.',
+    accessEditHint: 'Visitors can read and change every page in this library.',
+    // Claimed libraries never let a guest write, whatever the guest gate says
+    // (authorize: post-claim `canWrite` ignores `guestAccess`), so the line above
+    // would over-claim. Same frame, corrected second clause.
+    accessEditHintClaimed: 'Visitors can read every page in this library. Only members can change pages.',
+    // An UNCLAIMED library judges everyone by the guest gate alone (authorize rule
+    // 0), so per-page publishing isn’t in force yet — say so plainly.
+    accessUnclaimedCaveat: 'Until this library is claimed, anyone who can reach it can view every page.',
+    // `defaultVisibility:'authenticated'` reads as “only published pages” for a
+    // signed-out visitor, but not for a signed-in stranger.
+    accessAuthenticatedCaveat: 'Anyone signed in can also read unpublished pages.',
     ownerLocked: 'Only the library owner can change this.',
     saveError: 'Couldn’t update access — {error}',
   },

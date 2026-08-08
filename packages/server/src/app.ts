@@ -1375,6 +1375,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // same port. Not a secret — authorizes nothing.
       instanceId: config.instanceId ?? null,
       ownerSubject: showIdentity ? (config.ownerSubject ?? null) : null,
+      // Whether the instance is owned at all, WITHOUT saying by whom (PUB-1). Sits
+      // OUTSIDE the GATE-7 fence on purpose: `ownerSubject` above is nulled for an
+      // anonymous caller on a claimed instance, which makes it useless as a claim
+      // signal, and a client needs the claim state to warn honestly that an
+      // UNCLAIMED library ignores `defaultVisibility` (authorize rule 0 judges
+      // everyone by the guest gate alone). A bare boolean carries no identity.
+      claimed: config.ownerSubject !== undefined,
       trustedIssuers: showIdentity ? config.trustedIssuers.map((i) => i.issuer) : [],
       audience: showIdentity ? (config.audience ?? null) : null,
       requireAudience: config.requireAudience ?? false,

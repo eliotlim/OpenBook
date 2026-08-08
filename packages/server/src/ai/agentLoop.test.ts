@@ -437,3 +437,34 @@ describe('external tools taint the run: later writes go through review even with
     expect(events.some((e) => e.type === 'suggestions')).toBe(false);
   });
 });
+
+describe('update_block_props (should-fix 3.1/3.2): the suggestion `after` is the null-AWARE merged props', () => {
+  const blockPage = (name: string) => ({
+    name,
+    data: {
+      editor: 'blocks' as const,
+      blockdoc: {blocks: [{id: 'c1', type: 'callout', text: [{t: 'hi'}], props: {variant: 'info', bg: 'amber'}}]},
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+    },
+  });
+
+  it('a null-valued prop is REMOVED from the `after` preview (not shown as an added null key)', async () => {
+    const page = await store.upsertPage(blockPage(`propsdiff-${seq}`));
+    const events = await runSeq(
+      [{tool: 'update_block_props', args: {pageId: page.id, blockId: 'c1', props: {variant: 'warn', bg: null}}}, {final: 'ok'}],
+      {principal: guestPrincipal()},
+    );
+    const ev = events.find((e) => e.type === 'suggestions');
+    expect(ev && ev.type === 'suggestions').toBe(true);
+    const suggestion = ev && ev.type === 'suggestions' ? ev.suggestions[0] : undefined;
+    expect(suggestion).toBeDefined();
+    // The card diffs before → after; both must reflect what accepting will store.
+    expect(suggestion!.before).toContain('"bg":"amber"');
+    expect(suggestion!.after).toContain('"variant":"warn"');
+    // The null-removal is honored in the preview — no `bg`, no literal `null`.
+    expect(suggestion!.after).not.toContain('bg');
+    expect(suggestion!.after).not.toContain('null');
+  });
+});
