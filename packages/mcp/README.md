@@ -14,6 +14,11 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `create_page` | Create a page from a title and plain-text body. |
 | `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
+| `inspect_page_structure` | Show a page's block TREE — ids, types, short text, props — including nested blocks. Read this before editing blocks. |
+| `append_blocks` | Append typed blocks to a block-editor page. Blocks **nest**: a container carries its contents in `children`, so one call builds a whole table (`table → row → cell`) or a two-column layout (`columns → column`). Capped at 8 levels / 400 blocks per call. |
+| `update_block` | Replace one block's text (by id). |
+| `update_block_props` | Shallow-merge one block's props (heading level, todo checked, callout variant, code language, image alt, a kit input's value/min/max). A `null` value **removes** that prop. Works on nested blocks. |
+| `delete_block` | Remove one block and everything inside it, at any depth — including a table `row` or `cell`. |
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
 
@@ -62,7 +67,7 @@ At startup the connector performs a single `GET /api/instance` handshake (guest-
 
 ## Direct edits vs. reviewable suggestions
 
-Whether a write tool (`append_to_page`, `update_block`, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+Whether a write tool (`append_to_page`, `append_blocks`, `update_block`, `update_block_props`, `delete_block`, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
 
 The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
 

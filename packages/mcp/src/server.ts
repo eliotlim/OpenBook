@@ -3,6 +3,7 @@ import {z} from 'zod';
 import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
+  projectAppendBlocks,
   snapshotText,
   textSnapshot,
   type AgentEditsMode,
@@ -167,6 +168,87 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
   return {...data, blockdoc: {...bd, update: undefined, blocks}};
 }
 
+/** One block's `{type, props}` from the JSON projection, at ANY depth. Null if absent. */
+function blockInfoInSnapshot(
+  data: PageSnapshot | null | undefined,
+  blockId: string,
+): {type: string; props: Record<string, unknown>} | null {
+  const blocks = blockdocBlocks(data);
+  if (!blocks) return null;
+  let found: {type: string; props: Record<string, unknown>} | null = null;
+  const walk = (list: AnyJsonBlock[]): void => {
+    for (const b of list) {
+      if (found === null && b.id === blockId) found = {type: b.type ?? 'paragraph', props: {...(b.props ?? {})}};
+      if (b.children) walk(b.children);
+    }
+  };
+  walk(blocks);
+  return found;
+}
+
+/**
+ * Remove one block (with its whole subtree) from the JSON projection, at ANY
+ * depth — a nested block, a table `row`, or a `cell` is as removable as a
+ * top-level paragraph, because the model is uniformly recursive. Returns null
+ * when the id isn't on the page.
+ */
+function deleteBlockInSnapshot(data: PageSnapshot, blockId: string): PageSnapshot | null {
+  const blocks = blockdocBlocks(data);
+  if (!blocks) return null;
+  let applied = false;
+  const prune = (list: AnyJsonBlock[]): void => {
+    const at = list.findIndex((b) => b.id === blockId);
+    if (at >= 0) {
+      list.splice(at, 1);
+      applied = true;
+      return;
+    }
+    for (const b of list) {
+      if (!applied && b.children) prune(b.children);
+    }
+  };
+  prune(blocks);
+  if (!applied) return null;
+  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
+  return {...data, blockdoc: {...bd, update: undefined, blocks}};
+}
+
+/**
+ * SHALLOW-MERGE props onto one block in the JSON projection, at ANY depth. An
+ * explicit `null` REMOVES the key (JSON can't carry `undefined`, so `null` is the
+ * only wire-level way to say "delete this prop"; `patchBlock` in the editor's
+ * model applies the same rule, so a direct write and an accepted suggestion land
+ * identically). Returns the new snapshot plus the merged props, or null when the
+ * id isn't on the page.
+ */
+function setBlockPropsInSnapshot(
+  data: PageSnapshot,
+  blockId: string,
+  props: Record<string, unknown>,
+): {data: PageSnapshot; props: Record<string, unknown>} | null {
+  const blocks = blockdocBlocks(data);
+  if (!blocks) return null;
+  let merged: Record<string, unknown> | null = null;
+  const walk = (list: AnyJsonBlock[]): void => {
+    for (const b of list) {
+      if (merged === null && b.id === blockId) {
+        const next = {...(b.props ?? {})};
+        for (const [k, v] of Object.entries(props)) {
+          if (v === null) delete next[k];
+          else next[k] = v;
+        }
+        b.props = next;
+        merged = next;
+      }
+      if (b.children) walk(b.children);
+    }
+  };
+  walk(blocks);
+  if (merged === null) return null;
+  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
+  return {data: {...data, blockdoc: {...bd, update: undefined, blocks}}, props: merged};
+}
+
 /**
  * The OpenBook MCP server: exposes a library to any MCP client (Claude
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
@@ -190,20 +272,117 @@ const clip = (s: string, n = 4000): string => (s.length > n ? `${s.slice(0, n)}�
 const text = (value: string) => ({content: [{type: 'text' as const, text: value}]});
 const failure = (value: string) => ({content: [{type: 'text' as const, text: value}], isError: true});
 
+// ── Nested block payloads (API-1) ─────────────────────────────────────────────
+// The document model is ONE recursive shape — a container block (`columns` →
+// `column`, `table` → `row` → `cell`, `group`, `tabs` → `tab`, `accordion` →
+// `accordionsection`) holds ordinary blocks in `children`, to any depth. The
+// tool schemas below mirror that with a `z.lazy` self-reference, so an MCP client
+// can build a table or a two-column layout in ONE call. The apply layer is
+// already recursive and type-agnostic (`coerceNewBlock`/`makeBlock`), so nothing
+// downstream needs a per-type case.
+
+/** A block a client may send to `append_blocks` / `create_artifact_page`. */
+export interface NestedBlockInput {
+  type: string;
+  text?: string;
+  props?: Record<string, unknown>;
+  children?: NestedBlockInput[];
+}
+
+/**
+ * Max nesting depth of one payload (top-level blocks are depth 1). Deep enough
+ * for every real layout — `columns → column → table → row → cell → group →
+ * paragraph` is 7 — and shallow enough that a runaway/recursive model response
+ * can't build a pathological tree the editor then has to render. Rejected with a
+ * message naming the offending path, not silently truncated.
+ */
+const MAX_BLOCK_DEPTH = 8;
+
+/**
+ * Max TOTAL blocks (all levels) in one call. A 20×8 table is 180 nodes, so this
+ * fits any sane single write while bounding one request's cost; a bigger document
+ * is several appends. Counted over the whole tree, not per level.
+ */
+const MAX_BLOCK_NODES = 400;
+
+/** Text description shared by both block schemas. */
+const BLOCK_TEXT_DESC = 'Text content (paragraph/heading/todo/quote/callout/code/list, and a table `cell`).';
+
+/** Children description shared by both block schemas. */
+const BLOCK_CHILDREN_DESC =
+  'Nested blocks — ONLY for container types: columns→column, table→row→cell, group, tabs→tab, accordion→accordionsection. ' +
+  `Nest to at most ${MAX_BLOCK_DEPTH} levels, ${MAX_BLOCK_NODES} blocks total per call.`;
+
+/** A recursive block schema: `children` refers back to itself via `z.lazy`. */
+function nestedBlockSchema(typeDesc: string, propsDesc: string): z.ZodType<NestedBlockInput> {
+  const schema: z.ZodType<NestedBlockInput> = z.lazy(() =>
+    z.object({
+      type: z.string().describe(typeDesc),
+      text: z.string().optional().describe(BLOCK_TEXT_DESC),
+      props: z.record(z.unknown()).optional().describe(propsDesc),
+      children: z.array(schema).optional().describe(BLOCK_CHILDREN_DESC),
+    }),
+  );
+  return schema;
+}
+
+/**
+ * Validate a nested payload against {@link MAX_BLOCK_DEPTH} / {@link MAX_BLOCK_NODES}.
+ * Returns an error message for the client, or null when the payload is fine.
+ * (Structural limits only — block TYPES stay unvalidated here so the type-agnostic
+ * apply layer keeps accepting custom/plugin blocks.)
+ */
+function blockPayloadError(blocks: NestedBlockInput[]): string | null {
+  let count = 0;
+  let deepest = 0;
+  let deepestPath = '';
+  const walk = (list: NestedBlockInput[], depth: number, path: string): void => {
+    if (depth > deepest) {
+      deepest = depth;
+      deepestPath = path;
+    }
+    for (const [i, b] of list.entries()) {
+      count += 1;
+      const here = path ? `${path} > ${b.type}` : b.type;
+      if (b.children && b.children.length > 0) walk(b.children, depth + 1, `${here}[${i}]`);
+    }
+  };
+  walk(blocks, 1, '');
+  if (deepest > MAX_BLOCK_DEPTH) {
+    return `Blocks are nested too deeply: ${deepest} levels (max ${MAX_BLOCK_DEPTH}) at "${deepestPath}". Flatten the payload or split it across calls.`;
+  }
+  if (count > MAX_BLOCK_NODES) {
+    return `Too many blocks in one call: ${count} (max ${MAX_BLOCK_NODES}, counting nested children). Split it into several append_blocks calls.`;
+  }
+  return null;
+}
+
+/** Every block type in a payload, all levels (for the artifact type gate). */
+function blockTypesIn(blocks: NestedBlockInput[], out: string[] = []): string[] {
+  for (const b of blocks) {
+    out.push(b.type);
+    if (b.children) blockTypesIn(b.children, out);
+  }
+  return out;
+}
+
 /**
  * The write-tool kind an MCP mutation maps to (the same identifiers the in-app
  * agent's proposals use, carried into the suggestion payload as `applyKind` so
  * the editor bridge replays an MCP-authored suggestion exactly like an
- * agent-authored one). MCP only ever emits these four; the SDK suggestion
- * `kind` each maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
+ * agent-authored one — hence `set_block_props` for the `update_block_props` tool:
+ * the identifier is the BRIDGE's, not the tool's). The SDK suggestion `kind` each
+ * maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
  */
-type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell';
+type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props';
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   append_blocks: 'insert',
   update_block: 'replace-text',
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
+  delete_block: 'delete',
+  set_block_props: 'replace-text',
 };
 
 /**
@@ -370,45 +549,48 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // The block types an artifact page may contain, with loose prop schemas —
   // unknown props pass through (the editor ignores what it doesn't know),
   // unknown TYPES are rejected so a typo'd artifact can't render as a wall
-  // of "Unsupported block" placeholders.
+  // of "Unsupported block" placeholders. Container + table types are in the set
+  // so an artifact can be LAID OUT (columns/group/tabs/accordion) and hold a
+  // table; the gate runs over EVERY level of the payload, not just the top.
   const ARTIFACT_TYPES = new Set([
     'heading', 'paragraph', 'todo', 'quote', 'callout', 'divider', 'code', 'list',
     'slider', 'formula', 'number', 'textfield', 'radio', 'checklist', 'toggle',
     'location', 'actionbutton', 'kitchart', 'statuslight', 'tooltipcard', 'linkcard',
+    'columns', 'column', 'table', 'row', 'cell', 'group',
+    'tabs', 'tab', 'accordion', 'accordionsection',
   ]);
 
-  const artifactBlock = z.object({
-    type: z.string().describe('Block type, e.g. heading | paragraph | number | slider | radio | checklist | toggle | kitchart | statuslight | actionbutton | formula | linkcard | tooltipcard | location | textfield'),
-    text: z.string().optional().describe('Text content (heading/paragraph/todo/quote/callout/code/list).'),
-    props: z.record(z.unknown()).optional().describe(
-      'Block props. Inputs publish {name} into a shared scope: number {name,value,min,max,step}; slider {name,value,min,max}; radio/checklist {name,options:"A, B",value|selected}; toggle {name,value}. ' +
+  const artifactBlock = nestedBlockSchema(
+    'Block type, e.g. heading | paragraph | number | slider | radio | checklist | toggle | kitchart | statuslight | actionbutton | formula | linkcard | tooltipcard | location | textfield — or a container: columns | column | table | row | cell | group | tabs | tab | accordion | accordionsection',
+    'Block props. Inputs publish {name} into a shared scope: number {name,value,min,max,step}; slider {name,value,min,max}; radio/checklist {name,options:"A, B",value|selected}; toggle {name,value}. ' +
       'Consumers evaluate expressions over the scope: kitchart {kind:line|area|bar|pie|donut|scatter|funnel, source:"[n, n*2]", title, labels}; statuslight {label, source, okAt, warnAt}; formula {source}. ' +
-      'actionbutton {btnlabel, action:increment|set|toggle|link, target, amount, url}; linkcard {title, description, url}; tooltipcard {term, tip}; heading {level}.',
-    ),
-  });
+      'actionbutton {btnlabel, action:increment|set|toggle|link, target, amount, url}; linkcard {title, description, url}; tooltipcard {term, tip}; heading {level}. ' +
+      'Layout: column {span} (12-unit grid); table row {header:true} for the header row.',
+  );
 
   server.registerTool(
     'create_artifact_page',
     {
       title: 'Create an artifact page',
       description:
-        'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML. Creating a page is non-destructive, so it is applied immediately.',
+        'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML. Blocks NEST via `children`, so the page can be laid out in columns/tabs/groups and hold tables (table → row → cell). Creating a page is non-destructive, so it is applied immediately.',
       inputSchema: {
         title: z.string().describe('The page title — a display label; it need not be unique (pages are identified by id).'),
-        blocks: z.array(artifactBlock).min(1).describe('The page content, top to bottom.'),
+        blocks: z.array(artifactBlock).min(1).describe('The page content, top to bottom. Containers carry their contents in `children`.'),
       },
     },
     async ({title, blocks}) => {
       const name = title.trim();
       if (!name) return failure('A title is required.');
-      const bad = blocks.find((b) => !ARTIFACT_TYPES.has(b.type));
-      if (bad) return failure(`Unknown block type "${bad.type}". Use one of: ${[...ARTIFACT_TYPES].join(', ')}.`);
-      const projected = blocks.map((b, i) => ({
-        id: `mcp-${i}`,
-        type: b.type,
-        ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
-        ...(b.props ? {props: b.props} : {}),
-      }));
+      const limit = blockPayloadError(blocks);
+      if (limit) return failure(limit);
+      // The type gate runs over EVERY level — a typo'd nested type would otherwise
+      // render as an "Unsupported block" placeholder inside an otherwise fine page.
+      const bad = blockTypesIn(blocks).find((t) => !ARTIFACT_TYPES.has(t));
+      if (bad) return failure(`Unknown block type "${bad}". Use one of: ${[...ARTIFACT_TYPES].join(', ')}.`);
+      // Recursive projection (children preserved, text→runs at every level) — the
+      // same helper `append_blocks` uses, so the two paths can never drift.
+      const projected = projectAppendBlocks(blocks, 'mcp');
       try {
         const page = await client.savePage({
           name,
@@ -581,18 +763,40 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // the review model has no target page / suggestion kind for a not-yet-existing
   // page, matching the agent's "creation applies immediately" rule.
 
+  // `append_blocks` accepts ANY block type (including plugin/custom ones): the apply
+  // layer is type-agnostic, and a type gate here would reject blocks the editor can
+  // render perfectly well. Structure (depth/size) IS bounded — see blockPayloadError.
+  const appendBlock = nestedBlockSchema(
+    'Block type: paragraph | heading | todo | quote | callout | code | list | divider | image, a container (columns | column | table | row | cell | group | tabs | tab | accordion | accordionsection), or any kit block (slider, number, toggle, radio, checklist, textfield, kitchart, statuslight, formula, …).',
+    'Block props, e.g. heading {level}, list {kind}, todo {checked}, callout {variant}, code {language}, column {span} (12-unit grid), table row {header:true}.',
+  );
+
+  /** Total blocks in a payload, nested children included (for the write summary). */
+  const totalBlocks = (list: NestedBlockInput[]): number =>
+    list.reduce((n, b) => n + 1 + (b.children ? totalBlocks(b.children) : 0), 0);
+
+  /** `"3 block(s)"`, or `"1 block(s) (7 including nested)"` when the payload nests. */
+  const blockCountLabel = (list: NestedBlockInput[]): string => {
+    const total = totalBlocks(list);
+    return total === list.length ? `${list.length} block(s)` : `${list.length} block(s) (${total} including nested)`;
+  };
+
   server.registerTool(
     'append_blocks',
     {
       title: 'Append blocks',
       description:
-        'Append typed blocks (paragraph/heading/todo/quote/callout/code/divider) to the end of a block-editor page. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
+        'Append typed blocks to the end of a block-editor page. Blocks NEST: a container block carries its contents in `children`, to any depth, so one call can build a whole table or layout. ' +
+        'A TABLE is table → row → cell: {"type":"table","children":[{"type":"row","props":{"header":true},"children":[{"type":"cell","text":"Item"},{"type":"cell","text":"Qty"}]},{"type":"row","children":[{"type":"cell","text":"Apples"},{"type":"cell","text":"3"}]}]} — give every row the same number of cells (column widths/order are assigned automatically when the page opens). ' +
+        'TWO COLUMNS are columns → column (span is a 12-unit grid): {"type":"columns","children":[{"type":"column","props":{"span":6},"children":[{"type":"heading","text":"Left","props":{"level":2}}]},{"type":"column","props":{"span":6},"children":[{"type":"paragraph","text":"Right"}]}]}. ' +
+        'Other containers: group, tabs → tab, accordion → accordionsection. Leaf blocks (paragraph/heading/todo/quote/callout/code/list/divider, kit inputs) take `text`/`props` and no children. ' +
+        'Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page id (a block-editor page).'),
         blocks: z
-          .array(z.object({type: z.string(), text: z.string().optional(), props: z.record(z.unknown()).optional()}))
+          .array(appendBlock)
           .min(1)
-          .describe('Blocks to append, top to bottom.'),
+          .describe('Blocks to append, top to bottom. Containers carry their contents in `children`.'),
       },
     },
     async ({pageId, blocks}) => {
@@ -601,9 +805,17 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       if ((page.data as {editor?: string}).editor !== 'blocks') {
         return failure('That page is a legacy editor page — use append_to_page instead.');
       }
+      const limit = blockPayloadError(blocks);
+      if (limit) return failure(limit);
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
-        const summary = `Append ${blocks.length} block(s) to "${page.name ?? 'Untitled'}"`;
-        const after = clip(blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.type)).join('\n'), 200);
+        const summary = `Append ${blockCountLabel(blocks)} to "${page.name ?? 'Untitled'}"`;
+        // The preview lists the top level with each container's child count; the FULL
+        // nested payload rides in `payload.blocks` (the bridge's coerceNewBlock recurses),
+        // so accepting the suggestion materializes the whole tree.
+        const after = clip(
+          blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.children?.length ? `${b.type} (${b.children.length} children)` : b.type)).join('\n'),
+          200,
+        );
         const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after, target: {}, payload: {pageId, blocks}});
         return suggested(summary, s);
       }
@@ -614,7 +826,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       } catch (err) {
         return failure(`Could not append (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
-      return text(`Appended ${blocks.length} block(s) directly to "${page.name ?? 'Untitled'}".`);
+      return text(`Appended ${blockCountLabel(blocks)} directly to "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -658,6 +870,99 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return failure(`Could not update the block (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
       return text(`Updated block ${blockId} directly on "${page.name ?? 'Untitled'}".`);
+    },
+  );
+
+  server.registerTool(
+    'update_block_props',
+    {
+      title: 'Update a block\'s type/props',
+      description:
+        'Change one block\'s PROPS on a block-editor page — heading level, list kind, todo checked, callout variant, code language, image alt/width, a kit input\'s value/min/max/options, a table row\'s header flag. Use update_block for the block\'s TEXT and this for its format. Find the block id and its current props via inspect_page_structure; works on NESTED blocks too (a block inside a column/group, a table row or cell). ' +
+        'MERGE SEMANTICS: props are merged SHALLOWLY over the block\'s existing props — keys you omit are left untouched, keys you pass are overwritten, and passing null for a key REMOVES it (e.g. {"bg": null} clears a background). Nested objects/arrays are replaced wholesale, never deep-merged. ' +
+        'Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        blockId: z.string().describe('The block id from inspect_page_structure (may be a nested block).'),
+        props: z
+          .record(z.unknown())
+          .describe('Props to merge, e.g. {"level":2} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40} / {"header":true}. Pass null as a value to REMOVE that prop.'),
+      },
+    },
+    async ({pageId, blockId, props}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
+      if (Object.keys(props).length === 0) return failure('Provide at least one prop to set (or null to remove one).');
+      const info = blockInfoInSnapshot(page.data, blockId);
+      if (!info) return failure(missing);
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Update props of ${info.type} block ${blockId} on "${page.name ?? 'Untitled'}"`;
+        // `applyKind: set_block_props` is the editor bridge's identifier for this
+        // change (patchBlock), so an accepted MCP suggestion replays exactly like the
+        // in-app agent's update_block_props — including null-removes-the-key.
+        const s = await recordSuggestion({
+          kind: 'set_block_props',
+          pageId,
+          summary,
+          before: clip(JSON.stringify(info.props), 200),
+          after: clip(JSON.stringify(props), 200),
+          target: {blockId},
+          payload: {pageId, blockId, props},
+        });
+        return suggested(summary, s);
+      }
+      const applied = setBlockPropsInSnapshot(page.data, blockId, props);
+      if (!applied) return failure(missing);
+      try {
+        await client.savePage({id: page.id, name: page.name, data: applied.data});
+      } catch (err) {
+        return failure(`Could not update the props (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Updated props of block ${blockId} directly on "${page.name ?? 'Untitled'}" — now ${JSON.stringify(applied.props)}.`);
+    },
+  );
+
+  server.registerTool(
+    'delete_block',
+    {
+      title: 'Delete a block',
+      description:
+        'Remove ONE block (and everything inside it) from a block-editor page. Find the block id via inspect_page_structure. Works at ANY depth — a top-level block, a block nested in a column/group/tab, or a table `row` or `cell`; deleting a container deletes its children with it. To empty a block instead of removing it, use update_block with empty text. ' +
+        'Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        blockId: z.string().describe('The block id from inspect_page_structure (may be a nested block, a table row, or a cell).'),
+      },
+    },
+    async ({pageId, blockId}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
+      const info = blockInfoInSnapshot(page.data, blockId);
+      if (!info) return failure(missing);
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Delete ${info.type} block ${blockId} on "${page.name ?? 'Untitled'}"`;
+        const before = blockTextInSnapshot(page.data, blockId);
+        const s = await recordSuggestion({
+          kind: 'delete_block',
+          pageId,
+          summary,
+          before: clip(before || `(${info.type} block)`, 200),
+          after: '',
+          target: {blockId},
+          payload: {pageId, blockId},
+        });
+        return suggested(summary, s);
+      }
+      const data = deleteBlockInSnapshot(page.data, blockId);
+      if (!data) return failure(missing);
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (err) {
+        return failure(`Could not delete the block (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Deleted ${info.type} block ${blockId} directly from "${page.name ?? 'Untitled'}".`);
     },
   );
 

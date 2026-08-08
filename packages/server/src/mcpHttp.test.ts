@@ -217,7 +217,11 @@ describe('mcpHttp handshake + read tools', () => {
     expect(names).toContain('list_pages');
     expect(names).toContain('read_page');
     expect(names).toContain('append_to_page');
-    expect(names.length).toBeGreaterThanOrEqual(16);
+    // API-4: the block write tools are on the REMOTE surface too (one server, two
+    // transports — `mountMcpHttp` mounts the very same `createOpenBookMcpServer`).
+    expect(names).toContain('delete_block');
+    expect(names).toContain('update_block_props');
+    expect(names.length).toBeGreaterThanOrEqual(18);
   });
 
   it('read tools work through the loop-back (list_pages / read_page)', async () => {
@@ -290,6 +294,108 @@ describe('mcpHttp scope is enforced by the PAT loop-back', () => {
     const create = await rpc(a, pat, callMsg('create_page', {title: `made-${seq}`, content: 'hello'}));
     expect(toolIsError(create.json)).toBe(false);
     expect((await store.listPages()).some((p) => p.name === `made-${seq}`)).toBe(true);
+  });
+});
+
+// ── Parity smoke: nested children + the block write tools over the REMOTE transport ─
+//
+// `mountMcpHttp` mounts the SAME `createOpenBookMcpServer` the stdio connector uses, so
+// the tool behaviour is proven in `packages/mcp/scripts/blocks.test.mts`. What must be
+// re-proven HERE is that it survives the remote path end to end: the JSON-RPC arguments
+// (a deeply nested `children` tree) cross the streamable-HTTP transport intact, and the
+// resulting write goes through the PAT loop-back (savePage under the page's resolved
+// agent-edits policy) rather than any privileged shortcut.
+
+describe('mcpHttp nested append + delete_block over the remote transport', () => {
+  /** A block-editor page whose agent-edits policy is `direct` (so writes apply). */
+  const directBlockPage = async (name: string) => {
+    const page = await store.upsertPage({
+      name,
+      data: {
+        editor: 'blocks',
+        blockdoc: {blocks: [{id: 'seed', type: 'paragraph', text: [{t: 'seed'}]}]},
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+      },
+    });
+    await store.setPageAgentEdits(page.id, 'direct');
+    return page;
+  };
+
+  /** The stored blockdoc projection of a page. */
+  const blocks = async (id: string): Promise<Array<{id: string; type: string; text?: Array<{t: string}>; children?: unknown[]}>> =>
+    ((await store.getPage(id))?.data.blockdoc as {blocks?: Array<{id: string; type: string; text?: Array<{t: string}>; children?: unknown[]}>})?.blocks ?? [];
+
+  beforeEach(async () => {
+    await claim();
+    await enableAgentApi();
+  });
+
+  it('a nested table payload crosses the transport intact and materializes as table → row → cell', async () => {
+    const a = app();
+    const page = await directBlockPage(`remote-nested-${seq}`);
+    const pat = await mintPat('write');
+
+    const res = await rpc(
+      a,
+      pat,
+      callMsg('append_blocks', {
+        pageId: page.id,
+        blocks: [
+          {
+            type: 'table',
+            children: [
+              {type: 'row', props: {header: true}, children: [{type: 'cell', text: 'Item'}, {type: 'cell', text: 'Qty'}]},
+              {type: 'row', children: [{type: 'cell', text: 'Apples'}, {type: 'cell', text: '3'}]},
+            ],
+          },
+        ],
+      }),
+    );
+    expect(toolIsError(res.json)).toBe(false);
+    expect(toolText(res.json)).toContain('directly');
+
+    const stored = await blocks(page.id);
+    const table = stored.find((b) => b.type === 'table') as {children?: Array<{children?: Array<{text?: Array<{t: string}>}>}>} | undefined;
+    // Pre-API-1 this was an empty `{type:'table'}` — the schema stripped `children`
+    // and the projection dropped them again.
+    expect(table?.children).toHaveLength(2);
+    expect(table?.children?.map((r) => r.children?.map((c) => c.text?.[0].t))).toEqual([
+      ['Item', 'Qty'],
+      ['Apples', '3'],
+    ]);
+  });
+
+  it('delete_block removes a NESTED block through the loop-back, and an unknown id errors cleanly', async () => {
+    const a = app();
+    const page = await directBlockPage(`remote-delete-${seq}`);
+    const pat = await mintPat('write');
+
+    await rpc(a, pat, callMsg('append_blocks', {pageId: page.id, blocks: [{type: 'group', children: [{type: 'paragraph', text: 'inner'}]}]}));
+    const nestedId = (
+      (await blocks(page.id)).find((b) => b.type === 'group') as {children?: Array<{id: string}>} | undefined
+    )?.children?.[0].id as string;
+    expect(nestedId).toBeTruthy();
+
+    const del = await rpc(a, pat, callMsg('delete_block', {pageId: page.id, blockId: nestedId}));
+    expect(toolIsError(del.json)).toBe(false);
+    const group = (await blocks(page.id)).find((b) => b.type === 'group') as {children?: unknown[]} | undefined;
+    expect(group?.children).toEqual([]); // the container stayed, its child is gone
+    expect(JSON.stringify(await store.getPage(page.id))).not.toContain('inner');
+
+    const ghost = await rpc(a, pat, callMsg('delete_block', {pageId: page.id, blockId: 'no-such-block'}));
+    expect(toolIsError(ghost.json)).toBe(true);
+    expect(toolText(ghost.json)).toContain('inspect_page_structure');
+  });
+
+  it('a READ PAT cannot delete a block (scope still enforced by the loop-back)', async () => {
+    const a = app();
+    const page = await directBlockPage(`remote-ro-${seq}`);
+    const pat = await mintPat('read');
+    const del = await rpc(a, pat, callMsg('delete_block', {pageId: page.id, blockId: 'seed'}));
+    expect(toolIsError(del.json)).toBe(true);
+    expect((await blocks(page.id)).some((b) => b.id === 'seed')).toBe(true);
   });
 });
 

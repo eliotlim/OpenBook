@@ -70,12 +70,13 @@ async function main(): Promise<void> {
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name).sort();
   check(
-    'all sixteen tools are listed',
+    'all eighteen tools are listed',
     JSON.stringify(names) ===
       JSON.stringify([
         'append_blocks', 'append_to_page', 'create_artifact_page', 'create_database_row', 'create_page',
-        'get_db_row', 'get_kit_values', 'inspect_page_structure', 'list_database_rows', 'list_db_views',
-        'list_pages', 'read_page', 'search_notes', 'set_db_cell', 'set_kit_value', 'update_block',
+        'delete_block', 'get_db_row', 'get_kit_values', 'inspect_page_structure', 'list_database_rows',
+        'list_db_views', 'list_pages', 'read_page', 'search_notes', 'set_db_cell', 'set_kit_value',
+        'update_block', 'update_block_props',
       ]),
   );
   check('tools carry descriptions', tools.tools.every((t) => (t.description ?? '').length > 10));
