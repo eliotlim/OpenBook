@@ -2352,6 +2352,32 @@ a.obe-mention {
   font-style: italic;
 }
 
+/* Trust badges shown after a store download is verified (OB-641): the
+   verification outcome the user consents to before anything installs. */
+.obe-missing-plugin-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+}
+
+.obe-missing-plugin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  background: hsl(var(--accent) / 0.6);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.675rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+
+.obe-missing-plugin-badge-warn {
+  background: rgb(245 158 11 / 0.12);
+  color: rgb(180 118 4);
+}
+
 /* ── Artifact kit (inputs / charts / cards) ─────────────────────────────────
    Plain classes (no Tailwind apply) so exported standalone HTML renders
    identically. Quiet chrome: control surfaces lead, config hides behind ⚙. */

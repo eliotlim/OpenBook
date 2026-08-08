@@ -4,3 +4,17 @@ export {pluginCommands, subscribePluginCommands} from './commandRegistry';
 export {syncPlugins, reloadPlugin, pluginStatuses, subscribePlugins, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry, dismissBundledPlugin, isBundledPlugin, type PluginStatus} from './host';
 export {pagePluginFiles, pageHasPluginManifest, pageToPluginZip, MANIFEST_FILE} from './pagePlugin';
 export {getBundledPlugin, type BundledPluginInfo} from './bundledPlugins';
+export {
+  listPluginStores,
+  addPluginStore,
+  removePluginStore,
+  storeClient,
+  refreshRevocations,
+  revokedEntryFor,
+  resolvePlugin,
+  browseStores,
+  verifyFromStore,
+  installVerified,
+  type PluginStore,
+  type StoreResolution,
+} from './registryStores';

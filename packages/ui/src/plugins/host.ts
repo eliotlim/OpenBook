@@ -2,12 +2,15 @@ import {
   verifyPlugin,
   pluginApiVersionError,
   OPENBOOK_REGISTRY_KEYS,
+  compareSemver,
+  isSemver,
   type DataClient,
   type PluginPackage,
   type StoredPlugin,
 } from '@book.dev/sdk';
 import {executePlugin} from './loader';
 import {buildPluginApi, hostModulesFor, type PluginModule} from './api';
+import {refreshRevocations, revokedEntryFor} from './registryStores';
 import {BUNDLED_PLUGINS} from './bundled.gen';
 
 /**
@@ -19,7 +22,9 @@ import {BUNDLED_PLUGINS} from './bundled.gen';
 
 export interface PluginStatus {
   plugin: StoredPlugin;
-  state: 'active' | 'disabled' | 'error';
+  /** `revoked`: a pinned store's kill switch covers this exact version — the
+   *  plugin is disabled regardless of its enabled flag (PROTOCOL.md §6.6). */
+  state: 'active' | 'disabled' | 'error' | 'revoked';
   error?: string;
   /** The trusted registry that vouches for this exact content, if any. */
   verifiedBy?: string;
@@ -179,16 +184,30 @@ export function isBundledPlugin(id: string): boolean {
 }
 
 /**
- * Install any bundled first-party plugins that are not yet on the server and
- * have not been explicitly dismissed by the user. Returns the list of newly
- * installed StoredPlugins (empty when nothing was needed).
+ * Reconcile the bundled first-party plugins against the server: install any
+ * that are missing (and not explicitly dismissed), and UPGRADE any whose
+ * installed copy is older than what this build ships — a version compare,
+ * not a presence check, so shipping v1.1 actually lands on libraries that
+ * installed v1.0. The server preserves the user's enabled choice on upgrade
+ * (a disabled plugin stays disabled) and refuses downgrades, so a build
+ * older than the library's copy leaves it alone. Returns the list of
+ * installed/upgraded StoredPlugins (empty when nothing was needed).
  */
 async function seedBundledPlugins(client: DataClient, existing: StoredPlugin[]): Promise<StoredPlugin[]> {
-  const installed = new Set(existing.map((p) => p.manifest.id));
+  const byId = new Map(existing.map((p) => [p.manifest.id, p]));
   const dismissed = getDismissedBundled();
   const toInstall: PluginPackage[] = [];
   for (const pkg of BUNDLED_PLUGINS) {
-    if (!installed.has(pkg.manifest.id) && !dismissed.has(pkg.manifest.id)) {
+    const current = byId.get(pkg.manifest.id);
+    if (!current) {
+      // Fresh install — unless the user explicitly removed this bundled
+      // plugin before (their choice outlives the bundle).
+      if (!dismissed.has(pkg.manifest.id)) toInstall.push(pkg);
+      continue;
+    }
+    // Installed: upgrade only when the bundle is strictly newer. Non-semver
+    // versions (dev builds) are not comparable — leave them alone.
+    if (isSemver(pkg.manifest.version) && isSemver(current.manifest.version) && compareSemver(pkg.manifest.version, current.manifest.version) > 0) {
       toInstall.push(pkg);
     }
   }
@@ -216,6 +235,13 @@ export async function syncPlugins(client: DataClient): Promise<PluginStatus[]> {
   if (seeded.length > 0) {
     plugins = await client.listPlugins();
   }
+
+  // Revocations (PROTOCOL.md §6.6): refresh the pinned stores' kill-switch
+  // lists (staleness-windowed; a no-store setup is a no-op) so the check
+  // below runs against the freshest copy available. The fetch failing never
+  // blocks a sync — the cached, append-only copy still applies.
+  await refreshRevocations().catch(() => undefined);
+
   const seen = new Set<string>();
   const next: PluginStatus[] = [];
 
@@ -223,6 +249,15 @@ export async function syncPlugins(client: DataClient): Promise<PluginStatus[]> {
     const id = plugin.manifest.id;
     seen.add(id);
     const verdict = await verifyPlugin(plugin, trustedRegistryKeys());
+    const revoked = revokedEntryFor(id, plugin.manifest.version);
+    if (revoked) {
+      // Revoked means disabled, not merely flagged — regardless of the
+      // enabled switch, and even for an already-running instance.
+      active.get(id)?.dispose();
+      active.delete(id);
+      next.push({plugin, state: 'revoked', error: revoked.reason, verifiedBy: verdict?.registry});
+      continue;
+    }
     if (!plugin.enabled) {
       active.get(id)?.dispose();
       active.delete(id);
