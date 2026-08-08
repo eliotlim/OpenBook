@@ -262,6 +262,37 @@ export {
 } from './authorize';
 export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
 export {
+  ORDER_KEY_REBALANCE_LENGTH,
+  isOrderKey,
+  compareOrderKeys,
+  keyBetween,
+  keysBetween,
+} from './orderKeys';
+export {
+  TABLE_COL_PREFIX,
+  TABLE_COLBG_PREFIX,
+  TABLE_OP_KINDS,
+  applyTableOpToSnapshot,
+  ensureSnapshotTableOrder,
+  resolveTableOp,
+  snapshotCellPosition,
+  snapshotTableColumns,
+  snapshotTableGrid,
+  snapshotTableIdFor,
+  snapshotTableView,
+  snapshotTables,
+  tableOpError,
+  tableOpRemovesTable,
+  tableShapeOf,
+  type SnapshotBlock,
+  type SnapshotTableGrid,
+  type SnapshotTableView,
+  type TableOpAddress,
+  type TableOpKind,
+  type TableOpRequest,
+  type TableShape,
+} from './tableSnapshot';
+export {
   snapshotBlocks,
   contentHash,
   computeBlockMtimes,
