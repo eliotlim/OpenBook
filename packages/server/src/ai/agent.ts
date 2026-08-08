@@ -690,7 +690,7 @@ export class AgentRunner {
             type: {type: 'string', description: 'Optional new block type (e.g. heading, list, todo, callout). Omit to keep the current type.'},
             props: {
               type: 'object',
-              description: 'Props to merge, e.g. {"level":2} / {"kind":"number"} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40}.',
+              description: 'Props to merge SHALLOWLY over the block\'s existing props, e.g. {"level":2} / {"kind":"number"} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40}. Pass null as a value to REMOVE that prop (e.g. {"bg": null} clears a background).',
             },
           },
           ['pageId', 'blockId'],
@@ -709,12 +709,21 @@ export class AgentRunner {
           if (!type && !props) return 'Provide a new type and/or props to change.';
           const describe = (t: string, p: Record<string, unknown>): string =>
             `${t}${Object.keys(p).length ? ` ${JSON.stringify(p)}` : ''}`;
+          // Compute the `after` preview with the SAME null-aware merge the apply
+          // path uses (patchBlock / setBlockPropsInSnapshot: null REMOVES a key),
+          // so the SuggestionCard's -/+ diff reflects what accepting will actually
+          // store — not the raw patch (which would show `"bg":null` as an added key).
+          const mergedProps = {...info.props};
+          for (const [k, v] of Object.entries(props ?? {})) {
+            if (v === null) delete mergedProps[k];
+            else mergedProps[k] = v;
+          }
           return this.propose({
             kind: 'set_block_props',
             summary: `Update block ${blockId} on "${page.name ?? 'Untitled'}"${type ? ` → ${type}` : ''}`,
             pageId,
             before: clip(describe(info.type, info.props), 200),
-            after: clip(describe(type ?? info.type, {...info.props, ...(props ?? {})}), 200),
+            after: clip(describe(type ?? info.type, mergedProps), 200),
             payload: {pageId, blockId, ...(type ? {type} : {}), ...(props ? {props} : {})},
           });
         },
