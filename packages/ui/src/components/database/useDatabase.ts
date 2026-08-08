@@ -168,7 +168,8 @@ export interface UseDatabase {
   /** Create a property and point `viewId`'s `field` at it, in one atomic schema
    *  write (the view-setup "create it and use it" path). Returns the new id. */
   addPropertyForView: (viewId: string, input: NewPropertyInput, field: ViewPropertyField) => Promise<string | undefined>;
-  /** Clone a property (its full config) into a new column just after it. */
+  /** Clone a property (its full config) just after it, including in the active
+   *  view's pinned visible-property list, in one atomic schema write. */
   duplicateProperty: (propertyId: string) => Promise<void>;
   /**
    * Create a property inserted immediately left/right of `anchorId` in the
@@ -827,9 +828,18 @@ export function useDatabase(
       const at = props.findIndex((p) => p.id === propertyId);
       const next = [...props];
       next.splice(at + 1, 0, copy);
-      await saveSchema({...database.schema, properties: next});
+      // Like insertProperty, duplicating inside a view with a pinned column
+      // list must splice the new id there too or the copy is created hidden.
+      const views = database.schema.views.map((v) => {
+        if (v.id !== activeView?.id || !v.visiblePropertyIds?.length) return v;
+        const ids = [...v.visiblePropertyIds];
+        const vat = ids.indexOf(propertyId);
+        ids.splice(vat < 0 ? ids.length : vat + 1, 0, copy.id);
+        return {...v, visiblePropertyIds: ids};
+      });
+      await saveSchema({...database.schema, properties: next, views});
     },
-    [database, saveSchema],
+    [database, activeView?.id, saveSchema],
   );
 
   const updateProperty = useCallback(
