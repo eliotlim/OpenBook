@@ -238,12 +238,14 @@ export const ReconcileBlock = ({block, editor, pageReadOnly}: {block: BlockLike;
     pendingFocus.current = target;
   };
 
-  // After EVERY commit, perform the recorded focus intent. After the commit,
-  // and not in the handler, because the element is only now mounted (an opening
-  // form) or only now re-enabled (a returned-to invoker) — `.focus()` on a
-  // disabled element is a silent no-op, which is how the earlier attempt at
-  // this in the register block stayed green while doing nothing.
-  React.useEffect(() => {
+  // After EVERY commit, perform the recorded focus intent. A LAYOUT effect is
+  // deliberate: a passive effect left over from the preceding commit can run
+  // after a click records the next intent but before its form has mounted,
+  // consume that shared ref, and focus the close-button fallback permanently.
+  // The target is only mounted (or only re-enabled) after this commit, and the
+  // layout effect resolves it before another interaction can replace the
+  // intent. `.focus()` in the handler would still be a silent no-op.
+  React.useLayoutEffect(() => {
     if (pendingFocus.current === null) return;
     const target = pendingFocus.current;
     pendingFocus.current = null;
