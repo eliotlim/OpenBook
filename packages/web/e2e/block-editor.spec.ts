@@ -896,21 +896,38 @@ test('range-aware cell menu: right-click inside a selection tints/deletes the wh
   // Right-click a cell INSIDE the rectangle → the RANGE variant, with the exact
   // selected counts and none of the single-cell row/column items.
   await td.nth(1).click({button: 'right'});
-  await expect(page.getByRole('menuitem', {name: 'Clear cells'})).toBeVisible();
+  await expect(page.getByText('Selection · 2 × 3')).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Clear contents'})).toBeVisible();
   await expect(page.getByRole('menuitem', {name: 'Delete 2 rows'})).toBeVisible();
-  await expect(page.getByRole('menuitem', {name: 'Delete 3 columns'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Delete table'})).toBeVisible();
   await expect(page.getByRole('menuitem', {name: 'Duplicate row'})).toHaveCount(0);
 
   // Tint every selected cell green in one step.
-  await page.getByRole('menuitem', {name: 'Tint cells'}).hover();
+  await page.getByRole('menuitem', {name: 'Cell colour'}).hover();
   await page.getByRole('menuitem', {name: 'Green'}).click();
   await expect(page.locator('.obe-table td.obe-bg-green')).toHaveCount(6);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(6);
   await expect(page.locator('.obe-table tr').nth(2).locator('td.obe-bg-green')).toHaveCount(0);
+  // Paint-level guard: the selected cell must compute to the SAME green as a
+  // plain palette cell while the ring + wash remain layered above it. The old
+  // high-specificity `background:` selection shorthand made these differ even
+  // though the td carried both classes, so class assertions alone missed P1.
+  const selectedPaint = await page.locator('.obe-table td.obe-bg-green.obe-cell-selected').first().evaluate((cell) => {
+    const probe = document.createElement('div');
+    probe.className = 'obe-bg-green';
+    document.body.append(probe);
+    const expectedBackground = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const computed = getComputedStyle(cell);
+    return {background: computed.backgroundColor, expectedBackground, shadow: computed.boxShadow};
+  });
+  expect(selectedPaint.background).toBe(selectedPaint.expectedBackground);
+  expect(selectedPaint.shadow.match(/inset/g)).toHaveLength(2);
 
   // A right-click OUTSIDE the rectangle still opens the single-cell menu.
   await td.nth(6).click({button: 'right'});
   await expect(page.getByRole('menuitem', {name: 'Duplicate row'})).toBeVisible();
-  await expect(page.getByRole('menuitem', {name: 'Clear cells'})).toHaveCount(0);
+  await expect(page.getByRole('menuitem', {name: 'Clear contents'})).toHaveCount(0);
   await page.keyboard.press('Escape');
 
   // Delete the selected rows: exactly two go, and the stale highlight is dropped.

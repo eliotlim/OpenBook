@@ -111,63 +111,6 @@ describe('cell-range keyboard', () => {
   });
 });
 
-describe('tint × selection composition (TBL-4 × TBL-5)', () => {
-  // A merge-guard: the td must carry BOTH the TBL-4 tint class (`obe-bg-<tok>`)
-  // AND the TBL-5 selection class (`obe-cell-selected`) at once — the 2px inset
-  // ring is the load-bearing signal over a same-hue tint. Column c0 is tinted
-  // blue; selecting the whole table must leave the c0 cells tinted AND ringed.
-  const tintedSeed = () =>
-    createDoc([
-      {
-        id: 'tbl',
-        type: 'table',
-        props: {header: false, 'col:c0': 'a0', 'col:c1': 'a1', 'colbg:c0': 'blue'},
-        children: [
-          {id: 'row0', type: 'row', props: {ord: 'a0'}, children: [
-            {id: 'r0c0', type: 'cell', props: {col: 'c0'}, text: [{t: 'A1'}]},
-            {id: 'r0c1', type: 'cell', props: {col: 'c1'}, text: [{t: 'B1'}]},
-          ]},
-          {id: 'row1', type: 'row', props: {ord: 'a1'}, children: [
-            {id: 'r1c0', type: 'cell', props: {col: 'c0'}, text: [{t: 'A2'}]},
-            {id: 'r1c1', type: 'cell', props: {col: 'c1'}, text: [{t: 'B2'}]},
-          ]},
-        ],
-      },
-    ]);
-
-  it('a tinted column cell inside a selection carries BOTH obe-bg-blue and obe-cell-selected', () => {
-    const doc = tintedSeed();
-    const {container} = render(<BlockEditor doc={doc} readOnly={false} />);
-    const tdOf = (id: string) =>
-      (container.querySelector(`[data-block-text="${id}"]`) as HTMLElement).closest('td') as HTMLElement;
-
-    // Before selecting: the c0 column cells are already tinted (TBL-4 alone).
-    expect(tdOf('r0c0').classList.contains('obe-bg-blue')).toBe(true);
-    expect(tdOf('r0c0').classList.contains('obe-cell-selected')).toBe(false);
-
-    // Select the whole table (r0c0 → r1c1) via a native intra-table span.
-    const el = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
-    const range = document.createRange();
-    range.setStart(el('r0c0'), 0);
-    range.setEnd(el('r1c1'), el('r1c1').childNodes.length);
-    const sel = window.getSelection()!;
-    sel.removeAllRanges();
-    sel.addRange(range);
-    fireEvent(document, new Event('selectionchange'));
-
-    // The tinted c0 cell now composes BOTH classes; the untinted c1 cell is
-    // only selected. Neither side dropped the other's class.
-    const c0 = tdOf('r0c0');
-    expect(c0.classList.contains('obe-bg-blue')).toBe(true);
-    expect(c0.classList.contains('obe-cell-selected')).toBe(true);
-    expect(tdOf('r1c0').classList.contains('obe-bg-blue')).toBe(true);
-    expect(tdOf('r1c0').classList.contains('obe-cell-selected')).toBe(true);
-    const c1 = tdOf('r0c1');
-    expect(c1.classList.contains('obe-bg-blue')).toBe(false);
-    expect(c1.classList.contains('obe-cell-selected')).toBe(true);
-  });
-});
-
 // ── TBL-6: the range-aware context menu, driven live ─────────────────────────
 // The menu variant is decided by the rect the table hands down from the
 // CellSelectionContext — so these drive the whole path: native span → range →
@@ -175,7 +118,7 @@ describe('tint × selection composition (TBL-4 × TBL-5)', () => {
 
 describe('range-aware cell context menu (TBL-6)', () => {
   /** A 3×3 keyed table, no header, cells reading "r<row>c<col>". */
-  const seed3 = () =>
+  const seed3 = (ragged = false) =>
     createDoc([
       {
         id: 'tbl',
@@ -185,18 +128,19 @@ describe('range-aware cell context menu (TBL-6)', () => {
           id: `row${r}`,
           type: 'row' as const,
           props: {ord: `a${r}`},
-          children: [0, 1, 2].map((c) => ({
-            id: `r${r}c${c}`,
-            type: 'cell' as const,
-            props: {col: `c${c}`},
-            text: [{t: `r${r}c${c}`}],
-          })),
+          children: [0, 1, 2]
+            .filter((c) => !(ragged && r === 1 && c === 1))
+            .map((c) => ({
+              id: `r${r}c${c}`,
+              type: 'cell' as const,
+              props: {col: `c${c}`},
+              text: [{t: `r${r}c${c}`}],
+            })),
         })),
       },
     ]);
 
-  const build3 = () => {
-    const doc = seed3();
+  const build3 = (doc = seed3()) => {
     const {container} = render(<BlockEditor doc={doc} readOnly={false} />);
     const el = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
     const tdOf = (id: string) => el(id).closest('td') as HTMLElement;
@@ -232,10 +176,10 @@ describe('range-aware cell context menu (TBL-6)', () => {
     expect(selectedCells()).toBe(6);
     rightClick(tdOf('r1c1'));
     expect(selectedCells()).toBe(6); // the press did NOT collapse the range
-    expect(screen.getByText('Selection')).toBeTruthy();
-    expect(screen.getByText('Clear cells')).toBeTruthy();
+    expect(screen.getByText('Selection · 2 × 3')).toBeTruthy();
+    expect(screen.getByText('Clear contents')).toBeTruthy();
     expect(screen.getByText('Delete 2 rows')).toBeTruthy();
-    expect(screen.getByText('Delete 3 columns')).toBeTruthy();
+    expect(screen.getByText('Delete table')).toBeTruthy();
     expect(screen.queryByText('Duplicate row')).toBeNull();
   });
 
@@ -245,8 +189,8 @@ describe('range-aware cell context menu (TBL-6)', () => {
     rightClick(tdOf('r2c0')); // row 2 — below the rectangle
     expect(screen.getByText('Duplicate row')).toBeTruthy();
     expect(screen.getByText('Toggle header row')).toBeTruthy();
-    expect(screen.queryByText('Selection')).toBeNull();
-    expect(screen.queryByText('Clear cells')).toBeNull();
+    expect(screen.queryByText(/Selection ·/)).toBeNull();
+    expect(screen.queryByText('Clear contents')).toBeNull();
     // A press outside the rectangle is an ordinary fresh press: it starts over.
     expect(selectedCells()).toBe(0);
   });
@@ -255,7 +199,38 @@ describe('range-aware cell context menu (TBL-6)', () => {
     const {tdOf, rightClick} = build3();
     rightClick(tdOf('r1c1'));
     expect(screen.getByText('Duplicate row')).toBeTruthy();
-    expect(screen.queryByText('Clear cells')).toBeNull();
+    expect(screen.queryByText('Clear contents')).toBeNull();
+  });
+
+  it('a 1×1 shift range collapses on right-click and keeps the full single-cell menu', () => {
+    const {tdOf, selectRange, selectedCells, rightClick} = build3();
+    const td = tdOf('r1c1');
+    // Collapse the focus corner back onto the anchor with Shift+ArrowUp. This
+    // leaves the same 1×1 rectangle produced by a single shift extension from
+    // an out-of-table caret, without coupling the test to block-row capture.
+    selectRange('r0c1', 'r1c1');
+    fireEvent.keyDown(document, {key: 'ArrowUp', shiftKey: true});
+    expect(selectedCells()).toBe(1);
+    rightClick(td);
+    expect(selectedCells()).toBe(0); // the secondary press was not swallowed
+    expect(screen.getByText('Duplicate row')).toBeTruthy();
+    expect(screen.getByText('Toggle header row')).toBeTruthy();
+    expect(screen.queryByText('Clear contents')).toBeNull();
+  });
+
+  it('a selected ragged-row pad cell preserves the range and opens its range menu', () => {
+    const {container, selectRange, selectedCells, rightClick} = build3(seed3(true));
+    selectRange('r0c0', 'r1c2');
+    expect(selectedCells()).toBe(6); // five cell blocks + the highlighted pad td
+    const pad = container.querySelectorAll('.obe-table tr')[1].querySelectorAll('td')[1] as HTMLElement;
+    expect(pad.querySelector('[data-block-text]')).toBeNull();
+
+    rightClick(pad);
+    expect(selectedCells()).toBe(6);
+    expect(screen.getByText('Selection · 2 × 3')).toBeTruthy();
+    expect(screen.getByText('Clear contents')).toBeTruthy();
+    expect(screen.getByText('Cell colour')).toBeTruthy();
+    expect(screen.queryByText('Duplicate row')).toBeNull();
   });
 
   // React events travel the COMPONENT tree, so a press inside the portaled menu
@@ -267,17 +242,17 @@ describe('range-aware cell context menu (TBL-6)', () => {
     const {tdOf, selectRange, selectedCells, rightClick} = build3();
     selectRange('r0c0', 'r1c2');
     rightClick(tdOf('r1c1'));
-    fireEvent.mouseDown(screen.getByText('Tint cells'), {button: 0});
+    fireEvent.mouseDown(screen.getByText('Cell colour'), {button: 0});
     expect(selectedCells()).toBe(6);
     expect(screen.getByText('Delete 2 rows')).toBeTruthy(); // still the range variant
   });
 
-  it('Tint cells paints every selected cell, and only those, in the live table', () => {
+  it('Cell colour paints every selected cell, and only those, in the live table', () => {
     const {doc, tdOf, selectRange, rightClick} = build3();
     selectRange('r0c0', 'r1c2');
     rightClick(tdOf('r1c1'));
-    fireEvent.mouseDown(screen.getByText('Tint cells'), {button: 0});
-    fireEvent.click(screen.getByText('Tint cells'));
+    fireEvent.mouseDown(screen.getByText('Cell colour'), {button: 0});
+    fireEvent.click(screen.getByText('Cell colour'));
     fireEvent.click(screen.getByText('Green'));
 
     for (const id of ['r0c0', 'r0c1', 'r0c2', 'r1c0', 'r1c1', 'r1c2']) {
@@ -315,11 +290,11 @@ describe('range-aware cell context menu (TBL-6)', () => {
     expect(container.querySelectorAll('td.obe-cell-selected')).toHaveLength(0);
   });
 
-  it('Clear cells empties exactly the selected cells', () => {
+  it('Clear contents empties exactly the selected cells', () => {
     const {doc, tdOf, selectRange, rightClick} = build3();
     selectRange('r0c0', 'r1c2');
     rightClick(tdOf('r0c0'));
-    fireEvent.click(screen.getByText('Clear cells'));
+    fireEvent.click(screen.getByText('Clear contents'));
     const textOf = (id: string) => blockText(findBlock(doc, id)!.block)!.toString();
     expect([textOf('r0c0'), textOf('r0c2'), textOf('r1c1')]).toEqual(['', '', '']);
     expect(textOf('r2c0')).toBe('r2c0'); // outside the range

@@ -317,10 +317,12 @@ export const en = {
       columnColour: 'Column colour',
       toggleHeader: 'Toggle header row',
       // TBL-6 — the range variant of the cell menu (right-click inside a
-      // multi-cell selection). Singular counts reuse deleteRow/deleteColumn.
+      // multi-cell selection). Singular counts reuse deleteRow/deleteColumn;
+      // selecting a whole live axis uses deleteTable.
       sectionSelection: 'Selection',
-      clearCells: 'Clear cells',
-      tintCells: 'Tint cells',
+      clearCells: 'Clear contents',
+      tintCells: 'Cell colour',
+      deleteTable: 'Delete table',
       deleteRowsN: 'Delete {n} rows',
       deleteColumnsN: 'Delete {n} columns',
     },
