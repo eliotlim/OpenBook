@@ -45,7 +45,7 @@ import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
-import {useNavigation} from '@/providers';
+import {useNavigation, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
@@ -226,6 +226,7 @@ const CellContextMenu: React.FC<{
   bulk?: RowMenuBulk | null;
   children: React.ReactNode;
 }> = ({db, view, row, property, value, bulk, children}) => {
+  const {t} = useTranslation();
   const filter = property && view ? quickFilter(property, value) : null;
   return (
     <ContextMenu>
@@ -257,18 +258,18 @@ const CellContextMenu: React.FC<{
         {property && view && (
           <>
             <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'asc'}]})}>
-              <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> Sort ascending
+              <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.sortAsc')}
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'desc'}]})}>
-              <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> Sort descending
+              <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.sortDesc')}
             </ContextMenuItem>
             {view.groupByPropertyId === property.id ? (
               <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: undefined})}>
-                <Rows3 className="mr-2 h-3.5 w-3.5" /> Ungroup
+                <Rows3 className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.ungroup')}
               </ContextMenuItem>
             ) : (
               <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: property.id})}>
-                <Rows3 className="mr-2 h-3.5 w-3.5" /> Group by {property.name}
+                <Rows3 className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.groupBy', {name: property.name})}
               </ContextMenuItem>
             )}
             <ContextMenuSeparator />

@@ -62,12 +62,17 @@ function renderRowMenu(db: UseDatabase, bulk?: {count: number; onDuplicate: () =
 }
 
 describe('RowMenuItems (shared row list, TBL-9)', () => {
-  it('appends the whole-selection pair when the row is in a 2+ selection', () => {
+  it('replaces clicked-row duplicate/delete with the whole-selection pair', () => {
     const onDuplicate = vi.fn();
     const onDelete = vi.fn();
-    renderRowMenu(makeDb(), {count: 3, onDuplicate, onDelete});
+    const db = makeDb();
+    renderRowMenu(db, {count: 3, onDuplicate, onDelete});
+    expect(screen.queryByText('Duplicate')).toBeNull();
+    expect(screen.queryByText('Delete')).toBeNull();
+    expect(screen.getByText('Delete 3 rows')).toBeTruthy();
     fireEvent.click(screen.getByText('Duplicate 3 rows'));
     expect(onDuplicate).toHaveBeenCalled();
+    expect(db.duplicateRow).not.toHaveBeenCalled();
   });
 
   it('bulk delete acts on the selection, not just the clicked row', () => {
@@ -82,6 +87,8 @@ describe('RowMenuItems (shared row list, TBL-9)', () => {
   it('shows no bulk section for a single-row selection', () => {
     renderRowMenu(makeDb(), {count: 1, onDuplicate: vi.fn(), onDelete: vi.fn()});
     expect(screen.queryByText(/rows$/)).toBeNull();
+    expect(screen.getByText('Duplicate')).toBeTruthy();
+    expect(screen.getByText('Delete')).toBeTruthy();
   });
 
   it('offers "Save as template" only on the withTemplate (⋯ dropdown) surface', () => {

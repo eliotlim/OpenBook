@@ -39,7 +39,7 @@ import type {UseDatabase} from './useDatabase';
  * the context menu, and the popover can never drift apart (TBL-9).
  */
 
-const destructiveClass = 'text-destructive focus:text-destructive';
+const destructiveClass = 'text-destructive hover:text-destructive focus:text-destructive';
 
 /** Append a leaf condition to a view's filter tree (clearing the legacy flat list). */
 export function addQuickFilter(db: UseDatabase, view: DbView, propertyId: string, operator: FilterOperator, value: unknown): void {
@@ -66,8 +66,9 @@ export interface RowMenuBulk {
 
 /**
  * A database row's actions — open targets, copy link, insert above/below,
- * duplicate, (save as template,) delete, and the bulk pair when a multi-select
- * is active. Rendered by the table's cell context menu, the card/list
+ * duplicate, (save as template,) and delete. A multi-select replaces the
+ * clicked-row duplicate/delete pair with count-labelled bulk actions. Rendered
+ * by the table's cell context menu, the card/list
  * right-click menu ({@link RowContextMenu}), and the row `⋯` dropdown
  * ({@link RowMenu}) — the same list drives all three.
  */
@@ -78,12 +79,25 @@ export const RowMenuItems: React.FC<{
   menu?: 'context' | 'dropdown';
   /** Offer "Save as template" (the `⋯` dropdown does; the compact card menu doesn't). */
   withTemplate?: boolean;
-  /** Bulk ops appended when this row is inside a 2+ row selection. */
+  /** Bulk ops replacing duplicate/delete when this row is inside a 2+ row selection. */
   bulk?: RowMenuBulk | null;
 }> = ({db, rowId, menu = 'context', withTemplate, bulk}) => {
   const {t} = useTranslation();
   const copyLink = useCopyPageLink();
   const C = MENU_COMPONENTS[menu];
+  const scopedActions = bulk && bulk.count > 1
+    ? {
+      duplicate: bulk.onDuplicate,
+      duplicateLabel: t('database.rowMenu.bulkDuplicate', {count: bulk.count}),
+      delete: bulk.onDelete,
+      deleteLabel: t('database.rowMenu.bulkDelete', {count: bulk.count}),
+    }
+    : {
+      duplicate: () => void db.duplicateRow(rowId),
+      duplicateLabel: t('database.rowMenu.duplicate'),
+      delete: () => void db.deleteRow(rowId),
+      deleteLabel: t('database.rowMenu.delete'),
+    };
   return (
     <>
       <C.Item onSelect={() => db.openRow(rowId)}>
@@ -108,8 +122,8 @@ export const RowMenuItems: React.FC<{
       <C.Item onSelect={() => void db.addRowAfter(rowId)}>
         <Plus className="mr-2 h-3.5 w-3.5" /> {t('database.rowMenu.insertBelow')}
       </C.Item>
-      <C.Item onSelect={() => void db.duplicateRow(rowId)}>
-        <Copy className="mr-2 h-3.5 w-3.5" /> {t('database.rowMenu.duplicate')}
+      <C.Item onSelect={scopedActions.duplicate}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {scopedActions.duplicateLabel}
       </C.Item>
       {withTemplate && (
         <C.Item onSelect={() => void db.saveAsTemplate(rowId)}>
@@ -117,20 +131,9 @@ export const RowMenuItems: React.FC<{
         </C.Item>
       )}
       <C.Separator />
-      <C.Item onSelect={() => void db.deleteRow(rowId)} className={destructiveClass}>
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('database.rowMenu.delete')}
+      <C.Item onSelect={scopedActions.delete} className={destructiveClass}>
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {scopedActions.deleteLabel}
       </C.Item>
-      {bulk && bulk.count > 1 && (
-        <>
-          <C.Separator />
-          <C.Item onSelect={bulk.onDuplicate}>
-            <Copy className="mr-2 h-3.5 w-3.5" /> {t('database.rowMenu.bulkDuplicate', {count: bulk.count})}
-          </C.Item>
-          <C.Item onSelect={bulk.onDelete} className={destructiveClass}>
-            <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('database.rowMenu.bulkDelete', {count: bulk.count})}
-          </C.Item>
-        </>
-      )}
     </>
   );
 };
