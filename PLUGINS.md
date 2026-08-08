@@ -166,8 +166,9 @@ unknown key, or content that doesn't match the signature) shows
   base64 Ed25519 public key under **Settings → Extensions → Trusted
   registries**. Removing a key demotes its plugins to Unverified on the
   next sync.
-- Pack and dev-sign locally:
-  `node scripts/pack-plugin.mjs examples/plugins/hello-openbook out.zip --sign`
+- Pack and sign locally (signing always takes an explicit key; the committed
+  test key is trusted nowhere by default — see `docs/plugin-signing.md`):
+  `node scripts/pack-plugin.mjs examples/plugins/hello-openbook out.zip --sign --key scripts/test-registry-key.json`
 
 **Trust model, plainly:** extensions run with the same privileges as your
 documents' live code. A signature is provenance — *who published these exact

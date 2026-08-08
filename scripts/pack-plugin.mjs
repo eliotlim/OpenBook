@@ -2,14 +2,23 @@
 /**
  * Pack (and optionally sign) a plugin directory into an installable zip.
  *
- *   node scripts/pack-plugin.mjs examples/plugins/hello-openbook out.zip [--sign]
+ *   node scripts/pack-plugin.mjs <plugin-dir> <out.zip> [--sign] [--key <key.json>]
  *
- * --sign uses the DEV registry key (scripts/dev-registry-key.json), whose
- * public half is pinned in the app — installs from this zip show "Verified".
+ * --sign requires an EXPLICIT key — there is no default:
+ *   - `--key <path>`: a JSON key file ({registry, privateKey[, publicKey]},
+ *     the shape `gen-registry-key.mjs --out` writes), or
+ *   - the OPENBOOK_REGISTRY_PRIVATE_KEY env var (base64 PKCS#8 Ed25519, the
+ *     same secret the release build signs with; registry name via
+ *     OPENBOOK_REGISTRY_NAME, default "OpenBook Registry").
+ * The public key is derived from the private half when not given.
+ *
+ * For a dev-signed zip (verifiable only where the test registry is explicitly
+ * trusted — see docs/plugin-signing.md): `--key scripts/test-registry-key.json`.
  */
 import {readFileSync, writeFileSync, readdirSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
 import {createRequire} from 'node:module';
+import {createPrivateKey, createPublicKey} from 'node:crypto';
 // fflate lives in the ui package's dependencies — resolve from there.
 const {zipSync, strToU8} = createRequire(new URL('../packages/ui/package.json', import.meta.url))('fflate');
 // Signing inlined (mirrors packages/sdk/src/plugins.ts — the dist is
@@ -45,9 +54,20 @@ async function signPlugin(pkg, privateKeyBase64, registry, publicKeyBase64) {
   return {registry, publicKey: publicKeyBase64, signature: sig.toString('base64'), algorithm: 'ed25519'};
 }
 
-const [dir, out, ...flags] = process.argv.slice(2);
+/** Raw (32-byte) Ed25519 public key, base64, derived from a base64 PKCS#8 private key. */
+function derivePublicKey(privateKeyBase64) {
+  const priv = createPrivateKey({key: Buffer.from(privateKeyBase64, 'base64'), format: 'der', type: 'pkcs8'});
+  const spki = createPublicKey(priv).export({format: 'der', type: 'spki'});
+  return spki.subarray(spki.length - 32).toString('base64'); // SPKI = 12-byte DER prefix + raw key
+}
+
+const args = process.argv.slice(2);
+const keyAt = args.indexOf('--key');
+const keyPath = keyAt === -1 ? undefined : args[keyAt + 1];
+if (keyAt !== -1) args.splice(keyAt, 2);
+const [dir, out, ...flags] = args;
 if (!dir || !out) {
-  console.error('usage: pack-plugin.mjs <plugin-dir> <out.zip> [--sign]');
+  console.error('usage: pack-plugin.mjs <plugin-dir> <out.zip> [--sign] [--key <key.json>]');
   process.exit(1);
 }
 
@@ -72,10 +92,31 @@ const entries = {'openbook.json': strToU8(JSON.stringify(manifest, null, 2))};
 for (const [p, s] of Object.entries(sources)) entries[p] = strToU8(s);
 
 if (flags.includes('--sign')) {
-  const key = JSON.parse(readFileSync(new URL('./dev-registry-key.json', import.meta.url), 'utf8'));
-  const signature = await signPlugin({manifest, files: sources}, key.privateKey, key.registry, key.publicKey);
+  // No silent default: signing demands an explicit key so nobody dev-signs a
+  // zip by accident and mistakes the test registry for real provenance.
+  let key;
+  if (keyPath) {
+    key = JSON.parse(readFileSync(keyPath, 'utf8'));
+    if (!key.privateKey || !key.registry) {
+      console.error(`--key ${keyPath}: expected JSON with "registry" and "privateKey" (base64 PKCS#8)`);
+      process.exit(1);
+    }
+  } else if (process.env.OPENBOOK_REGISTRY_PRIVATE_KEY) {
+    key = {
+      registry: process.env.OPENBOOK_REGISTRY_NAME || 'OpenBook Registry',
+      privateKey: process.env.OPENBOOK_REGISTRY_PRIVATE_KEY,
+    };
+  } else {
+    console.error(
+      '--sign needs a key: pass --key <key.json> or set OPENBOOK_REGISTRY_PRIVATE_KEY.\n' +
+        'For a dev/test signature use --key scripts/test-registry-key.json (trusted nowhere by default — see docs/plugin-signing.md).',
+    );
+    process.exit(1);
+  }
+  const publicKey = key.publicKey ?? derivePublicKey(key.privateKey);
+  const signature = await signPlugin({manifest, files: sources}, key.privateKey, key.registry, publicKey);
   entries['signature.json'] = strToU8(JSON.stringify(signature, null, 2));
-  console.log(`signed by ${key.registry}`);
+  console.log(`signed by ${key.registry} (public key ${publicKey})`);
 }
 
 writeFileSync(out, zipSync(entries));

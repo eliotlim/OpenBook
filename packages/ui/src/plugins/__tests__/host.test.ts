@@ -4,8 +4,9 @@ import {describe, expect, it, vi} from 'vitest';
 import helloManifestJson from '../../../../../examples/plugins/hello-openbook/openbook.json?raw';
 import helloIndexTs from '../../../../../examples/plugins/hello-openbook/src/index.ts?raw';
 import helloBlockTsx from '../../../../../examples/plugins/hello-openbook/src/block.tsx?raw';
-import {OPENBOOK_REGISTRY, PLUGIN_API_VERSION, type DataClient, type PluginManifest, type StoredPlugin} from '@book.dev/sdk';
+import {OPENBOOK_REGISTRY, OPENBOOK_REGISTRY_KEYS, PLUGIN_API_VERSION, type DataClient, type PluginManifest, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {syncPlugins, pluginStatuses, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry} from '../host';
+import {BUNDLED_PLUGINS} from '../bundled.gen';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
 
@@ -153,22 +154,79 @@ describe('plugin host', () => {
     await syncPlugins(client);
   });
 
-  it('manages the trusted-registry list around the pinned first-party key', () => {
-    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
+  it('auto-installs the signed bundled plugins; a fresh install verifies once its registry key is trusted', async () => {
+    // A fresh library: no plugins installed. syncPlugins seeds the bundled
+    // first-party packages (signed at build by bundlePlugins.ts) through the
+    // normal install path.
+    const installed: StoredPlugin[] = [];
+    const client = {
+      listPlugins: async (): Promise<StoredPlugin[]> => [...installed],
+      installPlugin: async (pkg: PluginPackage): Promise<StoredPlugin> => {
+        const stored: StoredPlugin = {...pkg, enabled: true, installedAt: new Date(0).toISOString()};
+        installed.push(stored);
+        return stored;
+      },
+    } as unknown as DataClient;
+
+    await syncPlugins(client);
+    const ledger = (): {verifiedBy?: string} | undefined => pluginStatuses().find((s) => s.plugin.manifest.id === 'openbook.ledger');
+    expect(ledger()).toBeDefined();
+    expect(installed.some((p) => p.manifest.id === 'openbook.ledger' && p.signature)).toBe(true);
+
+    const sig = BUNDLED_PLUGINS.find((p) => p.manifest.id === 'openbook.ledger')!.signature!;
+    if (sig.publicKey !== OPENBOOK_REGISTRY.publicKey) {
+      // Dev/test tree: the bundle is signed by the (unpinned) test key, so it
+      // starts Unverified — provenance only appears once the key is trusted.
+      expect(ledger()!.verifiedBy).toBeUndefined();
+    }
+
+    // Trust the registry key that signed the bundle → Verified on the next
+    // sync. In production the pinned OPENBOOK_REGISTRY key plays this role
+    // and no user action is needed.
+    addTrustedRegistry(sig.registry, sig.publicKey);
+    await syncPlugins(client);
+    expect(ledger()!.verifiedBy).toBe(sig.registry);
+
+    removeTrustedRegistry(sig.publicKey);
+    await syncPlugins(clientWith([]));
+  });
+
+  it('manages the trusted-registry list around the pinned first-party keys', () => {
+    // The pinned anchor is the whole LIST (rotation can pin two keys), and
+    // the deprecated single-key alias is its first entry.
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
+    expect(OPENBOOK_REGISTRY).toBe(OPENBOOK_REGISTRY_KEYS[0]);
 
     addTrustedRegistry('Acme Registry', 'a'.repeat(43) + '=');
-    expect(trustedRegistryKeys()).toHaveLength(2);
-    expect(trustedRegistryKeys()[1]).toEqual({name: 'Acme Registry', publicKey: 'a'.repeat(43) + '='});
+    expect(trustedRegistryKeys()).toHaveLength(OPENBOOK_REGISTRY_KEYS.length + 1);
+    expect(trustedRegistryKeys()[trustedRegistryKeys().length - 1]).toEqual({name: 'Acme Registry', publicKey: 'a'.repeat(43) + '='});
 
-    // Re-adding the same key and re-adding the pinned key are both no-ops.
+    // Re-adding the same key and re-adding any pinned key are both no-ops.
     addTrustedRegistry('Acme Again', 'a'.repeat(43) + '=');
-    addTrustedRegistry('Sneaky', OPENBOOK_REGISTRY.publicKey);
-    expect(trustedRegistryKeys()).toHaveLength(2);
+    for (const pinned of OPENBOOK_REGISTRY_KEYS) addTrustedRegistry('Sneaky', pinned.publicKey);
+    expect(trustedRegistryKeys()).toHaveLength(OPENBOOK_REGISTRY_KEYS.length + 1);
 
     removeTrustedRegistry('a'.repeat(43) + '=');
-    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
-    // The pinned key survives any removal attempt.
-    removeTrustedRegistry(OPENBOOK_REGISTRY.publicKey);
-    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
+    // Every pinned key survives any removal attempt.
+    for (const pinned of OPENBOOK_REGISTRY_KEYS) removeTrustedRegistry(pinned.publicKey);
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
+  });
+
+  it('rejects user-added registries whose name collides with a pinned registry name', () => {
+    // A pasted key named "OpenBook Registry" (any casing/padding) would render
+    // a "Verified by OpenBook Registry" badge indistinguishable from
+    // first-party provenance — refuse it outright.
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
+    addTrustedRegistry('OpenBook Registry', 'b'.repeat(43) + '=');
+    addTrustedRegistry('  openbook REGISTRY  ', 'b'.repeat(43) + '=');
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
+
+    // A non-colliding name with the same key still works (the key itself is
+    // not first-party, so it may be trusted under an honest name).
+    addTrustedRegistry('Acme Registry', 'b'.repeat(43) + '=');
+    expect(trustedRegistryKeys()[trustedRegistryKeys().length - 1]).toEqual({name: 'Acme Registry', publicKey: 'b'.repeat(43) + '='});
+    removeTrustedRegistry('b'.repeat(43) + '=');
+    expect(trustedRegistryKeys()).toEqual(OPENBOOK_REGISTRY_KEYS);
   });
 });

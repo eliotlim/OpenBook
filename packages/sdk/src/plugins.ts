@@ -212,15 +212,46 @@ export async function verifyPlugin(
 }
 
 /**
- * The pinned first-party registry key. Every OpenBook build trusts this;
- * additional registries are user-added keys on top (Settings → Extensions).
- * NOTE: a placeholder development key until the real registry launches —
- * regenerate and replace before publishing plugins for real.
+ * The pinned first-party registry keys. Every OpenBook build trusts ALL of
+ * these; additional registries are user-added keys on top (Settings →
+ * Extensions).
+ *
+ * THIS LIST IS THE ONE PLACE THE PRODUCTION KEY(S) LIVE. The key ceremony
+ * (docs/plugin-signing.md) is: run `node scripts/gen-registry-key.mjs`, commit
+ * the printed PUBLIC key here, and store the private half as the
+ * `OPENBOOK_REGISTRY_PRIVATE_KEY` GitHub Actions secret — the release build
+ * signs the bundled first-party plugins with it (packages/ui/scripts/
+ * bundlePlugins.ts).
+ *
+ * A LIST so rotation can overlap (add-then-remove): append the NEW key as a
+ * second entry and ship — clients of that build verify signatures from either
+ * key. Once the overlap build is broadly installed, cut signing over to the
+ * new key (swap the CI secret), and a later release removes the old entry.
+ * The signing key SHOULD be entry [0]; extra entries exist only during
+ * rotation windows. Full runbook: docs/plugin-signing.md.
+ *
+ * NOTE: currently a single PLACEHOLDER key whose private half was generated
+ * in memory and destroyed — nothing can ever sign for it, so first-party
+ * bundles show Unverified until the owner performs the key ceremony. No
+ * entry may EVER match scripts/test-registry-key.json (its private half is
+ * public); CI guards enforce that for every entry
+ * (.github/workflows/release.yml).
  */
-export const OPENBOOK_REGISTRY = {
-  name: 'OpenBook Registry',
-  publicKey: 'nI4eBQzqrIyVPEmJSEzGtqC9B0+kfWTXKyN5t8Yki/E=',
-};
+export const OPENBOOK_REGISTRY_KEYS: Array<{name: string; publicKey: string}> = [
+  {
+    name: 'OpenBook Registry',
+    publicKey: 'auvZjhjbcZgepWphhILsmuQNl82djsb6dkao+/S+7zU=',
+  },
+];
+
+/**
+ * The primary pinned first-party key — entry [0] of
+ * {@link OPENBOOK_REGISTRY_KEYS}.
+ * @deprecated trust decisions must consume the whole list
+ * ({@link OPENBOOK_REGISTRY_KEYS}); this alias exists for display and
+ * back-compat only.
+ */
+export const OPENBOOK_REGISTRY = OPENBOOK_REGISTRY_KEYS[0];
 
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/;
 

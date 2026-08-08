@@ -374,6 +374,7 @@ export {
   validateManifest,
   pluginApiVersionError,
   OPENBOOK_REGISTRY,
+  OPENBOOK_REGISTRY_KEYS,
   PLUGIN_API_VERSION,
   type PluginManifest,
   type PluginAgentTool,
