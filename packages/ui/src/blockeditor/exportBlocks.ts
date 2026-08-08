@@ -112,12 +112,12 @@ function runToMd(run: TextRun): string {
 const textMd = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToMd).join('');
 
 /**
- * Whether a block type that fell through an exporter's switch is a CORE type
- * carrying nothing but text — a bare `paragraph` (which has no case of its own
- * anywhere), or a container child (`cell`, `tab`, …) orphaned from its parent.
+ * Whether a block type that fell through the export projection's switch is a
+ * CORE type carrying nothing but text — a bare `paragraph` (which has no case
+ * of its own), or a container child (`cell`, `tab`, …) orphaned from its parent.
  * Those keep the plain-text projection; every OTHER unhandled type is
- * plugin-contributed or from a newer version and gets a labelled placeholder
- * instead of being silently flattened (LX-1).
+ * plugin-contributed or from a newer version and must keep its identity so the
+ * renderers can label it instead of silently flattening it (LX-1).
  */
 const isCoreTextType = (type: string): boolean =>
   TEXT_BLOCKS.has(type as BlockType) || CONTAINER_BLOCKS.has(type as BlockType);
