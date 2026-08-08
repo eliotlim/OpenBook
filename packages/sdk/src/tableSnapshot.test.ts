@@ -244,6 +244,25 @@ describe('table_set_cell', () => {
   });
 });
 
+describe('addressing precedence (resolveTableOp)', () => {
+  it('an id WINS over the index for a node-targeting op', () => {
+    const view = snapshotTableView(tablePage(), 't-0')!;
+    const resolved = resolveTableOp(view, 'table_delete_row', {rowIndex: 0, rowId: view.rowIds[2]});
+    expect('op' in resolved && resolved.op.rowIndex).toBe(2);
+  });
+
+  it('an id only NAMES THE TABLE for an insert — the index is a position, not a node', () => {
+    const view = snapshotTableView(tablePage(), 't-0')!;
+    // A cellId at row 2 must not drag the insert position to 2.
+    const row = resolveTableOp(view, 'table_insert_row', {rowIndex: 0, cellId: view.cellIds[2][1]!});
+    expect('op' in row && row.op.rowIndex).toBe(0);
+    const col = resolveTableOp(view, 'table_insert_column', {colIndex: 3, cellId: view.cellIds[1][0]!});
+    expect('op' in col && col.op.colIndex).toBe(3);
+    // …but an id that isn't in this table is still an error.
+    expect('error' in resolveTableOp(view, 'table_insert_row', {rowIndex: 0, cellId: 'ghost'})).toBe(true);
+  });
+});
+
 describe('row / column tints', () => {
   it('a row tint is the row block `bg`; a column tint is table `colbg:<colId>`', () => {
     const withRow = run(tablePage(), 'table_set_row_color', {rowIndex: 2, color: 'blue'});

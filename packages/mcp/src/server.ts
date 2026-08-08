@@ -1295,10 +1295,10 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         cellId: z.string().optional().describe('A cell inside the target table — an alternative to tableId for naming the table.'),
       },
     },
-    async ({pageId, tableId, rowIndex, cellId}) =>
-      // A cellId here names the TABLE only; the caller's explicit rowIndex decides
-      // where the row lands, so the cell's own coordinates must not override it.
-      runTableOp('table_insert_row', pageId, {tableId: tableId ?? cellId, rowIndex}),
+    // A cellId here names the TABLE only — on an insert the index is a POSITION, not
+    // a node, so `resolveTableOp` deliberately does not let the cell's own
+    // coordinates override the caller's `rowIndex`.
+    async ({pageId, tableId, rowIndex, cellId}) => runTableOp('table_insert_row', pageId, {tableId, cellId, rowIndex}),
   );
 
   server.registerTool(
@@ -1349,7 +1349,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         cellId: z.string().optional().describe('A cell inside the target table — an alternative to tableId for naming the table.'),
       },
     },
-    async ({pageId, tableId, colIndex, cellId}) => runTableOp('table_insert_column', pageId, {tableId: tableId ?? cellId, colIndex}),
+    async ({pageId, tableId, colIndex, cellId}) => runTableOp('table_insert_column', pageId, {tableId, cellId, colIndex}),
   );
 
   server.registerTool(

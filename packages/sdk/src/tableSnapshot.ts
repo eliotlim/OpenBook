@@ -506,9 +506,15 @@ export interface TableOpAddress {
 }
 
 /**
- * Resolve id-based addressing to SORTED indices against a table view. Ids win
- * over the matching explicit index (a caller that sends both meant the id). An
- * id that isn't in this table is an error, never a silent fallback.
+ * Resolve id-based addressing to SORTED indices against a table view. An id that
+ * isn't in this table is an error, never a silent fallback.
+ *
+ * Precedence: for ops that TARGET AN EXISTING NODE, an id wins over the matching
+ * index — the id is that node's identity, so a caller who sent both meant the
+ * node. For the two INSERT ops the index is a POSITION, not a node, so an id
+ * there only serves to name the table and never overrides the position (a
+ * `cellId` on `table_insert_row` means "the table this cell is in", not "insert
+ * at this cell's row").
  */
 export function resolveTableOp(
   view: SnapshotTableView,
@@ -518,6 +524,7 @@ export function resolveTableOp(
   const op: TableOpRequest = {kind, rowIndex: address.rowIndex, colIndex: address.colIndex, toIndex: address.toIndex};
   if (address.text !== undefined) op.text = address.text;
   if (address.color !== undefined) op.color = address.color;
+  const positional = kind === 'table_insert_row' || kind === 'table_insert_column';
 
   if (address.cellId !== undefined) {
     let foundRow = -1;
@@ -530,18 +537,20 @@ export function resolveTableOp(
       }
     }
     if (foundRow < 0) return {error: `No cell "${address.cellId}" in table ${view.tableId} — use inspect_table.`};
-    op.rowIndex = foundRow;
-    op.colIndex = foundCol;
+    if (!positional) {
+      op.rowIndex = foundRow;
+      op.colIndex = foundCol;
+    }
   }
   if (address.rowId !== undefined) {
     const r = view.rowIds.indexOf(address.rowId);
     if (r < 0) return {error: `No row "${address.rowId}" in table ${view.tableId} — use inspect_table.`};
-    op.rowIndex = r;
+    if (!positional) op.rowIndex = r;
   }
   if (address.colId !== undefined) {
     const c = view.colIds.indexOf(address.colId);
     if (c < 0) return {error: `No column "${address.colId}" in table ${view.tableId} — use inspect_table.`};
-    op.colIndex = c;
+    if (!positional) op.colIndex = c;
   }
   return {op};
 }
