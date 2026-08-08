@@ -861,8 +861,8 @@ export class LocalDataClient implements DataClient {
     return this.store.listPlugins();
   }
 
-  installPlugin(pkg: PluginPackage): Promise<StoredPlugin> {
-    return this.store.upsertPlugin(pkg);
+  installPlugin(pkg: PluginPackage, opts: {allowDowngrade?: boolean} = {}): Promise<StoredPlugin> {
+    return this.store.upsertPlugin(pkg, opts);
   }
 
   async setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin> {

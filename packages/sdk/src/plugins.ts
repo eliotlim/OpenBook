@@ -144,7 +144,7 @@ const te = new TextEncoder();
  * Mirrored byte-for-byte by the store's server-side port
  * (open-book-pub `packages/store/lib/canonical.ts`) — change both together.
  */
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
     throw new TypeError(`canonical JSON cannot contain ${typeof value}`);
   }
@@ -219,6 +219,24 @@ export async function signPlugin(
   const digest = await canonicalDigest(pkg.manifest, pkg.files);
   const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', key, te.encode(digest) as BufferSource));
   return {registry, publicKey: publicKeyBase64, signature: toBase64(sig), algorithm: 'ed25519'};
+}
+
+/**
+ * Verify an Ed25519 signature (base64, raw 64 bytes) over a UTF-8 message
+ * with a base64 RAW 32-byte public key. Returns false — never throws — on
+ * malformed inputs. The registry protocol signs the UTF-8 bytes of the
+ * lowercase hex canonical digest with exactly this scheme, for the publisher
+ * signature, the notary countersignature, and revocation entries alike.
+ */
+export async function verifyEd25519Message(publicKeyBase64: string, message: string, signatureBase64: string): Promise<boolean> {
+  try {
+    const raw = fromBase64(publicKeyBase64);
+    if (raw.length !== 32) return false;
+    const key = await crypto.subtle.importKey('raw', raw as BufferSource, 'Ed25519', false, ['verify']);
+    return await crypto.subtle.verify('Ed25519', key, fromBase64(signatureBase64) as BufferSource, te.encode(message) as BufferSource);
+  } catch {
+    return false;
+  }
 }
 
 /**
