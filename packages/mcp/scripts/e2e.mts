@@ -9,7 +9,7 @@
  * Run: pnpm --filter @book.dev/mcp test:e2e
  */
 import assert from 'node:assert/strict';
-import {rmSync} from 'node:fs';
+import {readFileSync, rmSync} from 'node:fs';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {HttpDataClient, defaultDatabaseSchema} from '@book.dev/sdk';
@@ -69,20 +69,18 @@ async function main(): Promise<void> {
   check('handshake reports the openbook server', serverInfo?.name === 'openbook');
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name).sort();
+  // The EXPECTED set is DERIVED from src/server.ts's registerTool calls — the
+  // same source the spawned bin.ts runs — not hand-maintained (API-2 killed
+  // the drifting name lists; a hardcoded copy here broke the moment
+  // list_block_types became tool #30). Exact set equality still catches a
+  // tool that registers but never reaches the live catalogue, and vice versa.
+  const serverSource = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf-8');
+  const registered = [...serverSource.matchAll(/registerTool\(\s*'([^']+)'/g)].map((m) => m[1]).sort();
+  check('the registered tool set is non-trivial and duplicate-free',
+    registered.length >= 29 && new Set(registered).size === registered.length);
   check(
-    'all twenty-nine tools are listed',
-    JSON.stringify(names) ===
-      JSON.stringify([
-        'append_blocks', 'append_to_page', 'create_artifact_page', 'create_database_row', 'create_page',
-        'delete_block', 'get_db_row', 'get_kit_values', 'inspect_page_structure', 'inspect_table',
-        'list_database_rows', 'list_db_views', 'list_pages', 'read_page', 'search_notes', 'set_db_cell',
-        'set_kit_value',
-        // API-3 table structure ops (behaviour: scripts/tables.test.mts).
-        'table_delete_column', 'table_delete_row', 'table_duplicate_row', 'table_insert_column',
-        'table_insert_row', 'table_move_column', 'table_move_row', 'table_set_cell',
-        'table_set_column_color', 'table_set_row_color',
-        'update_block', 'update_block_props',
-      ]),
+    `all ${registered.length} registered tools are listed (derived from src/server.ts)`,
+    JSON.stringify(names) === JSON.stringify(registered),
   );
   check('tools carry descriptions', tools.tools.every((t) => (t.description ?? '').length > 10));
 
