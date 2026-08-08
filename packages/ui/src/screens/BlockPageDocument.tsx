@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
-import {ICON_PROPERTY_ID} from '@book.dev/sdk';
+import {ICON_PROPERTY_ID, gatherLedgerExportSection} from '@book.dev/sdk';
 import {BlockEditor, type BlockEditorHandle, type LocalSelection} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
@@ -30,6 +30,7 @@ import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
 import {PageContextMenu} from '@/components/PageContextMenu';
+import {ExportBooksDialog, type ExportBooksChoice} from '@/components/ExportBooksDialog';
 import {PageProperties} from '@/components/PageProperties';
 import {PageHeaderControls} from '@/components/PageHeaderControls';
 import {PageCoverBanner} from '@/components/PageCover';
@@ -384,6 +385,25 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     return () => doc.off('update', check);
   }, [doc]);
 
+  // LX-2: the "Include your books" step of an interactive-HTML export. Shown
+  // only when the export set contains ledger blocks; resolves to the exporter's
+  // choice (or null on cancel). Promise-based like ConfirmProvider so the
+  // export flow simply awaits it.
+  const [booksDialog, setBooksDialog] = useState<{canInclude: boolean} | null>(null);
+  const booksResolverRef = useRef<((choice: ExportBooksChoice) => void) | null>(null);
+  const askExportBooks = useCallback((canInclude: boolean): Promise<ExportBooksChoice> => {
+    booksResolverRef.current?.(null); // a fresh request supersedes a stale one
+    return new Promise<ExportBooksChoice>((resolve) => {
+      booksResolverRef.current = resolve;
+      setBooksDialog({canInclude});
+    });
+  }, []);
+  const settleExportBooks = useCallback((choice: ExportBooksChoice) => {
+    booksResolverRef.current?.(choice);
+    booksResolverRef.current = null;
+    setBooksDialog(null);
+  }, []);
+
   // ── Export ────────────────────────────────────────────────────────────────
   // The block document projects into the EditorJS shape, then rides the same
   // pipeline as classic pages — markdown, paged/continuous PDF, and the
@@ -447,8 +467,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         const [{toSlideDeck}, assets] = await Promise.all([import('@/export/toHtml'), resolveExportAssets(client, [snapshot])]);
         downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors, dbSeries), 'text/html');
       } else {
-        const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
-        const bundle = pageId
+        const [{toHtmlSite}, {gatherSite, bundleHasLedgerBlocks}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
+        const bundle: import('@/export/exportSite').SiteBundle = pageId
           ? await gatherSite(client, pageId, {snapshot, title, icon})
           : {
             rootId: '',
@@ -472,6 +492,25 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               databases: [],
             },
           };
+        // LX-2: the export set shows ledger blocks → ask about embedding the
+        // machine-readable records. Detection runs on the RAW snapshots in the
+        // island bundle (the projection flattens plugin blocks to placeholders).
+        // The probe AND the capture both go through this principal's own client,
+        // so a guest/viewer can never receive records the API wouldn't serve
+        // them — their dialog simply reports that the books are excluded.
+        if (bundleHasLedgerBlocks(bundle.space)) {
+          const canInclude = await client
+            .ledgerInfo()
+            .then((i) => i.exists)
+            .catch(() => false);
+          const choice = await askExportBooks(canInclude);
+          if (!choice) return; // cancelled
+          if (choice.includeBooks) {
+            // Fail-closed capture: null (revoked mid-flight, transport error)
+            // simply exports without records — placeholders, never half a book.
+            bundle.ledger = (await gatherLedgerExportSection(client)) ?? undefined;
+          }
+        }
         // A whole-site export can embed images from every reachable page.
         const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
         downloadText(`${base}.html`, toHtmlSite(bundle, assets, appearance.dataColors), 'text/html');
@@ -608,7 +647,13 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     </div>
   );
 
-  return pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body;
+  return (
+    <>
+      {pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body}
+      {/* LX-2: the export-time "Include your books" toggle + warning. */}
+      <ExportBooksDialog open={booksDialog !== null} canInclude={booksDialog?.canInclude ?? false} onClose={settleExportBooks} />
+    </>
+  );
 };
 
 export default BlockPageDocument;

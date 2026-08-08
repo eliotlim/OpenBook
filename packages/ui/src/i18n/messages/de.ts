@@ -336,6 +336,12 @@ export const de: PartialMessages = {
     exportPlugin: 'Plugin (.zip)',
     exportPluginFailed: 'Diese Seite lässt sich nicht als Plugin exportieren',
     exportPluginFailedOk: 'OK',
+    exportBooksTitle: 'Deine Bücher in diesen Export aufnehmen?',
+    exportBooksWarning: 'Die Datei wird deine Finanzdaten enthalten — Konten, Buchungen, Positionen und Abstimmungen. Jeder, der die Datei öffnen kann, kann sie lesen.',
+    exportBooksInclude: 'Meine Bücher aufnehmen (Ledger-Daten)',
+    exportBooksExcluded: 'Deine Bücher werden nicht aufgenommen. Ledger-Blöcke werden als Platzhalter exportiert.',
+    exportBooksUnavailable: 'Deine Bücher können nicht aufgenommen werden, weil du keinen Zugriff auf die Daten hast. Ledger-Blöcke werden als Platzhalter exportiert.',
+    exportBooksConfirm: 'Exportieren',
   },
   home: {
     morning: 'Guten Morgen',

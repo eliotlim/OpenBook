@@ -333,6 +333,12 @@ export const zh: PartialMessages = {
     exportPlugin: '插件（.zip）',
     exportPluginFailed: '此页面无法导出为插件',
     exportPluginFailedOk: '好的',
+    exportBooksTitle: '在导出中包含你的账簿？',
+    exportBooksWarning: '导出的文件将包含你的财务记录——账户、交易、分录和对账。任何能打开该文件的人都可以读取这些内容。',
+    exportBooksInclude: '包含我的账簿（账本记录）',
+    exportBooksExcluded: '不会包含你的账簿。账本块将以占位符形式导出。',
+    exportBooksUnavailable: '你没有这些记录的访问权限，无法在导出中包含账簿。账本块将以占位符形式导出。',
+    exportBooksConfirm: '导出',
   },
   home: {
     morning: '早上好',

@@ -335,6 +335,12 @@ export const ja: PartialMessages = {
     exportPlugin: 'プラグイン（.zip）',
     exportPluginFailed: 'このページはプラグインとしてエクスポートできません',
     exportPluginFailedOk: 'OK',
+    exportBooksTitle: '帳簿をエクスポートに含めますか？',
+    exportBooksWarning: 'ファイルには財務記録（勘定科目・取引・仕訳・照合）が含まれます。ファイルを開ける人は誰でも内容を読めます。',
+    exportBooksInclude: '帳簿を含める（台帳レコード）',
+    exportBooksExcluded: '帳簿は含まれません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
+    exportBooksUnavailable: 'レコードへのアクセス権がないため、帳簿を含められません。台帳ブロックはプレースホルダーとしてエクスポートされます。',
+    exportBooksConfirm: 'エクスポート',
   },
   home: {
     morning: 'おはようございます',
