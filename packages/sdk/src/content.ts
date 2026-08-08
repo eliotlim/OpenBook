@@ -183,10 +183,13 @@ export interface ProjectedBlock {
  * text becomes runs and `children` are projected at every level (the model is
  * uniformly recursive, so a table is just `table → row → cell → blocks`).
  *
- * Ids are DERIVED FROM POSITION and stable per level (`p-0`, `p-0-1`, `p-0-1-2`),
- * so the same payload always projects to the same ids — a nested child can be
- * addressed afterwards (inspect_page_structure → update_block / delete_block)
- * and a retried append doesn't invent fresh ids for identical content.
+ * Ids are DERIVED FROM POSITION within the given `idPrefix` (`<prefix>-0`,
+ * `<prefix>-0-1`, `<prefix>-0-1-2`), so a nested child is addressable afterwards
+ * (inspect_page_structure → update_block / delete_block). Stability holds only for
+ * a FIXED prefix: a direct MCP write uses a time-based prefix (`mcp-<ts>`), so two
+ * appends of identical content get DIFFERENT ids — and the SUGGEST path never runs
+ * this projection at all (the raw payload rides in the suggestion and the editor
+ * bridge's `coerceNewBlock` mints its own ids on accept).
  */
 export function projectAppendBlocks(blocks: AppendBlock[], idPrefix = 'gen'): ProjectedBlock[] {
   return blocks.map((b, i) => {

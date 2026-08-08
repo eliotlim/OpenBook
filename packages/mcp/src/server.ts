@@ -197,29 +197,103 @@ function blockInfoInSnapshot(
   return found;
 }
 
+/** Locate a block in the JSON tree with its containing list and parent block. */
+function locateBlock(
+  blocks: AnyJsonBlock[],
+  blockId: string,
+): {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null {
+  let found: {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null = null;
+  const walk = (list: AnyJsonBlock[], parent: AnyJsonBlock | null): void => {
+    for (const b of list) {
+      if (found) return;
+      if (b.id === blockId) {
+        found = {block: b, list, parent};
+        return;
+      }
+      if (b.children) walk(b.children, b);
+    }
+  };
+  walk(blocks, null);
+  return found;
+}
+
+/**
+ * Mirror of the editor model's `pruneEmptyContainers` over the JSON projection:
+ * drop an empty `column`, unwrap a single-`column` layout, drop an empty layout —
+ * so deleting the only block in a column can't leave an orphan container behind.
+ * Runs to a fixed point (an unwrap can expose the next empty parent).
+ */
+function pruneEmptyContainersJson(blocks: AnyJsonBlock[]): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const walk = (list: AnyJsonBlock[]): boolean => {
+      for (let i = 0; i < list.length; i += 1) {
+        const b = list[i];
+        if (b.type === 'column' && (b.children?.length ?? 0) === 0) {
+          list.splice(i, 1);
+          return true;
+        }
+        if (b.type === 'columns') {
+          const cols = b.children ?? [];
+          if (cols.length === 0) {
+            list.splice(i, 1);
+            return true;
+          }
+          if (cols.length === 1) {
+            // Unwrap: hoist the lone column's blocks in place of the layout.
+            list.splice(i, 1, ...(cols[0].children ?? []));
+            return true;
+          }
+        }
+        if (b.children && walk(b.children)) return true;
+      }
+      return false;
+    };
+    changed = walk(blocks);
+  }
+}
+
 /**
  * Remove one block (with its whole subtree) from the JSON projection, at ANY
  * depth — a nested block, a table `row`, or a `cell` is as removable as a
  * top-level paragraph, because the model is uniformly recursive. Returns null
  * when the id isn't on the page.
+ *
+ * Two model rules are mirrored so a direct MCP delete self-heals exactly like the
+ * editor (see removeBlock / tableDeleteRow / tableDeleteColumn in model.ts):
+ *  - a table that would lose its LAST row (or the only cell of its only row) is
+ *    removed WHOLE, not left as an empty table;
+ *  - after the removal, empty columns are pruned and a document emptied to zero
+ *    roots regains one paragraph (never a zero-root live editor).
  */
-function deleteBlockInSnapshot(data: PageSnapshot, blockId: string): PageSnapshot | null {
+function deleteBlockInSnapshot(data: PageSnapshot, blockId: string, idPrefix: string): PageSnapshot | null {
   const blocks = blockdocBlocks(data);
   if (!blocks) return null;
-  let applied = false;
-  const prune = (list: AnyJsonBlock[]): void => {
-    const at = list.findIndex((b) => b.id === blockId);
-    if (at >= 0) {
-      list.splice(at, 1);
-      applied = true;
-      return;
+  const located = locateBlock(blocks, blockId);
+  if (!located) return null;
+
+  // Table last-row / last-cell rule: deleting the final row (or the only cell of
+  // the only row) empties the table, so remove the table itself instead.
+  let removeId = blockId;
+  const {block, parent} = located;
+  if (block.type === 'row' && parent?.type === 'table' && (parent.children?.length ?? 0) === 1) {
+    removeId = parent.id!;
+  } else if (block.type === 'cell' && parent?.type === 'row' && (parent.children?.length ?? 0) === 1) {
+    const rowLoc = locateBlock(blocks, parent.id!);
+    if (rowLoc?.parent?.type === 'table' && (rowLoc.parent.children?.length ?? 0) === 1) {
+      removeId = rowLoc.parent.id!;
     }
-    for (const b of list) {
-      if (!applied && b.children) prune(b.children);
-    }
-  };
-  prune(blocks);
-  if (!applied) return null;
+  }
+
+  const target = removeId === blockId ? located : locateBlock(blocks, removeId);
+  if (!target) return null;
+  const at = target.list.indexOf(target.block);
+  target.list.splice(at, 1);
+
+  pruneEmptyContainersJson(blocks);
+  if (blocks.length === 0) blocks.push({id: `${idPrefix}-p`, type: 'paragraph', text: [{t: ''}]});
+
   const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
   return {...data, blockdoc: {...bd, update: undefined, blocks}};
 }
@@ -313,8 +387,53 @@ const MAX_BLOCK_DEPTH = 8;
  * Max TOTAL blocks (all levels) in one call. A 20×8 table is 180 nodes, so this
  * fits any sane single write while bounding one request's cost; a bigger document
  * is several appends. Counted over the whole tree, not per level.
+ *
+ * These caps (and the parent/child guard below) are a UX backstop — the HARD DoS
+ * boundary is the 1 MiB `mcpHttp` body limit on the server (packages/server), which
+ * refuses an oversized request outright. The caps just turn a would-be silent
+ * mis-render into an actionable message.
  */
 const MAX_BLOCK_NODES = 400;
+
+/**
+ * Container types whose `children` hold ordinary blocks — MIRRORS
+ * `CONTAINER_BLOCKS` in packages/ui/src/blockeditor/model.ts (`makeBlock` only
+ * builds a `children` Y.Array for these). A `children` array on ANY OTHER type is
+ * silently dropped by the model, so we reject it here instead of letting the write
+ * land a leaf whose nested blocks vanish. (`cell` is a TEXT leaf, not a container.)
+ */
+const CONTAINER_BLOCKS = new Set([
+  'columns', 'column', 'table', 'row', 'group', 'tabs', 'tab', 'accordion', 'accordionsection',
+]);
+
+/**
+ * Child-only types → the ONE container they must sit directly inside. Placing one
+ * anywhere else (a `row` at top level, a `cell` straight under a `table`) renders
+ * as an "Unsupported block" placeholder, so we reject it naming the offending type.
+ */
+const CHILD_ONLY_PARENT: Record<string, string> = {
+  column: 'columns',
+  row: 'table',
+  cell: 'row',
+  tab: 'tabs',
+  accordionsection: 'accordion',
+};
+
+/**
+ * The table order-contract PRIVATE keys (TBL-1, model.ts): `row.props.ord`,
+ * `cell.props.col`, the `col:<id>` column registry, and the `colbg:<id>` column
+ * tints. They encode a table's cell order/identity — writing them through the
+ * generic `update_block_props` corrupts or hides cells, so it's refused and the
+ * client is pointed at the sanctioned table tools. Returns the offending key, or
+ * null when `props` touches none.
+ */
+function tableOrderContractKey(props: Record<string, unknown>): string | null {
+  return (
+    Object.keys(props).find(
+      (k) => k === 'ord' || k === 'col' || k.startsWith('col:') || k.startsWith('colbg:'),
+    ) ?? null
+  );
+}
 
 /** Text description shared by both block schemas. */
 const BLOCK_TEXT_DESC = 'Text content (paragraph/heading/todo/quote/callout/code/list, and a table `cell`).';
@@ -338,16 +457,24 @@ function nestedBlockSchema(typeDesc: string, propsDesc: string): z.ZodType<Neste
 }
 
 /**
- * Validate a nested payload against {@link MAX_BLOCK_DEPTH} / {@link MAX_BLOCK_NODES}.
- * Returns an error message for the client, or null when the payload is fine.
- * (Structural limits only — block TYPES stay unvalidated here so the type-agnostic
- * apply layer keeps accepting custom/plugin blocks.)
+ * Validate a nested payload against {@link MAX_BLOCK_DEPTH} / {@link MAX_BLOCK_NODES}
+ * AND the container parent/child contract (a `children` array only on a container
+ * type; a child-only type only under its matching container). Returns an error
+ * message for the client, or null when the payload is fine. Applies to BOTH
+ * `append_blocks` and `create_artifact_page`, so a `{type:'row',children:[…]}`
+ * payload is refused with a clear message instead of silently dropping to a
+ * wall of "Unsupported block" placeholders.
+ *
+ * Block TYPES are otherwise unvalidated here (the apply layer is type-agnostic so
+ * custom/plugin leaves keep working) — only the STRUCTURE the model would silently
+ * discard is rejected.
  */
 function blockPayloadError(blocks: NestedBlockInput[]): string | null {
   let count = 0;
   let deepest = 0;
   let deepestPath = '';
-  const walk = (list: NestedBlockInput[], depth: number, path: string): void => {
+  let structural: string | null = null;
+  const walk = (list: NestedBlockInput[], depth: number, path: string, parentType: string | null): void => {
     if (depth > deepest) {
       deepest = depth;
       deepestPath = path;
@@ -355,10 +482,22 @@ function blockPayloadError(blocks: NestedBlockInput[]): string | null {
     for (const [i, b] of list.entries()) {
       count += 1;
       const here = path ? `${path} > ${b.type}` : b.type;
-      if (b.children && b.children.length > 0) walk(b.children, depth + 1, `${here}[${i}]`);
+      const hasChildren = Array.isArray(b.children) && b.children.length > 0;
+      if (structural === null) {
+        const needs = CHILD_ONLY_PARENT[b.type];
+        if (needs && parentType !== needs) {
+          structural = parentType
+            ? `A "${b.type}" block must be a direct child of a "${needs}" block, not a "${parentType}" block (at "${here}").`
+            : `A "${b.type}" block can't be top-level — it belongs directly inside a "${needs}" block (at "${here}").`;
+        } else if (hasChildren && !CONTAINER_BLOCKS.has(b.type)) {
+          structural = `A "${b.type}" block can't hold children — only container blocks (${[...CONTAINER_BLOCKS].join(', ')}) do (at "${here}"). The nested blocks would be dropped.`;
+        }
+      }
+      if (hasChildren) walk(b.children!, depth + 1, `${here}[${i}]`, b.type);
     }
   };
-  walk(blocks, 1, '');
+  walk(blocks, 1, '', null);
+  if (structural) return structural;
   if (deepest > MAX_BLOCK_DEPTH) {
     return `Blocks are nested too deeply: ${deepest} levels (max ${MAX_BLOCK_DEPTH}) at "${deepestPath}". Flatten the payload or split it across calls.`;
   }
@@ -900,7 +1039,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   server.registerTool(
     'update_block_props',
     {
-      title: 'Update a block\'s type/props',
+      title: 'Update a block\'s props',
       description:
         'Change one block\'s PROPS on a block-editor page — heading level, list kind, todo checked, callout variant, code language, image alt/width, a kit input\'s value/min/max/options, a table row\'s header flag. Use update_block for the block\'s TEXT and this for its format. Find the block id and its current props via inspect_page_structure; works on NESTED blocks too (a block inside a column/group, a table row or cell). ' +
         'MERGE SEMANTICS: props are merged SHALLOWLY over the block\'s existing props — keys you omit are left untouched, keys you pass are overwritten, and passing null for a key REMOVES it (e.g. {"bg": null} clears a background). Nested objects/arrays are replaced wholesale, never deep-merged. ' +
@@ -916,8 +1055,17 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     async ({pageId, blockId, props}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      if ((page.data as {editor?: string}).editor !== 'blocks') {
+        return failure('That page is a legacy editor page — it has no typed blocks to update.');
+      }
       const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
       if (Object.keys(props).length === 0) return failure('Provide at least one prop to set (or null to remove one).');
+      const tableKey = tableOrderContractKey(props);
+      if (tableKey) {
+        // The table tools this points at are the API-3 ones registered below —
+        // they own these keys and maintain the order contract while writing them.
+        return failure(`"${tableKey}" is a private table order-contract key — use the table tools (inspect_table, then table_insert_row / table_move_row / table_insert_column / table_move_column / table_set_row_color / table_set_column_color) to change a table's structure, not update_block_props.`);
+      }
       const info = blockInfoInSnapshot(page.data, blockId);
       if (!info) return failure(missing);
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
@@ -962,6 +1110,9 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     async ({pageId, blockId}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      if ((page.data as {editor?: string}).editor !== 'blocks') {
+        return failure('That page is a legacy editor page — it has no typed blocks to delete.');
+      }
       const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
       const info = blockInfoInSnapshot(page.data, blockId);
       if (!info) return failure(missing);
@@ -979,7 +1130,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const data = deleteBlockInSnapshot(page.data, blockId);
+      const data = deleteBlockInSnapshot(page.data, blockId, `mcp-${Date.now().toString(36)}`);
       if (!data) return failure(missing);
       try {
         await client.savePage({id: page.id, name: page.name, data});
