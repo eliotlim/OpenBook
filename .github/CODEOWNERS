@@ -1,0 +1,6 @@
+# Trust-anchor files (ST-1): changes to the pinned plugin-registry keys, the
+# committed test key, or the private-key guard must be owner-reviewed — these
+# are the files an attacker would edit to smuggle a key past CI.
+/packages/sdk/src/plugins.ts @eliotlim
+/scripts/test-registry-key.json @eliotlim
+/scripts/check-no-private-keys.sh @eliotlim

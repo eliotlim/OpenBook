@@ -161,3 +161,7 @@ packages/web/e2e-viewer/generated/
 
 # Claude Code local runtime state
 .claude/scheduled_tasks.lock
+
+# Key-ceremony output (gen-registry-key.mjs --out): a PRIVATE signing key —
+# stored as a CI secret and destroyed, never committed.
+registry-key.json

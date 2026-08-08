@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {BadgeCheck, KeyRound, Puzzle, ShieldAlert, Trash2, TriangleAlert, Upload, X} from 'lucide-react';
-import {OPENBOOK_REGISTRY} from '@book.dev/sdk';
+import {OPENBOOK_REGISTRY_KEYS} from '@book.dev/sdk';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -177,7 +177,7 @@ const TrustedRegistries: React.FC = () => {
     <SettingsSection title={t('extensions.registries')} description={t('extensions.registriesHint')}>
       <div className="flex flex-col gap-1.5">
         {registries.map((registry) => {
-          const builtIn = registry.publicKey === OPENBOOK_REGISTRY.publicKey;
+          const builtIn = OPENBOOK_REGISTRY_KEYS.some((k) => k.publicKey === registry.publicKey);
           return (
             <div
               key={registry.publicKey}

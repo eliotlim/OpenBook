@@ -1,0 +1,6 @@
+{
+  "__WARNING__": "TEST-ONLY registry signing key — NEVER a production trust anchor. Its private half is committed (i.e. public), so anything it signs proves nothing. It exists so dev/test builds and e2e can exercise the signing pipeline: bundlePlugins.ts falls back to it when OPENBOOK_REGISTRY_PRIVATE_KEY is unset, and e2e trusts its public half explicitly (Settings → Extensions). The pinned production key (OPENBOOK_REGISTRY in packages/sdk/src/plugins.ts) must NEVER equal this key's publicKey — release CI refuses to ship if it does. Key ceremony: docs/plugin-signing.md.",
+  "registry": "OpenBook Test Registry",
+  "publicKey": "nI4eBQzqrIyVPEmJSEzGtqC9B0+kfWTXKyN5t8Yki/E=",
+  "privateKey": "MC4CAQAwBQYDK2VwBCIEIItB4RUg9R3UxEHZ83I7E4WwWUayISDfhEVPzblFdKFc"
+}

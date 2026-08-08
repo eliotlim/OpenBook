@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Secrets hygiene first (ST-1): fail fast if any private-key material is
+      # committed (Ed25519/EC/RSA PKCS#8 base64, PEM blocks, minisign secret
+      # keys) outside the explicitly allowlisted test fixtures. Runs before
+      # the toolchain setup — it needs only git.
+      - name: Guard — no committed private-key material
+        run: bash scripts/check-no-private-keys.sh
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js

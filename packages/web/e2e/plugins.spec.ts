@@ -1,3 +1,5 @@
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {zipSync, strToU8} from 'fflate';
@@ -184,6 +186,35 @@ test('a page of named code blocks exports as an installable plugin zip', {tag: [
   await openExtensions(page);
   await page.getByLabel('Remove Page Authored').click();
   await expect(card).toHaveCount(0);
+});
+
+test('the bundled first-party extension ships signed; trusting its build key shows Verified', {tag: ['@plugins']}, async ({page}) => {
+  // The bundled Ledger extension auto-installs SIGNED (bundlePlugins.ts). A
+  // dev/test build signs it with the committed TEST-ONLY key, which no build
+  // trusts by default — so it starts Unverified. Trusting that key through
+  // the real registries UI flips the badge to Verified: the same
+  // fresh-install verification path a production build exercises against the
+  // pinned OPENBOOK_REGISTRY key, with only the trust anchor differing.
+  const testKey = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', '..', 'scripts', 'test-registry-key.json'), 'utf8'),
+  ) as {registry: string; publicKey: string};
+
+  await openExtensions(page);
+  // Auto-installed on the first sync of a fresh library — no upload here.
+  const card = page.locator('[data-extension="openbook.ledger"]');
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute('data-extension-state', 'active');
+  await expect(card.locator('[data-extension-unverified]')).toBeVisible();
+
+  await page.locator('[data-registry-name]').fill(testKey.registry);
+  await page.locator('[data-registry-key]').fill(testKey.publicKey);
+  await page.locator('[data-registry-add]').click();
+  await expect(page.locator(`[data-registry="${testKey.registry}"]`)).toBeVisible();
+  await expect(card.locator('[data-extension-verified]')).toBeVisible();
+
+  // Withdraw trust (this context's localStorage only) → demoted again.
+  await page.getByLabel(`Remove registry ${testKey.registry}`).click();
+  await expect(card.locator('[data-extension-unverified]')).toBeVisible();
 });
 
 test('a signed zip from a trusted registry shows Verified; tampering or distrust loses it', {tag: ['@plugins']}, async ({page}) => {
