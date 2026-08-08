@@ -111,6 +111,8 @@ function runToMd(run: TextRun): string {
 
 const textMd = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToMd).join('');
 
+const escapeMd = (s: string): string => s.replace(/([\\`*_[\]<>])/g, '\\$1');
+
 /**
  * Whether a block type that fell through the export projection's switch is a
  * CORE type carrying nothing but text — a bare `paragraph` (which has no case
@@ -410,7 +412,9 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
         break;
       }
       const body = textMd(b.text);
-      out.push(`> **${label}** — ${hint}${body ? `\n>\n> ${body}` : ''}`);
+      // Mirror of toMarkdown's unknown-block emitter — keep the two identical.
+      // `hint` (plugin name / verbatim type) is untrusted; escape it.
+      out.push(`> **${escapeMd(label)}**\n>\n> ${escapeMd(hint)}${body ? `\n>\n> ${body}` : ''}`);
     }
     }
   }

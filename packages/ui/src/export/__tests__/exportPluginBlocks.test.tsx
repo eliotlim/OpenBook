@@ -113,15 +113,30 @@ describe('exported Markdown labels every unrenderable block', () => {
 
   it('names each block and its plugin instead of a bare type dump', () => {
     for (const type of LEDGER_BLOCK_TYPES) {
-      expect(md).toContain(`> **${describeUnknownBlock(type).label}** — This block requires the Ledger plugin`);
+      // Block name on the title line, the requirement on its own blockquote line.
+      expect(md).toContain(`> **${describeUnknownBlock(type).label}**\n>\n> This block requires the Ledger plugin`);
     }
+    expect(md).toContain('install the plugin in OpenBook to see it.');
     expect(md).not.toContain('block)_'); // the old `_(type block)_` fallback
   });
 
   it('carries an unknown block’s text', () => {
     const carried = toMarkdown(buildDocumentModel({title: 'Legacy', icon: '', snapshot: textyProjection}));
-    expect(carried).toContain('> **Kpi grid** — This block requires the Reports plugin');
+    expect(carried).toContain('> **Kpi grid**\n>\n> This block requires the Reports plugin');
     expect(carried).toContain('> carried by an unknown block');
+  });
+
+  it('escapes a hostile hint so an unknown block type cannot inject markup', () => {
+    // The verbatim block type rides in the hint; a passthrough .md → HTML
+    // pipeline must never see it as live markup.
+    const hostile = {
+      editorjs: {blocks: [{id: 'x', type: '<img src=x onerror=alert(1)>', data: {props: {}}}]},
+      values: [],
+      names: [],
+    } as unknown as PageSnapshot;
+    const out = toMarkdown(buildDocumentModel({title: 'Hostile', icon: '', snapshot: hostile}));
+    expect(out).toContain('\\<img src=x onerror=alert(1)\\>');
+    expect(out).not.toMatch(/[^\\]<img/); // no unescaped tag
   });
 
   it('leaves no blank body lines where a plugin block was', () => {
@@ -143,7 +158,7 @@ describe('clipboard/standalone block exporters', () => {
 
   it('labels plugin blocks in clipboard Markdown', () => {
     const md = blocksToMarkdown(json);
-    expect(md).toContain('> **Beancount export** — This block requires the Ledger plugin');
+    expect(md).toContain('> **Beancount export**\n>\n> This block requires the Ledger plugin');
   });
 
   it('leaves non-plugin types on their historical plain-text path', () => {
@@ -193,9 +208,14 @@ describe('viewer hydration of unknown types', () => {
     const {container} = render(<ViewerApp source={island} />);
     expect(container.querySelectorAll('.obe-missing-plugin').length).toBe(LEDGER_BLOCK_TYPES.length + 1);
     for (const type of LEDGER_BLOCK_TYPES) {
-      expect(container.querySelector(`.obe-missing-plugin[data-block-type="${type}"]`)).not.toBeNull();
+      const card = container.querySelector(`.obe-missing-plugin[data-block-type="${type}"]`);
+      expect(card).not.toBeNull();
+      // The card leads with the block name — the same words the HTML/Markdown
+      // exports lead with — not the plugin requirement (LX-1 review, Devon 1).
+      expect(card?.querySelector('.obe-missing-plugin-title')?.textContent).toBe(describeUnknownBlock(type).label);
     }
-    expect(container.textContent).toContain('This block requires the Ledger plugin');
+    expect(container.querySelector('.obe-missing-plugin[data-block-type="openbook.ledger/trial-balance"]')?.textContent).toContain('Trial balance');
+    expect(container.textContent).toContain('Requires the Ledger plugin');
     expect(container.querySelector('.obe-unknown')?.textContent).toContain('not-a-plugin-type');
     // No install affordance without a client — nowhere to install to.
     expect(container.querySelector('.obe-missing-plugin-install')).toBeNull();

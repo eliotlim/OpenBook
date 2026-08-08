@@ -54,13 +54,16 @@ export function describeUnknownBlock(type: string, pluginName?: string): Unknown
       pluginId: null,
       blockName: null,
       pluginLabel: null,
-      label: humanize(raw) || 'Unsupported block',
+      // A fabricated first-party-looking title (humanized from an internal id)
+      // reading as "unsupported" is worse than a plain, honest label — always
+      // say 'Unsupported block'.
+      label: 'Unsupported block',
       // The raw type stays in the words: it is the only clue a reader (or a
       // support thread) has about what the block was, and Markdown has no
       // attribute to hide it in.
       hint: raw
-        ? `Unsupported block type “${raw}” — open the page in OpenBook to see it.`
-        : 'Unsupported block — open the page in OpenBook to see it.',
+        ? `This block (type “${raw}”) isn't supported in exports — open the page in OpenBook to see it.`
+        : 'This block isn\'t supported in exports — open the page in OpenBook to see it.',
     };
   }
   const pluginLabel = (pluginName ?? '').trim() || humanize(pluginId.split('.').pop() ?? pluginId) || pluginId;
@@ -69,6 +72,6 @@ export function describeUnknownBlock(type: string, pluginName?: string): Unknown
     blockName,
     pluginLabel,
     label: humanize(blockName ?? '') || raw,
-    hint: `This block requires the ${pluginLabel} plugin — open the page in OpenBook to see it.`,
+    hint: `This block requires the ${pluginLabel} plugin — install the plugin in OpenBook to see it.`,
   };
 }
