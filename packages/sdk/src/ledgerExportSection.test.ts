@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {gatherLedgerExportSection} from './ledgerExportSection';
+import {gatherLedgerExportSection, parseLedgerExportSection, type LedgerExportSection} from './ledgerExportSection';
+import type {StoredPage} from './types';
 import type {DataClient} from './client';
 
 /**
@@ -113,5 +114,175 @@ describe('gatherLedgerExportSection — fail-closed edges', () => {
     const section = await gatherLedgerExportSection(client);
     expect(section).not.toBeNull();
     expect(section!.library.pages.filter((p) => p.databaseId === IDS.transactions)).toHaveLength(3);
+  });
+});
+
+// ── LX-4 — parseLedgerExportSection: the deep-validation boundary ─────────────
+//
+// The replay's parse gate, driven pure: a coherent hand-built book parses to a
+// typed replay plan; every doctored invariant refuses TOTALLY (ok: false, a
+// named reason) — never a partial book the writer would then trip over.
+
+const row = (id: string, databaseId: string, properties: Record<string, unknown>, name: string | null = null, position = 0): StoredPage => ({
+  id,
+  name,
+  data: {editorjs: {blocks: []}, values: [], names: []},
+  hostedDatabaseId: null,
+  databaseId,
+  parentId: null,
+  properties,
+  deletedAt: null,
+  position,
+  createdAt: `2026-01-01T00:00:0${position}.000Z`,
+  updatedAt: '2026-01-01T00:00:00.000Z',
+});
+
+/** A minimal coherent book: two accounts, one posted entry, one draft. */
+function validSection(): LedgerExportSection {
+  const db = (id: string, pageId: string) => ({id, pageId, name: id, schema: {properties: [], views: []}, createdAt: '', updatedAt: ''});
+  return {
+    settings: {
+      ledgerDb: {
+        hostPageId: 'host-root',
+        ...IDS,
+        hostPages: {accounts: 'host-a', transactions: 'host-t', postings: 'host-p', reconciliations: 'host-r'},
+      },
+    },
+    library: {
+      databases: [db(IDS.accounts, 'host-a'), db(IDS.transactions, 'host-t'), db(IDS.postings, 'host-p'), db(IDS.reconciliations, 'host-r')],
+      pages: [
+        row('acc-cash', IDS.accounts, {lp_type: 'asset', lp_status: 'open', lp_currency: 'USD'}, 'Assets:Cash'),
+        row('acc-sales', IDS.accounts, {lp_type: 'revenue', lp_status: 'open', lp_currency: 'USD'}, 'Revenue:Sales'),
+        row('tx-1', IDS.transactions, {lp_date: '2026-01-05', lp_description: 'sale', lp_state: 'posted', lp_entry_no: 1}),
+        row('post-1', IDS.postings, {lp_transaction: 'tx-1', lp_account: 'acc-cash', lp_amount_minor: 500, lp_cleared: 'cleared'}, null, 0),
+        row('post-2', IDS.postings, {lp_transaction: 'tx-1', lp_account: 'acc-sales', lp_amount_minor: -500, lp_cleared: 'pending'}, null, 1),
+        row('tx-draft', IDS.transactions, {lp_date: '2026-01-06', lp_description: 'pending thing', lp_state: 'draft'}),
+      ],
+    },
+    auditHead: {seq: 9, hash: 'f'.repeat(64)},
+  };
+}
+
+/** Doctor a copy of the valid section and return the parse result. */
+function parseDoctored(mutate: (section: LedgerExportSection) => void) {
+  const section = structuredClone(validSection());
+  mutate(section);
+  return parseLedgerExportSection(section);
+}
+
+describe('parseLedgerExportSection — the deep-validation boundary (LX-4)', () => {
+  it('parses a coherent book to a typed replay plan (order: entry number, drafts last)', () => {
+    const result = parseLedgerExportSection(validSection());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.book.accounts.map((a) => a.name).sort()).toEqual(['Assets:Cash', 'Revenue:Sales']);
+    expect(result.book.transactions.map((t) => t.id)).toEqual(['tx-1', 'tx-draft']);
+    expect(result.book.transactions[0].postings.map((p) => p.id)).toEqual(['post-1', 'post-2']);
+    expect(result.book.auditHead).toEqual({seq: 9, hash: 'f'.repeat(64)});
+    expect(result.book.evidenceDropped).toBe(0);
+  });
+
+  it('refuses a section that does not carry a database its settings name', () => {
+    const result = parseDoctored((s) => {
+      s.library.databases = s.library.databases.filter((d) => d.id !== IDS.postings);
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('postings database')});
+  });
+
+  it('refuses an unbalanced posted entry', () => {
+    const result = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'post-1')!.properties as Record<string, unknown>).lp_amount_minor = 501;
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('balance')});
+  });
+
+  it('refuses a posting onto an unknown account', () => {
+    const result = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'post-1')!.properties as Record<string, unknown>).lp_account = 'acc-nope';
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('unknown account')});
+  });
+
+  it('refuses a row smuggled in under a foreign database id', () => {
+    const result = parseDoctored((s) => {
+      s.library.pages.push(row('sneak', 'db-foreign', {}));
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('not one of the four')});
+  });
+
+  it('refuses a void entry with no reversal, and a reversal that does not negate leg for leg', () => {
+    const voidNoReversal = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'tx-1')!.properties as Record<string, unknown>).lp_state = 'void';
+    });
+    expect(voidNoReversal).toMatchObject({ok: false, reason: expect.stringContaining('exactly one reversal')});
+
+    const badReversal = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'tx-1')!.properties as Record<string, unknown>).lp_state = 'void';
+      s.library.pages.push(
+        row('tx-rev', IDS.transactions, {lp_date: '2026-01-07', lp_description: 'undo', lp_state: 'posted', lp_entry_no: 2, lp_reverses: 'tx-1'}),
+        row('post-3', IDS.postings, {lp_transaction: 'tx-rev', lp_account: 'acc-cash', lp_amount_minor: -400, lp_cleared: 'pending'}),
+        row('post-4', IDS.postings, {lp_transaction: 'tx-rev', lp_account: 'acc-sales', lp_amount_minor: 400, lp_cleared: 'pending'}),
+      );
+    });
+    expect(badReversal).toMatchObject({ok: false, reason: expect.stringContaining('leg for leg')});
+  });
+
+  it('refuses the reconciled↔frozen invariant broken in either direction', () => {
+    const reconciledUnowned = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'post-1')!.properties as Record<string, unknown>).lp_cleared = 'reconciled';
+    });
+    expect(reconciledUnowned).toMatchObject({ok: false, reason: expect.stringContaining('reconciled')});
+
+    const frozenByOpen = parseDoctored((s) => {
+      s.library.pages.push(row('rec-1', IDS.reconciliations, {lp_account: 'acc-cash', lp_statement_date: '2026-01-31', lp_statement_balance_minor: 500, lp_status: 'open'}));
+      const props = s.library.pages.find((p) => p.id === 'post-1')!.properties as Record<string, unknown>;
+      props.lp_cleared = 'reconciled';
+      props.lp_reconciliation = 'rec-1';
+    });
+    expect(frozenByOpen).toMatchObject({ok: false, reason: expect.stringContaining('not finished')});
+  });
+
+  it('refuses two OPEN reconciliations on one account', () => {
+    const result = parseDoctored((s) => {
+      s.library.pages.push(
+        row('rec-1', IDS.reconciliations, {lp_account: 'acc-cash', lp_statement_date: '2026-01-31', lp_statement_balance_minor: 0, lp_status: 'open'}),
+        row('rec-2', IDS.reconciliations, {lp_account: 'acc-cash', lp_statement_date: '2026-02-28', lp_statement_balance_minor: 0, lp_status: 'open'}),
+      );
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('more than one open reconciliation')});
+  });
+
+  it('refuses a closing entry no period record claims, and overlapping closed periods', () => {
+    const orphanClosing = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'tx-1')!.properties as Record<string, unknown>).lp_kind = 'closing';
+    });
+    expect(orphanClosing).toMatchObject({ok: false, reason: expect.stringContaining('not referenced by any period')});
+
+    const overlapping = parseDoctored((s) => {
+      s.settings.ledgerPeriods = [
+        {id: 'per-1', start: '2026-01-01', end: '2026-01-31', status: 'closed', closingEntryId: null, reopenEntryId: null, closedAt: '', closedBy: '', reopenedAt: null, reopenedBy: null},
+        {id: 'per-2', start: '2026-01-15', end: '2026-02-15', status: 'closed', closingEntryId: null, reopenEntryId: null, closedAt: '', closedBy: '', reopenedAt: null, reopenedBy: null},
+      ];
+    });
+    expect(overlapping).toMatchObject({ok: false, reason: expect.stringContaining('overlap')});
+  });
+
+  it('counts the evidence an HTML export cannot carry (dropped, surfaced, never silent)', () => {
+    const section = structuredClone(validSection());
+    (section.library.pages.find((p) => p.id === 'tx-1')!.properties as Record<string, unknown>).lp_evidence = [
+      {filename: 'receipt.pdf', sha256: 'a'.repeat(64), size: 10},
+    ];
+    const result = parseLedgerExportSection(section);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.book.evidenceDropped).toBe(1);
+  });
+
+  it('refuses a book over the export-section entry ceiling', () => {
+    const result = parseDoctored((s) => {
+      for (let i = 0; i < 1001; i += 1) {
+        s.library.pages.push(row(`tx-bulk-${i}`, IDS.transactions, {lp_date: '2026-01-06', lp_state: 'draft'}));
+      }
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('ceiling')});
   });
 });
