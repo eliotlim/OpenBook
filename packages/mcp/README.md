@@ -19,8 +19,22 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `update_block` | Replace one block's text (by id). |
 | `update_block_props` | Shallow-merge one block's props (heading level, todo checked, callout variant, code language, image alt, a kit input's value/min/max). A `null` value **removes** that prop. Works on nested blocks. |
 | `delete_block` | Remove one block and everything inside it, at any depth — including a table `row` or `cell`. |
+| `inspect_table` | Show a table in **render order** — size, header flag, column ids, and every row/cell id with its text. Read this before any `table_*` call: the indices it prints are the coordinates those tools take, and the ids it prints are what they address. |
+| `table_insert_row` / `table_delete_row` / `table_duplicate_row` | Row structure. Insert takes the position the new row should occupy; it is refused at position 0 on a table with a header row (rendering is positional, so the blank row would become the header). Deleting the last row removes the whole table. |
+| `table_insert_column` / `table_delete_column` | Column structure. Deleting the last column removes the whole table. |
+| `table_move_row` / `table_move_column` | Reorder by rewriting one order key — cells are untouched, so concurrent edits inside the moved line merge cleanly. `toIndex` counts positions with the moved line removed. |
+| `table_set_cell` | Replace one cell's text, by row+column index or by cell id. |
+| `table_set_row_color` / `table_set_column_color` | Tint a row or column (a palette token, or `null` to clear). A row tint wins over a column tint. |
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
+
+Table coordinates are **render order** (the sorted order you see), not positions in
+the stored array — a reordered table's arrays are not in display order. Tables built
+by `append_blocks` carry no order keys (a client cannot invent them), so
+`inspect_table` reports them as *unmigrated*; the first `table_*` op assigns keys
+deterministically, matching what the editor would have assigned, without changing
+what you already saw. These tools are the only way to write those keys —
+`update_block_props` refuses `ord` / `col:` / `colbg:`.
 
 ## Setup
 
@@ -67,7 +81,7 @@ At startup the connector performs a single `GET /api/instance` handshake (guest-
 
 ## Direct edits vs. reviewable suggestions
 
-Whether a write tool (`append_to_page`, `append_blocks`, `update_block`, `update_block_props`, `delete_block`, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+Whether a write tool (`append_to_page`, `append_blocks`, `update_block`, `update_block_props`, `delete_block`, every `table_*` op, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
 
 The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
 

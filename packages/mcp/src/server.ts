@@ -1195,6 +1195,10 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         delete stable.rowId;
         delete stable.colId;
       }
+      // `op.kind` is dropped: the bridge reads the op from `payload.applyKind`
+      // (added by recordSuggestion), and two names for the same thing invite drift.
+      const coords: Record<string, unknown> = {...op};
+      delete coords.kind;
       const s = await recordSuggestion({
         kind,
         pageId,
@@ -1204,7 +1208,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         // The review card anchors on the TABLE block — the thing the reviewer looks
         // at — while the payload holds the precise coordinates.
         target: {blockId: tableId},
-        payload: {pageId, tableId, ...op, ...stable},
+        payload: {pageId, tableId, ...coords, ...stable},
       });
       return suggested(summary, s);
     }
