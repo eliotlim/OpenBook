@@ -1,8 +1,18 @@
 import {randomUUID} from 'node:crypto';
 import {
+  addBlocksGuidance,
+  blockCatalogueText,
+  blockTreeError,
+  CHILD_ONLY_PARENT,
+  CONTAINER_BLOCK_TYPES,
+  findUnknownBlockType,
+  invalidBlockProps,
   providerSettings,
   snapshotText,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   textSnapshot,
+  unknownBlockTypeMessage,
   type AgentProposal,
   type AiEffort,
   type AiProvider,
@@ -146,10 +156,18 @@ interface ToolDef {
   /** True for third-party MCP tools (`mcp__*`): their first use pauses for
    *  consent (Q4) and TAINTS the run so later writes go through review (Q2). */
   external?: boolean;
+  /** True for tools whose whole result the model needs verbatim (e.g. the
+   *  list_block_types catalogue) — clipped at a much larger bound than the
+   *  default 1500-char transcript clip. */
+  fullResult?: boolean;
   run: (args: Record<string, unknown>) => Promise<string>;
 }
 
 const clip = (s: string, n = 1500): string => (s.length > n ? `${s.slice(0, n)}…` : s);
+
+/** Result-size bound for {@link ToolDef.fullResult} tools (fits the whole
+ *  block-type catalogue with plugins; still bounded against runaway output). */
+const FULL_RESULT_CLIP = 12000;
 
 const obj = (props: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({
   type: 'object',
@@ -170,6 +188,18 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_page_theme: 'set-theme',
   delete_block: 'delete',
   set_block_props: 'replace-text',
+  // Table STRUCTURE ops (API-3) all review as one `table-op` kind; the
+  // `payload.applyKind` is what tells the editor bridge which op to replay.
+  table_insert_row: 'table-op',
+  table_delete_row: 'table-op',
+  table_duplicate_row: 'table-op',
+  table_insert_column: 'table-op',
+  table_delete_column: 'table-op',
+  table_move_row: 'table-op',
+  table_move_column: 'table-op',
+  table_set_cell: 'table-op',
+  table_set_row_color: 'table-op',
+  table_set_column_color: 'table-op',
 };
 
 export class AgentRunner {
@@ -266,6 +296,27 @@ export class AgentRunner {
     return db ? {db} : {db: null, err: 'That page hosts no database.'};
   }
 
+  /**
+   * The installed plugins (cached per run) — the block-type catalogue's
+   * per-library `plugin` category. Failure-tolerant: a store that cannot list
+   * plugins yields an EMPTY list for the `list_block_types` listing but an
+   * UNDEFINED id set for validation, so plugin-namespaced block types are then
+   * accepted opaquely rather than rejected (never crash on them).
+   */
+  private plugins?: Promise<Awaited<ReturnType<PageStore['listPlugins']>> | null>;
+
+  private installedPlugins(): Promise<Awaited<ReturnType<PageStore['listPlugins']>> | null> {
+    this.plugins ??= this.store.listPlugins().catch(() => null);
+    return this.plugins;
+  }
+
+  /** Installed plugin ids for block-type validation, or undefined when the
+   *  listing is unavailable (⇒ accept plugin types by pattern alone). */
+  private async installedPluginIds(): Promise<ReadonlySet<string> | undefined> {
+    const plugins = await this.installedPlugins();
+    return plugins ? new Set(plugins.map((p) => p.manifest.id)) : undefined;
+  }
+
   /** May the caller CREATE a new top-level page/database here? (default-deny). */
   private async canCreate(): Promise<boolean> {
     if (!this.principal) return false;
@@ -334,6 +385,17 @@ export class AgentRunner {
           const lines = blockTree(page.data);
           return lines.length ? lines.join('\n') : '(empty document)';
         },
+      },
+      {
+        name: 'list_block_types',
+        description:
+          'List every block type add_blocks / update_block_props / create_artifact_page accept — core blocks, the interactive kit, and installed plugin blocks — with each type\'s nature (container/text/void), where child-only types must sit, declared props, and whether it publishes a reactive kit value.',
+        args: '{}',
+        schema: obj({}),
+        // The catalogue must reach the model (and the activity pane) whole —
+        // a 400/1500-char clip would truncate it mid-list.
+        fullResult: true,
+        run: async () => blockCatalogueText((await this.installedPlugins()) ?? undefined),
       },
       {
         name: 'get_kit_values',
@@ -690,7 +752,7 @@ export class AgentRunner {
             type: {type: 'string', description: 'Optional new block type (e.g. heading, list, todo, callout). Omit to keep the current type.'},
             props: {
               type: 'object',
-              description: 'Props to merge, e.g. {"level":2} / {"kind":"number"} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40}.',
+              description: 'Props to merge SHALLOWLY over the block\'s existing props, e.g. {"level":2} / {"kind":"number"} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40}. Pass null as a value to REMOVE that prop (e.g. {"bg": null} clears a background).',
             },
           },
           ['pageId', 'blockId'],
@@ -704,17 +766,48 @@ export class AgentRunner {
           const info = blockInfoById(page.data, blockId);
           if (!info) return `No block "${blockId}" on that page — use inspect_page_structure.`;
           const type = typeof args.type === 'string' && args.type.trim() ? args.type.trim() : undefined;
-          if (type && !KNOWN_BLOCK_TYPES.has(type)) return `Unsupported block type "${type}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          if (type) {
+            const bad = unknownBlockTypeMessage(findUnknownBlockType([{type}], {installedPluginIds: await this.installedPluginIds()}));
+            if (bad) return bad;
+            // Retype guards — the same structural contract add_blocks enforces:
+            // a child-only type only directly inside its matching container, and
+            // a block that HOLDS children must stay a container (otherwise its
+            // children are silently dropped on accept).
+            const needs = CHILD_ONLY_PARENT[type];
+            if (needs && info.parentType !== needs) {
+              return `A "${type}" block must sit directly inside a "${needs}" block — this block's parent is ${info.parentType ? `a "${info.parentType}" block` : 'the page root'}, so it can't become a "${type}".`;
+            }
+            if (info.hasChildren && !(CONTAINER_BLOCK_TYPES as ReadonlySet<string>).has(type)) {
+              return `This block holds child blocks; retyping it to "${type}" (not a container) would silently drop them. Move or delete the children first.`;
+            }
+          }
           const props = args.props && typeof args.props === 'object' && !Array.isArray(args.props) ? (args.props as Record<string, unknown>) : undefined;
           if (!type && !props) return 'Provide a new type and/or props to change.';
+          // The table order-contract keys (ord/col/col:*/colbg:*) are private —
+          // same guard + message as the MCP server's update_block_props.
+          const tableKey = props ? tableOrderContractKey(props) : null;
+          if (tableKey) return tableOrderContractRefusal(tableKey);
+          // Permissive-but-typed prop check: only props the catalogue declares for
+          // the (new) type are validated; unknown props pass through untouched.
+          const propErr = props ? invalidBlockProps(type ?? info.type, props) : null;
+          if (propErr) return propErr;
           const describe = (t: string, p: Record<string, unknown>): string =>
             `${t}${Object.keys(p).length ? ` ${JSON.stringify(p)}` : ''}`;
+          // Compute the `after` preview with the SAME null-aware merge the apply
+          // path uses (patchBlock / setBlockPropsInSnapshot: null REMOVES a key),
+          // so the SuggestionCard's -/+ diff reflects what accepting will actually
+          // store — not the raw patch (which would show `"bg":null` as an added key).
+          const mergedProps = {...info.props};
+          for (const [k, v] of Object.entries(props ?? {})) {
+            if (v === null) delete mergedProps[k];
+            else mergedProps[k] = v;
+          }
           return this.propose({
             kind: 'set_block_props',
             summary: `Update block ${blockId} on "${page.name ?? 'Untitled'}"${type ? ` → ${type}` : ''}`,
             pageId,
             before: clip(describe(info.type, info.props), 200),
-            after: clip(describe(type ?? info.type, {...info.props, ...(props ?? {})}), 200),
+            after: clip(describe(type ?? info.type, mergedProps), 200),
             payload: {pageId, blockId, ...(type ? {type} : {}), ...(props ? {props} : {})},
           });
         },
@@ -821,14 +914,16 @@ export class AgentRunner {
         type: {type: 'string', description: 'Block type — see the catalogue in this tool\'s description.'},
         text: {description: 'For text blocks: a plain string, or rich runs like [{"t":"bold","a":{"b":true}}].'},
         props: {type: 'object', description: 'Type-specific props (level, value, min/max, opts, source, …).'},
-        children: {type: 'array', items: {type: 'object'}, description: 'Child blocks, for containers (columns/column/group/accordion/tabs).'},
+        children: {type: 'array', items: {type: 'object'}, description: `Child blocks, ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}).`},
       },
       ['type'],
     );
     return [
       {
         name: 'add_blocks',
-        description: BLOCK_CATALOGUE,
+        // Generated from the SDK block-type catalogue — the same source the
+        // validation below reads, so guidance and validation cannot drift.
+        description: addBlocksGuidance(),
         args: '{"pageId": string, "blocks": Block[]}',
         schema: obj(
           {
@@ -844,8 +939,13 @@ export class AgentRunner {
           if (!page) return 'Page not found.';
           const blocks = Array.isArray(args.blocks) ? (args.blocks as unknown[]) : [];
           if (blocks.length === 0) return 'No blocks to add.';
-          const bad = invalidBlockType(blocks);
-          if (bad) return `Unsupported block type "${bad}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          // Structure first (children only on containers, child-only placement,
+          // square tables, depth/size caps), then types — both against the SDK
+          // block-type catalogue, the same source the MCP server validates with.
+          const structural = blockTreeError(blocks);
+          if (structural) return structural;
+          const bad = unknownBlockTypeMessage(findUnknownBlockType(blocks, {installedPluginIds: await this.installedPluginIds()}));
+          if (bad) return bad;
           return this.propose({
             kind: 'append_blocks',
             summary: `Add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}": ${summarizeBlocks(blocks)}`,
@@ -1355,9 +1455,14 @@ export class AgentRunner {
         const message = err instanceof Error ? err.message : String(err);
         result = `Error: the "${tool.name}" tool failed — ${message}. Check the arguments and try again or take a different approach.`;
       }
-      await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, 400)});
+      await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, tool.fullResult ? FULL_RESULT_CLIP : 400)});
       return result;
     };
+
+    // Transcript clip for one tool's result — `fullResult` tools get the large
+    // bound so e.g. the block-type catalogue reaches the model whole.
+    const traceClip = (name: string, s: string): string =>
+      clip(s, this.tools.find((t) => t.name === name)?.fullResult ? FULL_RESULT_CLIP : undefined);
 
     // Flush whatever changes the write tools produced this run: directly-applied
     // edits (the user granted access) as one `apply`, reviewable ones as `suggestions`.
@@ -1447,7 +1552,7 @@ export class AgentRunner {
             if (this.interactive) break;
             const result = await runTool(call.name, call.args);
             toolTrace.push(`Assistant: ${JSON.stringify({tool: call.name, args: call.args})}`);
-            toolTrace.push(`TOOL RESULT (${call.name}):\n${clip(result)}`);
+            toolTrace.push(`TOOL RESULT (${call.name}):\n${traceClip(call.name, result)}`);
           }
           // An interactive tool paused the run to ask the user something.
           if (this.interactive) {
@@ -1470,7 +1575,7 @@ export class AgentRunner {
         const args = action.args ?? {};
         const result = await runTool(String(action.tool), args);
         toolTrace.push(`Assistant: ${JSON.stringify({tool: action.tool, args})}`);
-        toolTrace.push(`TOOL RESULT (${String(action.tool)}):\n${clip(result)}`);
+        toolTrace.push(`TOOL RESULT (${String(action.tool)}):\n${traceClip(String(action.tool), result)}`);
         if (this.interactive) {
           await pause();
           return;
@@ -1590,41 +1695,12 @@ function resolveRowValues(schema: DatabaseSchema, input: Record<string, unknown>
 
 // ── Layout / rich-block + appearance helpers ─────────────────────────────────────
 
-/** Block types `add_blocks` may create — mirrors the editor's registry (core +
- *  kit). Kept here so the agent can reject unknown types with a clear list. */
-const KNOWN_BLOCK_TYPES = new Set<string>([
-  // Text + structure.
-  'paragraph', 'heading', 'list', 'todo', 'quote', 'callout', 'code', 'divider',
-  // Layout containers.
-  'columns', 'column', 'group', 'accordion', 'accordionsection', 'tabs', 'tab',
-  // Interactive kit inputs.
-  'slider', 'number', 'textfield', 'longtext', 'toggle', 'radio', 'checklist',
-  'dropdown', 'choicecards', 'searchselect', 'tagfield', 'location',
-  // Reactive display.
-  'kitchart', 'statuslight', 'progressbar', 'formula', 'linkcard',
-]);
-
 /** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
 const THEME_IDS = new Set<string>([
   'default', 'amber', 'forest', 'graphite', 'ocean', 'rose', 'sandstone', 'slate', 'sunset', 'teal', 'violet',
 ]);
 const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
 const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);
-
-/** The first block type (anywhere in the tree) that isn't creatable, or null. */
-function invalidBlockType(blocks: unknown[]): string | null {
-  for (const raw of blocks) {
-    if (!raw || typeof raw !== 'object') return '(not a block)';
-    const b = raw as {type?: unknown; children?: unknown};
-    const type = String(b.type ?? '');
-    if (!KNOWN_BLOCK_TYPES.has(type)) return type || '(missing type)';
-    if (Array.isArray(b.children)) {
-      const nested = invalidBlockType(b.children);
-      if (nested) return nested;
-    }
-  }
-  return null;
-}
 
 /** A short "type ×n" summary of a block list (for the review card). */
 function summarizeBlocks(blocks: unknown[]): string {
@@ -1665,17 +1741,6 @@ function buildInterviewSteps(raw: unknown): InterviewStep[] {
   }
   return steps;
 }
-
-/** The `add_blocks` tool description: the full block catalogue the model builds against. */
-const BLOCK_CATALOGUE = [
-  'Append rich blocks to a page — interactive inputs, layouts, charts, and headings. User approves before they are added.',
-  'Each block is {type, text?, props?, children?}. `text` is a plain string (or rich runs [{"t","a":{b,i,u,s,c,a}}]); `children` nests blocks inside containers.',
-  'TEXT/STRUCTURE: paragraph; heading {level:1|2|3}; list {kind:"bullet"|"number"}; todo {checked?}; quote; callout {variant:"info"|"warn"|"success"}; code {language?,live?,name?,collapsed?}; divider.',
-  'LAYOUT (use children): columns → column {span:1-12} → blocks (side-by-side, spans sum to 12); group {name?,locked?}; accordion {name?,gated?} → accordionsection {label,collapsed?} → blocks; tabs → tab {label} → blocks.',
-  'INPUTS (give each a props.name OR props.label so charts/formulas can reference it): slider/number {name,label,value,min,max,step}; textfield/longtext {name,label,value,placeholder}; toggle {name,label,value:boolean}; dropdown/radio {name,label,value,opts:[{label,value}]}; checklist {name,label,selected:[],opts}; choicecards {name,label,value,opts:[{label,value,icon?}],multi?}; searchselect {name,label,value,opts,multi?}; tagfield {name,label,selected:[],freeEntry?}; location {name,label}.',
-  'REACTIVE DISPLAY (props.source is a JS expression over input names): kitchart {kind:"line"|"area"|"bar"|"pie"|"donut"|"scatter"|"funnel",title?,labels?,source}; statuslight {label?,source,okAt,warnAt}; progressbar {label?,source,max?,format?}; formula {source}; linkcard {title,url,description?}.',
-  'Example: a budget widget → [{"type":"heading","text":"Budget","props":{"level":2}},{"type":"columns","children":[{"type":"column","props":{"span":5},"children":[{"type":"slider","props":{"name":"spent","label":"Spent","value":80,"min":0,"max":200}},{"type":"number","props":{"name":"budget","label":"Budget","value":120}}]},{"type":"column","props":{"span":7},"children":[{"type":"kitchart","props":{"kind":"bar","title":"Spent vs budget","labels":"Spent, Budget","source":"[spent, budget]"}},{"type":"statuslight","props":{"label":"On track","source":"budget - spent","okAt":0,"warnAt":-20}}]}]}].',
-].join('\n');
 
 // ── Snapshot helpers (read-only inspection over the JSON projection) ─────────────
 
@@ -1745,21 +1810,24 @@ function blockTextById(data: {editor?: string; blockdoc?: unknown} | null | unde
 function blockInfoById(
   data: {editor?: string; blockdoc?: unknown} | null | undefined,
   id: string,
-): {type: string; props: Record<string, unknown>} | null {
+): {type: string; props: Record<string, unknown>; parentType: string | null; hasChildren: boolean} | null {
   const blocks = blockdocBlocks(data);
   if (!blocks) return null;
-  let found: {type: string; props: Record<string, unknown>} | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
+  let found: {type: string; props: Record<string, unknown>; parentType: string | null; hasChildren: boolean} | null = null;
+  const walk = (list: AnyJsonBlock[], parentType: string | null): void => {
     for (const b of list) {
       if (found) return;
       if (b.id === id) {
-        found = {type: b.type ?? '?', props: b.props ?? {}};
+        // parentType/hasChildren feed update_block_props' retype guards: a
+        // child-only type needs the matching parent, and a container holding
+        // children must stay a container (or its children silently vanish).
+        found = {type: b.type ?? '?', props: b.props ?? {}, parentType, hasChildren: (b.children?.length ?? 0) > 0};
         return;
       }
-      if (b.children) walk(b.children);
+      if (b.children) walk(b.children, b.type ?? null);
     }
   };
-  walk(blocks);
+  walk(blocks, null);
   return found;
 }
 

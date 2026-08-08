@@ -116,6 +116,26 @@ for (const plugin of PLUGINS) {
     throw new Error(`entry file "${manifest.main}" not found in ${plugin.dir}`);
   }
 
+  // Drift guard for the manifest's `blocks` declaration (PluginManifest.blocks
+  // — what the server's/agent's `list_block_types` enumerates without running
+  // plugin code): the declared types must EXACTLY match the `blocks.register`
+  // calls in the plugin source. A bundled plugin whose manifest lies about its
+  // blocks fails the build here instead of drifting silently.
+  const registered = new Set<string>();
+  for (const content of Object.values(filesRecord)) {
+    for (const m of content.matchAll(/blocks\.register\(\{\s*type:\s*'([^']+)'/g)) registered.add(m[1]);
+  }
+  const declared = new Set<string>(((manifest.blocks ?? []) as Array<{type: string}>).map((b) => b.type));
+  const missing = [...registered].filter((t) => !declared.has(t));
+  const stale = [...declared].filter((t) => !registered.has(t));
+  if (missing.length || stale.length) {
+    throw new Error(
+      `${plugin.dir}: openbook.json "blocks" drifted from the source's blocks.register calls` +
+        `${missing.length ? ` — undeclared: ${missing.join(', ')}` : ''}` +
+        `${stale.length ? ` — declared but never registered: ${stale.join(', ')}` : ''}`,
+    );
+  }
+
   const varName = id.replace(/[^a-zA-Z0-9]/g, '_');
   out += `export const ${varName}: PluginPackage = {\n`;
   out += `  manifest: ${JSON.stringify(manifest, null, 2).replace(/\n/g, '\n  ')},\n`;

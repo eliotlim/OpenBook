@@ -6,5 +6,16 @@
   "author": "OpenBook",
   "icon": "📒",
   "main": "src/index.ts",
-  "apiVersion": 2
+  "apiVersion": 2,
+  "blocks": [
+    {"type": "journal-entry", "description": "Record a balanced double-entry transaction"},
+    {"type": "trial-balance", "description": "Every account's balance, asserted to sum to zero"},
+    {"type": "account-register", "description": "One account's postings with a running balance"},
+    {"type": "bank-import", "description": "Turn a bank CSV into draft entries, without doubling anything up"},
+    {"type": "reconcile", "description": "Match an account against a bank statement, down to a 0.00 difference"},
+    {"type": "balance-sheet", "description": "Assets, liabilities and equity as at a date"},
+    {"type": "income-statement", "description": "Revenue less expenses over a period, with net income"},
+    {"type": "period-close", "description": "Close the books for a date range and lock it"},
+    {"type": "beancount-export", "description": "Download the books as a Beancount journal, verified"}
+  ]
 }

@@ -69,6 +69,25 @@ export interface PluginManifest {
   apiVersion?: number;
   /** Agent tools this plugin contributes (read server-side from the manifest). */
   agentTools?: PluginAgentTool[];
+  /**
+   * The block types this plugin registers at activation (WITHOUT the
+   * `<pluginId>/` prefix the host adds). Declared in the manifest so servers —
+   * which never run plugin code — can list a plugin's blocks (the agent/MCP
+   * `list_block_types` tool) straight from the stored manifest JSON. Optional:
+   * a plugin that declares none still works, its block types are simply not
+   * enumerable server-side. For bundled first-party plugins the declaration is
+   * verified against the source's `blocks.register` calls at bundle time
+   * (packages/ui/scripts/bundlePlugins.ts), so it cannot drift.
+   */
+  blocks?: PluginBlockDeclaration[];
+}
+
+/** One manifest-declared plugin block (see {@link PluginManifest.blocks}). */
+export interface PluginBlockDeclaration {
+  /** The unprefixed block type, e.g. `journal-entry`. */
+  type: string;
+  /** One-line description surfaced by `list_block_types`. */
+  description?: string;
 }
 
 /**

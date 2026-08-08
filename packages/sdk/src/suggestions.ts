@@ -56,8 +56,18 @@ export interface AuthoredIdentity {
   authorVerified?: VerifiedVia;
 }
 
-/** The change a suggestion proposes — mirrors the agent write-tool kinds. */
-export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme';
+/**
+ * The change a suggestion proposes — mirrors the agent write-tool kinds.
+ *
+ * `table-op` (API-3) covers every TABLE STRUCTURE change (insert/delete/move/
+ * duplicate a row or column, set a cell, tint a row or column). They share ONE
+ * kind because the review card treats them identically — a one-line summary plus
+ * a before→after of the affected grid line — while the `payload.applyKind`
+ * carries which op it actually is for the editor bridge to replay. Splitting
+ * them into ten kinds would buy the reviewer nothing and force every
+ * `Record<SuggestionKind, …>` in the UI to grow ten entries.
+ */
+export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme' | 'table-op';
 
 /** Lifecycle of a suggestion. */
 export type SuggestionStatus = 'open' | 'accepted' | 'rejected';

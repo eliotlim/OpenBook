@@ -1,7 +1,8 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import type {AgentEditsMode, AgentEditsPolicy, PageInput, StoredPage, StoredSuggestion} from '@book.dev/sdk';
-import {registerBlockEditorDoc, routeAiSuggestions, type ApplyClient, type PolicyClient} from '../aiBridge';
-import {blockText, createDoc, encodeSnapshot, findBlock, decodeSnapshot} from '@/blockeditor/model';
+import {applyProposalToDoc, registerBlockEditorDoc, routeAiSuggestions, type ApplyClient, type PolicyClient} from '../aiBridge';
+import {blockChildren, blockText, blockType, createDoc, encodeSnapshot, findBlock, decodeSnapshot, rootBlocks} from '@/blockeditor/model';
+import type {AgentProposal} from '@book.dev/sdk';
 
 /**
  * AGED-4: the built-in AI's writes honor the resolved agent-edits policy, enforced
@@ -243,5 +244,95 @@ describe('AGED-4 routeAiSuggestions: instance mode is read once per batch', () =
     } finally {
       unregister();
     }
+  });
+});
+
+describe('applyProposalToDoc delete_block (should-fix 4.1/4.2): table last-row rule + self-heal', () => {
+  const del = (blockId: string): AgentProposal => ({
+    id: `d-${blockId}`,
+    kind: 'delete_block',
+    summary: `delete ${blockId}`,
+    pageId: 'p',
+    before: '',
+    after: '',
+    payload: {pageId: 'p', blockId},
+  });
+
+  const rootTypes = (doc: ReturnType<typeof createDoc>): string[] => {
+    const root = rootBlocks(doc);
+    const out: string[] = [];
+    for (let i = 0; i < root.length; i += 1) out.push(blockType(root.get(i)));
+    return out;
+  };
+
+  it('deleting the last row of a KEYED table removes the whole table (sibling survives)', () => {
+    const doc = createDoc([
+      {
+        id: 'kt', type: 'table', props: {'col:c1': 'a0'},
+        children: [{id: 'kr', type: 'row', props: {ord: 'a0'}, children: [{id: 'kc', type: 'cell', text: 'A', props: {col: 'c1'}}]}],
+      },
+      {id: 'p1', type: 'paragraph', text: 'after'},
+    ]);
+    applyProposalToDoc(doc, del('kr'));
+    expect(rootTypes(doc)).toEqual(['paragraph']);
+    expect(blockText(rootBlocks(doc).get(0))?.toString()).toBe('after');
+  });
+
+  it('deleting the last row of a LEGACY table removes the table; the doc self-heals to a paragraph', () => {
+    const doc = createDoc([
+      {id: 'lt', type: 'table', children: [{id: 'lr', type: 'row', children: [{id: 'lc', type: 'cell', text: 'X'}]}]},
+    ]);
+    applyProposalToDoc(doc, del('lr'));
+    // Table gone AND the document never renders zero-root (ensureNotEmpty).
+    expect(rootTypes(doc)).toEqual(['paragraph']);
+  });
+
+  it('deleting the only cell of the only row removes the whole table', () => {
+    const doc = createDoc([
+      {id: 'ct', type: 'table', children: [{id: 'cr', type: 'row', children: [{id: 'cc', type: 'cell', text: 'solo'}]}]},
+      {id: 'kp', type: 'paragraph', text: 'keep'},
+    ]);
+    applyProposalToDoc(doc, del('cc'));
+    expect(rootTypes(doc)).toEqual(['paragraph']);
+    expect(blockText(rootBlocks(doc).get(0))?.toString()).toBe('keep');
+  });
+
+  it('a NON-final row is an ordinary delete (the table stays)', () => {
+    const doc = createDoc([
+      {
+        id: 't', type: 'table',
+        children: [
+          {id: 'r1', type: 'row', children: [{id: 'a', type: 'cell', text: '1'}]},
+          {id: 'r2', type: 'row', children: [{id: 'b', type: 'cell', text: '2'}]},
+        ],
+      },
+    ]);
+    applyProposalToDoc(doc, del('r1'));
+    const table = findBlock(doc, 't');
+    expect(table).not.toBeNull();
+    expect(blockChildren(table!.block)?.length).toBe(1);
+  });
+
+  it('deleting the only block in a column prunes the empty column and unwraps the layout', () => {
+    const doc = createDoc([
+      {
+        id: 'cols', type: 'columns',
+        children: [
+          {id: 'col1', type: 'column', props: {span: 6}, children: [{id: 'left', type: 'paragraph', text: 'left'}]},
+          {id: 'col2', type: 'column', props: {span: 6}, children: [{id: 'right', type: 'paragraph', text: 'right'}]},
+        ],
+      },
+    ]);
+    applyProposalToDoc(doc, del('left'));
+    // The emptied column is pruned; the single-column layout is unwrapped to the root.
+    expect(rootTypes(doc)).toEqual(['paragraph']);
+    expect(blockText(rootBlocks(doc).get(0))?.toString()).toBe('right');
+  });
+
+  it('deleting a page\'s only block self-heals to one paragraph (never a zero-root doc)', () => {
+    const doc = createDoc([{id: 'solo', type: 'paragraph', text: 'lonely'}]);
+    applyProposalToDoc(doc, del('solo'));
+    expect(rootBlocks(doc).length).toBe(1);
+    expect(blockType(rootBlocks(doc).get(0))).toBe('paragraph');
   });
 });

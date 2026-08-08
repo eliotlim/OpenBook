@@ -260,7 +260,40 @@ export {
   type AccessCtx,
   type Decision,
 } from './authorize';
-export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock, type SnapshotSegment} from './content';
+export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
+export {
+  ORDER_KEY_REBALANCE_LENGTH,
+  isOrderKey,
+  compareOrderKeys,
+  keyBetween,
+  keysBetween,
+} from './orderKeys';
+export {
+  TABLE_COL_PREFIX,
+  TABLE_COLBG_PREFIX,
+  TABLE_OP_KINDS,
+  applyTableOpToSnapshot,
+  ensureSnapshotTableOrder,
+  resolveTableOp,
+  snapshotCellPosition,
+  snapshotTableColumns,
+  snapshotTableGrid,
+  snapshotTableIdFor,
+  snapshotTableView,
+  snapshotTables,
+  tableOpError,
+  tableOpRemovesTable,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
+  tableShapeOf,
+  type SnapshotBlock,
+  type SnapshotTableGrid,
+  type SnapshotTableView,
+  type TableOpAddress,
+  type TableOpKind,
+  type TableOpRequest,
+  type TableShape,
+} from './tableSnapshot';
 export {
   snapshotBlocks,
   contentHash,
@@ -327,10 +360,35 @@ export {
   PLUGIN_API_VERSION,
   type PluginManifest,
   type PluginAgentTool,
+  type PluginBlockDeclaration,
   type PluginPackage,
   type PluginSignature,
   type StoredPlugin,
 } from './plugins';
+export {
+  BLOCK_TYPE_CATALOGUE,
+  KNOWN_BLOCK_TYPE_IDS,
+  CONTAINER_BLOCK_TYPES,
+  TEXT_BLOCK_TYPES,
+  CHILD_ONLY_PARENT,
+  MAX_BLOCK_DEPTH,
+  MAX_BLOCK_NODES,
+  blockTypeInfo,
+  isPluginBlockType,
+  pluginIdOfBlockType,
+  findUnknownBlockType,
+  unknownBlockTypeMessage,
+  blockTreeError,
+  invalidBlockProps,
+  blockCatalogueText,
+  addBlocksGuidance,
+  type BlockNature,
+  type BlockPropType,
+  type BlockTypeInfo,
+  type CoreBlockType,
+  type UnknownBlockType,
+  type PluginBlockSource,
+} from './blockCatalogue';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export type {
   CommentRun,

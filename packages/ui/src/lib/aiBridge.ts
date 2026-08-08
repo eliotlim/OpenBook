@@ -1,16 +1,47 @@
 import type * as Y from 'yjs';
-import {resolveAgentEdits, type AgentEditsMode, type AgentProposal, type DataClient, type StoredSuggestion} from '@book.dev/sdk';
 import {
+  resolveAgentEdits,
+  resolveTableOp,
+  tableOpError,
+  tableShapeOf,
+  TABLE_OP_KINDS,
+  type AgentEditsMode,
+  type AgentProposal,
+  type DataClient,
+  type SnapshotTableView,
+  type StoredSuggestion,
+  type TableOpAddress,
+  type TableOpKind,
+} from '@book.dev/sdk';
+import {
+  blockChildren,
+  blockId,
+  blockProp,
   blockText,
+  blockType,
+  cellPosition,
   coerceNewBlock,
   decodeSnapshot,
   encodeSnapshot,
   findBlock,
   makeBlock,
+  parentBlockOf,
   patchBlock,
+  removeBlock,
   replaceText,
   rootBlocks,
+  setTableColumnColor,
+  setTableRowColor,
+  tableDeleteColumn,
+  tableDeleteRow,
+  tableDuplicateRow,
+  tableGrid,
+  tableInsertColumn,
+  tableInsertRow,
+  tableMoveColumn,
+  tableMoveRow,
   type BlockDocSnapshot,
+  type BlockMap,
   type NewBlock,
 } from '@/blockeditor/model';
 import {findInput, setInputValue} from '@/blockeditor/kit/scope';
@@ -117,6 +148,171 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 /** The subset of the data client the agent write path calls. */
 export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage'>;
 
+/**
+ * When deleting `found` would empty its table, the id of the TABLE to delete
+ * instead — matching the editor's rule that a table losing its last row/column
+ * is removed whole (model.ts tableDeleteRow/tableDeleteColumn). Returns null for
+ * an ordinary delete (any non-final row/cell, or a non-table block).
+ */
+const tableDeleteTarget = (
+  doc: Y.Doc,
+  found: {block: BlockMap; parent: Y.Array<BlockMap>; index: number},
+): string | null => {
+  const type = blockType(found.block);
+  const parent = parentBlockOf(doc, found.parent);
+  if (!parent) return null;
+  // Last row of a table → the table empties, so remove the table.
+  if (type === 'row' && blockType(parent) === 'table' && found.parent.length === 1) {
+    return blockId(parent);
+  }
+  // Only cell of a row → if that row is the table's only row, the table empties.
+  if (type === 'cell' && blockType(parent) === 'row' && found.parent.length === 1) {
+    const row = findBlock(doc, blockId(parent));
+    const table = row && parentBlockOf(doc, row.parent);
+    if (row && table && blockType(table) === 'table' && (blockChildren(table)?.length ?? 0) === 1) {
+      return blockId(table);
+    }
+  }
+  return null;
+};
+
+// ── Table structure proposals (API-3) ───────────────────────────────────────────
+// A `table_*` proposal is replayed by calling the editor's OWN op from
+// `model.ts` — the same function the context menu calls — so there is exactly one
+// implementation of "insert a row" in the live-document path. Coordinates and
+// guards are shared with the MCP/snapshot path through the SDK
+// (`resolveTableOp` + `tableOpError`), which is what keeps the three paths from
+// drifting; see the invariant test in
+// `packages/ui/src/blockeditor/__tests__/tableOpParity.test.ts`.
+
+const TABLE_KINDS = new Set<string>(TABLE_OP_KINDS);
+
+/** True for a proposal kind that is a table structure op. */
+export const isTableProposalKind = (kind: string): kind is TableOpKind => TABLE_KINDS.has(kind);
+
+/**
+ * A {@link SnapshotTableView} over a LIVE table block, so the SDK's shared
+ * addressing resolver and validator serve the CRDT path unchanged. Coordinates
+ * are the SORTED (render) order of `tableGrid` — the same space as `cellPosition`.
+ */
+const liveTableView = (table: BlockMap, tableId: string): SnapshotTableView => {
+  const grid = tableGrid(table);
+  return {
+    tableId,
+    header: blockProp<boolean>(table, 'header') === true,
+    rows: grid.rows.length,
+    cols: grid.width,
+    rowIds: grid.rows.map(blockId),
+    colIds: grid.colIds,
+    cellIds: grid.cells.map((row) => row.map((c) => (c ? blockId(c) : null))),
+    cells: grid.cells.map((row) => row.map((c) => (c ? (blockText(c)?.toString() ?? '') : ''))),
+  };
+};
+
+/** The table a payload targets: an explicit `tableId`, or the table owning a `cellId`/`rowId`. */
+const targetTable = (doc: Y.Doc, payload: Record<string, unknown>): {id: string; block: BlockMap} => {
+  const explicit = typeof payload.tableId === 'string' ? payload.tableId : '';
+  if (explicit) {
+    const found = findBlock(doc, explicit);
+    if (!found || blockType(found.block) !== 'table') throw new Error(`no table "${explicit}" on this page`);
+    return {id: explicit, block: found.block};
+  }
+  if (typeof payload.cellId === 'string') {
+    const pos = cellPosition(doc, payload.cellId);
+    if (!pos) throw new Error(`no cell "${payload.cellId}" in a table on this page`);
+    return {id: blockId(pos.table), block: pos.table};
+  }
+  if (typeof payload.rowId === 'string') {
+    const row = findBlock(doc, payload.rowId);
+    const table = row && parentBlockOf(doc, row.parent);
+    if (!table || blockType(table) !== 'table') throw new Error(`no table row "${payload.rowId}" on this page`);
+    return {id: blockId(table), block: table};
+  }
+  throw new Error('a table proposal needs a tableId (or a cellId / rowId inside one)');
+};
+
+/** The id-or-index address a `table_*` payload carries. */
+const tableAddress = (payload: Record<string, unknown>): TableOpAddress => ({
+  ...(typeof payload.rowIndex === 'number' ? {rowIndex: payload.rowIndex} : {}),
+  ...(typeof payload.colIndex === 'number' ? {colIndex: payload.colIndex} : {}),
+  ...(typeof payload.toIndex === 'number' ? {toIndex: payload.toIndex} : {}),
+  ...(typeof payload.cellId === 'string' ? {cellId: payload.cellId} : {}),
+  ...(typeof payload.rowId === 'string' ? {rowId: payload.rowId} : {}),
+  ...(typeof payload.colId === 'string' ? {colId: payload.colId} : {}),
+  ...(typeof payload.text === 'string' ? {text: payload.text} : {}),
+  ...('color' in payload ? {color: typeof payload.color === 'string' ? payload.color : null} : {}),
+});
+
+/**
+ * Replay one table structure proposal against a live doc. Call INSIDE the
+ * proposal's transaction — each model op opens its own `doc.transact`, which Yjs
+ * folds into the enclosing one, so the whole proposal stays ONE undo step.
+ * Throws (with the shared message) on a bad address or an illegal op, so the
+ * caller keeps the suggestion open rather than silently applying nothing.
+ */
+export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: Record<string, unknown>): void => {
+  const table = targetTable(doc, payload);
+  const view = liveTableView(table.block, table.id);
+  const resolved = resolveTableOp(view, kind, tableAddress(payload));
+  if ('error' in resolved) throw new Error(resolved.error);
+  const {op} = resolved;
+  const bad = tableOpError(tableShapeOf(view), op);
+  if (bad) throw new Error(bad);
+
+  switch (kind) {
+  case 'table_insert_row':
+    tableInsertRow(doc, table.id, op.rowIndex!);
+    return;
+  case 'table_delete_row':
+    tableDeleteRow(doc, table.id, op.rowIndex!);
+    return;
+  case 'table_duplicate_row':
+    tableDuplicateRow(doc, table.id, op.rowIndex!);
+    return;
+  case 'table_insert_column':
+    tableInsertColumn(doc, table.id, op.colIndex!);
+    return;
+  case 'table_delete_column':
+    tableDeleteColumn(doc, table.id, op.colIndex!);
+    return;
+  case 'table_move_row':
+    // The model op takes the row ID (not its index) so a concurrently reordered
+    // table still moves the row the proposal meant.
+    tableMoveRow(doc, table.id, view.rowIds[op.rowIndex!], op.toIndex!);
+    return;
+  case 'table_move_column':
+    tableMoveColumn(doc, table.id, view.colIds[op.colIndex!], op.toIndex!);
+    return;
+  case 'table_set_cell': {
+    // Re-read the grid: the ops above may have run earlier in this same
+    // transaction, and `tableGrid` is only valid until the table changes.
+    const grid = tableGrid(table.block);
+    const cell = grid.cells[op.rowIndex!]?.[op.colIndex!];
+    if (!cell) {
+      // A merge gap has no cell node — materialize one bound to that column, so
+      // set_cell can fill a ragged/legacy table instead of throwing on a hole.
+      // Mirrors the snapshot path (tableSnapshot.ts `table_set_cell`): same
+      // column binding, one plain run.
+      const row = grid.rows[op.rowIndex!];
+      const colId = grid.colIds[op.colIndex!];
+      const rowCells = row && blockChildren(row);
+      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: [{t: op.text ?? ''}]})]);
+      return;
+    }
+    const text = blockText(cell);
+    if (!text) throw new Error(`row ${op.rowIndex} column ${op.colIndex} of table ${table.id} has no cell to write`);
+    replaceText(text, op.text ?? '');
+    return;
+  }
+  case 'table_set_row_color':
+    setTableRowColor(doc, table.id, view.rowIds[op.rowIndex!], op.color ?? null);
+    return;
+  case 'table_set_column_color':
+    setTableColumnColor(doc, table.id, view.colIds[op.colIndex!], op.color ?? null);
+    return;
+  }
+};
+
 /** Mutate a live Y.Doc in one transaction (origin 'local' → tracked by the
  *  shared UndoManager, so an agent apply is undoable exactly like a manual edit). */
 export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
@@ -147,8 +343,13 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
         .map(makeBlock);
       if (built.length > 0) list.push(built);
     } else if (p.kind === 'delete_block') {
-      const found = findBlock(doc, String(payload.blockId));
-      if (found) found.parent.delete(found.index, 1);
+      const id = String(payload.blockId);
+      const found = findBlock(doc, id);
+      // Delete through the model's removeBlock (prunes empty columns, keeps the
+      // doc non-empty), and honor the table rule: a table that would lose its
+      // LAST row — or the only cell of its only row — is removed WHOLE, matching
+      // the editor's tableDeleteRow/tableDeleteColumn (a table can't be rowless).
+      if (found) removeBlock(doc, tableDeleteTarget(doc, found) ?? id);
     } else if (p.kind === 'set_block_props') {
       const found = findBlock(doc, String(payload.blockId));
       if (found) {
@@ -157,6 +358,12 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
           props: payload.props && typeof payload.props === 'object' ? (payload.props as Record<string, unknown>) : undefined,
         });
       }
+    } else if (isTableProposalKind(p.kind)) {
+      // Table structure ops delegate to the editor's own model ops. Each opens a
+      // nested `doc.transact`, which Yjs folds into this one — so the proposal is
+      // still a single undo step. Validation runs BEFORE any mutation, so a
+      // rejected op leaves the document (and this transaction) untouched.
+      applyTableProposalToDoc(doc, p.kind, payload);
     }
   }, 'local');
 };
