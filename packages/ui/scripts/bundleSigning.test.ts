@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {generateRegistryKeys, verifyPlugin, OPENBOOK_REGISTRY, type PluginManifest} from '@book.dev/sdk';
+import {generateRegistryKeys, verifyPlugin, OPENBOOK_REGISTRY, OPENBOOK_REGISTRY_KEYS, type PluginManifest} from '@book.dev/sdk';
 import {derivePublicKey, resolveSigningKey, signBundledPackage, TEST_REGISTRY_KEY_PATH} from './bundleSigning';
 import {BUNDLED_PLUGINS} from '../src/plugins/bundled.gen';
 
@@ -26,12 +26,39 @@ describe('resolveSigningKey', () => {
     expect(derivePublicKey(key.privateKey)).toBe(key.publicKey);
   });
 
-  it('NEVER pins the test key as production: OPENBOOK_REGISTRY must not equal it', () => {
+  it('NEVER pins the test key as production: no OPENBOOK_REGISTRY_KEYS entry may equal it', () => {
     // The committed test key's private half is public — if this fails, every
-    // build would trust signatures anyone can mint. Release CI guards this
-    // too; the unit test catches it at development time.
+    // build would trust signatures anyone can mint. Release CI guards every
+    // entry too; the unit test catches it at development time.
     const test = resolveSigningKey({}, TEST_REGISTRY_KEY_PATH);
-    expect(OPENBOOK_REGISTRY.publicKey).not.toBe(test.publicKey);
+    expect(OPENBOOK_REGISTRY_KEYS.length).toBeGreaterThan(0);
+    for (const pinned of OPENBOOK_REGISTRY_KEYS) {
+      expect(pinned.publicKey).not.toBe(test.publicKey);
+    }
+    // The deprecated alias stays wired to entry [0].
+    expect(OPENBOOK_REGISTRY).toBe(OPENBOOK_REGISTRY_KEYS[0]);
+  });
+
+  it('rotation overlap: packages signed by EITHER of two pinned-style keys verify as first-party', async () => {
+    // The mechanism behind docs/plugin-signing.md's add-then-remove rotation:
+    // OPENBOOK_REGISTRY_KEYS is a list, and verification accepts any entry —
+    // so during the overlap window (old key still signing, new key already
+    // pinned) both generations of bundle verify.
+    const oldKey = await generateRegistryKeys();
+    const newKey = await generateRegistryKeys();
+    const pinned = [
+      {name: 'OpenBook Registry', publicKey: oldKey.publicKey},
+      {name: 'OpenBook Registry (2027)', publicKey: newKey.publicKey},
+    ];
+    const signedByOld = await signBundledPackage({manifest, files}, resolveSigningKey({OPENBOOK_REGISTRY_PRIVATE_KEY: oldKey.privateKey}));
+    const signedByNew = await signBundledPackage({manifest, files}, resolveSigningKey({OPENBOOK_REGISTRY_PRIVATE_KEY: newKey.privateKey}));
+
+    expect(await verifyPlugin({manifest, files, signature: signedByOld}, pinned)).toEqual({registry: 'OpenBook Registry'});
+    expect(await verifyPlugin({manifest, files, signature: signedByNew}, pinned)).toEqual({registry: 'OpenBook Registry (2027)'});
+    // A key pinned in NEITHER slot still fails.
+    const stranger = await generateRegistryKeys();
+    const signedByStranger = await signBundledPackage({manifest, files}, resolveSigningKey({OPENBOOK_REGISTRY_PRIVATE_KEY: stranger.privateKey}));
+    expect(await verifyPlugin({manifest, files, signature: signedByStranger}, pinned)).toBeNull();
   });
 
   it('refuses the test fallback when OPENBOOK_REGISTRY_REQUIRE_KEY=1', () => {

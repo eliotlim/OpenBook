@@ -5,8 +5,8 @@
  * Two sources, in order:
  *  1. `OPENBOOK_REGISTRY_PRIVATE_KEY` (base64 PKCS#8 Ed25519) — the production
  *     path. Release CI sets it from the GitHub Actions secret of the same
- *     name; the public half is derived from it and must match the pinned
- *     `OPENBOOK_REGISTRY.publicKey` for installs to show Verified.
+ *     name; the public half is derived from it and must match a pinned
+ *     `OPENBOOK_REGISTRY_KEYS` entry for installs to show Verified.
  *  2. scripts/test-registry-key.json — the committed TEST-ONLY fallback, so
  *     dev/test builds still exercise the whole signing pipeline. Its private
  *     half is public by definition, so nothing trusts it by default; e2e

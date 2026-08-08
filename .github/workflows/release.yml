@@ -177,19 +177,27 @@ jobs:
       # destroyed — bundles show Unverified until the key ceremony
       # (docs/plugin-signing.md) commits the production key; that degrade is
       # deliberate and only warned about, never fatal.
-      - name: Guard — pinned plugin-registry key must not be the committed test key
+      - name: Guard — no pinned plugin-registry key may be the committed test key
         run: |
-          pinned=$(node -p "require('fs').readFileSync('packages/sdk/src/plugins.ts','utf8').match(/export const OPENBOOK_REGISTRY[\s\S]*?publicKey: '([^']+)'/)[1]")
+          # OPENBOOK_REGISTRY_KEYS is a LIST (rotation overlap) — every entry
+          # is a trust anchor, so every entry gets checked.
+          keys=$(node -p "
+            const src = require('fs').readFileSync('packages/sdk/src/plugins.ts','utf8');
+            const block = src.match(/export const OPENBOOK_REGISTRY_KEYS[\s\S]*?\n\];/)?.[0] ?? '';
+            [...block.matchAll(/publicKey: '([^']+)'/g)].map((m) => m[1]).join('\n');
+          ")
           testkey=$(node -p "require('./scripts/test-registry-key.json').publicKey")
-          if [ -z "$pinned" ]; then
-            echo "::error::could not read OPENBOOK_REGISTRY.publicKey from packages/sdk/src/plugins.ts — the guard cannot vouch for the trust anchor. Refusing to release." >&2
+          if [ -z "$keys" ]; then
+            echo "::error::could not read any OPENBOOK_REGISTRY_KEYS publicKey from packages/sdk/src/plugins.ts — the guard cannot vouch for the trust anchor. Refusing to release." >&2
             exit 1
           fi
-          if [ "$pinned" = "$testkey" ]; then
-            echo "::error::packages/sdk/src/plugins.ts pins the COMMITTED TEST registry key (scripts/test-registry-key.json) whose private half is public — every client would trust signatures anyone can mint. Run the key ceremony (docs/plugin-signing.md) before releasing." >&2
-            exit 1
-          fi
-          echo "Pinned plugin-registry key is not the committed test key — OK."
+          while IFS= read -r key; do
+            if [ "$key" = "$testkey" ]; then
+              echo "::error::packages/sdk/src/plugins.ts pins the COMMITTED TEST registry key (scripts/test-registry-key.json) whose private half is public — every client would trust signatures anyone can mint. Run the key ceremony (docs/plugin-signing.md) before releasing." >&2
+              exit 1
+            fi
+          done <<< "$keys"
+          echo "No pinned plugin-registry key equals the committed test key — OK ($(echo "$keys" | wc -l | tr -d ' ') pinned key(s) checked)."
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
@@ -415,6 +423,10 @@ jobs:
           # log warning — to the committed TEST key, and the bundled plugins
           # show Unverified, exactly like pre-signing builds.
           OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
+          # Ceremony step 6 (docs/plugin-signing.md): once the secret above is
+          # stored, uncomment so a later loss of the secret FAILS the build
+          # instead of silently degrading to the TEST-signed fallback.
+          # OPENBOOK_REGISTRY_REQUIRE_KEY: "1"
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
@@ -468,6 +480,24 @@ jobs:
             exit 1
           fi
           echo "Found ${#sigs[@]} updater signature(s):"; printf '  %s\n' "${sigs[@]}"
+
+      # Post-build backstop (ST-1, same shape as the .sig guard above): when
+      # the plugin-registry secret is set, the bundled first-party plugins the
+      # build just signed MUST verify against a pinned OPENBOOK_REGISTRY_KEYS
+      # entry — a wrong-key secret would otherwise ship bundles that every
+      # fresh install shows as Unverified. Skipped (with a note) while the
+      # secret is unset, where the TEST-signed fallback is the documented
+      # degrade.
+      - name: Guard — bundled plugins signed by a pinned registry key
+        shell: bash
+        env:
+          OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
+        run: |
+          if [ -z "$OPENBOOK_REGISTRY_PRIVATE_KEY" ]; then
+            echo "OPENBOOK_REGISTRY_PRIVATE_KEY unset — TEST-signed bundle is the documented degrade; skipping backstop."
+            exit 0
+          fi
+          node scripts/check-bundled-signatures.mjs
 
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
         shell: bash
@@ -616,12 +646,21 @@ jobs:
           # build then warns and falls back to the committed TEST key, and the
           # bundled plugins show Unverified (the pre-signing status quo).
           OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
+          # Ceremony step 6 (docs/plugin-signing.md): once the secret above is
+          # stored, uncomment so a later loss of the secret FAILS the build
+          # instead of silently degrading to the TEST-signed fallback.
+          # OPENBOOK_REGISTRY_REQUIRE_KEY: "1"
         run: |
           if [ -z "$OPENBOOK_REGISTRY_PRIVATE_KEY" ]; then
             echo "::warning::OPENBOOK_REGISTRY_PRIVATE_KEY is unset — bundled first-party plugins will be TEST-signed and show Unverified. Run the key ceremony (docs/plugin-signing.md) to enable production signing."
           fi
           pnpm --filter @book.dev/sdk build
           pnpm --filter @book.dev/ui build
+          # Post-build backstop (ST-1, mirrors publish-tauri): with the secret
+          # set, the freshly signed bundle must verify against a pinned key.
+          if [ -n "$OPENBOOK_REGISTRY_PRIVATE_KEY" ]; then
+            node scripts/check-bundled-signatures.mjs
+          fi
       - name: Publish to npm (OIDC trusted publishing)
         env:
           # Trusted publishing attaches provenance automatically, but make it

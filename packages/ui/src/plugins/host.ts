@@ -1,7 +1,7 @@
 import {
   verifyPlugin,
   pluginApiVersionError,
-  OPENBOOK_REGISTRY,
+  OPENBOOK_REGISTRY_KEYS,
   type DataClient,
   type PluginPackage,
   type StoredPlugin,
@@ -44,7 +44,15 @@ export const subscribePlugins = (cb: () => void): (() => void) => {
 
 const TRUSTED_KEYS_STORAGE = 'openbook.trustedRegistries';
 
-/** First-party key + any registries the user has chosen to trust. */
+const isPinnedKey = (publicKey: string): boolean => OPENBOOK_REGISTRY_KEYS.some((k) => k.publicKey === publicKey);
+// Case-insensitive: a user-added "openbook registry" would render a badge
+// indistinguishable from first-party provenance (see addTrustedRegistry).
+const isPinnedName = (name: string): boolean => {
+  const wanted = name.trim().toLowerCase();
+  return OPENBOOK_REGISTRY_KEYS.some((k) => k.name.trim().toLowerCase() === wanted);
+};
+
+/** ALL pinned first-party keys + any registries the user has chosen to trust. */
 export function trustedRegistryKeys(): Array<{name: string; publicKey: string}> {
   const extra = (() => {
     try {
@@ -55,20 +63,25 @@ export function trustedRegistryKeys(): Array<{name: string; publicKey: string}> 
       return [];
     }
   })();
-  return [OPENBOOK_REGISTRY, ...extra];
+  return [...OPENBOOK_REGISTRY_KEYS, ...extra];
 }
 
-/** Persist a user-trusted registry key (and re-verify on next sync). */
+/**
+ * Persist a user-trusted registry key (and re-verify on next sync). No-ops on
+ * any pinned key, and on any name that collides (case-insensitively) with a
+ * pinned registry name: a social-engineered paste must not be able to mint a
+ * "Verified by OpenBook Registry" badge for a non-first-party key.
+ */
 export function addTrustedRegistry(name: string, publicKey: string): void {
   const key = publicKey.trim();
-  if (key === OPENBOOK_REGISTRY.publicKey) return;
-  const list = trustedRegistryKeys().filter((k) => k.publicKey !== OPENBOOK_REGISTRY.publicKey);
+  if (isPinnedKey(key) || isPinnedName(name)) return;
+  const list = trustedRegistryKeys().filter((k) => !isPinnedKey(k.publicKey));
   if (list.some((k) => k.publicKey === key)) return;
   localStorage.setItem(TRUSTED_KEYS_STORAGE, JSON.stringify([...list, {name: name.trim(), publicKey: key}]));
 }
 
 export function removeTrustedRegistry(publicKey: string): void {
-  const list = trustedRegistryKeys().filter((k) => k.publicKey !== OPENBOOK_REGISTRY.publicKey && k.publicKey !== publicKey);
+  const list = trustedRegistryKeys().filter((k) => !isPinnedKey(k.publicKey) && k.publicKey !== publicKey);
   localStorage.setItem(TRUSTED_KEYS_STORAGE, JSON.stringify(list));
 }
 

@@ -17,11 +17,15 @@
 
 import {readFileSync, readdirSync, writeFileSync, statSync} from 'fs';
 import {join, relative, resolve} from 'path';
-import {OPENBOOK_REGISTRY} from '@book.dev/sdk';
+import {OPENBOOK_REGISTRY_KEYS} from '@book.dev/sdk';
 import {resolveSigningKey, signBundledPackage} from './bundleSigning';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..');
 const OUT = resolve(import.meta.dirname, '..', 'src', 'plugins', 'bundled.gen.ts');
+// Machine-readable sidecar of the emitted signatures, so release CI can
+// assert the built bundle is signed by a pinned key without parsing/executing
+// bundled.gen.ts (scripts/check-bundled-signatures.mjs).
+const SIG_OUT = resolve(import.meta.dirname, '..', 'src', 'plugins', 'bundled.signatures.json');
 
 /** Recursively collect all files under `dir`, returning paths relative to `base`. */
 function walk(dir: string, base: string): string[] {
@@ -55,13 +59,15 @@ if (signingKey.source === 'test') {
     '[bundlePlugins] OPENBOOK_REGISTRY_PRIVATE_KEY is unset — signing with the committed TEST-ONLY key ' +
       '(scripts/test-registry-key.json). Fine for dev/test; production builds must set the secret (docs/plugin-signing.md).',
   );
-} else if (signingKey.publicKey !== OPENBOOK_REGISTRY.publicKey) {
+} else if (!OPENBOOK_REGISTRY_KEYS.some((k) => k.publicKey === signingKey.publicKey)) {
   console.warn(
-    `[bundlePlugins] signing with an env key whose public half (${signingKey.publicKey}) does NOT match the pinned ` +
-      'OPENBOOK_REGISTRY key — installs will show Unverified unless clients trust it. Expected during rotation overlap ' +
-      'or local throwaway-key testing; wrong for a production release.',
+    `[bundlePlugins] signing with an env key whose public half (${signingKey.publicKey}) matches NO pinned ` +
+      'OPENBOOK_REGISTRY_KEYS entry — installs will show Unverified unless clients trust it. Expected during rotation ' +
+      'overlap or local throwaway-key testing; wrong for a production release.',
   );
 }
+
+const emittedSignatures: Array<{id: string; registry: string; publicKey: string}> = [];
 
 let out = `/* eslint-disable */
 /**
@@ -99,6 +105,7 @@ for (const plugin of PLUGINS) {
   // Sign the exact package literal being emitted — registry provenance for
   // the auto-installed first-party plugins (verified per sync in host.ts).
   const signature = await signBundledPackage({manifest, files: filesRecord}, signingKey);
+  emittedSignatures.push({id, registry: signature.registry, publicKey: signature.publicKey});
 
   const varName = id.replace(/[^a-zA-Z0-9]/g, '_');
   out += `export const ${varName}: PluginPackage = {\n`;
@@ -124,6 +131,7 @@ for (const plugin of PLUGINS) {
 out += '];\n';
 
 writeFileSync(OUT, out);
+writeFileSync(SIG_OUT, `${JSON.stringify(emittedSignatures, null, 2)}\n`);
 console.log(
   `wrote ${relative(process.cwd(), OUT)} (${PLUGINS.length} plugin(s), signed by ${signingKey.registry} [${signingKey.source}])`,
 );
