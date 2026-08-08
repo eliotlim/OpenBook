@@ -4,8 +4,9 @@ import {describe, expect, it, vi} from 'vitest';
 import helloManifestJson from '../../../../../examples/plugins/hello-openbook/openbook.json?raw';
 import helloIndexTs from '../../../../../examples/plugins/hello-openbook/src/index.ts?raw';
 import helloBlockTsx from '../../../../../examples/plugins/hello-openbook/src/block.tsx?raw';
-import {OPENBOOK_REGISTRY, PLUGIN_API_VERSION, type DataClient, type PluginManifest, type StoredPlugin} from '@book.dev/sdk';
+import {OPENBOOK_REGISTRY, PLUGIN_API_VERSION, type DataClient, type PluginManifest, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {syncPlugins, pluginStatuses, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry} from '../host';
+import {BUNDLED_PLUGINS} from '../bundled.gen';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
 
@@ -151,6 +152,43 @@ describe('plugin host', () => {
     delete (globalThis as Record<string, unknown>).__lgr4Late;
     list = [];
     await syncPlugins(client);
+  });
+
+  it('auto-installs the signed bundled plugins; a fresh install verifies once its registry key is trusted', async () => {
+    // A fresh library: no plugins installed. syncPlugins seeds the bundled
+    // first-party packages (signed at build by bundlePlugins.ts) through the
+    // normal install path.
+    const installed: StoredPlugin[] = [];
+    const client = {
+      listPlugins: async (): Promise<StoredPlugin[]> => [...installed],
+      installPlugin: async (pkg: PluginPackage): Promise<StoredPlugin> => {
+        const stored: StoredPlugin = {...pkg, enabled: true, installedAt: new Date(0).toISOString()};
+        installed.push(stored);
+        return stored;
+      },
+    } as unknown as DataClient;
+
+    await syncPlugins(client);
+    const ledger = (): {verifiedBy?: string} | undefined => pluginStatuses().find((s) => s.plugin.manifest.id === 'openbook.ledger');
+    expect(ledger()).toBeDefined();
+    expect(installed.some((p) => p.manifest.id === 'openbook.ledger' && p.signature)).toBe(true);
+
+    const sig = BUNDLED_PLUGINS.find((p) => p.manifest.id === 'openbook.ledger')!.signature!;
+    if (sig.publicKey !== OPENBOOK_REGISTRY.publicKey) {
+      // Dev/test tree: the bundle is signed by the (unpinned) test key, so it
+      // starts Unverified — provenance only appears once the key is trusted.
+      expect(ledger()!.verifiedBy).toBeUndefined();
+    }
+
+    // Trust the registry key that signed the bundle → Verified on the next
+    // sync. In production the pinned OPENBOOK_REGISTRY key plays this role
+    // and no user action is needed.
+    addTrustedRegistry(sig.registry, sig.publicKey);
+    await syncPlugins(client);
+    expect(ledger()!.verifiedBy).toBe(sig.registry);
+
+    removeTrustedRegistry(sig.publicKey);
+    await syncPlugins(clientWith([]));
   });
 
   it('manages the trusted-registry list around the pinned first-party key', () => {
