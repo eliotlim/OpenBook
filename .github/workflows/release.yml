@@ -168,6 +168,28 @@ jobs:
             exit 1
           fi
           echo "Updater pubkey present and not the placeholder — OK."
+      # Plugin-registry trust anchor (ST-1), same shape as the updater guard
+      # above: the pinned OPENBOOK_REGISTRY public key must NEVER be the
+      # committed TEST key (its private half is public — anyone could sign
+      # 'Verified' first-party plugins for every client that installs the
+      # build). Runs BEFORE nx release so nothing irreversible happens.
+      # NOTE: the CURRENT pinned key is a placeholder whose private half was
+      # destroyed — bundles show Unverified until the key ceremony
+      # (docs/plugin-signing.md) commits the production key; that degrade is
+      # deliberate and only warned about, never fatal.
+      - name: Guard — pinned plugin-registry key must not be the committed test key
+        run: |
+          pinned=$(node -p "require('fs').readFileSync('packages/sdk/src/plugins.ts','utf8').match(/export const OPENBOOK_REGISTRY[\s\S]*?publicKey: '([^']+)'/)[1]")
+          testkey=$(node -p "require('./scripts/test-registry-key.json').publicKey")
+          if [ -z "$pinned" ]; then
+            echo "::error::could not read OPENBOOK_REGISTRY.publicKey from packages/sdk/src/plugins.ts — the guard cannot vouch for the trust anchor. Refusing to release." >&2
+            exit 1
+          fi
+          if [ "$pinned" = "$testkey" ]; then
+            echo "::error::packages/sdk/src/plugins.ts pins the COMMITTED TEST registry key (scripts/test-registry-key.json) whose private half is public — every client would trust signatures anyone can mint. Run the key ceremony (docs/plugin-signing.md) before releasing." >&2
+            exit 1
+          fi
+          echo "Pinned plugin-registry key is not the committed test key — OK."
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
@@ -384,6 +406,15 @@ jobs:
           # post-build .sig guard below is the backstop for a bad key/password.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # First-party plugin-registry signing (ST-1): the ui build's
+          # gen:bundled-plugins step (run via beforeBuildCommand) signs the
+          # bundled PluginPackages with this Ed25519 PKCS#8 key so fresh
+          # installs verify against the pinned OPENBOOK_REGISTRY public key.
+          # UNSET until the owner performs the key ceremony
+          # (docs/plugin-signing.md): the build then falls back — with a loud
+          # log warning — to the committed TEST key, and the bundled plugins
+          # show Unverified, exactly like pre-signing builds.
+          OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
@@ -578,7 +609,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build the libraries (sdk first; ui imports its types)
+        env:
+          # Sign the bundled first-party plugins with the production registry
+          # key (ST-1) — the published @book.dev/ui ships bundled.gen.ts in its
+          # dist. Unset until the key ceremony (docs/plugin-signing.md): the
+          # build then warns and falls back to the committed TEST key, and the
+          # bundled plugins show Unverified (the pre-signing status quo).
+          OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
         run: |
+          if [ -z "$OPENBOOK_REGISTRY_PRIVATE_KEY" ]; then
+            echo "::warning::OPENBOOK_REGISTRY_PRIVATE_KEY is unset — bundled first-party plugins will be TEST-signed and show Unverified. Run the key ceremony (docs/plugin-signing.md) to enable production signing."
+          fi
           pnpm --filter @book.dev/sdk build
           pnpm --filter @book.dev/ui build
       - name: Publish to npm (OIDC trusted publishing)
