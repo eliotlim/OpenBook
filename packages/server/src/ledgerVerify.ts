@@ -52,6 +52,7 @@
 import {
   LEDGER_PROP,
   canonicalLedgerJson,
+  ledgerRestorePayloadContent,
   replayLedgerAudit,
   verifyLedgerAuditChain,
   type LedgerAccount,
@@ -675,17 +676,15 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       await derived('', {ledgerAutoExportPath: p.path ?? null}, ev);
       break;
     case 'ledger.restore':
-      // Provenance of an installed history (LGR-15) — touches no entity, but
-      // the recorded hash is re-derived from the exact payload shape the
-      // restore door writes, so doctoring WHO restored or WHICH bundle (while
-      // keeping the hash) is `audit-hash-forged`. Reconstructed field by field
-      // (never `ev.payload` verbatim): a forged extra/retyped field then
-      // changes the derived digest and is caught rather than absorbed.
-      await derived('', {
-        bundleSha: typeof p.bundleSha === 'string' ? p.bundleSha : null,
-        auditEvents: typeof p.auditEvents === 'number' ? p.auditEvents : 0,
-        assets: typeof p.assets === 'number' ? p.assets : 0,
-      }, ev);
+      // Provenance of an installed history (LGR-15) or of an export-section
+      // replay (LX-4) — touches no entity, but the recorded hash is re-derived
+      // from the exact payload shape the restore writers record
+      // (`ledgerRestorePayloadContent`, ONE shape shared with both writers),
+      // so doctoring WHO restored or WHICH bundle/section (while keeping the
+      // hash) is `audit-hash-forged`. Reconstructed field by field (never
+      // `ev.payload` verbatim): a forged extra/retyped field then changes the
+      // derived digest and is caught rather than absorbed.
+      await derived('', ledgerRestorePayloadContent(ev.payload), ev);
       break;
     }
   }

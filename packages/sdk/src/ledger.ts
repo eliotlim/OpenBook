@@ -915,6 +915,43 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
 }
 
 /**
+ * The DERIVED content a `ledger.restore` provenance event's `afterHash` covers
+ * — ONE shape shared by every writer of the event and by the verifier's
+ * re-derivation, so the two can never disagree (LGR-15 S6; extended by LX-4).
+ *
+ * Reconstructed field by field, never `payload` verbatim: a forged or retyped
+ * field changes the derived digest and is caught rather than absorbed. The
+ * LX-4 fields are CONDITIONAL (present only when the payload carries them), so
+ * an LGR-15 bundle-restore event — whose payload has only the first three —
+ * derives to exactly the digest its writer recorded.
+ *
+ *  - `bundleSha`: content hash of what was restored (the backup bundle, or the
+ *    canonical JSON of an export's ledger section);
+ *  - `auditEvents`: events installed (bundle restore) or freshly minted by the
+ *    replay (section restore);
+ *  - `assets`: evidence assets installed (always 0 for a section restore — an
+ *    HTML export carries no evidence bytes);
+ *  - `source` (LX-4): `'export-section'` on a section replay;
+ *  - `sourceAuditHeadSeq`/`sourceAuditHeadHash` (LX-4): the exported book's
+ *    audit-chain anchor, carried so the provenance names WHICH chain head the
+ *    source book was at when it was exported;
+ *  - `evidenceDropped`/`reconciliationsDowngraded` (LX-4): the replay's honest
+ *    degradation counters.
+ */
+export function ledgerRestorePayloadContent(p: Record<string, unknown>): Record<string, unknown> {
+  return {
+    bundleSha: typeof p.bundleSha === 'string' ? p.bundleSha : null,
+    auditEvents: typeof p.auditEvents === 'number' ? p.auditEvents : 0,
+    assets: typeof p.assets === 'number' ? p.assets : 0,
+    ...(typeof p.source === 'string' ? {source: p.source} : {}),
+    ...(typeof p.sourceAuditHeadSeq === 'number' ? {sourceAuditHeadSeq: p.sourceAuditHeadSeq} : {}),
+    ...(typeof p.sourceAuditHeadHash === 'string' ? {sourceAuditHeadHash: p.sourceAuditHeadHash} : {}),
+    ...(typeof p.evidenceDropped === 'number' ? {evidenceDropped: p.evidenceDropped} : {}),
+    ...(typeof p.reconciliationsDowngraded === 'number' ? {reconciliationsDowngraded: p.reconciliationsDowngraded} : {}),
+  };
+}
+
+/**
  * The tamper-evidence hash of ONE audit event: SHA-256 over its canonical
  * content INCLUDING `prevHash`, which is what links each event to its
  * predecessor. Async because it uses WebCrypto (isomorphic: Node, browser,

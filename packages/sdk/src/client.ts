@@ -22,6 +22,7 @@ import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, Mem
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LedgerBackupSection} from './backup';
+import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
 import type {
   DatabaseInput,
   DatabaseRow,
@@ -348,6 +349,15 @@ export interface DataClient {
   ledgerInfo(): Promise<LedgerInfo>;
   /** Seed the four managed ledger databases + restricted host page (idempotent). */
   ledgerInit(): Promise<LedgerInfo>;
+  /**
+   * LX-4: restore an export's embedded ledger-records section into an EMPTY
+   * ledger — the section is deep-validated, then REPLAYED through the server's
+   * ledger writer (fresh audit entries carrying import provenance; no direct
+   * row writes). Refuses with `LedgerError('invalid-state')` when the target
+   * already keeps any ledger data (merge is out of scope). Instance-admin gated
+   * over HTTP, like `importLibrary`.
+   */
+  ledgerRestoreSection(section: LedgerExportSection): Promise<LedgerSectionRestoreResult>;
   /** List accounts (hierarchy is encoded in the colon-delimited names). */
   ledgerListAccounts(): Promise<LedgerAccount[]>;
   /** Create an account. `currency` defaults to `USD`. */
@@ -1435,6 +1445,10 @@ export class HttpDataClient implements DataClient {
       throw new LedgerError(data.code as LedgerErrorCode, data.error ?? `ledger request failed (${res.status})`);
     }
     throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${data?.error ? `: ${data.error}` : ''}`);
+  }
+
+  ledgerRestoreSection(section: LedgerExportSection): Promise<LedgerSectionRestoreResult> {
+    return this.ledgerRequest<LedgerSectionRestoreResult>('POST', API.ledgerRestoreSection, section);
   }
 
   ledgerInfo(): Promise<LedgerInfo> {

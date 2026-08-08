@@ -39,6 +39,7 @@ import {
   type LedgerClearedState,
   type LedgerDraftInput,
   type LedgerDraftPatch,
+  type LedgerExportSection,
   type LedgerPeriodCloseInput,
   type LedgerReconciliationInput,
   type LedgerReconciliationPatch,
@@ -2001,6 +2002,27 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     }
     return c.json(info);
   });
+
+  // LX-4: restore an export's embedded ledger-records section into an EMPTY
+  // ledger by replaying it through the ledger writer. Instance-administration
+  // gated, the same gate (and rationale) as `importLibrary`: it writes a whole
+  // book, and the read-shaped refusal must never 403 the machine owner. A
+  // non-empty target refuses with the typed `invalid-state` body (409) via the
+  // LedgerError branch in `onError`.
+  const LEDGER_SECTION_MAX_BODY_BYTES = 64 * 1024 * 1024;
+  app.post(
+    API.ledgerRestoreSection,
+    bodyLimit({maxSize: LEDGER_SECTION_MAX_BODY_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
+      await requireInstanceAdmin(c, store);
+      const section = await c.req.json<LedgerExportSection>();
+      const before = await store.ledgerIds();
+      const result = await store.ledger.restoreExportSection(section, c.get('principal'));
+      if (!before) await broadcastList();
+      logEdit(c, null, 'ledger.restore', `${result.restored.transactions} entries, ${result.restored.accounts} accounts`);
+      return c.json(result);
+    },
+  );
 
   app.get(API.ledgerAccounts, async (c) => {
     await requireLedger(c, 'read');
