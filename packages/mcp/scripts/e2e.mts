@@ -70,12 +70,17 @@ async function main(): Promise<void> {
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name).sort();
   check(
-    'all eighteen tools are listed',
+    'all twenty-nine tools are listed',
     JSON.stringify(names) ===
       JSON.stringify([
         'append_blocks', 'append_to_page', 'create_artifact_page', 'create_database_row', 'create_page',
-        'delete_block', 'get_db_row', 'get_kit_values', 'inspect_page_structure', 'list_database_rows',
-        'list_db_views', 'list_pages', 'read_page', 'search_notes', 'set_db_cell', 'set_kit_value',
+        'delete_block', 'get_db_row', 'get_kit_values', 'inspect_page_structure', 'inspect_table',
+        'list_database_rows', 'list_db_views', 'list_pages', 'read_page', 'search_notes', 'set_db_cell',
+        'set_kit_value',
+        // API-3 table structure ops (behaviour: scripts/tables.test.mts).
+        'table_delete_column', 'table_delete_row', 'table_duplicate_row', 'table_insert_column',
+        'table_insert_row', 'table_move_column', 'table_move_row', 'table_set_cell',
+        'table_set_column_color', 'table_set_row_color',
         'update_block', 'update_block_props',
       ]),
   );

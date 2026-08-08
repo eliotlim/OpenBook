@@ -3,15 +3,26 @@ import {z} from 'zod';
 import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
+  applyTableOpToSnapshot,
   projectAppendBlocks,
+  resolveTableOp,
+  snapshotTableIdFor,
+  snapshotTableView,
+  snapshotTables,
   snapshotText,
+  tableOpError,
+  tableOpRemovesTable,
+  tableShapeOf,
   textSnapshot,
   type AgentEditsMode,
   type DataClient,
   type PageSnapshot,
+  type SnapshotTableView,
   type StoredSuggestion,
   type SuggestionKind,
   type SuggestionTarget,
+  type TableOpAddress,
+  type TableOpKind,
 } from '@book.dev/sdk';
 
 // ── Read helpers over the JSON projection (shared shape with the in-app agent) ─
@@ -374,7 +385,7 @@ function blockTypesIn(blocks: NestedBlockInput[], out: string[] = []): string[] 
  * the identifier is the BRIDGE's, not the tool's). The SDK suggestion `kind` each
  * maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
  */
-type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props';
+type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props' | TableOpKind;
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   append_blocks: 'insert',
@@ -383,6 +394,19 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   set_db_cell: 'set-cell',
   delete_block: 'delete',
   set_block_props: 'replace-text',
+  // API-3: every table STRUCTURE op reviews as one `table-op` kind; the
+  // `payload.applyKind` (the tool name, which is also the bridge's proposal kind)
+  // says which op to replay.
+  table_insert_row: 'table-op',
+  table_delete_row: 'table-op',
+  table_duplicate_row: 'table-op',
+  table_insert_column: 'table-op',
+  table_delete_column: 'table-op',
+  table_move_row: 'table-op',
+  table_move_column: 'table-op',
+  table_set_cell: 'table-op',
+  table_set_row_color: 'table-op',
+  table_set_column_color: 'table-op',
 };
 
 /**
@@ -1052,6 +1076,385 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       }
       return text(`Set ${prop.name} = ${JSON.stringify(value)} directly on row ${rowId}.`);
     },
+  );
+
+  // ── Table structure (API-3) ──────────────────────────────────────────────────
+  //
+  // The seven structural table ops the editor's context menu offers, plus cell
+  // text and row/column tints, exposed as tools of the same names as the editor
+  // bridge's proposal kinds. Everything shares ONE definition per concern with the
+  // in-app paths, which is what keeps the editor, the agent, and MCP in agreement:
+  //
+  //  · COORDINATES are SORTED (render-order) indices — the space the editor's
+  //    `cellPosition` reports, NOT the order rows/cells happen to sit in the
+  //    stored array. Ids (`cellId`, `rowId`, `colId`) are also accepted and are
+  //    resolved to those indices by the SDK's `resolveTableOp`.
+  //  · GUARDS come from the SDK's `tableOpError` — bounds, plus the editor's
+  //    header-row rule (a row cannot be inserted ABOVE row 0 while the table's
+  //    `header` prop is set, because rendering is positional: the blank new row
+  //    would become the header and silently demote the real one). Validation runs
+  //    BEFORE the policy branch, so suggest mode and direct mode refuse identically
+  //    and a refused op queues nothing.
+  //  · THE LAST ROW / COLUMN removes the WHOLE table, exactly as the editor's
+  //    `tableDeleteRow` / `tableDeleteColumn` do. The tool says so in its result.
+  //
+  // THE `col:` / `ord` DECISION (see `packages/sdk/src/tableSnapshot.ts` for the
+  // full rationale): a table built by `append_blocks` has NO order keys, because an
+  // MCP client cannot invent them. Rather than staying positional and deferring to
+  // the editor's `ensureTableOrderInTx`, these tools MIGRATE EAGERLY — every op
+  // first backfills `table.props['col:<id>']` and `row.props.ord` using the SAME
+  // deterministic scheme (`c0…cN-1`, `keysBetween(null, null, n)`) and the SAME key
+  // algebra the editor uses, so a table migrated here and one migrated by the
+  // editor end up with byte-identical keys. Insert and move are DEFINED as
+  // order-key edits; a positional-only implementation would have to reorder nodes a
+  // concurrent peer is editing and would disagree with the editor on an
+  // already-keyed table. `inspect_table` reports a not-yet-migrated table as
+  // "unmigrated" so the difference is visible.
+  //
+  // These tools are the ONLY sanctioned way to write `ord` / `col:` / `colbg:`;
+  // `update_block_props` refuses those keys.
+
+  /** The write-summary label for a table op (also the suggestion's summary). */
+  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null}): string => {
+    const where = `table ${view.tableId}`;
+    switch (kind) {
+    case 'table_insert_row': return `Insert a row at position ${resolved.rowIndex} of ${where}`;
+    case 'table_delete_row': return `Delete row ${resolved.rowIndex} of ${where}`;
+    case 'table_duplicate_row': return `Duplicate row ${resolved.rowIndex} of ${where}`;
+    case 'table_insert_column': return `Insert a column at position ${resolved.colIndex} of ${where}`;
+    case 'table_delete_column': return `Delete column ${resolved.colIndex} of ${where}`;
+    case 'table_move_row': return `Move row ${resolved.rowIndex} to position ${resolved.toIndex} of ${where}`;
+    case 'table_move_column': return `Move column ${resolved.colIndex} to position ${resolved.toIndex} of ${where}`;
+    case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(resolved.text ?? '', 60)}"`;
+    case 'table_set_row_color': return `${resolved.color ? `Tint row ${resolved.rowIndex} ${resolved.color}` : `Clear the tint on row ${resolved.rowIndex}`} of ${where}`;
+    case 'table_set_column_color': return `${resolved.color ? `Tint column ${resolved.colIndex} ${resolved.color}` : `Clear the tint on column ${resolved.colIndex}`} of ${where}`;
+    }
+  };
+
+  /** The before→after pair the review card shows for a table op. */
+  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null}): {before: string; after: string} => {
+    const row = (r: number | undefined): string => (r === undefined ? '' : (view.cells[r] ?? []).join(' | '));
+    const column = (c: number | undefined): string => (c === undefined ? '' : view.cells.map((cells) => cells[c] ?? '').join(' | '));
+    switch (kind) {
+    case 'table_insert_row': return {before: '', after: `(blank row at position ${resolved.rowIndex})`};
+    case 'table_insert_column': return {before: '', after: `(blank column at position ${resolved.colIndex})`};
+    case 'table_delete_row': return {before: row(resolved.rowIndex), after: ''};
+    case 'table_delete_column': return {before: column(resolved.colIndex), after: ''};
+    case 'table_duplicate_row': return {before: row(resolved.rowIndex), after: `${row(resolved.rowIndex)} (copied below)`};
+    case 'table_move_row': return {before: `row ${resolved.rowIndex}: ${row(resolved.rowIndex)}`, after: `position ${resolved.toIndex}`};
+    case 'table_move_column': return {before: `column ${resolved.colIndex}: ${column(resolved.colIndex)}`, after: `position ${resolved.toIndex}`};
+    case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: resolved.text ?? ''};
+    case 'table_set_row_color': return {before: '(row tint)', after: resolved.color ?? '(none)'};
+    case 'table_set_column_color': return {before: '(column tint)', after: resolved.color ?? '(none)'};
+    }
+  };
+
+  /**
+   * Run one table op end to end: locate the table, resolve id-or-index addressing
+   * to SORTED coordinates, validate, then either queue a suggestion or apply the
+   * op to the stored snapshot. Shared by all ten tools so they can't drift in
+   * their error wording, their policy handling, or their payload shape.
+   */
+  const runTableOp = async (kind: TableOpKind, pageId: string, address: TableOpAddress & {tableId?: string}) => {
+    const page = await client.getPage(pageId);
+    if (!page) return failure('Page not found.');
+    if ((page.data as {editor?: string}).editor !== 'blocks') {
+      return failure('That page is a legacy editor page — it has no block tables.');
+    }
+    // The table is named directly, or inferred from a cell/row id inside it.
+    const anchor = address.tableId ?? address.cellId ?? address.rowId;
+    if (!anchor) return failure('Provide a tableId (or a cellId / rowId inside the table) — find them with inspect_table.');
+    const tableId = snapshotTableIdFor(page.data, anchor);
+    if (!tableId) return failure(`No table containing "${anchor}" on that page — use inspect_table to list this page's tables.`);
+    const view = snapshotTableView(page.data, tableId);
+    if (!view) return failure(`No table "${tableId}" on that page — use inspect_table.`);
+
+    const resolved = resolveTableOp(view, kind, address);
+    if ('error' in resolved) return failure(resolved.error);
+    const {op} = resolved;
+    const invalid = tableOpError(tableShapeOf(view), op);
+    if (invalid) return failure(invalid);
+
+    const summary = tableOpLabel(kind, view, op);
+    const removesTable = tableOpRemovesTable(tableShapeOf(view), op);
+
+    if ((await resolveWritePolicy(pageId)) !== 'direct') {
+      const {before, after} = tableOpDiff(kind, view, op);
+      // The payload carries BOTH the resolved sorted indices and the STABLE ids of
+      // the nodes they resolved to (when the node already exists — an insert has no
+      // node yet). The editor bridge prefers the ids, so a suggestion that sits in
+      // review while the table is reordered still edits the row/cell it meant, and
+      // errors cleanly if that node is gone instead of hitting whatever now occupies
+      // the index.
+      const stable: Record<string, unknown> = {};
+      if (op.rowIndex !== undefined && kind !== 'table_insert_row' && view.rowIds[op.rowIndex]) stable.rowId = view.rowIds[op.rowIndex];
+      if (op.colIndex !== undefined && kind !== 'table_insert_column' && view.colIds[op.colIndex]) stable.colId = view.colIds[op.colIndex];
+      if (kind === 'table_set_cell') {
+        const cellId = view.cellIds[op.rowIndex ?? 0]?.[op.colIndex ?? 0];
+        if (cellId) stable.cellId = cellId;
+        delete stable.rowId;
+        delete stable.colId;
+      }
+      const s = await recordSuggestion({
+        kind,
+        pageId,
+        summary,
+        before: clip(before, 200),
+        after: clip(after, 200),
+        // The review card anchors on the TABLE block — the thing the reviewer looks
+        // at — while the payload holds the precise coordinates.
+        target: {blockId: tableId},
+        payload: {pageId, tableId, ...op, ...stable},
+      });
+      return suggested(summary, s);
+    }
+
+    const applied = applyTableOpToSnapshot(page.data, tableId, op);
+    if (!applied) return failure(`No table "${tableId}" on that page — use inspect_table.`);
+    try {
+      await client.savePage({id: page.id, name: page.name, data: applied.data});
+    } catch (err) {
+      return failure(`Could not apply the table op (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (applied.removedTable || removesTable) {
+      return text(`${summary} — that was the last ${kind === 'table_delete_row' ? 'row' : 'column'}, so the whole table block was removed from "${page.name ?? 'Untitled'}" (the editor behaves the same way).`);
+    }
+    const after = snapshotTableView(applied.data, tableId);
+    return text(`${summary} — applied directly. The table is now ${after?.rows ?? '?'} row(s) × ${after?.cols ?? '?'} column(s).`);
+  };
+
+  const PAGE_ARG = z.string().describe('The page id.');
+  const TABLE_ARG = z
+    .string()
+    .optional()
+    .describe('The table block id (from inspect_table / inspect_page_structure). Optional when a cellId or rowId inside the table is given.');
+  const ROW_INDEX = (what: string) => z.number().int().optional().describe(`${what} Counted in RENDER order, 0-based (row 0 is the header row when the table has one).`);
+  const COL_INDEX = (what: string) => z.number().int().optional().describe(`${what} Counted in RENDER order, 0-based (column 0 is the leftmost).`);
+  const COLOR_ARG = z
+    .string()
+    .nullable()
+    .describe('A palette token (e.g. "amber", "blue", "green"), or null to clear the tint.');
+
+  /** Boilerplate shared by every table write tool's description. */
+  const TABLE_POLICY_NOTE =
+    'Coordinates are RENDER-order (sorted) indices, the same ones inspect_table prints — not positions in the stored array. ' +
+    'Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).';
+
+  server.registerTool(
+    'inspect_table',
+    {
+      title: 'Inspect a table',
+      description:
+        'Show a block table in RENDER order: its size, whether it has a header row, its column ids, and every row/cell id with its text. Call this BEFORE any table_* tool — the row, column and cell ids it prints are what those tools address, and the indices it prints are the RENDER-order coordinates they take (a stored table\'s array order is NOT its render order once it has been reordered). ' +
+        'Omit tableId to list every table on the page. A table reported as "unmigrated" has no order keys yet (it was built by append_blocks); the first table_* op assigns them without changing what you see here.',
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: z.string().optional().describe('The table block id. Omit to list every table on the page.'),
+      },
+    },
+    async ({pageId, tableId}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      if (!tableId) {
+        const tables = snapshotTables(page.data);
+        if (tables.length === 0) return text('That page has no tables.');
+        return text(tables.map((t) => `- [${t.id}] ${t.rows} row(s) × ${t.cols} column(s)${t.header ? ', header row' : ''}`).join('\n'));
+      }
+      const view = snapshotTableView(page.data, tableId);
+      if (!view) return failure(`No table "${tableId}" on that page — omit tableId to list this page's tables.`);
+      const lines = [
+        `Table [${view.tableId}] — ${view.rows} row(s) × ${view.cols} column(s), header row: ${view.header ? 'yes' : 'no'}`,
+        view.colIds.length > 0
+          ? `Column ids (render order): ${view.colIds.map((id, i) => `${i}=${id}`).join('  ')}`
+          : 'Column ids: none yet (unmigrated — the first table_* op assigns them; render order is the stored order until then)',
+      ];
+      view.cells.forEach((cells, r) => {
+        const body = cells.map((t, c) => `${c}:"${clip(t, 40)}"${view.cellIds[r][c] ? ` [${view.cellIds[r][c]}]` : ' [gap]'}`).join('  ');
+        lines.push(`row ${r} [${view.rowIds[r]}]${view.header && r === 0 ? ' (header)' : ''}: ${body}`);
+      });
+      return text(lines.join('\n'));
+    },
+  );
+
+  server.registerTool(
+    'table_insert_row',
+    {
+      title: 'Insert a table row',
+      description:
+        'Insert a blank row into a table at a RENDER-order position, with one cell per column. Pass the position you want the new row to OCCUPY: 0 puts it first, and the table\'s current row count appends it at the end. ' +
+        'REFUSED at position 0 when the table has a header row — rendering is positional, so the blank row would become the header and demote the real one; insert at 1 to add a row directly below the header. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: z.number().int().describe('Where the new row should land, 0-based in RENDER order (0…row count; the row count appends).'),
+        cellId: z.string().optional().describe('A cell inside the target table — an alternative to tableId for naming the table.'),
+      },
+    },
+    async ({pageId, tableId, rowIndex, cellId}) =>
+      // A cellId here names the TABLE only; the caller's explicit rowIndex decides
+      // where the row lands, so the cell's own coordinates must not override it.
+      runTableOp('table_insert_row', pageId, {tableId: tableId ?? cellId, rowIndex}),
+  );
+
+  server.registerTool(
+    'table_delete_row',
+    {
+      title: 'Delete a table row',
+      description:
+        'Delete one row of a table (with its cells). Address it by RENDER-order index or by its row block id. Deleting the LAST remaining row removes the whole table block — the same rule the editor follows. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: ROW_INDEX('The row to delete.'),
+        rowId: z.string().optional().describe('The row block id (from inspect_table) — an alternative to rowIndex, and it names the table too.'),
+      },
+    },
+    async ({pageId, tableId, rowIndex, rowId}) => runTableOp('table_delete_row', pageId, {tableId, rowIndex, rowId}),
+  );
+
+  server.registerTool(
+    'table_duplicate_row',
+    {
+      title: 'Duplicate a table row',
+      description:
+        'Copy one row of a table directly below itself: fresh block ids, the same cell text, the same column bindings, and the source row\'s tint. Address it by RENDER-order index or row block id. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: ROW_INDEX('The row to duplicate.'),
+        rowId: z.string().optional().describe('The row block id (from inspect_table) — an alternative to rowIndex.'),
+      },
+    },
+    async ({pageId, tableId, rowIndex, rowId}) => runTableOp('table_duplicate_row', pageId, {tableId, rowIndex, rowId}),
+  );
+
+  server.registerTool(
+    'table_insert_column',
+    {
+      title: 'Insert a table column',
+      description:
+        'Insert a blank column into a table at a RENDER-order position, adding one cell to every row. Pass the position the new column should OCCUPY: 0 puts it leftmost, and the table\'s current column count appends it on the right. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        colIndex: z.number().int().describe('Where the new column should land, 0-based in RENDER order (0…column count; the column count appends).'),
+        cellId: z.string().optional().describe('A cell inside the target table — an alternative to tableId for naming the table.'),
+      },
+    },
+    async ({pageId, tableId, colIndex, cellId}) => runTableOp('table_insert_column', pageId, {tableId: tableId ?? cellId, colIndex}),
+  );
+
+  server.registerTool(
+    'table_delete_column',
+    {
+      title: 'Delete a table column',
+      description:
+        'Delete one column of a table: its registry entry, its tint, and its cell in every row. Address it by RENDER-order index or column id. Deleting the LAST remaining column removes the whole table block — the same rule the editor follows. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        colIndex: COL_INDEX('The column to delete.'),
+        colId: z.string().optional().describe('The column id (from inspect_table) — an alternative to colIndex. Only a migrated table has column ids.'),
+      },
+    },
+    async ({pageId, tableId, colIndex, colId}) => runTableOp('table_delete_column', pageId, {tableId, colIndex, colId}),
+  );
+
+  server.registerTool(
+    'table_move_row',
+    {
+      title: 'Move a table row',
+      description:
+        'Move a row to another RENDER-order position. `toIndex` is the position it should end up at counted WITH THE MOVED ROW REMOVED (so moving row 0 down by one is toIndex 1). Only the row\'s order key changes — its cells are untouched, so concurrent edits inside it merge cleanly. Moving a row to position 0 makes it the header row when the table has one. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: ROW_INDEX('The row to move.'),
+        rowId: z.string().optional().describe('The row block id (from inspect_table) — an alternative to rowIndex, and the safer choice.'),
+        toIndex: z.number().int().describe('Target position, 0-based, counted with the moved row removed.'),
+      },
+    },
+    async ({pageId, tableId, rowIndex, rowId, toIndex}) => runTableOp('table_move_row', pageId, {tableId, rowIndex, rowId, toIndex}),
+  );
+
+  server.registerTool(
+    'table_move_column',
+    {
+      title: 'Move a table column',
+      description:
+        'Move a column to another RENDER-order position. `toIndex` is the position it should end up at counted WITH THE MOVED COLUMN REMOVED. Only the column\'s order key changes — no cell is touched, so concurrent edits in that column merge cleanly and its tint follows it. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        colIndex: COL_INDEX('The column to move.'),
+        colId: z.string().optional().describe('The column id (from inspect_table) — an alternative to colIndex.'),
+        toIndex: z.number().int().describe('Target position, 0-based, counted with the moved column removed.'),
+      },
+    },
+    async ({pageId, tableId, colIndex, colId, toIndex}) => runTableOp('table_move_column', pageId, {tableId, colIndex, colId, toIndex}),
+  );
+
+  server.registerTool(
+    'table_set_cell',
+    {
+      title: 'Set a table cell',
+      description:
+        'Replace the text of one table cell. Address it by RENDER-order row + column index, or by its cell block id (which identifies the table on its own). Use this rather than update_block when you are working in grid coordinates; update_block by cell id does the same thing. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: ROW_INDEX('The cell\'s row.'),
+        colIndex: COL_INDEX('The cell\'s column.'),
+        cellId: z.string().optional().describe('The cell block id (from inspect_table) — resolves BOTH indices and names the table.'),
+        text: z.string().describe('The new plain text for the cell (empty string clears it).'),
+      },
+    },
+    async ({pageId, tableId, rowIndex, colIndex, cellId, text: cellText}) =>
+      runTableOp('table_set_cell', pageId, {tableId, rowIndex, colIndex, cellId, text: cellText}),
+  );
+
+  server.registerTool(
+    'table_set_row_color',
+    {
+      title: 'Tint a table row',
+      description:
+        'Set (or clear) a row\'s background tint — the row block\'s `bg` prop. A row tint wins over a column tint where both apply. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        rowIndex: ROW_INDEX('The row to tint.'),
+        rowId: z.string().optional().describe('The row block id (from inspect_table) — an alternative to rowIndex.'),
+        color: COLOR_ARG,
+      },
+    },
+    async ({pageId, tableId, rowIndex, rowId, color}) => runTableOp('table_set_row_color', pageId, {tableId, rowIndex, rowId, color}),
+  );
+
+  server.registerTool(
+    'table_set_column_color',
+    {
+      title: 'Tint a table column',
+      description:
+        'Set (or clear) a column\'s background tint — the table-level `colbg:<colId>` prop, keyed on the column\'s stable id, so the tint follows the column through reorders. A row tint wins over a column tint where both apply. ' +
+        TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        colIndex: COL_INDEX('The column to tint.'),
+        colId: z.string().optional().describe('The column id (from inspect_table) — an alternative to colIndex.'),
+        color: COLOR_ARG,
+      },
+    },
+    async ({pageId, tableId, colIndex, colId, color}) => runTableOp('table_set_column_color', pageId, {tableId, colIndex, colId, color}),
   );
 
   return server;

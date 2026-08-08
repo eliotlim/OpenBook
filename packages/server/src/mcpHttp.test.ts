@@ -389,6 +389,55 @@ describe('mcpHttp nested append + delete_block over the remote transport', () =>
     expect(toolText(ghost.json)).toContain('inspect_page_structure');
   });
 
+  // API-3 smoke: one table STRUCTURE op over the remote transport. The ops' own
+  // behaviour is proven in `packages/mcp/scripts/tables.test.mts`; what matters here
+  // is that a table tool's RENDER-order coordinates survive the JSON-RPC hop and that
+  // the resulting `col:`/`ord` migration is persisted through the PAT loop-back.
+  it('a table structure op crosses the remote transport and migrates col:/ord', async () => {
+    const a = app();
+    const page = await directBlockPage(`remote-table-${seq}`);
+    const pat = await mintPat('write');
+
+    await rpc(
+      a,
+      pat,
+      callMsg('append_blocks', {
+        pageId: page.id,
+        blocks: [
+          {
+            type: 'table',
+            props: {header: true},
+            children: [
+              {type: 'row', children: [{type: 'cell', text: 'Item'}, {type: 'cell', text: 'Qty'}]},
+              {type: 'row', children: [{type: 'cell', text: 'Apples'}, {type: 'cell', text: '3'}]},
+            ],
+          },
+        ],
+      }),
+    );
+    const tableId = (await blocks(page.id)).find((b) => b.type === 'table')!.id;
+
+    // Refused server-side, over the transport, with the editor's own reason.
+    const above = await rpc(a, pat, callMsg('table_insert_row', {pageId: page.id, tableId, rowIndex: 0}));
+    expect(toolIsError(above.json)).toBe(true);
+    expect(toolText(above.json)).toContain('above the header row');
+
+    const insert = await rpc(a, pat, callMsg('table_insert_row', {pageId: page.id, tableId, rowIndex: 1}));
+    expect(toolIsError(insert.json)).toBe(false);
+    const table = (await blocks(page.id)).find((b) => b.type === 'table') as
+      | {props?: Record<string, unknown>; children?: Array<{props?: Record<string, unknown>; children?: Array<{text?: Array<{t: string}>}>}>}
+      | undefined;
+    expect(table?.children).toHaveLength(3);
+    // The op migrated the keyless append_blocks table: a column registry on the
+    // table, an `ord` on every row — and the original rows kept their order.
+    expect(Object.keys(table?.props ?? {}).filter((k) => k.startsWith('col:'))).toHaveLength(2);
+    expect(table?.children?.every((r) => typeof r.props?.ord === 'string')).toBe(true);
+
+    const report = await rpc(a, pat, callMsg('inspect_table', {pageId: page.id, tableId}));
+    expect(toolText(report.json)).toContain('3 row(s) × 2 column(s), header row: yes');
+    expect(toolText(report.json)).toMatch(/row 1 \[[^\]]+\]: 0:""\s+\[[^\]]+\]\s+1:""/); // the blank row is at render position 1
+  });
+
   it('a READ PAT cannot delete a block (scope still enforced by the loop-back)', async () => {
     const a = app();
     const page = await directBlockPage(`remote-ro-${seq}`);
