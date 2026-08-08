@@ -10,7 +10,7 @@ import {mintIdentityKeypair, signIdentity} from '../../sdk/src/identity';
 import {test, expect, chooseValue, WORKER_DATA_DIR_PREFIX} from './fixtures';
 
 /**
- * "Published pages only" — the fourth Default-access state (PUB-1).
+ * "Only published pages" — the fourth Default-access state (PUB-1).
  *
  * Per-page publishing has always worked at the API/authorize level, but the
  * settings control could not NAME the config pair it runs in:
@@ -214,7 +214,7 @@ test.describe('PUB-1: published-pages-only default access', () => {
   test.afterAll(() => instance?.stop());
 
   test(
-    'a claimed library shows "Published pages only", serves exactly the published page to visitors, and survives a Private round-trip',
+    'a claimed library shows "Only published pages", serves exactly the published page to visitors, and survives a Private round-trip',
     {tag: ['@sharing']},
     async ({browser}) => {
       const ownerContext = await contextFor(browser, instance, 'owner');
@@ -226,10 +226,14 @@ test.describe('PUB-1: published-pages-only default access', () => {
       // view" — a claim that was simply false.
       const picker = await openDefaultAccess(ownerPage);
       await expect(picker).toHaveAttribute('data-value', 'published');
-      await expect(picker).toHaveText(/Published pages only/);
+      await expect(picker).toHaveText(/Only published pages/);
       await expect(
-        ownerPage.getByText(/Only pages you explicitly publish are visible to visitors/),
+        ownerPage.getByText(/Visitors can open only the pages you explicitly publish/),
       ).toBeVisible();
+      // The instance IS claimed, so per-page publishing really is in force — the
+      // unclaimed disclosure must NOT appear (it would be a false alarm here, and
+      // its absence is what makes it meaningful when it does show).
+      await expect(ownerPage.getByText(/Until this library is claimed/)).toHaveCount(0);
 
       // ── 2. Publish exactly ONE page ─────────────────────────────────────────
       const published = await fetch(`${instance.url}/api/pages/${publishedId}/visibility`, {
