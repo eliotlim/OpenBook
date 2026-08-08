@@ -352,6 +352,25 @@ describe('last row / last column removes the whole table (editor parity)', () =>
   });
 });
 
+describe('a childless table block (a `{type:"table"}` payload with no rows)', () => {
+  const bare = (): PageSnapshot => tablePage([{type: 'table'}]);
+
+  it('reads as 0×0 and refuses every op that needs an existing row or column', () => {
+    const view = snapshotTableView(bare(), 't-0')!;
+    expect([view.rows, view.cols]).toEqual([0, 0]);
+    expect(tableOpError(tableShapeOf(view), {kind: 'table_delete_row', rowIndex: 0})).toMatch(/out of range/);
+    expect(tableOpError(tableShapeOf(view), {kind: 'table_set_cell', rowIndex: 0, colIndex: 0, text: 'x'})).toMatch(/out of range/);
+  });
+
+  it('recovers on insert_row: migration registers one column and the row gets a cell', () => {
+    const after = run(bare(), 'table_insert_row', {rowIndex: 0});
+    const view = snapshotTableView(after, 't-0')!;
+    expect([view.rows, view.cols]).toEqual([1, 1]);
+    expect(view.colIds).toEqual(['c0']);
+    expect(view.cells).toEqual([['']]);
+  });
+});
+
 describe('non-table targets', () => {
   it('returns null for a block that is not a table, and for a legacy page', () => {
     const data = tablePage();
