@@ -27,6 +27,7 @@
   "scripts": {
     "build": "pnpm run gen:bundled-plugins && pnpm run build:viewer && vite build && tsc",
     "gen:bundled-plugins": "tsx scripts/bundlePlugins.ts",
+    "check:gen": "pnpm run gen:bundled-plugins && (git diff --exit-code -- src/plugins/bundled.gen.ts src/export/ledgerFolds.gen || (echo 'Committed .gen mirror is STALE: run pnpm --filter @book.dev/ui run gen:bundled-plugins and commit the result.' >&2 && exit 1))",
     "build:viewer": "vite build --config vite.viewer.config.js",
     "gen:export-fixtures": "vitest run scripts/exportParityFixtures.test.ts",
     "dev": "vite build --watch",
