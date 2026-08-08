@@ -26,8 +26,12 @@ interface FakeRegistry {
   name: string;
   notary: {publicKey: string; privateKey: string} | null;
   registryKeys: {publicKey: string; privateKey: string} | null;
-  plugins: Map<string, {pinnedKey: string; publisher: string; versions: FakeVersion[]}>;
+  plugins: Map<string, {pinnedKey: string; pinnedKeys?: string[]; publisher: string; versions: FakeVersion[]}>;
   revocations: RegistryRevocation[];
+  omitHead?: boolean;
+  badHeadSignature?: boolean;
+  headMaxSeq?: number;
+  headGeneratedAt?: string;
   /** Corrupt the served download bytes (transport tampering). */
   corruptDownloads?: boolean;
   /** Lie in the ETag (should be caught by the hash check). */
@@ -97,6 +101,7 @@ function fakeFetch(reg: FakeRegistry, base = 'https://store.test'): FetchLike {
           icon: latest!.pkg.manifest.icon ?? null,
           category: null,
           publisher: p.publisher,
+          ...(p.pinnedKeys ? {pinnedKeys: p.pinnedKeys} : {}),
           pinnedKey: p.pinnedKey,
           latestVersion: latest!.pkg.manifest.version,
           digest: latest!.digest,
@@ -117,6 +122,7 @@ function fakeFetch(reg: FakeRegistry, base = 'https://store.test'): FetchLike {
       if (!p) return json({error: 'not_found', message: 'unknown plugin'}, {status: 404});
       return json({
         id,
+        ...(p.pinnedKeys ? {pinnedKeys: p.pinnedKeys} : {}),
         pinnedKey: p.pinnedKey,
         createdAt: new Date(0).toISOString(),
         versions: await Promise.all(
@@ -169,7 +175,19 @@ function fakeFetch(reg: FakeRegistry, base = 'https://store.test'): FetchLike {
       const since = Number(url.searchParams.get('since') ?? '0');
       const list = reg.revocations.filter((r) => r.seq > since);
       const maxSeq = reg.revocations.reduce((n, r) => Math.max(n, r.seq), 0);
-      return json({policy: 'test', maxSeq, revocations: list});
+      const headMaxSeq = reg.headMaxSeq ?? maxSeq;
+      const generatedAt = reg.headGeneratedAt ?? new Date().toISOString();
+      const head = reg.notary && !reg.omitHead
+        ? {
+          maxSeq: headMaxSeq,
+          generatedAt,
+          publicKey: reg.notary.publicKey,
+          signature: reg.badHeadSignature
+            ? btoa('x'.repeat(64))
+            : await signMessage(reg.notary.privateKey, canonicalJson({generatedAt, maxSeq: headMaxSeq})),
+        }
+        : null;
+      return json({policy: 'test', maxSeq, head, revocations: list});
     }
 
     return json({error: 'not_found', message: path}, {status: 404});
@@ -260,9 +278,10 @@ describe('registry document', () => {
   });
 
   it('refuses an unknown protocol major', async () => {
-    const {reg, fetchImpl} = await makeRegistry();
+    const {reg, fetchImpl, client} = await makeRegistry();
     reg.protocol = 'openbook-registry/2';
     await expect(fetchRegistryDocument('https://store.test', fetchImpl)).rejects.toMatchObject({code: 'unsupported_protocol'});
+    await expect(client.indexPage()).rejects.toMatchObject({code: 'unsupported_protocol'});
   });
 
   it('refuses a registry whose keys stopped matching the pin', async () => {
@@ -299,7 +318,7 @@ describe('download verification', () => {
   it('verifies an approved notarised download end to end', async () => {
     const {client} = await makeRegistry({notarize: true});
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
-    const got = await client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey});
+    const got = await client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]});
     expect(got.pkg.manifest.version).toBe('1.2.3');
     expect(got.trust.notarised).toBe(true);
     expect(got.trust.firstParty).toBe(false);
@@ -309,7 +328,7 @@ describe('download verification', () => {
   it('recognises a first-party package (publisher key IS the registry key)', async () => {
     const {client} = await makeRegistry({firstParty: true, notarize: true});
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
-    const got = await client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey});
+    const got = await client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]});
     expect(got.trust.firstParty).toBe(true);
     expect(got.trust.notarised).toBe(true);
   });
@@ -318,7 +337,7 @@ describe('download verification', () => {
     const {reg, client} = await makeRegistry();
     reg.corruptDownloads = true;
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
-    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey})).rejects.toMatchObject({
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]})).rejects.toMatchObject({
       code: 'etag_mismatch',
     });
   });
@@ -327,7 +346,7 @@ describe('download verification', () => {
     const {reg, client} = await makeRegistry();
     reg.badEtag = true;
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
-    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey})).rejects.toMatchObject({
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]})).rejects.toMatchObject({
       code: 'etag_mismatch',
     });
   });
@@ -336,32 +355,57 @@ describe('download verification', () => {
     const {client} = await makeRegistry();
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
     const stranger = await generateRegistryKeys();
-    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: stranger.publicKey})).rejects.toMatchObject({
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: [stranger.publicKey]})).rejects.toMatchObject({
       code: 'signature_invalid',
     });
   });
 
   it('treats a present-but-invalid notarization as a hard failure', async () => {
     const {reg, client} = await makeRegistry({notarize: true});
-    // Re-point the pinned notary key: the served countersignature no longer verifies.
+    // Keep the advertised/pinned public key but sign the artifact with another
+    // private key, so document continuity passes and countersignature checking fails.
     const other = await generateRegistryKeys();
-    const client2 = new RegistryClient(
-      {baseUrl: 'https://store.test', notaryPublicKey: other.publicKey, registryPublicKey: null},
-      {fetch: fakeFetch(reg)},
-    );
-    const entry = (await client2.findIndexEntry('acme.sparkline'))!;
-    await expect(client2.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey})).rejects.toMatchObject({
+    reg.notary!.privateKey = other.privateKey;
+    const entry = (await client.findIndexEntry('acme.sparkline'))!;
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]})).rejects.toMatchObject({
       code: 'notarization_invalid',
     });
-    void client;
   });
 
   it('surfaces a revoked download as its own failure code', async () => {
     const {reg, client} = await makeRegistry();
     reg.plugins.get('acme.sparkline')!.versions[1]!.revoked = true;
     const entry = (await client.findIndexEntry('acme.sparkline'))!;
-    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKey: entry.pinnedKey})).rejects.toMatchObject({
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]})).rejects.toMatchObject({
       code: 'revoked',
+    });
+  });
+
+  it('accepts a publisher signature made with a rotated pinned key', async () => {
+    const {reg, client} = await makeRegistry({withNotary: false});
+    const rotated = await generateRegistryKeys();
+    const plugin = reg.plugins.get('acme.sparkline')!;
+    const version = plugin.versions[1]!;
+    version.pkg.signature = await signPlugin(version.pkg, rotated.privateKey, 'Fake Store', rotated.publicKey);
+    plugin.pinnedKeys = [plugin.pinnedKey, rotated.publicKey];
+
+    const entry = (await client.findIndexEntry('acme.sparkline'))!;
+    const got = await client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]});
+    expect(got.pkg.signature?.publicKey).toBe(rotated.publicKey);
+  });
+
+  it('falls back to the deprecated singular pinnedKey when pinnedKeys is absent', async () => {
+    const {client} = await makeRegistry({withNotary: false});
+    const entry = (await client.findIndexEntry('acme.sparkline'))!;
+    expect(entry.pinnedKeys).toBeUndefined();
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: entry.pinnedKeys ?? [entry.pinnedKey]})).resolves.toBeTruthy();
+  });
+
+  it('requires notarization when the registry has a pinned notary key', async () => {
+    const {client} = await makeRegistry();
+    const entry = (await client.findIndexEntry('acme.sparkline'))!;
+    await expect(client.download(entry.id, entry.latestVersion, {digest: entry.digest, pinnedKeys: [entry.pinnedKey]})).rejects.toMatchObject({
+      code: 'notarization_invalid',
     });
   });
 });
@@ -378,6 +422,28 @@ describe('revocations', () => {
     expect(revocationMatches(entries[0]!, 'acme.sparkline', '1.2.3')).toBe(true);
     expect(revocationMatches(entries[0]!, 'acme.sparkline', '1.0.0')).toBe(false);
     expect(revocationMatches({...entries[0]!, version: null}, 'acme.sparkline', '0.0.1')).toBe(true);
+  });
+
+  it('rejects missing or invalid signed feed heads', async () => {
+    const missing = await makeRegistry();
+    missing.reg.omitHead = true;
+    await expect(missing.client.revocations()).rejects.toMatchObject({code: 'bad_response'});
+
+    const invalid = await makeRegistry();
+    invalid.reg.badHeadSignature = true;
+    await expect(invalid.client.revocations()).rejects.toMatchObject({code: 'bad_response'});
+  });
+
+  it('refuses a signed maxSeq rollback below the caller\'s verified floor', async () => {
+    const {reg, client} = await makeRegistry();
+    reg.headMaxSeq = 0;
+    await expect(client.revocations(1)).rejects.toMatchObject({code: 'bad_response'});
+  });
+
+  it('rejects a correctly signed but stale feed head', async () => {
+    const {reg, client} = await makeRegistry();
+    reg.headGeneratedAt = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    await expect(client.revocations()).rejects.toMatchObject({code: 'bad_response'});
   });
 
   it('IGNORES unsigned or forged entries on a registry that advertises a notary key', async () => {

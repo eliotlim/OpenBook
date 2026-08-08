@@ -8,7 +8,7 @@
  * `(baseUrl, keys)`, never by anything a fetch returned. The caller supplies
  * the pin; this client verifies everything it downloads against it —
  * digest recomputed from the bytes, publisher signature against the index's
- * `pinnedKey`, notary countersignature and revocation entries against the
+ * `pinnedKeys`, notary countersignature and revocation entries against the
  * pinned notary key. Any failed step throws: there is no partial trust.
  */
 
@@ -97,7 +97,9 @@ export interface RegistryIndexEntry {
   icon: string | null;
   category: string | null;
   publisher: string | null;
-  /** The publisher key this plugin id is pinned to (TOFU) — the signature anchor. */
+  /** Publisher keys this plugin id is pinned to (TOFU), first-seen first. */
+  pinnedKeys?: string[];
+  /** @deprecated Use `pinnedKeys`; retained as the pre-rotation fallback. */
   pinnedKey: string;
   latestVersion: string;
   /** Canonical digest of the latest approved version — what both signatures cover. */
@@ -135,6 +137,8 @@ export interface RegistryPluginVersion {
 /** `GET /api/v1/plugins/{id}` — a plugin's version history. */
 export interface RegistryPluginMeta {
   id: string;
+  pinnedKeys?: string[];
+  /** @deprecated Use `pinnedKeys`; retained as the pre-rotation fallback. */
   pinnedKey: string;
   createdAt: string;
   versions: RegistryPluginVersion[];
@@ -151,6 +155,14 @@ export interface RegistryRevocation {
   signerPublicKey: string | null;
   signature: string | null;
   createdAt: string;
+}
+
+/** The signed freshness/rollback anchor accompanying a revocation feed. */
+export interface RegistryRevocationHead {
+  maxSeq: number;
+  generatedAt: string;
+  publicKey: string;
+  signature: string;
 }
 
 /** The trust states a verified download can earn (§6.5). */
@@ -192,6 +204,7 @@ export class RegistryError extends Error {
       | 'etag_mismatch'
       | 'signature_invalid'
       | 'notarization_invalid'
+      | 'revocation_unavailable'
       | 'bad_response',
     message: string,
   ) {
@@ -209,6 +222,9 @@ const DEFAULT_ENDPOINTS: Record<string, string> = {
 };
 
 const PROTOCOL_MAJOR = 1;
+
+/** Must exceed the endpoint's 60s max-age + 300s SWR cache floor (§6.6). */
+export const REVOCATION_STALENESS_MS = 15 * 60 * 1000;
 
 /** HTTPS only, except an explicit developer-local http://localhost (§3). */
 export function registryBaseUrlProblem(baseUrl: string): string | null {
@@ -287,8 +303,10 @@ export class RegistryClient {
   }
 
   private async endpoint(name: keyof typeof DEFAULT_ENDPOINTS, subst: Record<string, string> = {}): Promise<string> {
-    const doc = await this.document().catch(() => null);
-    let template = doc?.endpoints?.[name] ?? DEFAULT_ENDPOINTS[name];
+    // Refusal gates in document() are security decisions, not endpoint
+    // discovery hints. Propagate them instead of silently falling back.
+    const doc = await this.document();
+    let template = doc.endpoints?.[name] ?? DEFAULT_ENDPOINTS[name];
     for (const [k, v] of Object.entries(subst)) template = template.replace(`{${k}}`, encodeURIComponent(v));
     return `${this.base}${template}`;
   }
@@ -310,10 +328,10 @@ export class RegistryClient {
   async document(): Promise<RegistryDocument> {
     if (this.doc) return this.doc;
     const doc = await fetchRegistryDocument(this.base, this.fetchImpl);
-    if (this.pin.notaryPublicKey && doc.notaryPublicKey && doc.notaryPublicKey !== this.pin.notaryPublicKey) {
+    if (this.pin.notaryPublicKey && doc.notaryPublicKey !== this.pin.notaryPublicKey) {
       throw new RegistryError('unsupported_protocol', 'the registry\'s notary key no longer matches the pinned key — refusing (re-confirm the registry out of band)');
     }
-    if (this.pin.registryPublicKey && doc.registryPublicKey && doc.registryPublicKey !== this.pin.registryPublicKey) {
+    if (this.pin.registryPublicKey && doc.registryPublicKey !== this.pin.registryPublicKey) {
       throw new RegistryError('unsupported_protocol', 'the registry\'s first-party key no longer matches the pinned key — refusing (re-confirm the registry out of band)');
     }
     this.doc = doc;
@@ -371,15 +389,15 @@ export class RegistryClient {
    * 1. sha256(served bytes) equals the strong `ETag` (transport integrity).
    * 2. The canonical digest RECOMPUTED from manifest+files equals `expect.digest`
    *    (the value the index/metadata promised) and the `X-Canonical-Digest` hint.
-   * 3. The publisher signature verifies over that digest with `expect.pinnedKey`
-   *    — never with the key that travelled inside the package.
+   * 3. The publisher signature verifies over that digest with ANY member of
+   *    `expect.pinnedKeys` — never with the key that travelled inside the package.
    * 4. A present notary countersignature verifies with the PINNED notary key —
    *    present-but-invalid is a hard failure, not a downgrade to "unnotarised".
    *
    * Revocations are the caller's step (§6.6): check {@link revocations} before
    * installing what this returns.
    */
-  async download(pluginId: string, version: string, expect: {digest: string; pinnedKey: string}): Promise<VerifiedDownload> {
+  async download(pluginId: string, version: string, expect: {digest: string; pinnedKeys: string[]}): Promise<VerifiedDownload> {
     const res = await this.fetchImpl(await this.endpoint('download', {id: pluginId, version}));
     if (res.status === 410) throw new RegistryError('revoked', `${pluginId}@${version} has been revoked by the registry`);
     if (res.status === 404) throw new RegistryError('not_found', `${pluginId}@${version} is not downloadable from this registry`);
@@ -414,12 +432,24 @@ export class RegistryClient {
     }
 
     const sig: PluginSignature | undefined = doc.signature;
-    if (!sig || sig.algorithm !== 'ed25519' || !(await verifyEd25519Message(expect.pinnedKey, digest, sig.signature))) {
+    let publisherVerified = false;
+    if (sig?.algorithm === 'ed25519') {
+      for (const pinnedKey of expect.pinnedKeys) {
+        if (await verifyEd25519Message(pinnedKey, digest, sig.signature)) {
+          publisherVerified = true;
+          break;
+        }
+      }
+    }
+    if (!sig || !publisherVerified) {
       throw new RegistryError('signature_invalid', 'the publisher signature does not verify against the key this plugin id is pinned to');
     }
 
     const notarization = doc.notarization ?? null;
     let notarised = false;
+    if (this.pin.notaryPublicKey && !notarization) {
+      throw new RegistryError('notarization_invalid', 'the approved download is missing the notarization required by this pinned store');
+    }
     if (notarization) {
       // Verify with the PINNED notary key only. Without a pinned key the
       // member is unverifiable and earns nothing (notarised stays false); a
@@ -450,14 +480,41 @@ export class RegistryClient {
    * unsigned entries honoured — failing open on the kill switch is the
    * dangerous direction.
    */
-  async revocations(since?: number): Promise<{maxSeq: number; entries: RegistryRevocation[]}> {
+  async revocations(since?: number): Promise<{maxSeq: number; entries: RegistryRevocation[]; generatedAt: string | null}> {
     const url = new URL(await this.endpoint('revocations'));
     if (since !== undefined && since > 0) url.searchParams.set('since', String(since));
-    const {body} = await this.json<{maxSeq: number; revocations: RegistryRevocation[]}>(url.toString());
+    const {body} = await this.json<{maxSeq: number; head?: RegistryRevocationHead | null; revocations: RegistryRevocation[]}>(url.toString());
     if (!Array.isArray(body?.revocations) || typeof body.maxSeq !== 'number') {
       throw new RegistryError('bad_response', 'malformed revocations response');
     }
     const notaryKey = this.pin.notaryPublicKey ?? null;
+    let verifiedMaxSeq = body.maxSeq;
+    let generatedAt: string | null = null;
+    if (notaryKey) {
+      const head = body.head;
+      if (
+        !head
+        || !Number.isSafeInteger(head.maxSeq)
+        || head.maxSeq < 0
+        || typeof head.generatedAt !== 'string'
+        || typeof head.signature !== 'string'
+      ) {
+        throw new RegistryError('bad_response', 'a registry with a pinned notary key returned no valid signed revocation head');
+      }
+      const payload = canonicalJson({generatedAt: head.generatedAt, maxSeq: head.maxSeq});
+      if (!(await verifyEd25519Message(notaryKey, payload, head.signature))) {
+        throw new RegistryError('bad_response', 'the revocation feed head does not verify against the pinned notary key');
+      }
+      const generatedAtMs = Date.parse(head.generatedAt);
+      if (!Number.isFinite(generatedAtMs) || Date.now() - generatedAtMs > REVOCATION_STALENESS_MS) {
+        throw new RegistryError('bad_response', 'the signed revocation feed head is stale');
+      }
+      if (since !== undefined && head.maxSeq < since) {
+        throw new RegistryError('bad_response', `the signed revocation feed rolled back from sequence ${since} to ${head.maxSeq}`);
+      }
+      verifiedMaxSeq = head.maxSeq;
+      generatedAt = head.generatedAt;
+    }
     const entries: RegistryRevocation[] = [];
     for (const entry of body.revocations) {
       if (!entry || typeof entry.pluginId !== 'string') continue;
@@ -475,6 +532,6 @@ export class RegistryClient {
       }
       entries.push(entry);
     }
-    return {maxSeq: body.maxSeq, entries};
+    return {maxSeq: verifiedMaxSeq, entries, generatedAt};
   }
 }
