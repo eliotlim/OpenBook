@@ -285,4 +285,124 @@ describe('parseLedgerExportSection — the deep-validation boundary (LX-4)', () 
     });
     expect(result).toMatchObject({ok: false, reason: expect.stringContaining('ceiling')});
   });
+
+  // ── The total-refusal contract holes the review closed (Sasha F1/F2, Quinn 4) ──
+
+  it('refuses an unexpected envelope key — the hiding place for unhashed junk', () => {
+    expect(parseDoctored((s) => {
+      (s as unknown as Record<string, unknown>).junk = {deep: true};
+    })).toMatchObject({ok: false, reason: expect.stringContaining('unexpected section key "junk"')});
+    expect(parseDoctored((s) => {
+      (s.settings as Record<string, unknown>).ledgerEntrySeq = 42;
+    })).toMatchObject({ok: false, reason: expect.stringContaining('unexpected settings key')});
+    expect(parseDoctored((s) => {
+      (s.library as unknown as Record<string, unknown>).extra = [];
+    })).toMatchObject({ok: false, reason: expect.stringContaining('unexpected library key')});
+  });
+
+  it('refuses non-record elements in pages[] / databases[] instead of dereferencing them', () => {
+    expect(parseDoctored((s) => {
+      (s.library.pages as unknown[]).push(null);
+    })).toMatchObject({ok: false, reason: expect.stringContaining('page entry')});
+    expect(parseDoctored((s) => {
+      (s.library.databases as unknown[]).push('nope');
+    })).toMatchObject({ok: false, reason: expect.stringContaining('database entry')});
+  });
+
+  it('bounds the auditHead: a multi-megabyte "hash" or a junk seq refuses', () => {
+    expect(parseDoctored((s) => {
+      s.auditHead = {seq: 1, hash: 'f'.repeat(1024 * 1024)};
+    })).toMatchObject({ok: false, reason: expect.stringContaining('auditHead')});
+    expect(parseDoctored((s) => {
+      s.auditHead = {seq: -3, hash: 'f'.repeat(64)};
+    })).toMatchObject({ok: false, reason: expect.stringContaining('auditHead')});
+    expect(parseDoctored((s) => {
+      s.auditHead = {seq: 1.5, hash: 'F'.repeat(64)};
+    })).toMatchObject({ok: false, reason: expect.stringContaining('auditHead')});
+  });
+
+  it('refuses a posted entry whose postings overflow the safe integer range (never a thrown MoneyError)', () => {
+    const near = Number.MAX_SAFE_INTEGER - 1;
+    const result = parseDoctored((s) => {
+      (s.library.pages.find((p) => p.id === 'post-1')!.properties as Record<string, unknown>).lp_amount_minor = near;
+      (s.library.pages.find((p) => p.id === 'post-2')!.properties as Record<string, unknown>).lp_amount_minor = near;
+      s.library.pages.push(
+        row('post-3', IDS.postings, {lp_transaction: 'tx-1', lp_account: 'acc-sales', lp_amount_minor: -near, lp_cleared: 'pending'}, null, 2),
+        row('post-4', IDS.postings, {lp_transaction: 'tx-1', lp_account: 'acc-sales', lp_amount_minor: -near, lp_cleared: 'pending'}, null, 3),
+      );
+    });
+    expect(result).toMatchObject({ok: false, reason: expect.stringContaining('overflow')});
+  });
+});
+
+// ── LX-4 review batch — period entries and the closing-sweep simulation ───────
+
+/** The valid book extended with a CLOSED January period and its closing entry
+ *  (sweeping tx-1's −500 revenue into retained earnings). */
+function periodSection(): LedgerExportSection {
+  const s = structuredClone(validSection());
+  s.library.pages.push(
+    row('acc-re', IDS.accounts, {lp_type: 'equity', lp_status: 'open', lp_currency: 'USD'}, 'Equity:RetainedEarnings'),
+    row('tx-close', IDS.transactions, {lp_date: '2026-01-31', lp_description: 'Closing entry — 2026-01-01 to 2026-01-31', lp_state: 'posted', lp_entry_no: 2, lp_kind: 'closing'}),
+    row('post-c1', IDS.postings, {lp_transaction: 'tx-close', lp_account: 'acc-sales', lp_amount_minor: 500, lp_cleared: 'pending'}, null, 0),
+    row('post-c2', IDS.postings, {lp_transaction: 'tx-close', lp_account: 'acc-re', lp_amount_minor: -500, lp_cleared: 'pending'}, null, 1),
+  );
+  s.settings.ledgerPeriods = [
+    {id: 'per-1', start: '2026-01-01', end: '2026-01-31', status: 'closed', closingEntryId: 'tx-close', reopenEntryId: null, closedAt: '2026-02-01T00:00:00.000Z', closedBy: 'k', reopenedAt: null, reopenedBy: null},
+  ];
+  return s;
+}
+
+describe('parseLedgerExportSection — period entries + the closing-sweep simulation (Quinn 1/2)', () => {
+  it('a coherent closed period parses (the sweep simulation matches the recorded entry)', () => {
+    expect(parseLedgerExportSection(periodSection()).ok).toBe(true);
+  });
+
+  it('refuses a closing entry carrying a cleared tick (the replay would silently drop it)', () => {
+    const s = periodSection();
+    (s.library.pages.find((p) => p.id === 'post-c1')!.properties as Record<string, unknown>).lp_cleared = 'cleared';
+    expect(parseLedgerExportSection(s)).toMatchObject({ok: false, reason: expect.stringContaining('backup bundle')});
+  });
+
+  it('refuses a closing leg frozen by a finished reconciliation (the replay would abort midway)', () => {
+    const s = periodSection();
+    // A finished reconciliation on the RETAINED-EARNINGS account — reachable
+    // live (startReconciliation has no account-type restriction) — freezing
+    // the closing entry's equity leg.
+    s.library.pages.push(
+      row('rec-re', IDS.reconciliations, {lp_account: 'acc-re', lp_statement_date: '2026-01-31', lp_statement_balance_minor: -500, lp_status: 'finished'}),
+    );
+    const leg = s.library.pages.find((p) => p.id === 'post-c2')!.properties as Record<string, unknown>;
+    leg.lp_cleared = 'reconciled';
+    leg.lp_reconciliation = 'rec-re';
+    expect(parseLedgerExportSection(s)).toMatchObject({ok: false, reason: expect.stringContaining('backup bundle')});
+  });
+
+  it('refuses when income dated inside a closed period was posted AFTER its close (sweep divergence)', () => {
+    const s = periodSection();
+    // Income the recorded closing entry never swept, dated ≤ the period end:
+    // the replayed close would sweep −600 where the section records −500.
+    // (The real-world producer of this shape is legal live history — close
+    // February, then post JANUARY-dated income; the server e2e covers that
+    // exact sequence — but the refusal is the same for any divergence.)
+    s.library.pages.push(
+      row('tx-late', IDS.transactions, {lp_date: '2026-01-20', lp_description: 'late income', lp_state: 'posted', lp_entry_no: 3}),
+      row('post-l1', IDS.postings, {lp_transaction: 'tx-late', lp_account: 'acc-cash', lp_amount_minor: 100, lp_cleared: 'pending'}, null, 0),
+      row('post-l2', IDS.postings, {lp_transaction: 'tx-late', lp_account: 'acc-sales', lp_amount_minor: -100, lp_cleared: 'pending'}, null, 1),
+    );
+    expect(parseLedgerExportSection(s)).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('does not match the sweep'),
+    });
+  });
+
+  it('refuses a period that recorded NO closing entry over books that hold income to sweep', () => {
+    const s = periodSection();
+    // Detach the closing entry from the period record (and drop the entry so
+    // it is not an orphan): the range now claims "nothing to sweep" while
+    // tx-1's revenue stands.
+    s.library.pages = s.library.pages.filter((p) => !['tx-close', 'post-c1', 'post-c2'].includes(p.id));
+    (s.settings.ledgerPeriods as Array<Record<string, unknown>>)[0].closingEntryId = null;
+    expect(parseLedgerExportSection(s)).toMatchObject({ok: false, reason: expect.stringContaining('does not match the sweep')});
+  });
 });

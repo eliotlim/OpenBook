@@ -23,10 +23,11 @@
  *    gated — a signed-in viewer gets 403 and writes nothing; the owner
  *    restores.
  */
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
   API,
   gatherLedgerExportSection,
+  isLedgerVerifyAdvisory,
   libraryIslandScript,
   ledgerAuditEventHash,
   mintIdentityKeypair,
@@ -37,6 +38,7 @@ import {
   type IdentityClaims,
   type IdentityKeypair,
   type LedgerExportSection,
+  type LedgerVerifyReport,
 } from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
@@ -52,6 +54,12 @@ async function freshStore(): Promise<PageStore> {
   await store.migrate();
   return store;
 }
+
+/** The TAMPER band of a verify report — advisory (current-policy) findings
+ *  excluded. The fixture flags an account `evidenceRequired` over bare history
+ *  (deliberately — it must survive the round trip), which is an advisory on
+ *  BOTH sides, never a tamper signal. */
+const tamperFindings = (report: LedgerVerifyReport) => report.findings.filter((f) => !isLedgerVerifyAdvisory(f.code));
 
 /**
  * Deepen the mini book with the surfaces the fixture generators leave out:
@@ -114,6 +122,31 @@ async function deepenFixture(store: PageStore): Promise<void> {
   if (!cardLeg) throw new Error('fixture bug: no pending card posting to tick');
   await store.ledger.setReconciliationPostingCleared(open.id, cardLeg.id, 'cleared', SEED_ACTOR);
 
+  // A second currency (Quinn 5c): an EUR pair with one posted entry — the
+  // round trip must carry the currency on the accounts and the entry intact.
+  const eurBank = await store.ledger.createAccount({name: 'Assets:Bank:EUR', type: 'asset', currency: 'EUR'}, SEED_ACTOR);
+  const eurOpen = await store.ledger.createAccount({name: 'Equity:Opening:EUR', type: 'equity', currency: 'EUR'}, SEED_ACTOR);
+  const eur = await store.ledger.createDraft(
+    {
+      date: '2026-02-04',
+      description: 'EUR opening balance',
+      postings: [
+        {accountId: eurBank.id, amountMinor: 77_000},
+        {accountId: eurOpen.id, amountMinor: -77_000},
+      ],
+    },
+    SEED_ACTOR,
+  );
+  await store.ledger.post(eur.id, SEED_ACTOR);
+
+  // A CLOSED zero-balance account and an evidence-required flag (Quinn 5b):
+  // both are deferred-then-reasserted by the replay, so without them the
+  // accountMeta comparison was vacuously green.
+  const escrow = await store.ledger.createAccount({name: 'Assets:Escrow', type: 'asset'}, SEED_ACTOR);
+  await store.ledger.updateAccount(escrow.id, {status: 'closed'}, SEED_ACTOR);
+  const cafe = byName('Expenses:café & misc.');
+  await store.ledger.updateAccount(cafe.id, {evidenceRequired: true}, SEED_ACTOR);
+
   // A February close over real activity, then a reopen: the section carries a
   // REOPENED period whose (void) closing entry and posted reversal both exist.
   const feb = await store.ledger.createDraft(
@@ -144,7 +177,7 @@ async function reportFingerprint(store: PageStore) {
       .filter((t) => t.state === state)
       .flatMap((t) =>
         t.postings.map(
-          (p) => `${nameById.get(p.accountId)}|${t.date}|${p.amountMinor}|${p.cleared}|${t.kind ?? ''}|${p.memo ?? ''}`,
+          (p) => `${nameById.get(p.accountId)}|${t.date}|${t.description}|${p.amountMinor}|${p.cleared}|${t.kind ?? ''}|${p.memo ?? ''}`,
         ),
       )
       .sort();
@@ -181,7 +214,9 @@ describe('LX-4 — export section → island wire → replay restore', () => {
 
     const before = await reportFingerprint(source);
     const sourceVerify = await source.verifyLedger();
-    expect(sourceVerify.findings).toEqual([]);
+    // Tamper band clean; the evidence-required flag over bare history is a
+    // deliberate ADVISORY on the source (and must round-trip as one).
+    expect(tamperFindings(sourceVerify)).toEqual([]);
     const sourceHead = (await source.ledger.listAudit({limit: 1}))[0];
 
     const section = await captureOverWire(source);
@@ -206,11 +241,12 @@ describe('LX-4 — export section → island wire → replay restore', () => {
     expect(after.periods).toEqual(before.periods);
     expect(after.accountMeta).toEqual(before.accountMeta);
 
-    // ── The books verify: no findings (the dropped evidence is not an
-    // advisory here — no account in the mini book requires evidence), and the
-    // FRESH audit chain verifies end to end.
+    // ── The books verify: tamper band empty, and the FRESH audit chain
+    // verifies end to end. The evidence-required advisory carried over from
+    // the source (same code, same band) — assert the two sides band alike.
     const verify = await target.verifyLedger();
-    expect(verify.findings).toEqual([]);
+    expect(tamperFindings(verify)).toEqual([]);
+    expect(verify.findings.map((f) => f.code).sort()).toEqual(sourceVerify.findings.map((f) => f.code).sort());
     expect(verify.auditChain?.ok).toBe(true);
     expect(verify.checkedTransactions).toBeGreaterThan(0);
 
@@ -245,7 +281,7 @@ describe('LX-4 — export section → island wire → replay restore', () => {
     );
     await target.ledger.post(draft.id, SEED_ACTOR);
     const extended = await target.verifyLedger();
-    expect(extended.findings).toEqual([]);
+    expect(tamperFindings(extended)).toEqual([]);
     expect(extended.auditChain?.ok).toBe(true);
 
     // ── And the restored period lock is REAL: a post dated inside the
@@ -343,6 +379,17 @@ describe('LX-4 — export section → island wire → replay restore', () => {
     expect(viewerRes.status).toBe(403);
     expect(await target.ledgerIds()).toBeNull(); // the refusal wrote nothing
 
+    // A JSON-valid but non-section body is a typed 400, never a 500 (Quinn 4).
+    const owner = await idFor('owner');
+    const junkRes = await app.request(API.ledgerRestoreSection, {
+      method: 'POST',
+      headers: {'X-OpenBook-Client': '1', 'Content-Type': 'application/json', [IDENTITY_HEADER]: owner},
+      body: 'null',
+    });
+    expect(junkRes.status).toBe(400);
+    expect(((await junkRes.json()) as {code: string}).code).toBe('invalid-input');
+    expect(await target.ledgerIds()).toBeNull();
+
     const ownerRes = await post(await idFor('owner'));
     expect(ownerRes.status).toBe(200);
     const body = (await ownerRes.json()) as {restored: {accounts: number}};
@@ -356,6 +403,137 @@ describe('LX-4 — export section → island wire → replay restore', () => {
     expect(refusal.code).toBe('invalid-state');
     expect(refusal.error).toMatch(/already keeps books/);
   }, 240_000);
+
+  it('a deep-junk envelope key refuses BEFORE the first write (Sasha F1 — the hash moved pre-write)', async () => {
+    const source = await freshStore();
+    await seedLedgerFromFixture(source, buildBeancountMiniBook());
+    const section = await captureOverWire(source);
+    // A valid book with ~15k-deep junk under a key the parser never read:
+    // pre-fix this replayed FULLY, then blew the recursive canonicalizer at
+    // provenance time — a marker-less, verify-clean book behind an
+    // unretryable empty-target gate. Now the strict envelope refuses it
+    // before anything is written, and the hash runs over the validated
+    // projection anyway.
+    let junk: unknown = 'bottom';
+    for (let i = 0; i < 15_000; i += 1) junk = {d: junk};
+    const doctored = {...section, junk} as unknown as LedgerExportSection;
+
+    const target = await freshStore();
+    await expect(target.ledger.restoreExportSection(doctored, SEED_ACTOR)).rejects.toMatchObject({
+      code: 'invalid-input',
+      message: expect.stringContaining('unexpected section key'),
+    });
+    expect(await target.ledgerIds()).toBeNull(); // nothing written, retry open
+  }, 120_000);
+
+  it('REFUSES pre-write when income dated in a closed period was posted after its close (Quinn 2)', async () => {
+    // The legal live history that cannot round-trip: close February, then
+    // post JANUARY-dated income (January is not inside the closed range, so
+    // the date lock admits it) — the replayed close would re-sweep it.
+    const source = await freshStore();
+    await source.ledger.ensureSetup(SEED_ACTOR);
+    const cash = await source.ledger.createAccount({name: 'Assets:Cash', type: 'asset'}, SEED_ACTOR);
+    const sales = await source.ledger.createAccount({name: 'Revenue:Sales', type: 'revenue'}, SEED_ACTOR);
+    await source.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, SEED_ACTOR);
+    const feb = await source.ledger.createDraft(
+      {date: '2026-02-10', description: 'feb income', postings: [{accountId: cash.id, amountMinor: 100}, {accountId: sales.id, amountMinor: -100}]},
+      SEED_ACTOR,
+    );
+    await source.ledger.post(feb.id, SEED_ACTOR);
+    await source.ledger.closePeriod({start: '2026-02-01', end: '2026-02-28'}, SEED_ACTOR);
+    const jan = await source.ledger.createDraft(
+      {date: '2026-01-15', description: 'january income, posted late', postings: [{accountId: cash.id, amountMinor: 70}, {accountId: sales.id, amountMinor: -70}]},
+      SEED_ACTOR,
+    );
+    await source.ledger.post(jan.id, SEED_ACTOR); // legal: January is not closed
+    expect((await source.verifyLedger()).findings).toEqual([]); // an honest book
+
+    const section = await captureOverWire(source);
+    const target = await freshStore();
+    await expect(target.ledger.restoreExportSection(section, SEED_ACTOR)).rejects.toMatchObject({
+      code: 'invalid-input',
+      message: expect.stringMatching(/does not match the sweep.*backup bundle/s),
+    });
+    expect(await target.ledgerIds()).toBeNull(); // refused before the first write
+  }, 120_000);
+
+  it('a mid-replay failure ends TYPED, names the partial state, and stamps a failed marker (Quinn 3)', async () => {
+    const source = await freshStore();
+    await seedLedgerFromFixture(source, buildBeancountMiniBook());
+    const section = await captureOverWire(source);
+
+    const target = await freshStore();
+    // Induce an environment failure on the second post — exactly the class of
+    // error the up-front validation cannot rule out.
+    const realPost = target.ledger.post.bind(target.ledger);
+    let posts = 0;
+    vi.spyOn(target.ledger, 'post').mockImplementation(async (id, actor) => {
+      posts += 1;
+      if (posts === 2) throw new Error('disk full');
+      return realPost(id, actor);
+    });
+
+    const err = await target.ledger.restoreExportSection(section, SEED_ACTOR).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LedgerError);
+    expect((err as LedgerError).code).toBe('invalid-state');
+    expect((err as LedgerError).message).toMatch(/PARTIAL book \(1 of \d+ journal entries replayed; cause: disk full\)/);
+
+    // The book ITSELF carries the marker: tail event is a failed ledger.restore.
+    const [tail] = await target.ledger.listAudit({limit: 1});
+    expect(tail.action).toBe('ledger.restore');
+    const payload = tail.payload as Record<string, unknown>;
+    expect(payload.failed).toBe(true);
+    expect(payload.replayedEntries).toBe(1);
+    expect(typeof payload.totalEntries).toBe('number');
+    expect(payload.bundleSha).toMatch(/^[0-9a-f]{64}$/);
+    // The marker itself verifies (same derived-hash shape as every restore
+    // event) and the chain stays linked over the partial history.
+    const report = await target.verifyLedger();
+    expect(report.auditChain?.ok).toBe(true);
+    expect(report.findings.filter((f) => f.code === 'audit-hash-forged')).toEqual([]);
+  }, 120_000);
+
+  it('the reconciliation DOWNGRADE arm: a finish leaning on a later-reopened freeze replays as abandoned (Quinn 5a)', async () => {
+    const source = await freshStore();
+    await source.ledger.ensureSetup(SEED_ACTOR);
+    const bank = await source.ledger.createAccount({name: 'Assets:Bank', type: 'asset'}, SEED_ACTOR);
+    const equity = await source.ledger.createAccount({name: 'Equity:Opening', type: 'equity'}, SEED_ACTOR);
+    const post = async (date: string, amount: number) => {
+      const draft = await source.ledger.createDraft(
+        {date, description: `deposit ${amount}`, postings: [{accountId: bank.id, amountMinor: amount, cleared: 'cleared'}, {accountId: equity.id, amountMinor: -amount}]},
+        SEED_ACTOR,
+      );
+      return source.ledger.post(draft.id, SEED_ACTOR);
+    };
+    await post('2026-01-05', 100);
+    const r1 = await source.ledger.startReconciliation({accountId: bank.id, statementDate: '2026-01-31', statementBalanceMinor: 100}, SEED_ACTOR);
+    await source.ledger.finishReconciliation(r1.id, SEED_ACTOR);
+    await post('2026-02-05', 50);
+    const r2 = await source.ledger.startReconciliation({accountId: bank.id, statementDate: '2026-02-28', statementBalanceMinor: 150}, SEED_ACTOR);
+    await source.ledger.finishReconciliation(r2.id, SEED_ACTOR); // leans on R1's frozen 100
+    await source.ledger.reopenReconciliation(r1.id, SEED_ACTOR); // releases the 100 → R2's zero is no longer reproducible
+
+    const section = await captureOverWire(source);
+    const target = await freshStore();
+    const result = await target.ledger.restoreExportSection(section, SEED_ACTOR);
+    expect(result.reconciliationsDowngraded).toBe(1);
+
+    // R2's replay attempt was ABANDONED (audited), its ticks left cleared —
+    // workflow metadata degraded honestly; the amounts are untouched.
+    const recs = await target.ledger.listReconciliations();
+    const byDate = new Map(recs.map((r) => [r.statementDate, r]));
+    expect(byDate.get('2026-02-28')?.status).toBe('abandoned');
+    expect(byDate.get('2026-01-31')?.status).toBe('open'); // the reopened R1
+    const postings = (await target.ledger.listTransactions({limit: 100})).flatMap((t) => t.postings);
+    expect(postings.filter((p) => p.cleared === 'reconciled')).toEqual([]);
+    expect(postings.filter((p) => p.cleared === 'cleared').length).toBeGreaterThan(0);
+
+    const bankAfter = (await target.ledger.listAccounts()).find((a) => a.name === 'Assets:Bank');
+    expect(await target.ledger.accountPostedBalance((bankAfter as {id: string}).id)).toBe(150);
+    const [tail] = await target.ledger.listAudit({limit: 1});
+    expect((tail.payload as Record<string, unknown>).reconciliationsDowngraded).toBe(1);
+    expect((await target.verifyLedger()).findings).toEqual([]);
+  }, 120_000);
 
   it('LedgerError semantics: a doctored reconciled↔frozen invariant is an invalid-input refusal', async () => {
     const source = await freshStore();
