@@ -41,7 +41,16 @@ import plotUmd from './vendor/plot.umd.min.js?raw';
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
 import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
-import {describeLedgerInteractiveBlock, describeLedgerReportBlock, ledgerExportRecords, renderLedgerReportBlock, type LedgerExportRecords} from './exportLedgerReports';
+import {
+  KEEP_STATIC_ATTR,
+  describeLedgerInteractiveBlock,
+  describeLedgerReportBlock,
+  isLedgerBlockType,
+  keepStaticAttrs,
+  ledgerExportRecords,
+  renderLedgerReportBlock,
+  type LedgerExportRecords,
+} from './exportLedgerReports';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
@@ -612,7 +621,7 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       // table, honouring the block's persisted props. A fold refusal (corrupt
       // stored amount, unlinkable journal entry) falls through to the card.
       if (ctx.ledger) {
-        const table = renderLedgerReportBlock(str(block.type), (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
+        const table = renderLedgerReportBlock({type: str(block.type), id}, (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
         if (table !== null) {
           html.push(table);
           break;
@@ -631,8 +640,15 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
         (ctx.ledger ? null : describeLedgerReportBlock(str(block.type))) ??
         describeUnknownBlock(str(block.type));
       const text = str(d.text) ? inlineToHtml(parseInline(str(d.text)), ctx) : '';
+      // LX-5: a LEDGER card's wording is already the honest, first-party one
+      // (interactive tool / books-not-included), so it is marked keep-on-hydrate
+      // exactly like a report table — the viewer re-attaches it instead of
+      // replacing it with the generic "install the plugin" card. Third-party
+      // plugin blocks are NOT marked: for those the viewer's own card (plugin
+      // icon, "Open in OpenBook to install") is the better render.
+      const keep = isLedgerBlockType(str(block.type)) ? keepStaticAttrs(id) : '';
       html.push(
-        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}">` +
+        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}"${keep}>` +
           `<p class="ob-plugin-block-label">${escapeHtml(label)}</p>` +
           `<p class="ob-plugin-block-hint">${escapeHtml(hint)}</p>` +
           (text ? `<p class="ob-plugin-block-text">${text}</p>` : '') +
@@ -681,6 +697,15 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
  * duplicated into the island). Harvesting happens BEFORE the static body is
  * replaced. This is the same recovery contract island-first import uses.
  *
+ * Kept static blocks (LX-5): the same pre-swap pass also harvests the static
+ * renders the viewer cannot reproduce and must NOT overwrite — ledger report
+ * tables (LX-3) and the ledger placeholder cards — keyed by block id off the
+ * `${KEEP_STATIC_ATTR}` marker, and hands them to `mount` as `staticBlocks`.
+ * The viewer replants those nodes where its missing-plugin card would have gone,
+ * so a reader who opens the file with JS ON sees the SAME numbers a no-JS/print
+ * reader sees. No ledger code (and no ledger bytes) enter the viewer bundle: the
+ * marker, the report folds and the wording all stay on the export side.
+ *
  * Failure modes all keep the static render: no island, corrupt JSON, a legacy
  * snapshot without a block-doc, or a mount throw (the static body is restored).
  * `window.__OB_NO_HYDRATE` short-circuits the boot entirely — the PDF pipeline
@@ -718,10 +743,19 @@ const VIEWER_BOOT = `
     var m = /^data:([^;,]*);base64,(.*)$/.exec(img.getAttribute('src') || '');
     if (id && m && !assets[id]) assets[id] = {mime: m[1] || 'application/octet-stream', encoding: 'base64', data: m[2]};
   });
+  // LX-5: static renders this document already carries and the viewer must KEEP
+  // (ledger report tables + the ledger placeholder cards), harvested by block id
+  // BEFORE the body is swapped. CLONES, not the live nodes: a mount throw
+  // restores the original <main> intact, and the viewer plants copies.
+  var keep = {};
+  main.querySelectorAll('[${KEEP_STATIC_ATTR}][data-block-id]').forEach(function(el){
+    var bid = el.getAttribute('data-block-id');
+    if (bid && !keep[bid]) keep[bid] = el.cloneNode(true);
+  });
   var host = document.createElement('div');
   host.id = 'ob-viewer-host';
   main.parentNode.replaceChild(host, main);
-  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets}); }
+  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets, staticBlocks: keep}); }
   catch (e) { if (host.parentNode) host.parentNode.replaceChild(main, host); }
 })();
 `;

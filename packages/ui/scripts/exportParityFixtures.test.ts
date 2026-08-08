@@ -9,6 +9,7 @@ import {
   paritySiteBundle,
   PARITY_PLUGIN_BLOCKS,
   LEDGER_BLOCK_TYPES,
+  parityLedgerSiteBundle,
 } from '../src/export/__tests__/parityFixtureDoc';
 
 /**
@@ -69,6 +70,28 @@ describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.t
     expect(body).toContain('the books weren\'t included in this export');
     expect(body).toContain('Interactive ledger tool');
     expect(body).toContain('requires the Future plugin');
+  });
+
+  // LX-3 → LX-5: the ledger REPORTS page, exported twice. Records on, the five
+  // report blocks are real tables and must still be tables once the viewer
+  // hydrates; records off, they are the ledger-aware "books weren't included"
+  // cards and must stay that way.
+  it('writes the ledger-reports exports (records on and off)', () => {
+    mkdirSync(OUT_DIR, {recursive: true});
+    const withRecords = toHtmlSite(parityLedgerSiteBundle(true));
+    const noRecords = toHtmlSite(parityLedgerSiteBundle(false));
+    // Both files land BEFORE any assertion, so a failing expectation still
+    // leaves the browser harness a complete pair to open.
+    writeFileSync(resolve(OUT_DIR, 'export-ledger-reports.html'), withRecords);
+    writeFileSync(resolve(OUT_DIR, 'export-ledger-norecords.html'), noRecords);
+
+    // Records on: real tables, each marked for the hydrating viewer to keep.
+    expect(withRecords).toContain('figure class="ob-ledger-report"');
+    expect(withRecords).toContain('data-ob-keep-static="ledger"');
+    expect(withRecords).toContain('Amounts in USD');
+    // Records off: no fabricated tables, and the ledger-aware wording instead.
+    expect(noRecords).not.toContain('figure class="ob-ledger-report"');
+    expect(noRecords).toContain('the books weren\'t included in this export');
   });
 
   it('writes a deterministic site-bundle export', () => {

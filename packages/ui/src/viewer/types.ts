@@ -76,6 +76,19 @@ export interface ViewerMountOptions {
   page?: string;
   /** Pre-resolved asset bytes by assetId (see {@link ViewerAssetEntry}). */
   assets?: Record<string, ViewerAssetEntry>;
+  /**
+   * Static block renders the HOST DOCUMENT already produced, by block id
+   * (LX-5). For a block the viewer has no renderer for, the supplied node is
+   * replanted instead of the viewer's missing-plugin card — that is how an
+   * exported ledger report keeps showing its real, server-computed table once
+   * JS runs, instead of degrading to "install the plugin".
+   *
+   * DOM elements, not HTML strings: the export's boot script hands over clones
+   * of nodes the browser already parsed out of its own body, so nothing is
+   * re-parsed here. The viewer stays content-agnostic — it never inspects what
+   * a node contains, and carries no ledger (or other plugin) code to do so.
+   */
+  staticBlocks?: Record<string, Element>;
 }
 
 export interface ViewerHandle {

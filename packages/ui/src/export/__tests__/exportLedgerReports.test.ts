@@ -188,12 +188,13 @@ function bundle(withRecords: boolean, blocks: NewBlock[] = DOC_BLOCKS): SiteBund
 
 /** The nth `<figure class="ob-ledger-report">` for a block type (figures never nest). */
 function figures(html: string, type: string): string[] {
-  const re = new RegExp(`<figure class="ob-ledger-report" data-block-type="${type.replace('/', '\\/')}">.*?</figure>`, 'gs');
+  // `[^>]*` absorbs the LX-5 identity/keep attributes that follow the type.
+  const re = new RegExp(`<figure class="ob-ledger-report" data-block-type="${type.replace('/', '\\/')}"[^>]*>.*?</figure>`, 'gs');
   return html.match(re) ?? [];
 }
 
 function placeholders(html: string, type: string): string[] {
-  const re = new RegExp(`<div class="ob-plugin-block" data-block-type="${type.replace('/', '\\/')}">.*?</div>`, 'gs');
+  const re = new RegExp(`<div class="ob-plugin-block" data-block-type="${type.replace('/', '\\/')}"[^>]*>.*?</div>`, 'gs');
   return html.match(re) ?? [];
 }
 

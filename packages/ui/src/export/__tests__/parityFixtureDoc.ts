@@ -11,7 +11,8 @@
  * viewer, behaves like the in-app locked page — so these blocks deliberately
  * mirror the app's known-good reactive shapes (see sdk sampleDocument).
  */
-import type {PageSnapshot, LibrarySnapshot} from '@book.dev/sdk';
+import type {LedgerExportSection, LibrarySnapshot, PageSnapshot, StoredPage} from '@book.dev/sdk';
+import {LEDGER_PROP, STARTUP_BOOKS_CHART, startupBooksTransactions} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {emptyExportAssets, type ExportAssets} from '../exportAssets';
@@ -163,6 +164,114 @@ export const PARITY_PLUGIN_BLOCKS: NewBlock[] = [
   {id: 'lx-future', type: 'org.example.future/widget', props: {shape: 'hexagon'}},
   {id: 'lx-nameless', type: 'not-a-plugin-type', props: {any: 'thing'}},
 ];
+
+// ── Ledger REPORTS fixture (LX-3 tables → LX-5 hydration) ────────────────────
+
+/**
+ * **Ledger reports fixture.** One page carrying all five REPORT blocks plus the
+ * four interactive tools, over the SDK's own Startup Books book — the same chart
+ * and entries `STARTUP_BOOKS_CHART` / `startupBooksTransactions` seed, rebuilt
+ * as the stored rows an LX-2 export embeds.
+ *
+ * Records ON, this page exports as real tables of real numbers (LX-3). It is
+ * therefore the fixture for the LX-5 contract: those tables must SURVIVE
+ * hydration, while the four interactive tools and (records OFF) the report
+ * blocks keep their honest, ledger-specific placeholder cards.
+ */
+const LEDGER_ACCOUNT_ID = new Map(STARTUP_BOOKS_CHART.map((a, i) => [a.name, `lgacc-${i}`]));
+const LEDGER_DRAFTS = startupBooksTransactions(LEDGER_ACCOUNT_ID);
+const LEDGER_DB = {accounts: 'lgdb-acc', transactions: 'lgdb-tx', postings: 'lgdb-po', reconciliations: 'lgdb-rec'};
+const LEDGER_HOSTS = {accounts: 'lghost-acc', transactions: 'lghost-tx', postings: 'lghost-po', reconciliations: 'lghost-rec'};
+
+export const PARITY_LEDGER_BLOCKS: NewBlock[] = [
+  {id: 'lg-h1', type: 'heading', props: {level: 1}, text: [{t: 'Startup books'}]},
+  {id: 'lg-p1', type: 'paragraph', text: [{t: 'Reports computed by the exporter — they must survive hydration.'}]},
+  {id: 'lg-journal', type: 'openbook.ledger/journal-entry' as never, props: {ledgerRows: '', ledgerDraftId: 'lgtx-0'}},
+  {id: 'lg-tb', type: 'openbook.ledger/trial-balance' as never, props: {ledgerTbShowZero: false}},
+  {id: 'lg-bs', type: 'openbook.ledger/balance-sheet' as never, props: {ledgerBsAsOf: ''}},
+  {id: 'lg-is', type: 'openbook.ledger/income-statement' as never, props: {ledgerIsFrom: '', ledgerIsTo: ''}},
+  {id: 'lg-reg', type: 'openbook.ledger/account-register' as never, props: {ledgerRegAccount: LEDGER_ACCOUNT_ID.get('Assets:Bank:Checking')}},
+  {id: 'lg-h2', type: 'heading', props: {level: 2}, text: [{t: 'Operations'}]},
+  {id: 'lg-import', type: 'openbook.ledger/bank-import' as never, props: {ledgerImport: '1'}},
+  {id: 'lg-rec', type: 'openbook.ledger/reconcile' as never, props: {ledgerRecId: ''}},
+  {id: 'lg-close', type: 'openbook.ledger/period-close' as never, props: {ledgerPeriodStart: ''}},
+  {id: 'lg-bean', type: 'openbook.ledger/beancount-export' as never, props: {ledgerBeancount: '1'}},
+  // Scoping guard: a block from a plugin nobody has. The hydrated viewer's own
+  // install card is the better render here, so LX-5 must NOT preserve this one.
+  {id: 'lg-future', type: 'org.example.future/widget', props: {shape: 'hexagon'}},
+];
+
+/** A ledger row in the stored shape (a database row page carrying properties). */
+const ledgerRow = (id: string, databaseId: string, name: string, properties: Record<string, unknown>): StoredPage =>
+  ({
+    id, name, databaseId, properties,
+    data: {editorjs: {blocks: []}, values: [], names: []} as never,
+    hostedDatabaseId: null, parentId: null, deletedAt: null,
+    createdAt: '2026-07-04T00:00:00.000Z', updatedAt: '2026-07-04T00:00:00.000Z',
+  });
+
+/** The embedded records section (LX-2) for the Startup Books book. */
+export function parityLedgerSection(): LedgerExportSection {
+  const pages: StoredPage[] = Object.values(LEDGER_HOSTS).map((id) => ledgerRow(id, '', id, {}));
+  for (const [name, id] of LEDGER_ACCOUNT_ID) {
+    const type = STARTUP_BOOKS_CHART.find((a) => a.name === name)!.type;
+    pages.push(ledgerRow(id, LEDGER_DB.accounts, name, {
+      [LEDGER_PROP.account.type]: type,
+      [LEDGER_PROP.account.status]: 'open',
+      [LEDGER_PROP.account.currency]: 'USD',
+    }));
+  }
+  LEDGER_DRAFTS.forEach((tx, i) => {
+    const txId = `lgtx-${i}`;
+    pages.push(ledgerRow(txId, LEDGER_DB.transactions, tx.description ?? '', {
+      [LEDGER_PROP.transaction.date]: String(tx.date),
+      [LEDGER_PROP.transaction.description]: tx.description ?? '',
+      [LEDGER_PROP.transaction.state]: 'posted',
+      [LEDGER_PROP.transaction.entryNo]: i + 1,
+    }));
+    (tx.postings ?? []).forEach((p, j) => {
+      pages.push(ledgerRow(`lgpo-${i}-${j}`, LEDGER_DB.postings, '', {
+        [LEDGER_PROP.posting.transaction]: txId,
+        [LEDGER_PROP.posting.account]: p.accountId,
+        [LEDGER_PROP.posting.amount]: p.amountMinor,
+        [LEDGER_PROP.posting.cleared]: 'pending',
+      }));
+    });
+  });
+  return {
+    settings: {ledgerDb: {hostPageId: LEDGER_HOSTS.accounts, ...LEDGER_DB, hostPages: LEDGER_HOSTS}},
+    library: {
+      pages,
+      databases: (Object.entries(LEDGER_DB) as Array<[keyof typeof LEDGER_DB, string]>).map(([k, id]) => ({
+        id, pageId: LEDGER_HOSTS[k], name: `Ledger ${k}`,
+        schema: {properties: [], views: []} as never,
+        createdAt: '', updatedAt: '',
+      })),
+    },
+    auditHead: null,
+  };
+}
+
+/** The ledger page as a single-page site bundle — `withRecords` decides whether
+ *  the books ride along (records on ⇒ real tables; off ⇒ the LX-3 cards). The
+ *  bundle stays database-free so it takes the VIEWER (hydrate) runtime. */
+export function parityLedgerSiteBundle(withRecords: boolean): SiteBundle {
+  const raw = parityRawSnapshot(PARITY_LEDGER_BLOCKS);
+  const space: LibrarySnapshot = {
+    pages: [{
+      id: 'lg-root', name: 'Startup books', data: raw, hostedDatabaseId: null, databaseId: null,
+      parentId: null, properties: {}, deletedAt: null,
+      createdAt: '2026-07-04T00:00:00.000Z', updatedAt: '2026-07-04T00:00:00.000Z',
+    }],
+    databases: [],
+  };
+  return {
+    rootId: 'lg-root',
+    pages: [{id: 'lg-root', title: 'Startup books', icon: '📒', snapshot: projectSnapshotForExport(raw)}],
+    space,
+    ...(withRecords ? {ledger: parityLedgerSection()} : {}),
+  };
+}
 
 /** The export assets bundle the fixture needs: the artifact document text
  *  keyed by its assetId (no async store — the parity generator is synchronous).
