@@ -178,6 +178,49 @@ async function main(): Promise<void> {
   check('a 401-node payload is refused (max 400) counting nested children',
     isError(tooMany) && /Too many blocks/i.test(resultText(tooMany)) && /401/.test(resultText(tooMany)));
 
+  console.log('\nAPI-1 (should-fix 1.1): the container parent/child contract is enforced (no silent drop)');
+  const leafChildren = await mcp.client.callTool({
+    name: 'append_blocks',
+    arguments: {pageId: page.id, blocks: [{type: 'paragraph', text: 'p', children: [{type: 'paragraph', text: 'nested'}]}]},
+  });
+  check('children on a non-container leaf are refused, naming the offending type',
+    isError(leafChildren) && /"paragraph" block can't hold children/.test(resultText(leafChildren)));
+  const looseRow = await mcp.client.callTool({
+    name: 'append_blocks',
+    arguments: {pageId: page.id, blocks: [{type: 'row', children: [{type: 'cell', text: 'x'}]}]},
+  });
+  check('a top-level row (no table parent) is refused — this is the wall-of-placeholders bug',
+    isError(looseRow) && /"row" block/.test(resultText(looseRow)) && /table/.test(resultText(looseRow)));
+  const looseCell = await mcp.client.callTool({
+    name: 'append_blocks',
+    arguments: {pageId: page.id, blocks: [{type: 'table', children: [{type: 'cell', text: 'x'}]}]},
+  });
+  check('a cell directly under a table (skipping row) is refused',
+    isError(looseCell) && /"cell" block must be a direct child of a "row"/.test(resultText(looseCell)));
+  const afterGuard = await seed.getPage(page.id);
+  check('NONE of the rejected structural payloads mutated the page',
+    !JSON.stringify(afterGuard?.data).includes('nested'));
+
+  console.log('\nAPI-1 (should-fix 7.1/7.2): create_artifact_page accepts a NESTED payload and rejects a nested typo / bad structure');
+  const artRes = await mcp.client.callTool({name: 'create_artifact_page', arguments: {title: 'Artifact nested', blocks: NESTED_LAYOUT}});
+  check('create_artifact_page confirms creation of a nested layout', !isError(artRes) && /Created artifact page/.test(resultText(artRes)));
+  const artId = /id (\S+?)[\s)]/.exec(resultText(artRes))?.[1];
+  check('create_artifact_page returned a new page id', Boolean(artId));
+  const artTree = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: artId}})));
+  check('the artifact page materialized columns → column → group → paragraph',
+    Boolean(artTree.find((l) => l.type === 'columns')) && Boolean(artTree.find((l) => l.text === 'deep leaf')));
+  const artTypo = await mcp.client.callTool({
+    name: 'create_artifact_page',
+    arguments: {title: 'Typo', blocks: [{type: 'columns', children: [{type: 'column', props: {span: 12}, children: [{type: 'paragrpah', text: 'x'}]}]}]},
+  });
+  check('create_artifact_page rejects a NESTED typo type, naming it', isError(artTypo) && /paragrpah/.test(resultText(artTypo)));
+  const artBadStruct = await mcp.client.callTool({
+    name: 'create_artifact_page',
+    arguments: {title: 'BadStruct', blocks: [{type: 'row', children: [{type: 'cell', text: 'x'}]}]},
+  });
+  check('create_artifact_page rejects a top-level row (same structural guard as append_blocks)',
+    isError(artBadStruct) && /"row" block/.test(resultText(artBadStruct)));
+
   // ── API-4 (direct): delete_block + update_block_props at depth. ───────────────
   console.log('\nAPI-4 (direct): update_block_props merges shallowly and null removes a key');
   const propsPage = await seed.savePage({
@@ -214,6 +257,21 @@ async function main(): Promise<void> {
   const emptyProps = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {}}});
   check('update_block_props with no props is refused', isError(emptyProps));
 
+  // should-fix 5.1: the table order-contract private keys (ord/col/col:/colbg:) corrupt a
+  // table if written via generic props — refuse them and point at the table tools (API-3 owns those).
+  const ordKey = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {ord: 'a0'}}});
+  check('update_block_props refuses the table `ord` key, pointing at the table tools',
+    isError(ordKey) && /ord/.test(resultText(ordKey)) && /table tools/.test(resultText(ordKey)));
+  const colKey = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {col: 'c1'}}});
+  check('update_block_props refuses the cell `col` key', isError(colKey) && /table tools/.test(resultText(colKey)));
+  const colRegKey = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {'col:abc': 'a0'}}});
+  check('update_block_props refuses a `col:` column-registry key', isError(colRegKey) && /table tools/.test(resultText(colRegKey)));
+  const colbgKey = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {'colbg:abc': 'amber'}}});
+  check('update_block_props refuses a `colbg:` column-tint key', isError(colbgKey) && /table tools/.test(resultText(colbgKey)));
+  const unchangedByKeyGuard = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: propsPage.id}}))).find((l) => l.id === 'img1')!;
+  check('a refused table-key write left the block untouched',
+    !/"ord"/.test(unchangedByKeyGuard.raw) && !/"col"/.test(unchangedByKeyGuard.raw));
+
   console.log('\nAPI-4 (direct): delete_block removes nested blocks, table rows, and whole containers');
   const rowId = rows[1].id; // the "Apples" row, nested under the table
   const delRow = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: page.id, blockId: rowId}});
@@ -235,6 +293,95 @@ async function main(): Promise<void> {
     isError(badDel) && /No block "ghost"/.test(resultText(badDel)) && (await seed.getPage(propsPage.id)) !== null);
   const badPage = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: '00000000-0000-0000-0000-000000000000', blockId: 'x'}});
   check('delete_block on an unknown page reports "Page not found"', isError(badPage) && /Page not found/.test(resultText(badPage)));
+
+  // ── should-fix 4.1: a table that loses its LAST row/cell is removed WHOLE. ─────
+  console.log('\nAPI-4 (should-fix 4.1): deleting a table\'s last row/cell removes the table (keyed + legacy)');
+  const keyedTablePage = await seed.savePage({
+    ...blockPage('Keyed table'),
+    data: {
+      editor: 'blocks',
+      blockdoc: {blocks: [
+        {id: 'kt', type: 'table', props: {'col:c1': 'a0', 'col:c2': 'a1'}, children: [
+          {id: 'kr', type: 'row', props: {ord: 'a0'}, children: [
+            {id: 'kc1', type: 'cell', props: {col: 'c1'}, text: [{t: 'A'}]},
+            {id: 'kc2', type: 'cell', props: {col: 'c2'}, text: [{t: 'B'}]},
+          ]},
+        ]},
+        {id: 'kp', type: 'paragraph', text: [{t: 'after'}]},
+      ]},
+      editorjs: {blocks: []}, values: [], names: [],
+    },
+  });
+  const delKeyedRow = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: keyedTablePage.id, blockId: 'kr'}});
+  check('deleting the last row of a KEYED table succeeds', !isError(delKeyedRow));
+  const kt2 = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: keyedTablePage.id}})));
+  check('the keyed table is removed WHOLE, the sibling paragraph survives',
+    !kt2.some((l) => l.type === 'table') && kt2.some((l) => l.text === 'after'));
+
+  const legacyTablePage = await seed.savePage({
+    ...blockPage('Legacy table'),
+    data: {
+      editor: 'blocks',
+      blockdoc: {blocks: [
+        {id: 'lt', type: 'table', children: [
+          {id: 'lr', type: 'row', children: [{id: 'lc1', type: 'cell', text: [{t: 'X'}]}, {id: 'lc2', type: 'cell', text: [{t: 'Y'}]}]},
+        ]},
+      ]},
+      editorjs: {blocks: []}, values: [], names: [],
+    },
+  });
+  const delLegacyRow = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: legacyTablePage.id, blockId: 'lr'}});
+  check('deleting the last row of a LEGACY table succeeds', !isError(delLegacyRow));
+  const lt2 = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: legacyTablePage.id}})));
+  check('the legacy table is gone and the doc self-heals to one paragraph (never zero-root)',
+    !lt2.some((l) => l.type === 'table') && lt2.length === 1 && lt2[0].type === 'paragraph');
+
+  const cellPage = await seed.savePage({
+    ...blockPage('1x1 table'),
+    data: {
+      editor: 'blocks',
+      blockdoc: {blocks: [
+        {id: 'ct', type: 'table', children: [{id: 'cr', type: 'row', children: [{id: 'cc', type: 'cell', text: [{t: 'solo'}]}]}]},
+        {id: 'cp', type: 'paragraph', text: [{t: 'keep'}]},
+      ]},
+      editorjs: {blocks: []}, values: [], names: [],
+    },
+  });
+  const delCell = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: cellPage.id, blockId: 'cc'}});
+  check('deleting the only cell of the only row succeeds', !isError(delCell));
+  const ct2 = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: cellPage.id}})));
+  check('the 1×1 table is removed whole, the sibling paragraph survives',
+    !ct2.some((l) => l.type === 'table') && ct2.some((l) => l.text === 'keep'));
+
+  // ── should-fix 4.2: delete self-heals empty columns / a zero-root document. ────
+  console.log('\nAPI-4 (should-fix 4.2): delete prunes empty containers and never leaves a zero-root doc');
+  const colPage = await seed.savePage({
+    ...blockPage('Columns prune'),
+    data: {
+      editor: 'blocks',
+      blockdoc: {blocks: [
+        {id: 'cols', type: 'columns', children: [
+          {id: 'col1', type: 'column', props: {span: 6}, children: [{id: 'left', type: 'paragraph', text: [{t: 'left'}]}]},
+          {id: 'col2', type: 'column', props: {span: 6}, children: [{id: 'right', type: 'paragraph', text: [{t: 'right'}]}]},
+        ]},
+      ]},
+      editorjs: {blocks: []}, values: [], names: [],
+    },
+  });
+  const delLeft = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: colPage.id, blockId: 'left'}});
+  check('deleting the only block in a column succeeds', !isError(delLeft));
+  const cp2 = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: colPage.id}})));
+  check('the emptied column is pruned and the single-column layout is unwrapped',
+    !cp2.some((l) => l.type === 'columns') && !cp2.some((l) => l.type === 'column') && cp2.some((l) => l.text === 'right'));
+
+  const onlyPage = await seed.savePage({
+    ...blockPage('Only block'),
+    data: {editor: 'blocks', blockdoc: {blocks: [{id: 'solo', type: 'paragraph', text: [{t: 'lonely'}]}]}, editorjs: {blocks: []}, values: [], names: []},
+  });
+  const delOnly = await mcp.client.callTool({name: 'delete_block', arguments: {pageId: onlyPage.id, blockId: 'solo'}});
+  check('deleting a page\'s only block succeeds', !isError(delOnly));
+  const op2 = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: onlyPage.id}})));
+  check('the page self-heals to exactly one paragraph', op2.length === 1 && op2[0].type === 'paragraph');
 
   await mcp.close();
 
