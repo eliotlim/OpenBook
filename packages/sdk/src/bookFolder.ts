@@ -2,6 +2,7 @@ import type {StoredPage, PageSnapshot} from './types';
 import type {StoredDatabase} from './database';
 import {pageToBookHtml, bookHtmlToPage, slugify, BOOK_RUNTIME_FILE} from './bookfile';
 import {islandScript, readIsland} from './island';
+import type {LedgerExportSection} from './ledgerExportSection';
 
 /**
  * Whole-space → folder-of-files serialisation, shared by every "dump my books
@@ -56,6 +57,9 @@ export interface LibraryIsland {
   version: 1;
   rootId: string;
   space: LibrarySnapshot;
+  /** LX-2: the embedded ledger records, when the export opted in (see
+   *  {@link LedgerExportSection} for the shape + authorization contract). */
+  ledger?: LedgerExportSection;
 }
 
 /**
@@ -70,16 +74,22 @@ interface LibraryIslandWire {
   library?: Partial<LibrarySnapshot>;
   /** @deprecated legacy key (pre-LIB-4). Read-only fallback — never written. */
   space?: Partial<LibrarySnapshot>;
+  /** LX-2: ledger records (additive — absent on older exports and whenever the
+   *  exporter opted out or could not read the books). */
+  ledger?: LedgerExportSection;
 }
 
-/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
+/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped).
+ *  `opts.ledger` additionally embeds the LX-2 ledger records — pass it ONLY with
+ *  a section captured through the exporting principal's own read paths
+ *  ({@link gatherLedgerExportSection}). */
 export function libraryIslandScript(
   rootId: string,
   space: LibrarySnapshot,
-  opts: {attrs?: string; indent?: string} = {},
+  opts: {attrs?: string; indent?: string; ledger?: LedgerExportSection} = {},
 ): string {
   // Writer emits ONLY the new `library` key; the reader dual-reads for back-compat.
-  return islandScript({version: 1, rootId, library: space}, opts);
+  return islandScript({version: 1, rootId, library: space, ...(opts.ledger ? {ledger: opts.ledger} : {})}, opts);
 }
 
 /**
@@ -91,6 +101,17 @@ export function readLibraryIsland(html: string): LibraryIsland | null {
   const parsed = readIsland<LibraryIslandWire>(html);
   const bundle = parsed?.library ?? parsed?.space;
   if (!bundle || !Array.isArray(bundle.pages)) return null;
+  // Shape-check the LX-2 ledger key (island text is untrusted input): carry it
+  // only when it looks like a real section, so import code can trust the type.
+  const ledger = parsed?.ledger;
+  const validLedger =
+    !!ledger &&
+    typeof ledger === 'object' &&
+    !!ledger.settings &&
+    typeof ledger.settings === 'object' &&
+    !!ledger.library &&
+    Array.isArray(ledger.library.pages) &&
+    Array.isArray(ledger.library.databases);
   return {
     version: 1,
     rootId: parsed?.rootId ?? '',
@@ -98,6 +119,7 @@ export function readLibraryIsland(html: string): LibraryIsland | null {
       pages: bundle.pages,
       databases: Array.isArray(bundle.databases) ? bundle.databases : [],
     },
+    ...(validLedger ? {ledger} : {}),
   };
 }
 
