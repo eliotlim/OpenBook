@@ -170,6 +170,18 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_page_theme: 'set-theme',
   delete_block: 'delete',
   set_block_props: 'replace-text',
+  // Table STRUCTURE ops (API-3) all review as one `table-op` kind; the
+  // `payload.applyKind` is what tells the editor bridge which op to replay.
+  table_insert_row: 'table-op',
+  table_delete_row: 'table-op',
+  table_duplicate_row: 'table-op',
+  table_insert_column: 'table-op',
+  table_delete_column: 'table-op',
+  table_move_row: 'table-op',
+  table_move_column: 'table-op',
+  table_set_cell: 'table-op',
+  table_set_row_color: 'table-op',
+  table_set_column_color: 'table-op',
 };
 
 export class AgentRunner {
