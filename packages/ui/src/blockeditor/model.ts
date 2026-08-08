@@ -539,13 +539,19 @@ export function turnInto(doc: Y.Doc, id: string, type: BlockType, props?: Record
  * updates keep the type) and there's no own transaction, so the agent bridge can
  * fold it into its single 'local' transaction. Turning into a text block adds an
  * empty Y.Text when missing.
+ *
+ * Props are merged SHALLOWLY: omitted keys are untouched, and an explicit `null`
+ * (or `undefined`) REMOVES the key. `null` is load-bearing because a patch can
+ * arrive over JSON — an agent proposal or an MCP `update_block_props` suggestion,
+ * where `undefined` cannot survive serialization — so `null` is the only wire-level
+ * way to say "clear this prop", and both paths must land identically.
  */
 export function patchBlock(block: BlockMap, patch: {type?: string; props?: Record<string, unknown>}): void {
   if (patch.type) {
     block.set('type', patch.type);
     if (TEXT_BLOCKS.has(patch.type as BlockType) && !blockText(block)) block.set('text', new Y.Text());
   }
-  if (patch.props) for (const [k, v] of Object.entries(patch.props)) setBlockProp(block, k, v);
+  if (patch.props) for (const [k, v] of Object.entries(patch.props)) setBlockProp(block, k, v === null ? undefined : v);
 }
 
 /** Most columns a layout can hold (a 12-unit grid stays legible up to six). */
