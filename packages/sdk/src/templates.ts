@@ -1151,7 +1151,10 @@ const createSimpleBudget = async (client: DataClient, name: string, guidance: st
 
 // ── 📒 Startup books ────────────────────────────────────────────────────────
 
-const STARTUP_BOOKS_CHART: LedgerAccountInput[] = [
+/** The Startup Books chart of accounts. Exported (with
+ *  {@link startupBooksTransactions}) so the export renderer's golden tests can
+ *  rebuild the SAME fixture book this template seeds without a live store. */
+export const STARTUP_BOOKS_CHART: LedgerAccountInput[] = [
   {name: 'Assets:Bank:Checking', type: 'asset'},
   {name: 'Assets:Bank:Savings', type: 'asset'},
   {name: 'Assets:AccountsReceivable', type: 'asset'},
@@ -1180,7 +1183,9 @@ const STARTUP_BOOKS_CHART: LedgerAccountInput[] = [
   {name: 'Expenses:Office', type: 'expense'},
 ];
 
-const startupBooksTransactions = (accounts: Map<string, string>): LedgerDraftInput[] => {
+/** The Startup Books sample entries, keyed by the caller's `name → account id`
+ *  map (dates are relative to today). Exported for the golden export tests. */
+export const startupBooksTransactions = (accounts: Map<string, string>): LedgerDraftInput[] => {
   const id = (name: string): string => accounts.get(name)!;
   return [
     {date: day(-30), description: 'Owner investment', postings: [{accountId: id('Assets:Bank:Checking'), amountMinor: 5000000}, {accountId: id('Equity:OwnersInvestment'), amountMinor: -5000000}]},

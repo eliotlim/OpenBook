@@ -345,7 +345,7 @@ export type {
   StoredComment,
   CommentInput,
 } from './suggestions';
-export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate, type TemplateTag} from './templates';
+export {PAGE_TEMPLATES, STARTUP_BOOKS_CHART, instantiateTemplate, startupBooksTransactions, type PageTemplate, type TemplateTag} from './templates';
 export {
   imagePlaceholderBlock,
   imagePlaceholderCell,
