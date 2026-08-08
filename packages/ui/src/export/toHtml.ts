@@ -41,7 +41,16 @@ import plotUmd from './vendor/plot.umd.min.js?raw';
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
 import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
-import {describeLedgerInteractiveBlock, describeLedgerReportBlock, ledgerExportRecords, renderLedgerReportBlock, type LedgerExportRecords} from './exportLedgerReports';
+import {
+  KEEP_STATIC_ATTR,
+  describeLedgerInteractiveBlock,
+  describeLedgerReportBlock,
+  isLedgerBlockType,
+  keepStaticAttrs,
+  ledgerExportRecords,
+  renderLedgerReportBlock,
+  type LedgerExportRecords,
+} from './exportLedgerReports';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
@@ -612,7 +621,7 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       // table, honouring the block's persisted props. A fold refusal (corrupt
       // stored amount, unlinkable journal entry) falls through to the card.
       if (ctx.ledger) {
-        const table = renderLedgerReportBlock(str(block.type), (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
+        const table = renderLedgerReportBlock({type: str(block.type), id}, (d.props ?? {}) as Record<string, unknown>, ctx.ledger);
         if (table !== null) {
           html.push(table);
           break;
@@ -631,8 +640,15 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
         (ctx.ledger ? null : describeLedgerReportBlock(str(block.type))) ??
         describeUnknownBlock(str(block.type));
       const text = str(d.text) ? inlineToHtml(parseInline(str(d.text)), ctx) : '';
+      // LX-5: a LEDGER card's wording is already the honest, first-party one
+      // (interactive tool / books-not-included), so it is marked keep-on-hydrate
+      // exactly like a report table — the viewer re-attaches it instead of
+      // replacing it with the generic "install the plugin" card. Third-party
+      // plugin blocks are NOT marked: for those the viewer's own card (plugin
+      // icon, "Open in OpenBook to install") is the better render.
+      const keep = isLedgerBlockType(str(block.type)) ? keepStaticAttrs(id) : '';
       html.push(
-        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}">` +
+        `<div class="ob-plugin-block" data-block-type="${escapeHtml(str(block.type))}"${keep}>` +
           `<p class="ob-plugin-block-label">${escapeHtml(label)}</p>` +
           `<p class="ob-plugin-block-hint">${escapeHtml(hint)}</p>` +
           (text ? `<p class="ob-plugin-block-text">${text}</p>` : '') +
@@ -681,6 +697,15 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
  * duplicated into the island). Harvesting happens BEFORE the static body is
  * replaced. This is the same recovery contract island-first import uses.
  *
+ * Kept static blocks (LX-5): the same pre-swap pass also harvests the static
+ * renders the viewer cannot reproduce and must NOT overwrite — ledger report
+ * tables (LX-3) and the ledger placeholder cards — keyed by block id off the
+ * `${KEEP_STATIC_ATTR}` marker, and hands them to `mount` as `staticBlocks`.
+ * The viewer replants those nodes where its missing-plugin card would have gone,
+ * so a reader who opens the file with JS ON sees the SAME numbers a no-JS/print
+ * reader sees. No ledger code (and no ledger bytes) enter the viewer bundle: the
+ * marker, the report folds and the wording all stay on the export side.
+ *
  * Failure modes all keep the static render: no island, corrupt JSON, a legacy
  * snapshot without a block-doc, or a mount throw (the static body is restored).
  * `window.__OB_NO_HYDRATE` short-circuits the boot entirely — the PDF pipeline
@@ -718,10 +743,19 @@ const VIEWER_BOOT = `
     var m = /^data:([^;,]*);base64,(.*)$/.exec(img.getAttribute('src') || '');
     if (id && m && !assets[id]) assets[id] = {mime: m[1] || 'application/octet-stream', encoding: 'base64', data: m[2]};
   });
+  // LX-5: static renders this document already carries and the viewer must KEEP
+  // (ledger report tables + the ledger placeholder cards), harvested by block id
+  // BEFORE the body is swapped. CLONES, not the live nodes: a mount throw
+  // restores the original <main> intact, and the viewer plants copies.
+  var keep = {};
+  main.querySelectorAll('[${KEEP_STATIC_ATTR}][data-block-id]').forEach(function(el){
+    var bid = el.getAttribute('data-block-id');
+    if (bid && !keep[bid]) keep[bid] = el.cloneNode(true);
+  });
   var host = document.createElement('div');
   host.id = 'ob-viewer-host';
   main.parentNode.replaceChild(host, main);
-  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets}); }
+  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets, staticBlocks: keep}); }
   catch (e) { if (host.parentNode) host.parentNode.replaceChild(main, host); }
 })();
 `;
@@ -1214,11 +1248,16 @@ figure.ob-artifact { margin: 1.2em 0; }
 .ob-artifact-label { font-weight: 600; }
 .ob-artifact-hint { font-size: .85rem; opacity: .65; }
 /* Plugin / unknown block placeholder (LX-1). Same dashed-card language as the
-   artifact placeholder above; kept whole across a PDF page break. */
-.ob-plugin-block { margin: 1.2em 0; padding: 14px 16px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; background: rgba(127,127,127,.05); break-inside: avoid; page-break-inside: avoid; }
-.ob-plugin-block > p { margin: 0; }
+   artifact placeholder above; kept whole across a PDF page break.
+   Metrics match the app's .obe-missing-plugin card (Devon F2): a hydrated
+   export can show BOTH families on one page — a preserved ledger card next to
+   the viewer's install card (LX-5) — and mismatched padding/tint made their
+   left text edges disagree by a couple of pixels down the page. Same padding,
+   same untinted ground, same 0.8rem body. */
+.ob-plugin-block { margin: 1.2em 0; padding: 0.6rem 0.75rem; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; break-inside: avoid; page-break-inside: avoid; }
+.ob-plugin-block > p { margin: 0; font-size: .8rem; line-height: 1.3; }
 .ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
-.ob-plugin-block > p.ob-plugin-block-hint { font-size: .85rem; opacity: .65; margin-top: 2px; }
+.ob-plugin-block > p.ob-plugin-block-hint { opacity: .65; margin-top: 2px; }
 .ob-plugin-block > p.ob-plugin-block-text { margin-top: 8px; }
 /* Ledger report tables (LX-3). Money columns are right-aligned tabular digits;
    totals carry the double-rule emphasis; a report never splits across a PDF
@@ -1237,6 +1276,9 @@ table.ledger-table tr { break-inside: avoid; page-break-inside: avoid; }
 table.ledger-table th, table.ledger-table td { border: 1px solid rgba(127,127,127,.3); padding: 5px 10px; text-align: left; vertical-align: top; }
 table.ledger-table thead th { background: rgba(127,127,127,.08); font-weight: 600; }
 table.ledger-table th.num, table.ledger-table td.num { text-align: right; white-space: nowrap; }
+/* An ISO date is one token, not two: the register's narrow date column used to
+   break it as "2026-" / "07-09" (Devon F3). */
+table.ledger-table th.date, table.ledger-table td.date { white-space: nowrap; }
 table.ledger-table tr.ledger-section th { background: rgba(127,127,127,.08); font-weight: 700; }
 table.ledger-table tr.ledger-total td { font-weight: 700; border-top: 2px solid rgba(127,127,127,.55); }
 table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }

@@ -67,6 +67,7 @@ import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee'
 import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
 import {getCustomBlock, getRegistrySnapshot, subscribeRegistry} from './registry';
 import {MissingPluginBlock} from './MissingPluginBlock';
+import {StaticKeepBlock, useStaticKeep} from './staticKeep';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
 import {imageBlockFromFile} from './imageBlock';
@@ -2240,6 +2241,10 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // plugin hasn't loaded yet updates automatically once registration happens.
   useSyncExternalStore(subscribeRegistry, getRegistrySnapshot);
 
+  // A static render the host document already produced for this block (LX-5):
+  // set only by the exported file's viewer, empty in the app.
+  const keptStatic = useStaticKeep(id);
+
   switch (type) {
   case 'divider':
     return <hr className="obe-divider" aria-label="Divider" />;
@@ -2371,6 +2376,14 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
         </div>
       );
     }
+    // No renderer here — but the HOST DOCUMENT may already have one: an
+    // exported file renders its blocks statically before hydrating the viewer
+    // over them, and for a ledger report that static render is a real table of
+    // real numbers (LX-3). Keep it rather than replace it with an
+    // install-plugin card that shows the reader nothing (LX-5). Ordered ahead
+    // of the text fallback: the preserved render already contains any text the
+    // block carried.
+    if (keptStatic) return <StaticKeepBlock node={keptStatic} />;
     // A text-carrying unknown type still edits as text; anything else shows
     // a quiet placeholder instead of crashing (forward compatibility).
     if (blockText(block)) return <TextBlockView block={block} editor={textEditor} ui={ui} />;
