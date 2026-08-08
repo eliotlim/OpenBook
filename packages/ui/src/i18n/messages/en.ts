@@ -323,6 +323,8 @@ export const en = {
       clearCells: 'Clear contents',
       tintCells: 'Cell colour',
       deleteTable: 'Delete table',
+      mergeCells: 'Merge cells',
+      splitCell: 'Split cell',
       deleteRowsN: 'Delete {n} rows',
       deleteColumnsN: 'Delete {n} columns',
     },

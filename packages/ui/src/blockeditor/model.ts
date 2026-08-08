@@ -618,6 +618,11 @@ function indexOfBlock(arr: Y.Array<BlockMap>, id: string): number {
   return -1;
 }
 
+/** Delete every CRDT element carrying one logical block id (concurrent idempotent materialisation may create twins). */
+function deleteBlocksById(arr: Y.Array<BlockMap>, id: string): void {
+  for (let i = arr.length - 1; i >= 0; i -= 1) if (blockId(arr.get(i)) === id) arr.delete(i, 1);
+}
+
 /** Drop empty columns; unwrap single-column layouts; drop empty layouts. */
 export function pruneEmptyContainers(doc: Y.Doc): void {
   let changed = true;
@@ -839,7 +844,10 @@ export function tableGrid(table: BlockMap): TableGrid {
         const idx = colIndex.get(col);
         if (idx === undefined) continue; // column deleted concurrently → hidden
         if (slots[idx] === null) slots[idx] = cell;
-        else loose.push(cell); // duplicate binding (merge artifact) — keep visible
+        // Two peers may materialise the SAME deterministic split cell at once.
+        // Treat equal block ids as one logical cell; a genuinely different
+        // duplicate binding remains loose/visible per the TBL-1 repair contract.
+        else if (blockId(slots[idx]!) !== blockId(cell)) loose.push(cell);
       }
     }
     let s = 0;
@@ -978,7 +986,13 @@ export function makeTable(rows: number, cols: number): NewBlock {
   };
 }
 
-/** Insert a row at sorted position `rowIndex` (clamped), one cell per column. */
+/**
+ * Insert a row at sorted position `rowIndex` (clamped), one cell per column.
+ * Merge-aware (TBL-8): inserting STRICTLY INSIDE a vertical span extends it —
+ * the crossing anchors gain a row of `rowspan` and the new row gets NO cells in
+ * the covered columns (they stay null slots). Inserting at a span's top or
+ * bottom edge does not extend it (the new row sits outside the merge).
+ */
 export function tableInsertRow(doc: Y.Doc, tableId: string, rowIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
@@ -996,8 +1010,27 @@ export function tableInsertRow(doc: Y.Doc, tableId: string, rowIndex: number): v
       grid.rows.forEach((row, i) => setBlockProp(row, 'ord', keys[i < at ? i : i + 1]));
       ord = keys[at];
     }
+    // Spans the insertion line crosses: extend them, and remember their columns
+    // so the fresh row leaves those slots empty (covered by the grown span).
+    const spans = tableSpans(grid);
+    const covered = new Set<number>();
+    for (let r = 0; r < grid.rows.length; r += 1) {
+      for (let c = 0; c < grid.width; c += 1) {
+        const s = spans[r][c];
+        if (s.kind !== 'cell' || s.rowspan === 1) continue;
+        if (r < at && at < r + s.rowspan) {
+          const anchor = grid.cells[r][c];
+          if (anchor) setBlockProp(anchor, 'rowspan', s.rowspan + 1);
+          for (let cc = c; cc < c + s.colspan; cc += 1) covered.add(cc);
+        }
+      }
+    }
     rowsArr.insert(Math.min(at, rowsArr.length), [
-      makeBlock({type: 'row', props: {ord}, children: tableColumns(table.block).map((c) => ({type: 'cell' as const, props: {col: c.id}}))}),
+      makeBlock({
+        type: 'row',
+        props: {ord},
+        children: tableColumns(table.block).flatMap((c, i) => (covered.has(i) ? [] : [{type: 'cell' as const, props: {col: c.id}}])),
+      }),
     ]);
   }, 'local');
 }
@@ -1048,15 +1081,30 @@ export function tableDuplicateRow(doc: Y.Doc, tableId: string, rowIndex: number)
       grid.rows.forEach((row, i) => setBlockProp(row, 'ord', keys[i <= rowIndex ? i : i + 1]));
       ord = keys[rowIndex + 1];
     }
-    // Build cells from the SORTED slots so the clone matches render order; each
-    // carries the source cell's props (incl. `col`) or, for a merge gap, an
-    // empty cell bound to that column.
+    const spans = tableSpans(grid);
+    const insertionRow = rowIndex + 1;
+    const covered = new Set<number>();
+    for (let r = 0; r < grid.rows.length; r += 1) {
+      for (let c = 0; c < grid.width; c += 1) {
+        const slot = spans[r][c];
+        if (slot.kind !== 'cell' || slot.rowspan === 1 || !(r < insertionRow && insertionRow < r + slot.rowspan)) continue;
+        const anchor = grid.cells[r][c];
+        if (anchor) setCellSpan(anchor, 'rowspan', slot.rowspan + 1);
+        for (let cc = c; cc < c + slot.colspan; cc += 1) covered.add(cc);
+      }
+    }
+    // Build cells from sorted coordinates. A vertical span crossing the new
+    // row leaves null slots; a horizontal span anchored in the source row is
+    // cloned as a horizontal span (its covered slots remain absent).
     const columns = tableColumns(table.block);
-    const children = columns.map((c, i) => {
+    const children = columns.flatMap((c, i) => {
+      if (covered.has(i)) return [];
+      const sourceSlot = spans[rowIndex]?.[i];
+      if (sourceSlot?.kind === 'covered' && sourceSlot.anchorRow === rowIndex) return [];
       const src = grid.cells[rowIndex][i];
       return src && blockType(src) === 'cell'
-        ? {type: 'cell' as const, text: cellRuns(src), props: {...cloneBlockProps(src), col: c.id}}
-        : {type: 'cell' as const, props: {col: c.id}};
+        ? [{type: 'cell' as const, text: cellRuns(src), props: {...cloneBlockProps(src), col: c.id}}]
+        : [{type: 'cell' as const, props: {col: c.id}}];
     });
     const arrayIndex = indexOfBlock(rowsArr, blockId(source));
     const at = arrayIndex >= 0 ? arrayIndex + 1 : rowsArr.length;
@@ -1066,13 +1114,19 @@ export function tableDuplicateRow(doc: Y.Doc, tableId: string, rowIndex: number)
   }, 'local');
 }
 
-/** Insert a column at sorted position `colIndex`: register id, add bound cells. */
+/**
+ * Insert a column at sorted position `colIndex`: register id, add bound cells.
+ * Inserting strictly inside a horizontal span extends that span and leaves the
+ * new column empty for every row it covers, mirroring {@link tableInsertRow}.
+ */
 export function tableInsertColumn(doc: Y.Doc, tableId: string, colIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table) return;
     if (!blockChildren(table.block)) return;
     ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    const spans = tableSpans(grid);
     const columns = tableColumns(table.block);
     const at = Math.max(0, Math.min(colIndex, columns.length));
     const before = at > 0 ? columns[at - 1].key : null;
@@ -1085,59 +1139,143 @@ export function tableInsertColumn(doc: Y.Doc, tableId: string, colIndex: number)
     }
     const id = shortId('col');
     setBlockProp(table.block, TABLE_COL_PREFIX + id, key);
-    const rowsArr = blockChildren(table.block)!;
-    for (let r = 0; r < rowsArr.length; r += 1) {
-      const cells = blockChildren(rowsArr.get(r));
-      if (cells) cells.insert(Math.max(0, Math.min(at, cells.length)), [makeBlock({type: 'cell', props: {col: id}})]);
+    const covered = new Set<number>();
+    for (let r = 0; r < grid.rows.length; r += 1) {
+      for (let c = 0; c < grid.width; c += 1) {
+        const slot = spans[r][c];
+        if (slot.kind !== 'cell' || slot.colspan === 1 || !(c < at && at < c + slot.colspan)) continue;
+        const anchor = grid.cells[r][c];
+        if (anchor) setBlockProp(anchor, 'colspan', slot.colspan + 1);
+        for (let rr = r; rr < r + slot.rowspan; rr += 1) covered.add(rr);
+      }
+    }
+    // Cell order inside a keyed row is irrelevant; its stable `col` binding is
+    // the order contract. Appending avoids confusing a render coordinate with
+    // a Y.Array index (rows/cells may already be physically out of order).
+    for (let r = 0; r < grid.rows.length; r += 1) {
+      if (covered.has(r)) continue;
+      const cells = blockChildren(grid.rows[r]);
+      if (cells) cells.push([makeBlock({type: 'cell', props: {col: id}})]);
     }
   }, 'local');
+}
+
+/** Set a stored span canonically: absent means one. */
+function setCellSpan(cell: BlockMap, key: 'colspan' | 'rowspan', value: number): void {
+  setBlockProp(cell, key, value > 1 ? value : undefined);
+}
+
+/** Delete one sorted row inside an existing transaction. */
+function tableDeleteRowInTx(doc: Y.Doc, tableId: string, rowIndex: number): void {
+  const table = findBlock(doc, tableId);
+  if (!table) return;
+  const rowsArr = blockChildren(table.block);
+  if (!rowsArr) return;
+  ensureTableOrderInTx(table.block);
+  const grid = tableGrid(table.block);
+  if (rowIndex < 0 || rowIndex >= grid.rows.length) return;
+  if (grid.rows.length === 1) {
+    removeBlockInTx(doc, tableId);
+    return;
+  }
+  const spans = tableSpans(grid);
+  for (let r = 0; r < grid.rows.length; r += 1) {
+    for (let c = 0; c < grid.width; c += 1) {
+      const slot = spans[r][c];
+      if (slot.kind !== 'cell' || slot.rowspan === 1 || rowIndex < r || rowIndex >= r + slot.rowspan) continue;
+      const anchor = grid.cells[r][c];
+      if (!anchor || blockType(anchor) !== 'cell') continue;
+      if (rowIndex > r) {
+        setCellSpan(anchor, 'rowspan', slot.rowspan - 1);
+        continue;
+      }
+      // The deleted row owns the anchor block. Recreate that logical merged
+      // cell on the next row before removing it, retaining content/formatting
+      // while shortening the vertical span by one.
+      const target = blockChildren(grid.rows[r + 1]);
+      const colId = grid.colIds[c];
+      if (!target || !colId) continue;
+      target.push([
+        makeBlock({
+          id: `${blockId(anchor)}:row:${blockId(grid.rows[r + 1])}:${colId}`,
+          type: 'cell',
+          text: cellRuns(anchor),
+          props: {
+            ...cloneBlockProps(anchor),
+            col: colId,
+            colspan: slot.colspan > 1 ? slot.colspan : undefined,
+            rowspan: slot.rowspan > 2 ? slot.rowspan - 1 : undefined,
+          },
+        }),
+      ]);
+    }
+  }
+  const arrayIndex = indexOfBlock(rowsArr, blockId(grid.rows[rowIndex]));
+  if (arrayIndex >= 0) rowsArr.delete(arrayIndex, 1);
 }
 
 /** Delete the row at sorted position `rowIndex`; the last row removes the table. */
 export function tableDeleteRow(doc: Y.Doc, tableId: string, rowIndex: number): void {
-  doc.transact(() => {
-    const table = findBlock(doc, tableId);
-    if (!table) return;
-    const rowsArr = blockChildren(table.block);
-    if (!rowsArr) return;
-    ensureTableOrderInTx(table.block);
-    const grid = tableGrid(table.block);
-    if (rowIndex < 0 || rowIndex >= grid.rows.length) return;
-    if (grid.rows.length === 1) {
-      removeBlockInTx(doc, tableId);
-      return;
+  doc.transact(() => tableDeleteRowInTx(doc, tableId, rowIndex), 'local');
+}
+
+/** Delete one sorted column inside an existing transaction. */
+function tableDeleteColumnInTx(doc: Y.Doc, tableId: string, colIndex: number): void {
+  const table = findBlock(doc, tableId);
+  if (!table || !blockChildren(table.block)) return;
+  ensureTableOrderInTx(table.block);
+  const grid = tableGrid(table.block);
+  if (colIndex < 0 || colIndex >= grid.colIds.length) return;
+  if (grid.colIds.length === 1) {
+    removeBlockInTx(doc, tableId);
+    return;
+  }
+  const spans = tableSpans(grid);
+  for (let r = 0; r < grid.rows.length; r += 1) {
+    for (let c = 0; c < grid.width; c += 1) {
+      const slot = spans[r][c];
+      if (slot.kind !== 'cell' || slot.colspan === 1 || colIndex < c || colIndex >= c + slot.colspan) continue;
+      const anchor = grid.cells[r][c];
+      if (!anchor || blockType(anchor) !== 'cell') continue;
+      if (colIndex > c) {
+        setCellSpan(anchor, 'colspan', slot.colspan - 1);
+        continue;
+      }
+      // The deleted column owns the anchor binding. Recreate the logical cell
+      // in the next covered column, retaining content/formatting and rowspan.
+      const target = blockChildren(grid.rows[r]);
+      const nextColId = grid.colIds[c + 1];
+      if (!target || !nextColId) continue;
+      target.push([
+        makeBlock({
+          id: `${blockId(anchor)}:col:${blockId(grid.rows[r])}:${nextColId}`,
+          type: 'cell',
+          text: cellRuns(anchor),
+          props: {
+            ...cloneBlockProps(anchor),
+            col: nextColId,
+            colspan: slot.colspan > 2 ? slot.colspan - 1 : undefined,
+            rowspan: slot.rowspan > 1 ? slot.rowspan : undefined,
+          },
+        }),
+      ]);
     }
-    const arrayIndex = indexOfBlock(rowsArr, blockId(grid.rows[rowIndex]));
-    if (arrayIndex >= 0) rowsArr.delete(arrayIndex, 1);
-  }, 'local');
+  }
+  setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[colIndex], undefined);
+  // Drop the column's colour entry too, so a deleted column leaves no orphan.
+  setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[colIndex], undefined);
+  grid.rows.forEach((row, r) => {
+    const cell = grid.cells[r][colIndex];
+    if (!cell) return;
+    const cellsArr = blockChildren(row);
+    if (!cellsArr) return;
+    deleteBlocksById(cellsArr, blockId(cell));
+  });
 }
 
 /** Delete the column at sorted position `colIndex` (registry + bound cells). */
 export function tableDeleteColumn(doc: Y.Doc, tableId: string, colIndex: number): void {
-  doc.transact(() => {
-    const table = findBlock(doc, tableId);
-    if (!table) return;
-    if (!blockChildren(table.block)) return;
-    ensureTableOrderInTx(table.block);
-    const grid = tableGrid(table.block);
-    if (colIndex < 0 || colIndex >= grid.colIds.length) return;
-    if (grid.colIds.length === 1) {
-      removeBlockInTx(doc, tableId);
-      return;
-    }
-    setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[colIndex], undefined);
-    // Drop the column's colour entry too, so a deleted column leaves no orphan
-    // `colbg:` prop behind (TBL-4).
-    setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[colIndex], undefined);
-    grid.rows.forEach((row, r) => {
-      const cell = grid.cells[r][colIndex];
-      if (!cell) return;
-      const cellsArr = blockChildren(row);
-      if (!cellsArr) return;
-      const idx = indexOfBlock(cellsArr, blockId(cell));
-      if (idx >= 0) cellsArr.delete(idx, 1);
-    });
-  }, 'local');
+  doc.transact(() => tableDeleteColumnInTx(doc, tableId, colIndex), 'local');
 }
 
 /**
@@ -1293,33 +1431,51 @@ export function cellPosition(doc: Y.Doc, cellId: string): {table: BlockMap; row:
 /**
  * The neighbouring cell id for grid navigation, in RENDER (sorted) order.
  * `next`/`prev` move within the row and wrap across rows; `down`/`up` move
- * within the column. Returns null at the table's edge or a grid gap (callers
- * may grow the table and retry).
+ * within the column. Merge-aware (TBL-8): Tab-order (`next`/`prev`) skips every
+ * covered slot so each real cell is visited once; vertical movement entering a
+ * DIFFERENT cell's span lands on that span's anchor, while movement through
+ * one's own span (or a plain ragged gap) keeps going. Returns null at the edge.
  */
 export function cellNeighbor(doc: Y.Doc, cellId: string, dir: 'next' | 'prev' | 'down' | 'up'): string | null {
   const pos = cellPosition(doc, cellId);
   if (!pos) return null;
   const grid = tableGrid(pos.table);
+  const spans = tableSpans(grid);
   let {row, col} = pos;
-  if (dir === 'next') {
-    col += 1;
-    if (col >= grid.width) {
-      col = 0;
-      row += 1;
+  const steps = grid.rows.length * Math.max(1, grid.width) + 1; // hard bound
+  for (let i = 0; i < steps; i += 1) {
+    if (dir === 'next') {
+      col += 1;
+      if (col >= grid.width) {
+        col = 0;
+        row += 1;
+      }
+    } else if (dir === 'prev') {
+      col -= 1;
+      if (col < 0) {
+        col = grid.width - 1;
+        row -= 1;
+      }
+    } else {
+      row += dir === 'down' ? 1 : -1;
     }
-  } else if (dir === 'prev') {
-    col -= 1;
-    if (col < 0) {
-      col = grid.width - 1;
-      row -= 1;
+    if (row < 0 || row >= grid.rows.length) return null;
+    const slot = spans[row]?.[col];
+    if (!slot) return null;
+    if (slot.kind === 'cell') {
+      const cell = grid.cells[row][col];
+      return cell && blockType(cell) === 'cell' ? blockId(cell) : null;
     }
-  } else {
-    row += dir === 'down' ? 1 : -1;
+    if (slot.kind === 'covered') {
+      if (dir === 'next' || dir === 'prev') continue;
+      const anchor = grid.cells[slot.anchorRow]?.[slot.anchorCol];
+      const anchorId = anchor && blockType(anchor) === 'cell' ? blockId(anchor) : null;
+      if (anchorId && anchorId !== cellId) return anchorId; // enter a foreign span at its anchor
+      // own span (or a broken cover) — keep stepping past it
+    }
+    // plain gap — keep stepping (Tab/arrows skip gaps)
   }
-  if (row < 0 || row >= grid.rows.length) return null;
-  const cell = grid.cells[row][col];
-  if (!cell || blockType(cell) !== 'cell') return null;
-  return blockId(cell);
+  return null;
 }
 
 // ── Cell-range selection (TBL-5) ───────────────────────────────────────────────
@@ -1363,11 +1519,12 @@ export function tableRangeCells(doc: Y.Doc, tableId: string, rect: CellRect): (B
   const found = findBlock(doc, tableId);
   if (!found || blockType(found.block) !== 'table') return [];
   const grid = tableGrid(found.block);
+  const snapped = tableSnapRectToSpans(found.block, rect);
   const out: (BlockMap | null)[][] = [];
-  for (let r = rect.top; r <= rect.bottom; r += 1) {
+  for (let r = snapped.top; r <= snapped.bottom; r += 1) {
     const rowCells = grid.cells[r] ?? [];
     const line: (BlockMap | null)[] = [];
-    for (let c = rect.left; c <= rect.right; c += 1) {
+    for (let c = snapped.left; c <= snapped.right; c += 1) {
       const cell = rowCells[c] ?? null;
       line.push(cell && blockType(cell) === 'cell' ? cell : null);
     }
@@ -1379,6 +1536,44 @@ export function tableRangeCells(doc: Y.Doc, tableId: string, rect: CellRect): (B
 /** The rich-text runs of a range's cells (empty `[]` for a gap) — clipboard serialization. */
 export function tableRangeRuns(doc: Y.Doc, tableId: string, rect: CellRect): TextRun[][][] {
   return tableRangeCells(doc, tableId, rect).map((line) => line.map((cell) => (cell ? cellRuns(cell) : [])));
+}
+
+/** One slot of a span-aware cell-range HTML projection. */
+export type CellRangeExportCell =
+  | {kind: 'cell'; runs: TextRun[]; colspan: number; rowspan: number}
+  | {kind: 'covered'};
+
+/**
+ * A range projected for HTML clipboard export. Unlike {@link tableRangeRuns},
+ * this retains anchor spans and marks covered slots so the serializer omits
+ * their `<td>` elements. The rectangle first snaps to whole merged cells.
+ */
+export function tableRangeExport(doc: Y.Doc, tableId: string, rect: CellRect): CellRangeExportCell[][] {
+  const found = findBlock(doc, tableId);
+  if (!found || blockType(found.block) !== 'table') return [];
+  const grid = tableGrid(found.block);
+  const spans = tableSpans(grid);
+  const snapped = tableSnapRectToSpans(found.block, rect);
+  const out: CellRangeExportCell[][] = [];
+  for (let r = snapped.top; r <= snapped.bottom; r += 1) {
+    const row: CellRangeExportCell[] = [];
+    for (let c = snapped.left; c <= snapped.right; c += 1) {
+      const slot = spans[r]?.[c];
+      if (slot?.kind === 'covered') {
+        row.push({kind: 'covered'});
+        continue;
+      }
+      const cell = grid.cells[r]?.[c];
+      row.push({
+        kind: 'cell',
+        runs: cell && blockType(cell) === 'cell' ? cellRuns(cell) : [],
+        colspan: slot?.kind === 'cell' ? slot.colspan : 1,
+        rowspan: slot?.kind === 'cell' ? slot.rowspan : 1,
+      });
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 /** Clear every cell text in a rectangular range in ONE transaction (one undo step). */
@@ -1435,14 +1630,9 @@ export function tableDeleteRowRange(doc: Y.Doc, tableId: string, top: number, bo
       removeBlockInTx(doc, tableId);
       return;
     }
-    // Array indices of the doomed rows, descending — deleting from the back
-    // leaves the earlier indices valid.
-    const indices = grid.rows
-      .slice(from, to + 1)
-      .map((row) => indexOfBlock(rowsArr, blockId(row)))
-      .filter((i) => i >= 0)
-      .sort((a, b) => b - a);
-    for (const i of indices) rowsArr.delete(i, 1);
+    // Repair/shrink spans once per deletion. Descending sorted coordinates keep
+    // every earlier target stable while the entire band remains one undo step.
+    for (let r = to; r >= from; r -= 1) tableDeleteRowInTx(doc, tableId, r);
   }, 'local');
 }
 
@@ -1465,24 +1655,7 @@ export function tableDeleteColumnRange(doc: Y.Doc, tableId: string, left: number
       removeBlockInTx(doc, tableId);
       return;
     }
-    for (let c = from; c <= to; c += 1) {
-      setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[c], undefined);
-      setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[c], undefined);
-    }
-    grid.rows.forEach((row, r) => {
-      const cellsArr = blockChildren(row);
-      if (!cellsArr) return;
-      // Descending so the array indices behind us stay valid.
-      const indices: number[] = [];
-      for (let c = from; c <= to; c += 1) {
-        const cell = grid.cells[r][c];
-        if (!cell) continue;
-        const idx = indexOfBlock(cellsArr, blockId(cell));
-        if (idx >= 0) indices.push(idx);
-      }
-      indices.sort((a, b) => b - a);
-      for (const idx of indices) cellsArr.delete(idx, 1);
-    });
+    for (let c = to; c >= from; c -= 1) tableDeleteColumnInTx(doc, tableId, c);
   }, 'local');
 }
 
@@ -1490,6 +1663,260 @@ function removeBlockInTx(doc: Y.Doc, id: string): void {
   const found = findBlock(doc, id);
   if (found) found.parent.delete(found.index, 1);
   ensureNotEmpty(doc);
+}
+
+// ── Merged cells (TBL-8) ─────────────────────────────────────────────────────
+/*
+ * SPAN CONTRACT — colspan/rowspan live on the ANCHOR (top-left) cell.
+ *
+ *   cell.props.colspan = <int ≥ 2>    columns the anchor covers (absent = 1)
+ *   cell.props.rowspan = <int ≥ 2>    rows the anchor covers (absent = 1)
+ *
+ * The covered slots hold NO cell block — they are the existing null-slot
+ * convention of {@link tableGrid} (a row simply has no cell bound to that
+ * column). Nothing else changes shape: the column registry, row `ord` keys and
+ * `col` bindings are exactly the TBL-1 order contract.
+ *
+ * EFFECTIVE spans are computed by {@link tableSpans}, which SHRINKS a declared
+ * span so it only ever covers slots that are actually empty. This makes spans
+ * self-healing: if a covered slot gains a real cell (a concurrent edit, or an
+ * external tool materialising a gap), that cell RENDERS and the span contracts
+ * around it — content is never hidden under a span.
+ *
+ * API-3 COORDINATION (table tools on feat/api3-*, not merged here): its
+ * `inspect_table` prints `[gap]` for null slots — a span's covered slots print
+ * the same way (the anchor's props say why). Its `table_set_cell` materialises
+ * a gap cell before writing — per the paragraph above that is SAFE (the span
+ * shrinks; nothing is corrupted or hidden), but the invariants those tools must
+ * respect are:
+ *   1. never bind two cells of one row to the same colId,
+ *   2. never write `colspan`/`rowspan` < 2 (absent means 1),
+ *   3. to edit merged content, write the ANCHOR cell — materialising a covered
+ *      slot splits that slot out of the merge as a side effect.
+ *
+ * MERGE CONTENT POLICY (matching Google Docs): merging MOVES every covered
+ * cell's rich text into the anchor, newline-joined, in reading order — nothing
+ * is discarded, and the whole merge is one transaction (one undo step), so it
+ * is fully reversible. Splitting keeps all content in the anchor (Docs
+ * unmerge) and restores empty cells in the covered slots.
+ */
+
+/** Sanity ceiling for a stored span (a hostile/corrupt doc can't OOM render). */
+const SPAN_MAX = 512;
+
+const cellSpanProp = (cell: BlockMap, key: 'colspan' | 'rowspan'): number => {
+  const v = blockProp<unknown>(cell, key);
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : 1;
+  return n >= 2 ? Math.min(n, SPAN_MAX) : 1;
+};
+
+/** The DECLARED column span of a cell (its `colspan` prop, clamped; 1 = none). */
+export const cellColSpan = (cell: BlockMap): number => cellSpanProp(cell, 'colspan');
+/** The DECLARED row span of a cell (its `rowspan` prop, clamped; 1 = none). */
+export const cellRowSpan = (cell: BlockMap): number => cellSpanProp(cell, 'rowspan');
+
+/** What occupies one grid slot, span-resolved (see {@link tableSpans}). */
+export type TableSlot =
+  /** A real block: `colspan`/`rowspan` are its EFFECTIVE spans (usually 1/1). */
+  | {kind: 'cell'; colspan: number; rowspan: number}
+  /** An empty slot covered by a spanning anchor — render/export emit nothing. */
+  | {kind: 'covered'; anchorRow: number; anchorCol: number}
+  /** An empty slot covered by nothing (a ragged row) — render pads it. */
+  | {kind: 'gap'};
+
+/**
+ * The span-resolved view of a grid: `slots[r][c]` for every render coordinate
+ * (rows × {@link TableGrid.width}). Effective spans are the declared spans
+ * clamped to the grid edge and SHRUNK to cover only empty (null) slots — see
+ * the span contract above. Scan order is row-major, so overlapping declarations
+ * resolve deterministically (an earlier anchor wins; a later one shrinks).
+ * Pure and read-only — the single definition shared by render, navigation,
+ * export, and the structural ops.
+ */
+export function tableSpans(grid: TableGrid): TableSlot[][] {
+  const slots: TableSlot[][] = grid.cells.map((row) =>
+    Array.from({length: grid.width}, (_, c): TableSlot => (row[c] ? {kind: 'cell', colspan: 1, rowspan: 1} : {kind: 'gap'})),
+  );
+  const isGap = (r: number, c: number): boolean => slots[r]?.[c]?.kind === 'gap';
+  for (let r = 0; r < slots.length; r += 1) {
+    for (let c = 0; c < grid.width; c += 1) {
+      const slot = slots[r][c];
+      if (slot.kind !== 'cell') continue;
+      const cell = grid.cells[r][c];
+      if (!cell || blockType(cell) !== 'cell') continue; // non-cell child: occupied but unspannable
+      const declaredC = Math.min(cellColSpan(cell), grid.width - c);
+      const declaredR = Math.min(cellRowSpan(cell), slots.length - r);
+      if (declaredC === 1 && declaredR === 1) continue;
+      let w = 1;
+      while (w < declaredC && isGap(r, c + w)) w += 1;
+      const rowClear = (rr: number): boolean => {
+        for (let cc = c; cc < c + w; cc += 1) {
+          if (!isGap(rr, cc)) return false;
+        }
+        return true;
+      };
+      let h = 1;
+      while (h < declaredR && rowClear(r + h)) h += 1;
+      if (w === 1 && h === 1) continue;
+      slot.colspan = w;
+      slot.rowspan = h;
+      for (let rr = r; rr < r + h; rr += 1) {
+        for (let cc = c; cc < c + w; cc += 1) {
+          if (rr !== r || cc !== c) slots[rr][cc] = {kind: 'covered', anchorRow: r, anchorCol: c};
+        }
+      }
+    }
+  }
+  return slots;
+}
+
+/** Resolve a render coordinate to its real cell (a covered slot → its anchor). */
+export function tableCellAt(grid: TableGrid, row: number, col: number, spans = tableSpans(grid)): BlockMap | null {
+  const slot = spans[row]?.[col];
+  if (!slot || slot.kind === 'gap') return null;
+  const anchorRow = slot.kind === 'covered' ? slot.anchorRow : row;
+  const anchorCol = slot.kind === 'covered' ? slot.anchorCol : col;
+  const cell = grid.cells[anchorRow]?.[anchorCol];
+  return cell && blockType(cell) === 'cell' ? cell : null;
+}
+
+/**
+ * Expand a rectangle so it covers every merged cell it touches, WHOLE — the
+ * standard snap-out of range selection over merged regions (Docs/Sheets).
+ * Also normalises corner order and clamps to the grid. Iterates to a fixed
+ * point (pulling in one span can graze another). Read-only.
+ */
+export function tableSnapRectToSpans(table: BlockMap, rect: CellRect): CellRect {
+  const grid = tableGrid(table);
+  const maxRow = grid.rows.length - 1;
+  const maxCol = grid.width - 1;
+  if (maxRow < 0 || maxCol < 0) return {top: 0, left: 0, bottom: 0, right: 0};
+  let top = Math.max(0, Math.min(maxRow, Math.min(rect.top, rect.bottom)));
+  let bottom = Math.max(0, Math.min(maxRow, Math.max(rect.top, rect.bottom)));
+  let left = Math.max(0, Math.min(maxCol, Math.min(rect.left, rect.right)));
+  let right = Math.max(0, Math.min(maxCol, Math.max(rect.left, rect.right)));
+  const spans = tableSpans(grid);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let r = 0; r <= maxRow; r += 1) {
+      for (let c = 0; c <= maxCol; c += 1) {
+        const s = spans[r][c];
+        if (s.kind !== 'cell' || (s.colspan === 1 && s.rowspan === 1)) continue;
+        const r2 = r + s.rowspan - 1;
+        const c2 = c + s.colspan - 1;
+        if (r > bottom || r2 < top || c > right || c2 < left) continue; // no overlap
+        if (r < top) { top = r; changed = true; }
+        if (r2 > bottom) { bottom = r2; changed = true; }
+        if (c < left) { left = c; changed = true; }
+        if (c2 > right) { right = c2; changed = true; }
+      }
+    }
+  }
+  return {top, left, bottom, right};
+}
+
+/**
+ * Merge the cells of a rectangular range into one spanning anchor (TBL-8).
+ * The rect SNAPS OUT over any merged cell it partially overlaps (never a
+ * partial overlap — {@link tableSnapRectToSpans}), the top-left cell becomes
+ * the anchor (gains `colspan`/`rowspan`), every other cell's rich text MOVES
+ * into the anchor (newline-joined, reading order — nothing discarded), and the
+ * other cell blocks are deleted, leaving the null slots the span contract
+ * expects. Refused (no-op) when: the table/rect has no top-left cell to anchor
+ * on, the rect contains a non-`cell` child (merging would hide it), or the
+ * rect holds fewer than two real cells. ONE transaction = one undo step, so a
+ * merge is fully reversible.
+ */
+export function tableMergeCells(doc: Y.Doc, tableId: string, rect: CellRect): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table || blockType(table.block) !== 'table') return;
+    if (!blockChildren(table.block)) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    if (grid.rows.length === 0 || grid.width === 0 || !grid.keyed) return;
+    const {top, left, bottom, right} = tableSnapRectToSpans(table.block, rect);
+    if (top === bottom && left === right) return; // one slot — nothing to merge
+    const anchor = grid.cells[top]?.[left];
+    if (!anchor || blockType(anchor) !== 'cell') return; // nothing to anchor on
+    // Survey the rect first: refuse if it holds a non-cell child (a STAB-1
+    // poison block — merging over it would hide content), and count real cells.
+    const doomed: Array<{row: BlockMap; cell: BlockMap}> = [];
+    for (let r = top; r <= bottom; r += 1) {
+      for (let c = left; c <= right; c += 1) {
+        const cell = grid.cells[r]?.[c];
+        if (!cell) continue;
+        if (blockType(cell) !== 'cell') return;
+        if (cell !== anchor) doomed.push({row: grid.rows[r], cell});
+      }
+    }
+    if (doomed.length === 0) return; // a single already-merged cell re-snapped to itself
+    // MOVE content: append each covered cell's runs to the anchor, in reading
+    // order, one newline between non-empty cells (the Google Docs policy — no
+    // data loss; undo restores the original grid in one step).
+    const text = blockText(anchor);
+    for (const {row, cell} of doomed) {
+      const runs = cellRuns(cell).filter((run) => run.t.length > 0);
+      if (text && runs.length > 0) {
+        if (text.length > 0) text.insert(text.length, '\n', {});
+        let at = text.length;
+        for (const run of runs) {
+          text.insert(at, run.t, run.a ?? {});
+          at += run.t.length;
+        }
+      }
+      const cellsArr = blockChildren(row);
+      if (!cellsArr) continue;
+      deleteBlocksById(cellsArr, blockId(cell));
+    }
+    const w = right - left + 1;
+    const h = bottom - top + 1;
+    setBlockProp(anchor, 'colspan', w > 1 ? w : undefined);
+    setBlockProp(anchor, 'rowspan', h > 1 ? h : undefined);
+  }, 'local');
+}
+
+/**
+ * Split a merged cell back into single cells (TBL-8). Drops the anchor's
+ * `colspan`/`rowspan` and materialises a fresh EMPTY cell in every slot the
+ * span covered (bound to that slot's colId). All content stays in the anchor
+ * (the Google Docs unmerge policy). Clears stale span props even when the
+ * effective span had already shrunk to 1×1. ONE transaction = one undo step.
+ */
+export function tableSplitCell(doc: Y.Doc, cellId: string): void {
+  doc.transact(() => {
+    const found = findBlock(doc, cellId);
+    if (!found || blockType(found.block) !== 'cell') return;
+    const pos = cellPosition(doc, cellId);
+    if (!pos) return;
+    const tableEntry = findBlock(doc, blockId(pos.table));
+    if (!tableEntry) return;
+    ensureTableOrderInTx(tableEntry.block);
+    const grid = tableGrid(tableEntry.block);
+    const spans = tableSpans(grid);
+    const slot = spans[pos.row]?.[pos.col];
+    setBlockProp(found.block, 'colspan', undefined);
+    setBlockProp(found.block, 'rowspan', undefined);
+    if (!slot || slot.kind !== 'cell' || (slot.colspan === 1 && slot.rowspan === 1)) return;
+    for (let r = pos.row; r < pos.row + slot.rowspan; r += 1) {
+      const cellsArr = blockChildren(grid.rows[r]);
+      if (!cellsArr) continue;
+      for (let c = pos.col; c < pos.col + slot.colspan; c += 1) {
+        if (r === pos.row && c === pos.col) continue;
+        const colId = grid.colIds[c];
+        if (colId) {
+          cellsArr.push([
+            makeBlock({
+              id: `${cellId}:split:${blockId(grid.rows[r])}:${colId}`,
+              type: 'cell',
+              props: {col: colId},
+            }),
+          ]);
+        }
+      }
+    }
+  }, 'local');
 }
 
 // ── Serialization ────────────────────────────────────────────────────────────
@@ -1518,15 +1945,38 @@ export function blockToJSON(b: BlockMap): BlockJSON {
  */
 function tableChildrenToJSON(table: BlockMap): BlockJSON[] {
   const grid = tableGrid(table);
+  const spans = tableSpans(grid);
   return grid.rows.map((row, r) => {
     const json = blockToJSON(row);
     if (blockType(row) !== 'row') return json; // malformed child — verbatim
     const slots = grid.cells[r];
-    let end = slots.length;
-    while (end > 0 && slots[end - 1] === null) end -= 1;
-    json.children = slots
-      .slice(0, end)
-      .map((cell, c) => (cell ? blockToJSON(cell) : {id: `${blockId(row)}-void-${c}`, type: 'cell' as const, text: []}));
+    let end = grid.width;
+    while (end > 0 && spans[r][end - 1].kind === 'gap') end -= 1;
+    json.children = [];
+    for (let c = 0; c < end; c += 1) {
+      const slot = spans[r][c];
+      if (slot.kind === 'covered') continue; // the anchor's span represents it
+      const cell = slots[c];
+      if (cell) {
+        const child = blockToJSON(cell);
+        if (slot.kind === 'cell') {
+          const props = {...child.props};
+          delete props.colspan;
+          delete props.rowspan;
+          if (slot.colspan > 1) props.colspan = slot.colspan;
+          if (slot.rowspan > 1) props.rowspan = slot.rowspan;
+          child.props = Object.keys(props).length > 0 ? props : undefined;
+        }
+        json.children.push(child);
+      } else {
+        json.children.push({
+          id: `${blockId(row)}-void-${c}`,
+          type: 'cell' as const,
+          text: [],
+          props: grid.colIds[c] ? {col: grid.colIds[c]} : undefined,
+        });
+      }
+    }
     return json;
   });
 }
@@ -1643,7 +2093,7 @@ export interface HtmlImageRef {
 const cellSpanAttr = (cell: HTMLElement, attr: 'colspan' | 'rowspan'): number => {
   const raw = Number(cell.getAttribute(attr) ?? '1');
   if (!Number.isFinite(raw) || raw < 1) return 1;
-  return Math.min(Math.floor(raw), 1000);
+  return Math.min(Math.floor(raw), SPAN_MAX);
 };
 
 /**
@@ -1676,17 +2126,22 @@ const cellToRuns = (cell: HTMLElement): TextRun[] => {
   return htmlToRuns(clone.innerHTML);
 };
 
+interface NormalizedTableCell {
+  runs: TextRun[];
+  colspan: number;
+  rowspan: number;
+}
+
 /**
- * Turn a (possibly ragged, colspan/rowspan-laden, spacer-row-ridden) HTML
- * `<table>` into a rectangular grid of cell runs. colspan/rowspan expand into
- * distinct grid cells (origin keeps the content, spanned positions are blank);
- * short rows pad to the widest row; structural/spacer rows (no direct cells,
- * nothing carried in) and fully-blank rows drop out. The result always yields a
- * well-formed table → row → cell tree the editor can render.
+ * Turn a (possibly ragged, span-laden, spacer-row-ridden) HTML `<table>` into
+ * the model's rectangular null-gap grid. A real origin retains its declared
+ * colspan/rowspan; every covered coordinate is `null`; ordinary ragged gaps are
+ * materialised as empty cells. Nested tables flatten and structural rows drop
+ * exactly as before. This is the inverse of the span-aware HTML exporter.
  */
-const normalizeTableGrid = (table: HTMLElement): TextRun[][][] => {
-  const grid: TextRun[][][] = [];
-  // column → number of further rows a rowspan still occupies (blank continuation)
+const normalizeTableGrid = (table: HTMLElement): (NormalizedTableCell | null)[][] => {
+  const grid: (NormalizedTableCell | null)[][] = [];
+  // column → number of further rows a rowspan still occupies
   const carry = new Map<number, number>();
   for (const tr of directTableRows(table)) {
     const cells = [...tr.querySelectorAll<HTMLElement>(':scope > td, :scope > th')];
@@ -1694,43 +2149,69 @@ const normalizeTableGrid = (table: HTMLElement): TextRun[][][] => {
     // A structural/spacer row (e.g. Notion's spacer <tr>): nothing to place and
     // nothing carried into it — skip entirely.
     if (cells.length === 0 && !carried) continue;
-    const row: TextRun[][] = [];
+    const row: Array<NormalizedTableCell | null | undefined> = [];
+    for (const [c, n] of carry) {
+      if (n <= 0) continue;
+      row[c] = null;
+      carry.set(c, n - 1);
+    }
     let col = 0;
-    const skipCarried = (): void => {
-      while ((carry.get(col) ?? 0) > 0) {
-        row[col] = [];
-        carry.set(col, carry.get(col)! - 1);
-        col += 1;
-      }
-    };
     for (const cell of cells) {
-      skipCarried();
+      while (row[col] !== undefined) col += 1;
       const runs = cellToRuns(cell);
       const cspan = cellSpanAttr(cell, 'colspan');
       const rspan = cellSpanAttr(cell, 'rowspan');
+      row[col] = {runs, colspan: cspan, rowspan: rspan};
       for (let c = 0; c < cspan; c += 1) {
-        row[col + c] = c === 0 ? runs : [];
+        if (c > 0) row[col + c] = null;
         if (rspan > 1) carry.set(col + c, rspan - 1);
       }
       col += cspan;
     }
-    // Drain rowspan carries not reached by a cell in this row (gaps / trailing).
-    skipCarried();
-    for (const [c, n] of carry) {
-      if (n > 0 && row[c] === undefined) {
-        row[c] = [];
-        carry.set(c, n - 1);
-      }
-    }
-    grid.push(row);
+    grid.push(row as (NormalizedTableCell | null)[]);
   }
   const width = grid.reduce((w, r) => Math.max(w, r.length), 0);
-  for (const r of grid) for (let c = 0; c < width; c += 1) if (r[c] === undefined) r[c] = [];
+  for (const row of grid) {
+    for (let c = 0; c < width; c += 1) {
+      if (row[c] === undefined) row[c] = {runs: [], colspan: 1, rowspan: 1};
+    }
+  }
   // Note: only truly cell-less structural rows are dropped (skipped above). A row
   // with real `<td>`/`<th>` cells is kept even if blank — its cell may carry an
   // image (emitted separately) or be an intentionally empty grid cell.
   return grid;
 };
+
+/** Build a keyed table while retaining the null covered slots from HTML. */
+function tableFromNormalizedGrid(grid: (NormalizedTableCell | null)[][], header: boolean): NewBlock {
+  const width = Math.max(1, ...grid.map((row) => row.length));
+  const colIds = Array.from({length: width}, (_, i) => `c${i}`);
+  const colKeys = keysBetween(null, null, width);
+  const rowKeys = keysBetween(null, null, grid.length);
+  return {
+    type: 'table',
+    props: {header, ...Object.fromEntries(colIds.map((id, i) => [TABLE_COL_PREFIX + id, colKeys[i]]))},
+    children: grid.map((cells, r) => ({
+      type: 'row' as const,
+      props: {ord: rowKeys[r]},
+      children: cells.flatMap((cell, c) =>
+        cell
+          ? [
+            {
+              type: 'cell' as const,
+              text: cell.runs,
+              props: {
+                col: colIds[c],
+                colspan: cell.colspan > 1 ? cell.colspan : undefined,
+                rowspan: cell.rowspan > 1 ? cell.rowspan : undefined,
+              },
+            },
+          ]
+          : [],
+      ),
+    })),
+  };
+}
 
 /** Options for {@link htmlToBlocks}. */
 export interface HtmlToBlocksOptions {
@@ -1872,14 +2353,13 @@ export function htmlToBlocks(html: string, opts: HtmlToBlocksOptions = {}): NewB
       foldInline(node);
       return;
     case 'table': {
-      // Scoped + rectangular: nested tables stay in their own cell, colspan/
-      // rowspan expand, ragged rows pad, spacer rows drop — so a Notion-shaped
-      // clipboard table can never produce a malformed block tree (which used to
-      // throw on render and white-screen the app).
+      // Scoped + rectangular: nested tables stay in their own cell, spans keep
+      // null covered slots, ragged rows pad, and spacer rows drop — so a
+      // Notion-shaped clipboard table is faithful and cannot poison render.
       const rows = normalizeTableGrid(node);
       if (rows.length > 0) {
         const firstRow = directTableRows(node)[0];
-        out.push(tableFromRuns(rows, firstRow?.querySelector(':scope > th') != null));
+        out.push(tableFromNormalizedGrid(rows, firstRow?.querySelector(':scope > th') != null));
       }
       // A cell holds only inline text, so an image in one would vanish — keep it
       // as a placeholder block after the table (importer path only).

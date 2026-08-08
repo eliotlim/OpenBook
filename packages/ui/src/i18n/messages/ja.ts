@@ -185,6 +185,8 @@ export const ja: PartialMessages = {
       clearCells: 'セルを消去',
       tintCells: 'セルの色',
       deleteTable: 'テーブルを削除',
+      mergeCells: 'セルを結合',
+      splitCell: 'セルを分割',
       deleteRowsN: '{n} 行を削除',
       deleteColumnsN: '{n} 列を削除',
     },

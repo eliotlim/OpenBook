@@ -343,15 +343,29 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       const content = Array.isArray(d.content) ? (d.content as unknown[][]) : [];
       // TBL-4: per-cell tint tokens (parallel to `content`) → inline background.
       const colors = Array.isArray(d.cellColors) ? (d.cellColors as unknown[][]) : [];
+      const spans = Array.isArray(d.cellSpans) ? (d.cellSpans as unknown[][]) : [];
       const cell = (c: unknown) => inlineToHtml(parseInline(str(c)), ctx);
       const tint = (ri: number, ci: number): string => {
         const tok = colors[ri]?.[ci];
         return typeof tok === 'string' && COLOR_EXPORT_HEX[tok] ? ` style="background:${COLOR_EXPORT_HEX[tok].hl}"` : '';
       };
+      const spanAttrs = (ri: number, ci: number): string => {
+        const raw = spans[ri]?.[ci];
+        if (!raw || typeof raw !== 'object') return '';
+        const value = (key: 'colspan' | 'rowspan'): number => {
+          const n = (raw as Record<string, unknown>)[key];
+          return typeof n === 'number' && Number.isFinite(n) && n >= 2 ? Math.min(512, Math.floor(n)) : 1;
+        };
+        const colspan = value('colspan');
+        const rowspan = value('rowspan');
+        return `${colspan > 1 ? ` colspan="${colspan}"` : ''}${rowspan > 1 ? ` rowspan="${rowspan}"` : ''}`;
+      };
       const rowsHtml = content.map((row, ri) => {
         const cells = (Array.isArray(row) ? row : [])
           .map((c, ci) =>
-            ri === 0 && d.withHeadings === true ? `<th${tint(ri, ci)}>${cell(c)}</th>` : `<td${tint(ri, ci)}>${cell(c)}</td>`,
+            ri === 0 && d.withHeadings === true
+              ? `<th${spanAttrs(ri, ci)}${tint(ri, ci)}>${cell(c)}</th>`
+              : `<td${spanAttrs(ri, ci)}${tint(ri, ci)}>${cell(c)}</td>`,
           )
           .join('');
         return `<tr>${cells}</tr>`;

@@ -156,6 +156,24 @@ describe('new block types', () => {
     expect(html).toContain('href="#h-0"'); // ToC links to the first heading anchor
     expect(html).toContain('id="h-0"');
   });
+
+  it('renders projected table cell spans in interactive HTML', () => {
+    const html = toHtml(
+      snapshot([
+        {
+          type: 'table',
+          data: {
+            withHeadings: false,
+            content: [['wide', 'right'], ['below']],
+            cellSpans: [[{colspan: 2, rowspan: 2}, {colspan: 1, rowspan: 1}], [{colspan: 1, rowspan: 1}]],
+          },
+        },
+      ]),
+      'T',
+      '',
+    );
+    expect(html).toContain('<td colspan="2" rowspan="2">wide</td>');
+  });
 });
 
 describe('referencedPageIds', () => {

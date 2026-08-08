@@ -1,5 +1,5 @@
 import {isSafeHref} from '@book.dev/sdk';
-import type {BlockJSON, BlockType, InlineAttrs, TextRun} from './model';
+import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
 import {CONTAINER_BLOCKS, decodeSnapshot, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
 import {describeUnknownBlock} from './unknownBlock';
 import {COLOR_EXPORT_HEX} from './colors';
@@ -62,6 +62,23 @@ export function cellRangeToHtml(grid: TextRun[][][]): string {
   return `<table class="obe-x-table"><tbody>${body}</tbody></table>`;
 }
 
+/** Span-aware cell-range HTML. Covered slots emit nothing; anchors carry the
+ *  native attributes that {@link htmlToBlocks} imports back to null gaps. */
+export function cellRangeExportToHtml(grid: CellRangeExportCell[][]): string {
+  const body = grid
+    .map((row) =>
+      `<tr>${row
+        .flatMap((cell) =>
+          cell.kind === 'covered'
+            ? []
+            : [`<td${cell.colspan > 1 ? ` colspan="${cell.colspan}"` : ''}${cell.rowspan > 1 ? ` rowspan="${cell.rowspan}"` : ''}>${textHtml(cell.runs)}</td>`],
+        )
+        .join('')}</tr>`,
+    )
+    .join('');
+  return `<table class="obe-x-table"><tbody>${body}</tbody></table>`;
+}
+
 type Props = Record<string, unknown> | undefined;
 const strProp = (p: Props, k: string): string | null => (typeof p?.[k] === 'string' && (p[k] as string) ? (p[k] as string) : null);
 
@@ -86,6 +103,17 @@ function tableCellTint(tableProps: Props, rowProps: Props, cellProps: Props): st
  *  self-contained HTML/PDF exports that can't use the theme CSS classes). */
 const tintStyle = (token: string | null): string =>
   token && COLOR_EXPORT_HEX[token] ? ` style="background:${COLOR_EXPORT_HEX[token].hl}"` : '';
+
+/** Canonical HTML span attributes from a projected cell (absent means one). */
+const tableCellSpanAttrs = (props: Props): string => {
+  const span = (key: 'colspan' | 'rowspan'): number => {
+    const raw = props?.[key];
+    return typeof raw === 'number' && Number.isFinite(raw) && raw >= 2 ? Math.min(512, Math.floor(raw)) : 1;
+  };
+  const colspan = span('colspan');
+  const rowspan = span('rowspan');
+  return `${colspan > 1 ? ` colspan="${colspan}"` : ''}${rowspan > 1 ? ` rowspan="${rowspan}"` : ''}`;
+};
 
 /** The current value of a June-2026 kit input rendered as HTML (selection text
  *  for the choosers, escaped/markup text for long/rich text). */
@@ -236,7 +264,10 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
           // TBL-4/TBL-6: carry cell/row/column tints as inline styles into the
           // clipboard HTML.
           const cells = (row.children ?? [])
-            .map((cell) => `<${tag}${tintStyle(tableCellTint(b.props, row.props, cell.props))}>${textHtml(cell.text)}</${tag}>`)
+            .map(
+              (cell) =>
+                `<${tag}${tableCellSpanAttrs(cell.props)}${tintStyle(tableCellTint(b.props, row.props, cell.props))}>${textHtml(cell.text)}</${tag}>`,
+            )
             .join('');
           return `<tr>${cells}</tr>`;
         })
@@ -587,7 +618,13 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         // TBL-4/TBL-6: parallel per-cell tint tokens (cell-over-row-over-column)
         // so the static HTML/PDF exporter can paint them with COLOR_EXPORT_HEX.
         const cellColors = rows.map((row) => (row.children ?? []).map((cell) => tableCellTint(b.props, row.props, cell.props)));
-        sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content, cellColors}});
+        const cellSpans = rows.map((row) =>
+          (row.children ?? []).map((cell) => ({
+            colspan: typeof cell.props?.colspan === 'number' ? cell.props.colspan : 1,
+            rowspan: typeof cell.props?.rowspan === 'number' ? cell.props.rowspan : 1,
+          })),
+        );
+        sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content, cellColors, cellSpans}});
         i += 1;
         break;
       }
