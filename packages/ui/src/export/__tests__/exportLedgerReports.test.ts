@@ -171,11 +171,11 @@ const DOC_BLOCKS: NewBlock[] = [
   {type: 'openbook.ledger/beancount-export' as never, props: {ledgerBeancount: '1'}},
 ];
 
-const snapshot = (): PageSnapshot =>
-  ({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(DOC_BLOCKS))}) as never;
+const snapshot = (blocks: NewBlock[] = DOC_BLOCKS): PageSnapshot =>
+  ({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))}) as never;
 
-function bundle(withRecords: boolean): SiteBundle {
-  const snap = snapshot();
+function bundle(withRecords: boolean, blocks: NewBlock[] = DOC_BLOCKS): SiteBundle {
+  const snap = snapshot(blocks);
   return {
     rootId: 'root',
     // The crawl (gatherSite) hands toHtmlSite PROJECTED snapshots; the raw
@@ -283,6 +283,48 @@ describe('LX-3 — golden: Startup Books export renders fold-exact report tables
     expect(placeholders(html, T('journal-entry'))).toHaveLength(1);
   });
 
+  it('every report states its currency (Devon 1): the account rows resolve to one code → a caption', () => {
+    // The fixture's accounts all carry lp_currency USD (one currency per
+    // account is enforced at write time), so every rendered report frame
+    // carries the caption an accountant needs.
+    for (const name of ['journal-entry', 'trial-balance', 'balance-sheet', 'income-statement']) {
+      for (const fig of figures(html, T(name))) {
+        expect(fig).toContain('<span class="ob-ledger-currency">Amounts in USD</span>');
+      }
+      expect(figures(html, T(name)).length).toBeGreaterThan(0);
+    }
+    const [reg, regEmpty] = figures(html, T('account-register'));
+    expect(reg).toContain('Amounts in USD');
+    // A frame with no amounts (no account selected) carries no caption.
+    expect(regEmpty).not.toContain('Amounts in');
+  });
+
+  it('mixed or malformed account currencies omit the caption gracefully — tables still render', () => {
+    const mixed = fixtureSection();
+    for (const p of mixed.library.pages) {
+      if (p.databaseId === DB_IDS.accounts && p.id === 'acc-0') p.properties[LEDGER_PROP.account.currency] = 'EUR';
+    }
+    expect(ledgerExportRecords(mixed)?.currency).toBeNull();
+    const b = bundle(true);
+    b.ledger = mixed;
+    const out = toHtmlSite(b);
+    expect(figures(out, T('trial-balance')).length).toBeGreaterThan(0);
+    expect(out).not.toContain('Amounts in');
+
+    const bad = fixtureSection();
+    for (const p of bad.library.pages) {
+      if (p.databaseId === DB_IDS.accounts) p.properties[LEDGER_PROP.account.currency] = 'not-a-code';
+    }
+    expect(ledgerExportRecords(bad)?.currency).toBeNull();
+
+    // A valid non-USD code is reported as itself.
+    const eur = fixtureSection();
+    for (const p of eur.library.pages) {
+      if (p.databaseId === DB_IDS.accounts) p.properties[LEDGER_PROP.account.currency] = 'EUR';
+    }
+    expect(ledgerExportRecords(eur)?.currency).toBe('EUR');
+  });
+
   it('interactive-only blocks stay placeholders, labelled as interactive tools', () => {
     for (const name of ['bank-import', 'reconcile', 'period-close', 'beancount-export']) {
       expect(figures(html, T(name))).toHaveLength(0);
@@ -308,6 +350,140 @@ describe('LX-3 — records OFF: LX-1 placeholders intact', () => {
     // The fixture's numbers cannot appear anywhere without records.
     expect(html).not.toContain('50,000.00');
   });
+
+  it('report placeholders are ledger-aware (Devon 6): the books weren\'t included — never "install the plugin"', () => {
+    // The ledger is FIRST-PARTY; the generic missing-plugin line would be a
+    // false diagnosis. Same "open in OpenBook" register as the interactive
+    // tools' card.
+    for (const name of ['journal-entry', 'trial-balance', 'balance-sheet', 'income-statement', 'account-register']) {
+      const [card] = placeholders(html, T(name));
+      expect(card).toContain('Ledger report — the books weren\'t included in this export. Open the page in OpenBook to see it.');
+      expect(card).not.toContain('install the plugin');
+    }
+    // Interactive tools keep their own wording (not the report line).
+    for (const name of ['bank-import', 'reconcile', 'period-close', 'beancount-export']) {
+      const [card] = placeholders(html, T(name));
+      expect(card).toContain('Interactive ledger tool');
+      expect(card).not.toContain('books weren');
+    }
+  });
+});
+
+describe('LX-3 — hostile rows fail shut: placeholders, never a wrong number, never a crash', () => {
+  /** The fixture bundle with its embedded section mutated in place. */
+  function corrupted(mutate: (section: LedgerExportSection) => void, blocks: NewBlock[] = DOC_BLOCKS): {b: SiteBundle; section: LedgerExportSection} {
+    const section = fixtureSection();
+    mutate(section);
+    const b = bundle(true, blocks);
+    b.ledger = section;
+    return {b, section};
+  }
+
+  /** The page id of tx-0's posting on the Checking account. */
+  const checkingPostingOfTx0 = (): string => {
+    const idx = (drafts[0].postings ?? []).findIndex((p) => p.accountId === CHECKING);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    return `po-0-${idx}`;
+  };
+
+  it.each<[string, unknown]>([['a string ("abc")', 'abc'], ['an object ({})', {}]])(
+    'a posting amount of %s — NaN after coercion — yields placeholders, never blank cells or a silent Total (Quinn 1)',
+    (_label, amount) => {
+      const {b} = corrupted((s) => {
+        const row = s.library.pages.find((p) => p.id === checkingPostingOfTx0())!;
+        row.properties[LEDGER_PROP.posting.amount] = amount;
+      });
+      const html = toHtmlSite(b); // never a crashed export
+      // The journal block linked to tx-0 must NOT render a table with a blank
+      // Dr/Cr pair and a Total that pretends the posting never existed.
+      expect(figures(html, T('journal-entry'))).toHaveLength(0);
+      expect(placeholders(html, T('journal-entry'))).toHaveLength(2);
+      // Every fold whose scope covers tx-0 refuses too (its own sumAmounts
+      // throws): trial balance (all entries), balance sheet (as-of ≥ tx-0),
+      // the Checking register.
+      expect(figures(html, T('trial-balance'))).toHaveLength(0);
+      expect(figures(html, T('balance-sheet'))).toHaveLength(0);
+      const regs = figures(html, T('account-register'));
+      expect(regs).toHaveLength(1); // only the no-account-selected empty state survives
+      expect(regs[0]).toContain('No account selected');
+    },
+  );
+
+  it('an orphan posting (a txId the books do not hold) refuses the whole section → placeholders', () => {
+    const {b, section} = corrupted((s) => {
+      s.library.pages.push(storedPage('po-orphan', {databaseId: DB_IDS.postings, properties: {
+        [LEDGER_PROP.posting.transaction]: 'tx-ghost',
+        [LEDGER_PROP.posting.account]: CHECKING,
+        [LEDGER_PROP.posting.amount]: 99999,
+      }}));
+    });
+    expect(ledgerExportRecords(section)).toBeNull();
+    const html = toHtmlSite(b);
+    expect(html).not.toContain('<figure class="ob-ledger-report"');
+    expect(html).not.toContain('999.99'); // the orphan's amount appears nowhere
+    expect(placeholders(html, T('trial-balance'))).toHaveLength(2);
+  });
+
+  it('a posting row with no properties at all (missing keys) reads as an orphan → placeholders', () => {
+    const {b, section} = corrupted((s) => {
+      s.library.pages.push(storedPage('po-bare', {databaseId: DB_IDS.postings}));
+    });
+    expect(ledgerExportRecords(section)).toBeNull();
+    expect(toHtmlSite(b)).not.toContain('<table class="ledger-table"');
+  });
+
+  it('account/transaction rows with missing keys coerce like the server and never crash', () => {
+    const {b, section} = corrupted((s) => {
+      s.library.pages.push(storedPage('acc-bare', {databaseId: DB_IDS.accounts}));
+      s.library.pages.push(storedPage('tx-bare', {databaseId: DB_IDS.transactions}));
+    });
+    const records = ledgerExportRecords(section);
+    expect(records).not.toBeNull();
+    // No date, no state → a draft with no postings: excluded from every report.
+    expect(records!.transactions.find((t) => t.id === 'tx-bare')!.state).toBe('draft');
+    expect(figures(toHtmlSite(b), T('trial-balance'))).toHaveLength(2);
+  });
+
+  it('missing/malformed library or library.pages → placeholders, never a crashed export (Quinn 4)', () => {
+    const noPages = corrupted((s) => {
+      (s.library as {pages?: unknown}).pages = undefined;
+    });
+    expect(ledgerExportRecords(noPages.section)).toBeNull();
+    const html = toHtmlSite(noPages.b); // pre-fix: a TypeError escaped toHtmlSite here
+    expect(html).not.toContain('<figure class="ob-ledger-report"');
+    expect(placeholders(html, T('balance-sheet'))).toHaveLength(1);
+
+    const noLibrary = corrupted((s) => {
+      (s as {library?: unknown}).library = undefined;
+    });
+    expect(ledgerExportRecords(noLibrary.section)).toBeNull();
+    expect(toHtmlSite(noLibrary.b)).not.toContain('<figure class="ob-ledger-report"');
+
+    // Junk ROWS inside a well-formed pages array are ignored, not fatal: the
+    // real rows still render.
+    const junkRows = corrupted((s) => {
+      (s.library.pages as unknown[]).push(null, 42, 'row');
+    });
+    expect(ledgerExportRecords(junkRows.section)).not.toBeNull();
+    expect(figures(toHtmlSite(junkRows.b), T('trial-balance'))).toHaveLength(2);
+  });
+
+  it('a posting to an unknown account renders a LOUD deleted-account label, never a blank row', () => {
+    const {b} = corrupted((s) => {
+      const row = s.library.pages.find((p) => p.id === checkingPostingOfTx0())!;
+      row.properties[LEDGER_PROP.posting.account] = 'acc-ghost';
+    });
+    const html = toHtmlSite(b); // no crash anywhere on the page
+    const [fig] = figures(html, T('journal-entry'));
+    expect(fig).toContain('Deleted account (acc-ghost)');
+  });
+
+  it('a register pointed at an unknown account (deleted since configuration) → labelled alarm, not a fabricated register', () => {
+    const blocks: NewBlock[] = [{type: 'openbook.ledger/account-register' as never, props: {ledgerRegAccount: 'acc-ghost'}}];
+    const {b} = corrupted(() => {}, blocks);
+    const [fig] = figures(toHtmlSite(b), T('account-register'));
+    expect(fig).toContain('Unknown account (acc-ghost)');
+  });
 });
 
 describe('LX-3 — adapter and purity', () => {
@@ -325,16 +501,23 @@ describe('LX-3 — adapter and purity', () => {
     for (const file of foldFiles) {
       const src = foldSources[file];
       expect(src).toBeTruthy();
-      const imports = [...src.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+      const imports = [...src.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
       for (const spec of imports) {
         expect(['@book.dev/sdk', './reports', './statements']).toContain(spec);
       }
       expect(src).not.toMatch(/from\s+'react'/);
+      // Import forms a `from`-matcher cannot see (Quinn 2's gap): the mirror
+      // must carry no side-effect imports, no dynamic import(), no require().
+      expect(src).not.toMatch(/(?:^|\n)\s*import\s*['"]/);
+      expect(src).not.toMatch(/\bimport\s*\(/);
+      expect(src).not.toMatch(/\brequire\s*\(/);
     }
     // The renderer itself: folds + sdk + the shared placeholder wording only.
     const renderer = rendererSources['../exportLedgerReports.ts'];
     expect(renderer).toBeTruthy();
     expect(renderer).not.toMatch(/from\s+'react'/);
     expect(renderer).not.toMatch(/plugins\//);
+    expect(renderer).not.toMatch(/\bimport\s*\(/);
+    expect(renderer).not.toMatch(/\brequire\s*\(/);
   });
 });

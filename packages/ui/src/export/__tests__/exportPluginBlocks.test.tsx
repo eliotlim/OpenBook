@@ -91,7 +91,13 @@ describe('exported HTML labels every unrenderable block', () => {
       expect(body).toContain(`<p class="ob-plugin-block-label">${describeUnknownBlock(type).label}</p>`);
     }
     expect((body.match(/class="ob-plugin-block"/g) ?? []).length).toBe(LEDGER_BLOCK_TYPES.length + 2);
-    expect(body).toContain('requires the Ledger plugin');
+    // Ledger blocks are FIRST-PARTY: the report blocks say the books weren't
+    // included (not "install the plugin"), the live tools say "interactive";
+    // only a genuinely foreign plugin type keeps the install hint.
+    expect(body).toContain('the books weren\'t included in this export');
+    expect(body).toContain('Interactive ledger tool');
+    expect(body).toContain('requires the Future plugin');
+    expect(body).not.toContain('requires the Ledger plugin');
     expect(html).toContain('.ob-plugin-block {'); // the placeholder is styled, incl. the PDF path
     expect(html).toContain('page-break-inside: avoid');
   });
@@ -104,7 +110,9 @@ describe('exported HTML labels every unrenderable block', () => {
   });
 
   it('labels them in a slide deck too (no hydration there)', () => {
-    expect(bodyOf(toSlideDeck(rawSnapshot, 'Deck', '📒', new Map(), meta))).toContain('requires the Ledger plugin');
+    const deck = bodyOf(toSlideDeck(rawSnapshot, 'Deck', '📒', new Map(), meta));
+    expect(deck).toContain('the books weren\'t included in this export');
+    expect(deck).toContain('Interactive ledger tool');
   });
 });
 

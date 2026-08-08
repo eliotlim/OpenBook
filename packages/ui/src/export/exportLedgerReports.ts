@@ -32,7 +32,7 @@
  * ({@link describeLedgerInteractiveBlock}).
  */
 import type {LedgerExportSection, StoredPage} from '@book.dev/sdk';
-import {LEDGER_PROP, formatAmount, negateAmount, sumAmounts} from '@book.dev/sdk';
+import {LEDGER_PROP, formatAmount, isValidCurrencyCode, negateAmount, sumAmounts} from '@book.dev/sdk';
 import {
   ALL_CLEARED_STATES,
   buildAccountRegister,
@@ -71,6 +71,13 @@ export interface LedgerExportRecords {
   accounts: ReportAccount[];
   transactions: ReportTransaction[];
   reconciliations: ReportReconciliation[];
+  /** The single ISO-4217 code every account row carries (`lp_currency`;
+   *  absent → USD, the seeded default — one currency per account is enforced
+   *  at write time), or `null` when the rows mix codes or carry a malformed
+   *  one: the tables still render, the currency caption is simply omitted —
+   *  a statement handed to an accountant must state its currency, but a
+   *  guessed currency would be worse than none. */
+  currency: string | null;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -94,18 +101,28 @@ export function ledgerExportRecords(section: LedgerExportSection): LedgerExportR
   };
   if (!dbIds.accounts || !dbIds.transactions || !dbIds.postings) return null;
 
-  const rowsOf = (dbId: string): StoredPage[] => section.library.pages.filter((p) => p.databaseId === dbId);
+  // A section can carry valid ledgerDb ids yet a missing/malformed library
+  // (a hand-built or truncated export). Null — per-block placeholders — never
+  // a TypeError that escapes toHtmlSite and crashes the WHOLE export. Rows
+  // that are not object-shaped (or carry no properties bag) are equally
+  // untrusted input, not a reason to throw.
+  const pages = section.library?.pages;
+  if (!Array.isArray(pages)) return null;
+  const rowsOf = (dbId: string): StoredPage[] =>
+    pages.filter((p) => typeof p === 'object' && p !== null && p.databaseId === dbId);
+  const propsOf = (row: StoredPage): Record<string, unknown> =>
+    row.properties && typeof row.properties === 'object' ? row.properties : {};
 
   const accounts: ReportAccount[] = rowsOf(dbIds.accounts).map((row) => ({
     id: row.id,
     name: row.name ?? '',
-    type: (str(row.properties[LEDGER_PROP.account.type]) || 'asset') as ReportAccount['type'],
-    evidenceRequired: row.properties[LEDGER_PROP.account.evidenceRequired] === true,
+    type: (str(propsOf(row)[LEDGER_PROP.account.type]) || 'asset') as ReportAccount['type'],
+    evidenceRequired: propsOf(row)[LEDGER_PROP.account.evidenceRequired] === true,
   }));
 
   const postingsByTx = new Map<string, ReportPosting[]>();
   for (const row of rowsOf(dbIds.postings)) {
-    const props = row.properties;
+    const props = propsOf(row);
     const amount = props[LEDGER_PROP.posting.amount];
     const posting: ReportPosting = {
       id: row.id,
@@ -121,7 +138,7 @@ export function ledgerExportRecords(section: LedgerExportSection): LedgerExportR
   }
 
   const transactions: ReportTransaction[] = rowsOf(dbIds.transactions).map((row) => {
-    const props = row.properties;
+    const props = propsOf(row);
     const entryNo = props[LEDGER_PROP.transaction.entryNo];
     const evidence = props[LEDGER_PROP.transaction.evidence];
     return {
@@ -140,11 +157,27 @@ export function ledgerExportRecords(section: LedgerExportSection): LedgerExportR
   const reconciliations: ReportReconciliation[] = dbIds.reconciliations
     ? rowsOf(dbIds.reconciliations).map((row) => ({
       id: row.id,
-      statementDate: str(row.properties[LEDGER_PROP.reconciliation.statementDate]),
+      statementDate: str(propsOf(row)[LEDGER_PROP.reconciliation.statementDate]),
     }))
     : [];
 
-  return {accounts, transactions, reconciliations};
+  // Fail shut on ORPHAN postings: a posting keyed to a transaction the section
+  // does not hold (bad/absent `lp_transaction`) means the books arrived
+  // incomplete — every total computed without it would be a wrong number
+  // rendered confidently. Refuse the whole section: placeholders, not totals.
+  const txIds = new Set(transactions.map((t) => t.id));
+  for (const txId of postingsByTx.keys()) {
+    if (!txIds.has(txId)) return null;
+  }
+
+  // Resolve the report currency from the account rows. `null` (mixed or
+  // malformed codes) omits the caption gracefully — never a crash, never a
+  // guess. No accounts at all keeps the seeded USD default.
+  const codes = new Set(rowsOf(dbIds.accounts).map((row) => str(propsOf(row)[LEDGER_PROP.account.currency]) || 'USD'));
+  const only = codes.size === 0 ? 'USD' : codes.size === 1 ? [...codes][0] : null;
+  const currency = only !== null && isValidCurrencyCode(only) ? only : null;
+
+  return {accounts, transactions, reconciliations, currency};
 }
 
 // ── Interactive-only blocks ──────────────────────────────────────────────────
@@ -165,6 +198,29 @@ export function describeLedgerInteractiveBlock(type: string): {label: string; hi
   return {
     label: describeUnknownBlock(type).label,
     hint: 'Interactive ledger tool — it works on the live books and has no static view. Open the page in OpenBook to use it.',
+  };
+}
+
+// ── Records-off report blocks ────────────────────────────────────────────────
+
+/** The five ledger REPORT block types (the ones LX-3 renders as tables). */
+const REPORT_BLOCKS = new Set(
+  ['journal-entry', 'trial-balance', 'balance-sheet', 'income-statement', 'account-register'].map((t) => LEDGER_PREFIX + t),
+);
+
+/**
+ * The placeholder wording for a ledger REPORT block when the export carries no
+ * usable books (no LX-2 section, or a malformed one), or `null` for any other
+ * type. The ledger is FIRST-PARTY — the generic "requires the Ledger plugin —
+ * install the plugin" line (describeUnknownBlock) is the wrong diagnosis here:
+ * nothing is missing from the app, the books just weren't included in this
+ * export. Same "open in OpenBook" register as the interactive tools' card.
+ */
+export function describeLedgerReportBlock(type: string): {label: string; hint: string} | null {
+  if (!REPORT_BLOCKS.has(type)) return null;
+  return {
+    label: describeUnknownBlock(type).label,
+    hint: 'Ledger report — the books weren\'t included in this export. Open the page in OpenBook to see it.',
   };
 }
 
@@ -213,11 +269,15 @@ const drCrCells = (minor: number): string =>
 const note = (text: string, alarm = false): string =>
   `<p class="ob-ledger-note${alarm ? ' is-alarm' : ''}">${esc(text)}</p>`;
 
-/** The report frame: caption (+ subtitle) around table + notes. */
-function frame(type: string, title: string, sub: string, body: string): string {
+/** The report frame: caption (+ subtitle, + currency) around table + notes.
+ *  `currency` (Devon 1) rides in the caption — "Amounts in USD" — because a
+ *  statement handed to an accountant must state its currency; `null` (mixed
+ *  books, malformed code, or a frame with no amounts) omits it gracefully. */
+function frame(type: string, title: string, sub: string, body: string, currency: string | null = null): string {
   return (
     `<figure class="ob-ledger-report" data-block-type="${esc(type)}">` +
-    `<figcaption class="ob-ledger-title">${esc(title)}${sub ? ` <span class="ob-ledger-sub">${esc(sub)}</span>` : ''}</figcaption>` +
+    `<figcaption class="ob-ledger-title">${esc(title)}${sub ? ` <span class="ob-ledger-sub">${esc(sub)}</span>` : ''}` +
+    `${currency ? `<span class="ob-ledger-currency">Amounts in ${esc(currency)}</span>` : ''}</figcaption>` +
     body +
     '</figure>'
   );
@@ -295,7 +355,7 @@ function trialBalanceTable(type: string, props: Record<string, unknown>, records
   const notes =
     note(assertion.text, !assertion.ok) +
     (assertion.ok || !assertion.culprits ? '' : note(assertion.culprits, true));
-  return frame(type, 'Trial balance', '', table + notes);
+  return frame(type, 'Trial balance', '', table + notes, records.currency);
 }
 
 function balanceSheetTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
@@ -321,7 +381,7 @@ function balanceSheetTable(type: string, props: Record<string, unknown>, records
     note(assertion.text, !assertion.ok) +
     (assertion.ok || !assertion.culprits ? '' : note(assertion.culprits, true)) +
     (assertion.unclassified ? note(assertion.unclassified, true) : '');
-  return frame(type, 'Balance sheet', `as of ${asOf}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`);
+  return frame(type, 'Balance sheet', `as of ${asOf}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
 }
 
 function incomeStatementTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
@@ -343,7 +403,7 @@ function incomeStatementTable(type: string, props: Record<string, unknown>, reco
     note(describeNetIncome(statement)) +
     (statement.unclassifiedMinor !== 0 ? note(`Unclassified (deleted accounts): ${formatWithSide(statement.unclassifiedMinor)} is outside these figures.`, true) : '') +
     (closing ? note(closing) : '');
-  return frame(type, 'Income statement', `${from} to ${to}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`);
+  return frame(type, 'Income statement', `${from} to ${to}`, `<table class="ledger-table"><tbody>${rows}</tbody></table>${notes}`, records.currency);
 }
 
 function accountRegisterTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string {
@@ -379,7 +439,7 @@ function accountRegisterTable(type: string, props: Record<string, unknown>, reco
   const range = register.filter.from || register.filter.to
     ? `${register.filter.from ?? '…'} to ${register.filter.to ?? '…'}`
     : '';
-  return frame(type, 'Account register', [register.accountName, range].filter(Boolean).join(' — '), table + note(describeRegisterSummary(register)));
+  return frame(type, 'Account register', [register.accountName, range].filter(Boolean).join(' — '), table + note(describeRegisterSummary(register)), records.currency);
 }
 
 function journalEntryTable(type: string, props: Record<string, unknown>, records: LedgerExportRecords): string | null {
@@ -390,13 +450,20 @@ function journalEntryTable(type: string, props: Record<string, unknown>, records
   if (id === '') return null;
   const tx = records.transactions.find((t) => t.id === id);
   if (!tx) return null;
+  // Every posting amount goes through the money core BEFORE any cell renders:
+  // a non-integer (NaN from a corrupt stored row) THROWS here → the caller's
+  // try/catch → the labelled placeholder. The raw `> 0`/`< 0` filters below
+  // would have rendered NaN as blank/blank AND silently dropped it from the
+  // Total row — a wrong number with no alarm, breaking the fail-shut
+  // invariant every other renderer upholds via its fold's own `sumAmounts`.
+  const amounts = tx.postings.map((p) => p.amountMinor);
+  sumAmounts(amounts);
   const nameById = new Map(records.accounts.map((a) => [a.id, a.name]));
   const body = tx.postings
     .map((p) => `<tr><td>${esc(nameById.get(p.accountId) ?? `Deleted account (${p.accountId})`)}</td>${drCrCells(p.amountMinor)}</tr>`)
     .join('');
-  const totals = tx.postings.map((p) => p.amountMinor);
-  const debits = sumAmounts(totals.filter((n) => n > 0));
-  const credits = negateAmount(sumAmounts(totals.filter((n) => n < 0)));
+  const debits = sumAmounts(amounts.filter((n) => n > 0));
+  const credits = negateAmount(sumAmounts(amounts.filter((n) => n < 0)));
   const table =
     '<table class="ledger-table"><thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>' +
     `<tbody>${body}</tbody>` +
@@ -407,5 +474,5 @@ function journalEntryTable(type: string, props: Record<string, unknown>, records
       : tx.state === 'void'
         ? note('Reversed — this entry was voided by a reversal.')
         : note('Draft — not yet posted; drafts are excluded from every report.');
-  return frame(type, 'Journal entry', `${tx.date}${tx.description ? ` — ${tx.description}` : ''}`, table + state);
+  return frame(type, 'Journal entry', `${tx.date}${tx.description ? ` — ${tx.description}` : ''}`, table + state, records.currency);
 }
