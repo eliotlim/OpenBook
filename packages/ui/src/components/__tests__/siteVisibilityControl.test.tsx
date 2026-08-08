@@ -92,6 +92,23 @@ describe('SiteVisibilityControl — guest-gate-off caveat (GATE-5)', () => {
     expect(await screen.findByText(/Guest access is off/)).toBeTruthy();
   });
 
+  // PUB-1: the caveat names the exact state to pick, and which state that is
+  // depends on the scope's INTENT — per-page publishing for a `published` address,
+  // whole-library viewing for a `public` one. One generic string could only ever be
+  // right for one of the two.
+  it('points a published-scope address at "Only published pages"', async () => {
+    fw.siteVisibility = 'published';
+    wrap(client('off'));
+    expect(await screen.findByText(/set Default access to “Only published pages”/)).toBeTruthy();
+  });
+
+  it('points a public-scope address at "Anyone can view" instead', async () => {
+    fw.siteVisibility = 'public';
+    wrap(client('off'));
+    expect(await screen.findByText(/set Default access to “Anyone can view”/)).toBeTruthy();
+    expect(screen.queryByText(/“Only published pages”/)).toBeNull();
+  });
+
   it('shows no caveat when guests may read', async () => {
     wrap(client('read'));
     // Let the instance probe resolve, then assert the caveat never appeared.

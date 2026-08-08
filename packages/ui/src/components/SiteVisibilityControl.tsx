@@ -110,7 +110,11 @@ export function SiteVisibilityControl() {
           aria-live="polite"
           className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
         >
-          {t('forwarding.visibility.guestOffCaveat')}
+          {/* Point at the fix that matches the INTENT of the chosen scope: a
+              `published` address needs per-page publishing turned on, a `public`
+              one needs whole-library viewing. One generic string could only be
+              right for one of them. */}
+          {t(scope === 'public' ? 'forwarding.visibility.guestOffCaveatPublic' : 'forwarding.visibility.guestOffCaveat')}
         </p>
       )}
     </div>

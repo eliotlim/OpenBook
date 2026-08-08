@@ -111,6 +111,46 @@ const ACCESS_HINT: Record<DefaultAccess, TKey> = {
   edit: 'sharing.accessEditHint',
 };
 
+/** Ties the live hint to the picker for assistive tech (`aria-describedby`). */
+const ACCESS_HINT_ID = 'default-access-hint';
+
+/**
+ * The honest description for `state` under `info` — the base one-liner plus any
+ * caveat the four-state mapping would otherwise paper over.
+ *
+ * Three cases where the plain hint alone would MIS-state the real exposure:
+ *
+ *  1. UNCLAIMED + `published` (Sasha M-1). `authorize()` rule 0 short-circuits an
+ *     unclaimed instance on the guest gate ALONE — `defaultVisibility` is dormant,
+ *     so "only the pages you publish" is not yet true: everyone who can reach the
+ *     instance reads everything. The mapping stays as-is (rule 0 also means the
+ *     control must not move the default), so we disclose instead.
+ *  2. `defaultVisibility:'authenticated'` (Sasha L-1) reads as `published` because a
+ *     signed-out visitor genuinely sees only published pages — but any signed-in
+ *     stranger also reads the unpublished ones. The privacy claim needs the rider.
+ *  3. CLAIMED + `edit` (Sasha L-2). Post-claim `canWrite` never consults
+ *     `guestAccess` (authorize.ts: `isLocal || isOwner || acl==='write' || isAdmin`),
+ *     so "visitors can change every page" is simply false once claimed. Swap the
+ *     line rather than append — appending would contradict its own first sentence.
+ *
+ * `claimed === undefined` (a pre-PUB-1 server) means we don't KNOW the claim state,
+ * so both claim-dependent branches stay silent rather than guess.
+ */
+export function accessStateDescription(
+  state: DefaultAccess,
+  info: Pick<InstanceInfo, 'claimed' | 'defaultVisibility'>,
+): {hint: TKey; caveat: TKey | null} {
+  if (state === 'edit' && info.claimed === true) {
+    return {hint: 'sharing.accessEditHintClaimed', caveat: null};
+  }
+  const hint = ACCESS_HINT[state];
+  if (state === 'published' && info.claimed === false) return {hint, caveat: 'sharing.accessUnclaimedCaveat'};
+  if (state === 'published' && info.defaultVisibility === 'authenticated') {
+    return {hint, caveat: 'sharing.accessAuthenticatedCaveat'};
+  }
+  return {hint, caveat: null};
+}
+
 /**
  * Multi-user access policy (OB-165): who can read/edit this shared library
  * without signing in, plus who the server currently sees *you* as. Reads the
@@ -183,6 +223,7 @@ export function SharingSection() {
         ? t('sharing.youGuestNamed', {name: you.name})
         : t('sharing.youGuestAnon');
   const state = accessStateFromConfig(info);
+  const {hint, caveat} = accessStateDescription(state, info);
 
   return (
     <SettingsSection title={t('sharing.title')} description={t('sharing.description')}>
@@ -190,8 +231,9 @@ export function SharingSection() {
       <SettingsField label={t('sharing.defaultAccess')} hint={t('sharing.defaultAccessHint')}>
         <Select
           value={state}
-          wrapperClassName="w-[280px]"
+          wrapperClassName="w-full max-w-[280px]"
           aria-label={t('sharing.defaultAccess')}
+          aria-describedby={ACCESS_HINT_ID}
           disabled={busy || !isOwner}
           onChange={(e) => void changeAccess(e.target.value as DefaultAccess)}
         >
@@ -200,10 +242,26 @@ export function SharingSection() {
           <option value="view">{t('sharing.accessView')}</option>
           <option value="edit">{t('sharing.accessEdit')}</option>
         </Select>
-        {/* The honest one-liner for whatever is CURRENTLY selected — four states
-            that differ only in who sees what need spelling out, and the label
-            alone can't (same pattern as `SiteVisibilityControl`'s scope hint). */}
-        <p className="mt-1.5 text-xs text-muted-foreground">{t(ACCESS_HINT[state])}</p>
+        {/* The honest one-liner for whatever is CURRENTLY selected. Four states that
+            differ only in who sees what can't be told apart by their labels alone.
+            `SiteVisibilityControl.SCOPE_HINT` is the precedent for the per-state
+            hint MECHANISM, not for its placement: this one sits BELOW the picker on
+            purpose, because it changes as you browse the options and a description
+            that reflows above the control you're operating shifts it under the
+            pointer. `aria-live` announces the swap; `aria-describedby` (above) makes
+            it the picker's description so it is read on focus, not just on change. */}
+        <p id={ACCESS_HINT_ID} aria-live="polite" className="mt-1.5 text-xs text-muted-foreground">
+          {t(hint)}
+          {caveat && (
+            // Amber, not muted: these are the cases where the state's own
+            // description would over-state privacy or over-claim what visitors can
+            // do (see `accessStateDescription`). Same treatment as the address-level
+            // guest-gate caveat so "read this one twice" looks the same app-wide.
+            <span className="mt-1.5 block rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-foreground">
+              {t(caveat)}
+            </span>
+          )}
+        </p>
       </SettingsField>
       {!isOwner && <p className="text-xs text-muted-foreground">{t('sharing.ownerLocked')}</p>}
       {error && <p className="text-sm text-destructive">{t('sharing.saveError', {error})}</p>}

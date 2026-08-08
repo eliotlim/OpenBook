@@ -5,6 +5,7 @@ import {DEFAULT_INSTANCE_CONFIG, guestPrincipal} from '@book.dev/sdk';
 import type {EffectiveVisibility, GuestAccess} from '@book.dev/sdk';
 import {
   SharingSection,
+  accessStateDescription,
   accessStateFromConfig,
   accessStatePolicy,
   type DefaultAccess,
@@ -80,7 +81,8 @@ describe('SharingSection (guest access)', () => {
   const bootstrapClaimed = (setInstancePolicy: DataClient['setInstancePolicy']): Partial<DataClient> => ({
     getInstanceInfo: async () => ({
       guestAccess: 'read', // freshly-claimed bootstrap …
-      defaultVisibility: 'members', // … → renders "Published pages only"
+      defaultVisibility: 'members', // … → renders "Only published pages"
+      claimed: true, // …and per-page publishing really is in force (no caveat)
       ownerSubject: null, // control enabled (unclaimed-owner path)
       trustedIssuers: [],
       audience: null,
@@ -91,20 +93,33 @@ describe('SharingSection (guest access)', () => {
     setInstancePolicy,
   });
 
-  it('renders the freshly-claimed (members, read) pair as "Published pages only"', async () => {
+  it('renders the freshly-claimed (members, read) pair as "Only published pages"', async () => {
     wrap(bootstrapClaimed(vi.fn() as unknown as DataClient['setInstancePolicy']));
-    expect(await screen.findByText('Published pages only')).toBeTruthy();
+    expect(await screen.findByText('Only published pages')).toBeTruthy();
     // …and the honest one-liner for it, not the "anyone can view" claim.
     expect(
-      await screen.findByText(/Only pages you explicitly publish are visible to visitors/),
+      await screen.findByText(/Visitors can open only the pages you explicitly publish/),
     ).toBeTruthy();
+    // A claimed library really does enforce it — no caveat.
+    expect(screen.queryByText(/Until this library is claimed/)).toBeNull();
+  });
+
+  // A11y: the live hint must be the picker's DESCRIPTION so it is announced on
+  // focus, not only when it changes.
+  it('wires the hint to the picker via aria-describedby + a live region', async () => {
+    wrap(bootstrapClaimed(vi.fn() as unknown as DataClient['setInstancePolicy']));
+    const picker = await screen.findByRole('combobox');
+    expect(picker.getAttribute('aria-describedby')).toBe('default-access-hint');
+    const hint = document.getElementById('default-access-hint');
+    expect(hint?.getAttribute('aria-live')).toBe('polite');
+    expect(hint?.textContent).toMatch(/Visitors can open only the pages you explicitly publish/);
   });
 
   it('re-selecting the already-displayed state does NOT write', async () => {
     const setInstancePolicy = vi.fn(async () => ({guestAccess: 'read', trustedIssuers: []})) as unknown as DataClient['setInstancePolicy'];
     wrap(bootstrapClaimed(setInstancePolicy));
     fireEvent.click(await screen.findByRole('combobox'));
-    fireEvent.click(await screen.findByRole('option', {name: 'Published pages only'}));
+    fireEvent.click(await screen.findByRole('option', {name: 'Only published pages'}));
     await new Promise((r) => setTimeout(r, 10));
     expect(setInstancePolicy).not.toHaveBeenCalled();
   });
@@ -138,7 +153,7 @@ describe('SharingSection (guest access)', () => {
     fireEvent.click(await screen.findByRole('combobox'));
     expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
       'Private (members only)',
-      'Published pages only',
+      'Only published pages',
       'Anyone can view',
       'Anyone can edit',
     ]);
@@ -218,6 +233,38 @@ describe('Default-access state ↔ config-pair mapping (SHR-7 / PUB-1)', () => {
     expect(DEFAULT_INSTANCE_CONFIG.guestAccess).toBe('write');
     expect(DEFAULT_INSTANCE_CONFIG.defaultVisibility).toBe('members');
     expect(accessStateFromConfig(DEFAULT_INSTANCE_CONFIG)).toBe('edit');
+  });
+
+  // The three cases where the state's plain hint would MIS-state reality. See
+  // `accessStateDescription`; each maps to a review finding.
+  it('describes each state honestly, with a caveat only where one is owed', () => {
+    const d = accessStateDescription;
+    // M-1: unclaimed + published — authorize rule 0 means per-page publishing is
+    // NOT yet in force, so the "only published pages" promise needs disclosing.
+    expect(d('published', {claimed: false, defaultVisibility: 'members'})).toEqual({
+      hint: 'sharing.accessPublishedHint',
+      caveat: 'sharing.accessUnclaimedCaveat',
+    });
+    // Claimed ⇒ the promise holds ⇒ no caveat.
+    expect(d('published', {claimed: true, defaultVisibility: 'members'}).caveat).toBeNull();
+    // L-1: `authenticated` reads as published for a signed-out visitor, but any
+    // signed-in stranger also reads the unpublished pages.
+    expect(d('published', {claimed: true, defaultVisibility: 'authenticated'}).caveat).toBe(
+      'sharing.accessAuthenticatedCaveat',
+    );
+    // L-2: post-claim `canWrite` ignores `guestAccess`, so the edit line is swapped
+    // (not caveated — a caveat would contradict its own first sentence).
+    expect(d('edit', {claimed: true, defaultVisibility: 'public'})).toEqual({
+      hint: 'sharing.accessEditHintClaimed',
+      caveat: null,
+    });
+    expect(d('edit', {claimed: false, defaultVisibility: 'members'}).hint).toBe('sharing.accessEditHint');
+    // An unknown claim state (pre-PUB-1 server) must stay SILENT, never guess.
+    expect(d('published', {defaultVisibility: 'members'}).caveat).toBeNull();
+    expect(d('edit', {defaultVisibility: 'public'}).hint).toBe('sharing.accessEditHint');
+    // The quiet states are never caveated.
+    expect(d('private', {claimed: true}).caveat).toBeNull();
+    expect(d('view', {claimed: true, defaultVisibility: 'public'}).caveat).toBeNull();
   });
 
   // The claim bootstrap (store.claimOwnership: defaultVisibility='members',

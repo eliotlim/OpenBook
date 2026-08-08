@@ -843,12 +843,16 @@ export const de: PartialMessages = {
     accessPublished: 'Nur veröffentlichte Seiten',
     accessView: 'Alle können ansehen',
     accessEdit: 'Alle können bearbeiten',
-    accessPrivateHint: 'Nur Mitglieder können diese Bibliothek öffnen. Nicht angemeldete Besucher sehen nichts.',
+    accessPrivateHint: 'Besucher können nichts öffnen — diese Bibliothek ist nur für Mitglieder.',
     accessPublishedHint:
-      'Nur Seiten, die du ausdrücklich veröffentlichst, sind für Besucher sichtbar. Alles andere bleibt privat.',
-    accessViewHint:
-      'Besucher können jede Seite dieser Bibliothek ohne Anmeldung lesen, aber nichts ändern.',
-    accessEditHint: 'Besucher können jede Seite dieser Bibliothek ohne Anmeldung lesen und ändern.',
+      'Besucher können nur die Seiten öffnen, die du ausdrücklich veröffentlichst. Alles andere bleibt privat.',
+    accessViewHint: 'Besucher können jede Seite dieser Bibliothek lesen, aber nichts ändern.',
+    accessEditHint: 'Besucher können jede Seite dieser Bibliothek lesen und ändern.',
+    accessEditHintClaimed:
+      'Besucher können jede Seite dieser Bibliothek lesen. Nur Mitglieder können Seiten ändern.',
+    accessUnclaimedCaveat:
+      'Solange diese Bibliothek keine Inhaberin bzw. keinen Inhaber hat, kann jede Person mit Zugang jede Seite ansehen.',
+    accessAuthenticatedCaveat: 'Alle Angemeldeten können auch nicht veröffentlichte Seiten lesen.',
     ownerLocked: 'Nur die Inhaberin bzw. der Inhaber der Bibliothek kann das ändern.',
     saveError: 'Zugriff konnte nicht aktualisiert werden — {error}',
   },
@@ -899,7 +903,9 @@ export const de: PartialMessages = {
       authenticatedHint: 'Jede angemeldete Person kann diese Bibliothek sehen.',
       membersHint: 'Nur Mitglieder der Bibliothek können diese Bibliothek sehen.',
       guestOffCaveat:
-        'Der Gastzugriff ist aus, daher lassen sich veröffentlichte Seiten für nicht angemeldete Besucher trotzdem nicht öffnen. Aktiviere die Gastansicht in den Freigabe-Einstellungen der Bibliothek.',
+        'Der Gastzugriff ist aus, daher lassen sich veröffentlichte Seiten für nicht angemeldete Besucher trotzdem nicht öffnen. Setze unter „Gäste & Zugriff“ den „Standardzugriff“ auf „Nur veröffentlichte Seiten“.',
+      guestOffCaveatPublic:
+        'Der Gastzugriff ist aus, daher lässt sich diese Bibliothek für nicht angemeldete Besucher trotzdem nicht öffnen. Setze unter „Gäste & Zugriff“ den „Standardzugriff“ auf „Alle können ansehen“.',
       manageOnWeb: 'Im Web verwalten',
       error: 'Adresszugriff konnte nicht aktualisiert werden. Versuche es erneut.',
     },
