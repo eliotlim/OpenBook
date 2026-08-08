@@ -871,6 +871,74 @@ test('table colours: tint a row and a column via the menu; row wins (TBL-4)', {t
   await expect(rows.nth(1).locator('td.obe-bg-green')).toHaveCount(0);
 });
 
+test('range-aware cell menu: right-click inside a selection tints/deletes the whole range (TBL-6)', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+  await expect(page.locator('.obe-table tr')).toHaveCount(3);
+
+  // REAL mouse drag over the top two rows of the 3-column table → a 2×3 range.
+  const td = page.locator('.obe-table td');
+  const dragCells = async (fromIdx: number, toIdx: number) => {
+    const a = (await td.nth(fromIdx).boundingBox())!;
+    const b = (await td.nth(toIdx).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, {steps: 10});
+    await page.mouse.up();
+  };
+  await dragCells(0, 5);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(6);
+
+  // Right-click a cell INSIDE the rectangle → the RANGE variant, with the exact
+  // selected counts and none of the single-cell row/column items.
+  await td.nth(1).click({button: 'right'});
+  await expect(page.getByText('Selection · 2 × 3')).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Clear contents'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Delete 2 rows'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Delete table'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Duplicate row'})).toHaveCount(0);
+
+  // Tint every selected cell green in one step.
+  await page.getByRole('menuitem', {name: 'Cell colour'}).hover();
+  await page.getByRole('menuitem', {name: 'Green'}).click();
+  await expect(page.locator('.obe-table td.obe-bg-green')).toHaveCount(6);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(6);
+  await expect(page.locator('.obe-table tr').nth(2).locator('td.obe-bg-green')).toHaveCount(0);
+  // Paint-level guard: the selected cell must compute to the SAME green as a
+  // plain palette cell while the ring + wash remain layered above it. The old
+  // high-specificity `background:` selection shorthand made these differ even
+  // though the td carried both classes, so class assertions alone missed P1.
+  const selectedPaint = await page.locator('.obe-table td.obe-bg-green.obe-cell-selected').first().evaluate((cell) => {
+    const probe = document.createElement('div');
+    probe.className = 'obe-bg-green';
+    document.body.append(probe);
+    const expectedBackground = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const computed = getComputedStyle(cell);
+    return {background: computed.backgroundColor, expectedBackground, shadow: computed.boxShadow};
+  });
+  expect(selectedPaint.background).toBe(selectedPaint.expectedBackground);
+  expect(selectedPaint.shadow.match(/inset/g)).toHaveLength(2);
+
+  // A right-click OUTSIDE the rectangle still opens the single-cell menu.
+  await td.nth(6).click({button: 'right'});
+  await expect(page.getByRole('menuitem', {name: 'Duplicate row'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Clear contents'})).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // Delete the selected rows: exactly two go, and the stale highlight is dropped.
+  await dragCells(0, 5);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(6);
+  await td.nth(0).click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Delete 2 rows'}).click();
+  await expect(page.locator('.obe-table tr')).toHaveCount(1);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(0);
+});
+
 // ── Marquee (rubber-band) select + shift-click extension (SEL-1) ─────────────
 
 /** Grow the lab from its 3 seeded blocks to 5 top-level blocks. */

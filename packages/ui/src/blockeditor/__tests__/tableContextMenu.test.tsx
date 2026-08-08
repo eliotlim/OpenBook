@@ -9,16 +9,25 @@ import {
   blockPlainText,
   blockProp,
   createDoc,
+  docToJSON,
   findBlock,
   makeTable,
   setBlockProp,
+  setTableCellRangeColor,
+  setTableColumnColor,
+  setTableRowColor,
+  tableCellColor,
+  tableCellOwnColor,
   tableColumns,
   tableDuplicateRow,
   tableGrid,
   tableMoveColumn,
   tableMoveRow,
   type BlockMap,
+  type CellRect,
 } from '../model';
+import {COLOR_EXPORT_HEX} from '../colors';
+import {blocksToHtml, projectBlocksForExport} from '../exportBlocks';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +56,27 @@ const stubEditor = (doc: Y.Doc, readOnly = false): BlockEditorController =>
 const openMenu = (doc: Y.Doc, cellId: string, suppress = false): void => {
   render(
     <TableCellMenu cell={cellBlock(doc, cellId)} tableId="tbl" editor={stubEditor(doc, suppress)} suppress={suppress}>
+      <button data-testid="cell">{cellId}</button>
+    </TableCellMenu>,
+  );
+  fireEvent.contextMenu(screen.getByTestId('cell'));
+};
+
+/**
+ * TBL-6: right-click a cell with a live range rectangle in scope. `rect` is what
+ * the table hands down from the CellSelectionContext; the menu decides which
+ * variant to render from whether the clicked cell falls inside it.
+ */
+const openMenuWithRange = (doc: Y.Doc, cellId: string, range: CellRect, onClearRange?: () => void): void => {
+  render(
+    <TableCellMenu
+      cell={cellBlock(doc, cellId)}
+      tableId="tbl"
+      editor={stubEditor(doc)}
+      suppress={false}
+      range={range}
+      onClearRange={onClearRange}
+    >
       <button data-testid="cell">{cellId}</button>
     </TableCellMenu>,
   );
@@ -303,5 +333,204 @@ describe('TableCellMenu — move items', () => {
       ['r1c0', 'r1c2', 'r1c1'],
       ['r2c0', 'r2c2', 'r2c1'],
     ]);
+  });
+});
+
+// ── TBL-6: the RANGE variant of the cell menu ────────────────────────────────
+// A right-click inside the live cell-range rectangle addresses the whole range;
+// a right-click outside it addresses the single cell exactly as before. The gate
+// is a multi-cell `cellInRect` hit over the rect the table hands down, so these
+// tests drive the `range` prop directly (live wiring is covered elsewhere).
+
+/** A 2-rows × 3-columns selection over the top of the grid. */
+const RANGE_2x3: CellRect = {top: 0, left: 0, bottom: 1, right: 2};
+
+describe('TableCellMenu — range variant (TBL-6)', () => {
+  it('a right-click INSIDE the rect shows the range items with exact counts', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r1c1', RANGE_2x3);
+    for (const label of ['Selection · 2 × 3', 'Clear contents', 'Cell colour', 'Delete 2 rows', 'Delete table']) {
+      expect(screen.getByText(label), label).toBeTruthy();
+    }
+    // …and NONE of the single-cell items.
+    for (const label of ['Insert row above', 'Insert row below', 'Duplicate row', 'Row colour', 'Toggle header row']) {
+      expect(screen.queryByText(label), label).toBeNull();
+    }
+  });
+
+  it('a right-click OUTSIDE the rect shows the unchanged single-cell menu', () => {
+    // r2c0 is at sorted row 2 — one row below the rect's bottom edge.
+    openMenuWithRange(seedTableDoc(3, 3), 'r2c0', RANGE_2x3);
+    for (const label of ['Row', 'Column', 'Insert row below', 'Duplicate row', 'Delete row', 'Toggle header row']) {
+      expect(screen.getByText(label), label).toBeTruthy();
+    }
+    for (const label of ['Clear contents', 'Cell colour']) {
+      expect(screen.queryByText(label), label).toBeNull();
+    }
+    expect(screen.queryByText(/Selection ·/)).toBeNull();
+  });
+
+  it('a 1×1 rect keeps the fifteen-item single-cell menu', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r1c1', {top: 1, left: 1, bottom: 1, right: 1});
+    expect(screen.getByText('Duplicate row')).toBeTruthy();
+    expect(screen.getByText('Toggle header row')).toBeTruthy();
+    expect(screen.queryByText(/Selection ·/)).toBeNull();
+    expect(screen.queryByText('Clear contents')).toBeNull();
+  });
+
+  it('a multi-cell range uses singular delete labels for a one-cell axis', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r1c1', {top: 1, left: 1, bottom: 1, right: 2});
+    expect(screen.getByText('Selection · 1 × 2')).toBeTruthy();
+    expect(screen.getByText('Delete row')).toBeTruthy();
+    expect(screen.getByText('Delete 2 columns')).toBeTruthy();
+    expect(screen.queryByText('Delete 1 rows')).toBeNull();
+  });
+
+  it('clamps stale range counts to the live grid and labels full-axis deletes as table deletes', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r1c1', {top: 0, left: 0, bottom: 99, right: 99});
+    expect(screen.getByText('Selection · 3 × 3')).toBeTruthy();
+    expect(screen.getAllByText('Delete table')).toHaveLength(2);
+    expect(screen.queryByText('Delete 100 rows')).toBeNull();
+    expect(screen.queryByText('Delete 100 columns')).toBeNull();
+  });
+
+  it('delete-rows removes EXACTLY the selected rows and drops the range', () => {
+    const doc = seedTableDoc(4, 3);
+    let cleared = false;
+    openMenuWithRange(doc, 'r1c0', {top: 1, left: 0, bottom: 2, right: 2}, () => {
+      cleared = true;
+    });
+    fireEvent.click(screen.getByText('Delete 2 rows'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r3c0', 'r3c1', 'r3c2'],
+    ]);
+    expect(cleared).toBe(true); // the stale rectangle is dropped
+  });
+
+  it('delete-columns removes EXACTLY the selected columns', () => {
+    const doc = seedTableDoc(3, 4);
+    openMenuWithRange(doc, 'r0c1', {top: 0, left: 1, bottom: 0, right: 2});
+    fireEvent.click(screen.getByText('Delete 2 columns'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c3'],
+      ['r1c0', 'r1c3'],
+      ['r2c0', 'r2c3'],
+    ]);
+  });
+
+  it('delete-rows targets SORTED rows after a reorder (the sorted-vs-array trap)', () => {
+    const doc = seedTableDoc(4, 3);
+    tableMoveRow(doc, 'tbl', 'row3', 0); // sorted: r3, r0, r1, r2
+    openMenuWithRange(doc, 'r3c0', {top: 0, left: 0, bottom: 1, right: 2});
+    fireEvent.click(screen.getByText('Delete 2 rows'));
+    // The two TOP-most rendered rows go — r3 (array index 3) and r0.
+    expect(rowTexts(doc)).toEqual([
+      ['r1c0', 'r1c1', 'r1c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
+  });
+
+  it('clear-cells empties exactly the range, one undo step, nothing outside it', () => {
+    const doc = seedTableDoc(3, 3);
+    const undo = new Y.UndoManager(blockChildren(findBlock(doc, 'tbl')!.block)!, {trackedOrigins: new Set(['local'])});
+    openMenuWithRange(doc, 'r0c0', RANGE_2x3);
+    fireEvent.click(screen.getByText('Clear contents'));
+    expect(rowTexts(doc)).toEqual([
+      ['', '', ''],
+      ['', '', ''],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
+    undo.undo(); // the whole range reverts together
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r1c0', 'r1c1', 'r1c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
+  });
+});
+
+// ── TBL-6: per-cell tint ─────────────────────────────────────────────────────
+
+describe('per-cell tint (TBL-6)', () => {
+  const tintGrid = (doc: Y.Doc): (string | null)[][] => {
+    const table = findBlock(doc, 'tbl')!.block;
+    const grid = tableGrid(table);
+    return grid.rows.map((row, r) =>
+      grid.cells[r].map((cell, c) => (cell ? tableCellColor(table, row, grid.colIds[c] ?? null, cell) : null)),
+    );
+  };
+
+  it('the Cell colour swatch applies the token to EVERY cell of the range', () => {
+    const doc = seedTableDoc(3, 3);
+    openMenuWithRange(doc, 'r0c0', RANGE_2x3);
+    fireEvent.click(screen.getByText('Cell colour')); // open the swatch submenu
+    fireEvent.click(screen.getByText('Green'));
+    expect(tintGrid(doc)).toEqual([
+      ['green', 'green', 'green'],
+      ['green', 'green', 'green'],
+      [null, null, null],
+    ]);
+    // The tint is each cell's OWN `bg` prop — the universal block background.
+    const grid = tableGrid(findBlock(doc, 'tbl')!.block);
+    expect(blockProp<string>(grid.cells[0][0]!, 'bg')).toBe('green');
+    expect(blockProp<string>(grid.cells[2][0]!, 'bg')).toBeUndefined();
+  });
+
+  it('"Default" clears the range tint, exposing the row/column tint underneath', () => {
+    const doc = seedTableDoc(3, 3);
+    const col0 = tableColumns(findBlock(doc, 'tbl')!.block)[0].id;
+    setTableColumnColor(doc, 'tbl', col0, 'blue');
+    setTableCellRangeColor(doc, 'tbl', {top: 0, left: 0, bottom: 0, right: 1}, 'red');
+    expect(tintGrid(doc)[0][0]).toBe('red'); // cell wins over column
+
+    openMenuWithRange(doc, 'r0c0', {top: 0, left: 0, bottom: 0, right: 1});
+    fireEvent.click(screen.getByText('Cell colour'));
+    fireEvent.click(screen.getByText('Default'));
+    expect(tintGrid(doc)[0][0]).toBe('blue'); // column shows through again
+    expect(tableCellOwnColor(findBlock(doc, 'r0c0')!.block)).toBeNull();
+  });
+
+  it('composites CELL over ROW over COLUMN', () => {
+    const doc = seedTableDoc(3, 3);
+    const col0 = tableColumns(findBlock(doc, 'tbl')!.block)[0].id;
+    setTableColumnColor(doc, 'tbl', col0, 'blue');
+    setTableRowColor(doc, 'tbl', 'row0', 'green');
+    setTableCellRangeColor(doc, 'tbl', {top: 0, left: 0, bottom: 0, right: 0}, 'red');
+    // r0c0 has all three; r0c1 has the row tint; r1c0 has the column tint.
+    expect(tintGrid(doc)[0][0]).toBe('red');
+    expect(tintGrid(doc)[0][1]).toBe('green');
+    expect(tintGrid(doc)[1][0]).toBe('blue');
+  });
+
+  it('survives a reload (Yjs round-trip into a fresh doc)', () => {
+    const doc = seedTableDoc(3, 3);
+    setTableCellRangeColor(doc, 'tbl', RANGE_2x3, 'purple');
+    const reloaded = new Y.Doc();
+    Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(doc));
+    const grid = tableGrid(findBlock(reloaded, 'tbl')!.block);
+    expect(grid.cells.slice(0, 2).flatMap((line) => line.map((c) => tableCellOwnColor(c!)))).toEqual(
+      Array.from({length: 6}, () => 'purple'),
+    );
+    expect(tableCellOwnColor(grid.cells[2][0]!)).toBeNull();
+  });
+
+  it('appears in the exported HTML (clipboard + static projection)', () => {
+    const doc = seedTableDoc(3, 3);
+    setTableRowColor(doc, 'tbl', 'row0', 'green');
+    setTableCellRangeColor(doc, 'tbl', {top: 0, left: 0, bottom: 0, right: 0}, 'red');
+    const json = docToJSON(doc).find((b) => b.id === 'tbl')!;
+
+    // Clipboard/standalone HTML: the cell's own tint paints its <td>, and the
+    // row tint still paints its siblings (cell wins only where it is set).
+    const html = blocksToHtml([json]);
+    expect(html).toContain(`background:${COLOR_EXPORT_HEX.red.hl}`);
+    expect(html).toContain(`background:${COLOR_EXPORT_HEX.green.hl}`);
+    expect(html.indexOf(COLOR_EXPORT_HEX.red.hl)).toBeLessThan(html.indexOf(COLOR_EXPORT_HEX.green.hl));
+
+    // HTML/PDF projection: the parallel cellColors grid carries the same token.
+    const out = projectBlocksForExport(docToJSON(doc));
+    const table = out.blocks.find((b) => b.type === 'table')!;
+    const cellColors = (table.data as {cellColors: (string | null)[][]}).cellColors;
+    expect(cellColors[0]).toEqual(['red', 'green', 'green']);
   });
 });

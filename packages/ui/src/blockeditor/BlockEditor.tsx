@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,
   Copy,
+  Eraser,
   EyeOff,
   GripHorizontal,
   GripVertical,
@@ -44,11 +45,15 @@ import {
   rootBlocks,
   setBlockProp,
   tableCellColor,
+  tableCellOwnColor,
   tableColumnColor,
   tableColumns,
+  tableRangeCells,
   tableRangeRuns,
   tableDeleteColumn,
+  tableDeleteColumnRange,
   tableDeleteRow,
+  tableDeleteRowRange,
   tableDuplicateRow,
   tableGrid,
   tableInsertColumn,
@@ -56,11 +61,13 @@ import {
   tableMoveColumn,
   tableMoveRow,
   tableRowColor,
+  setTableCellRangeColor,
   setTableColumnColor,
   setTableRowColor,
   TEXT_BLOCKS,
   type BlockMap,
   type BlockType,
+  type CellRect,
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
@@ -143,6 +150,9 @@ interface CellSelectionCtx {
 }
 const CellSelectionContext = React.createContext<CellSelectionCtx | null>(null);
 
+/** A range-menu subject must span at least two grid slots (Q2). */
+const isMultiCellRect = (rect: CellRect): boolean => rect.top !== rect.bottom || rect.left !== rect.right;
+
 /**
  * The block editor root: renders the block tree, owns the transient UI
  * (slash menu, inline toolbar, drag state, block selection), and routes
@@ -219,6 +229,13 @@ export const BlockEditor: React.FC<{
 }> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId, focusRef, onLeaveToTitle, onSelectionChange}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
+  // React synthetic events from portaled descendants still traverse this
+  // component tree. Every handler attached to the DOM root must reject those
+  // events before treating them as editor-surface input.
+  const insideRoot = useCallback(
+    (e: React.SyntheticEvent): boolean => !!rootRef.current?.contains(e.target as Node),
+    [],
+  );
   // Whole-document read-only (viewer / present): a lock context wraps the tree so
   // `BlockBody` freezes text + structure while interactive widgets stay live —
   // the present-mode treatment, lifted to a normal page. Stable identity so the
@@ -600,7 +617,7 @@ export const BlockEditor: React.FC<{
   };
 
   const onRootPaste = (e: React.ClipboardEvent): void => {
-    if (readOnly) return;
+    if (!insideRoot(e) || readOnly) return;
     const files = editorFilesFromTransfer(e.clipboardData);
     if (files.length === 0) return; // let text paste fall through to the block
     e.preventDefault();
@@ -614,20 +631,21 @@ export const BlockEditor: React.FC<{
 
   const onRootDragOver = (e: React.DragEvent): void => {
     // Internal block-move drags are handled per-row; only claim external files.
-    if (readOnly || drag || !isFileDrag(e)) return;
+    if (!insideRoot(e) || readOnly || drag || !isFileDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
     if (!fileDragOver) setFileDragOver(true);
   };
 
   const onRootDragLeave = (e: React.DragEvent): void => {
+    if (!insideRoot(e)) return;
     // Only clear when the pointer actually left the editor region (dragleave
     // also fires crossing child boundaries).
     if (fileDragOver && !e.currentTarget.contains(e.relatedTarget as Node | null)) setFileDragOver(false);
   };
 
   const onRootDrop = (e: React.DragEvent): void => {
-    if (readOnly || drag) return; // a block move is finishing — not our drop
+    if (!insideRoot(e) || readOnly || drag) return; // a block move is finishing — not our drop
     // We claimed this drag in `onRootDragOver` (preventDefault → the browser
     // offered it here), so we MUST preventDefault the drop too — otherwise a
     // dropped non-ingestible file (a PDF, say) triggers the browser's default
@@ -1240,6 +1258,14 @@ export const BlockEditor: React.FC<{
       onDragLeave={onRootDragLeave}
       onDrop={onRootDrop}
       onMouseDown={(e) => {
+        // React events propagate along the COMPONENT tree, so a press inside a
+        // portaled overlay (a Radix context/dropdown menu, whose content is a
+        // child of a trigger nested in here) lands on this handler even though
+        // its DOM node lives under <body>. Those presses are menu interaction,
+        // not canvas interaction: they must not drop a cell range the menu is
+        // about to act on (TBL-6), nor arm a marquee. Ignore anything whose
+        // target is outside our own DOM subtree.
+        if (!insideRoot(e)) return;
         // A real click's mousedown always precedes its click, so clear any stale
         // suppression here: if a marquee drag ended with the pointer OUTSIDE the
         // root (autoscroll drove it to the edge), no click reached onClick to
@@ -2512,17 +2538,114 @@ const TableColorSubmenu: React.FC<{
   </ContextMenuSub>
 );
 
+/**
+ * The RANGE variant of the cell menu (TBL-6): shown when the right-clicked cell
+ * falls inside the live {@link CellSelection} rectangle. Every item acts on the
+ * whole rectangle (never just the clicked cell) in one transact = one undo step:
+ *
+ *   Clear contents     the same op the Backspace shortcut runs (clearCellRange)
+ *   Cell colour        each cell's own `bg` prop, composited over row/column
+ *   Delete N rows      exactly rect.top…rect.bottom
+ *   Delete N columns   exactly rect.left…rect.right
+ *
+ * The two deletes drop the selection afterwards (`onClearRange`) — its
+ * coordinates address slots that no longer exist. A clear/tint keeps it, matching
+ * the keyboard clear (the highlight persists so the range stays actionable).
+ * A range of one row / one column falls back to the singular labels, so we never
+ * render "Delete 1 rows" and never need plural rules in the catalogues.
+ */
+const TableRangeMenuContent: React.FC<{
+  rect: CellRect;
+  tableId: string;
+  editor: BlockEditorController;
+  onClearRange?: () => void;
+}> = ({rect, tableId, editor, onClearRange}) => {
+  const doc = editor.doc;
+  const found = findBlock(doc, tableId);
+  if (!found || blockType(found.block) !== 'table') return null;
+  const grid = tableGrid(found.block);
+  // A live remote edit can shrink the grid while this local rectangle/menu is
+  // still open. Labels describe the intersection that the range ops will
+  // actually touch, never stale coordinates beyond the current table.
+  const rowFrom = Math.max(0, Math.min(rect.top, rect.bottom));
+  const rowTo = Math.min(grid.rows.length - 1, Math.max(rect.top, rect.bottom));
+  const colFrom = Math.max(0, Math.min(rect.left, rect.right));
+  const colTo = Math.min(grid.width - 1, Math.max(rect.left, rect.right));
+  const rowCount = Math.max(0, rowTo - rowFrom + 1);
+  const colCount = Math.max(0, colTo - colFrom + 1);
+  const deletesAllRows = grid.rows.length > 0 && rowCount === grid.rows.length;
+  const deletesAllColumns = grid.width > 0 && colCount === grid.width;
+  // The swatch check is only meaningful when the WHOLE range shares one own-tint
+  // (a mixed range shows no check, and "Default" still clears all of it).
+  const cells = tableRangeCells(doc, tableId, rect).flat().filter((c): c is BlockMap => c !== null);
+  const first = cells.length > 0 ? tableCellOwnColor(cells[0]) : null;
+  const current = cells.length > 0 && cells.every((c) => tableCellOwnColor(c) === first) ? first : null;
+  return (
+    <ContextMenuContent className="w-52">
+      <ContextMenuLabel>
+        {t('menu.table.sectionSelection')} · {rowCount} × {colCount}
+      </ContextMenuLabel>
+      <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>
+        <Eraser className="mr-2 h-3.5 w-3.5" /> {t('menu.table.clearCells')}
+      </ContextMenuItem>
+      <TableColorSubmenu
+        label={t('menu.table.tintCells')}
+        current={current}
+        onPick={(token) => setTableCellRangeColor(doc, tableId, rect, token)}
+      />
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => {
+          tableDeleteRowRange(doc, tableId, rect.top, rect.bottom);
+          onClearRange?.();
+        }}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" />{' '}
+        {deletesAllRows
+          ? t('menu.table.deleteTable')
+          : rowCount === 1
+            ? t('menu.table.deleteRow')
+            : t('menu.table.deleteRowsN', {n: rowCount})}
+      </ContextMenuItem>
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => {
+          tableDeleteColumnRange(doc, tableId, rect.left, rect.right);
+          onClearRange?.();
+        }}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" />{' '}
+        {deletesAllColumns
+          ? t('menu.table.deleteTable')
+          : colCount === 1
+            ? t('menu.table.deleteColumn')
+            : t('menu.table.deleteColumnsN', {n: colCount})}
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+};
+
 const TableCellMenuContent: React.FC<{
   cell: BlockMap;
   tableId: string;
   editor: BlockEditorController;
-}> = ({cell, tableId, editor}) => {
+  /** The live cell-range rectangle for THIS table (TBL-6), if any. */
+  range?: CellRect | null;
+  onClearRange?: () => void;
+}> = ({cell, tableId, editor, range, onClearRange}) => {
   const doc = editor.doc;
   const pos = cellPosition(doc, blockId(cell));
   // An orphaned cell (its column was deleted concurrently) has no grid
   // position — fall back to nothing rather than fire ops at a bad index.
   if (!pos) return null;
   const {row, col, table, rows: rowCount, cols: colCount} = pos;
+  // TBL-6: right-clicking INSIDE the live rectangle addresses the range;
+  // right-clicking outside it addresses the single cell exactly as before (the
+  // click does not move or shrink the selection — it just isn't the subject).
+  if (range && isMultiCellRect(range) && cellInRect(range, row, col)) {
+    return <TableRangeMenuContent rect={range} tableId={tableId} editor={editor} onClearRange={onClearRange} />;
+  }
   // Ids for the move ops, resolved from the SORTED grid so a reordered table
   // still targets the right row/column (the sorted-vs-array trap, acceptance #6).
   const rowBlock = tableGrid(table).rows[row];
@@ -2626,21 +2749,34 @@ const TableCellMenuContent: React.FC<{
  * gaps) you still get the block menu — acceptance #1/#2. When `suppress` (read-
  * only page or a kit-locked cell) it renders the plain `<td>` with no menu, so
  * a locked table exposes no mutating items — acceptance #4.
+ *
+ * `range` is the live cell-range rectangle for this table (TBL-6): a right-click
+ * on a cell INSIDE it opens the range variant of the menu, outside it the
+ * unchanged single-cell menu. Omitted (as when the table renders outside a
+ * {@link CellSelectionContext}) it is always the single-cell menu.
  */
 export const TableCellMenu: React.FC<{
   cell: BlockMap;
   tableId: string;
   editor: BlockEditorController;
   suppress: boolean;
+  range?: CellRect | null;
+  onClearRange?: () => void;
   children: React.ReactNode;
-}> = ({cell, tableId, editor, suppress, children}) => {
+}> = ({cell, tableId, editor, suppress, range, onClearRange, children}) => {
   if (suppress) return <>{children}</>;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
         {children}
       </ContextMenuTrigger>
-      <TableCellMenuContent cell={cell} tableId={tableId} editor={editor} />
+      <TableCellMenuContent
+        cell={cell}
+        tableId={tableId}
+        editor={editor}
+        range={range}
+        onClearRange={onClearRange}
+      />
     </ContextMenu>
   );
 };
@@ -2751,11 +2887,31 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const cellCtx = React.useContext(CellSelectionContext);
   const activeCellSel = cellCtx?.sel && cellCtx.sel.tableId === id ? cellCtx.sel : null;
   const cellRect = activeCellSel ? normalizeCellRect(activeCellSel.anchor, activeCellSel.focus) : null;
+  // Drop the range (TBL-6): the row/column deletes in the range menu invalidate
+  // its coordinates, so the highlight must not survive them.
+  const clearCellRangeSel = useCallback(() => cellCtx?.setSel(null), [cellCtx]);
   // Shift-click a cell extends the range from its anchor (the live range's
   // anchor, else the focused cell of this table, else the clicked cell).
   // preventDefault stops the browser laying its own cross-cell native range.
   // Selection is allowed read-only (only clear/cut are gated).
+  //
+  // TBL-6: a SECONDARY (right) press inside the live rectangle is a menu
+  // gesture, not a selection gesture — swallow it so the root's "any fresh
+  // non-shift press starts over" reset (which runs on the mousedown that
+  // precedes every real contextmenu) doesn't drop the very range the menu is
+  // about to act on. Outside the rectangle it falls through, so the range
+  // collapses as usual and the plain single-cell menu opens.
   const extendCellSelect = (r: number, c: number) => (e: React.MouseEvent): void => {
+    if (e.button === 2) {
+      if (
+        cellRect &&
+        isMultiCellRect(cellRect) &&
+        cellInRect(cellRect, r, c)
+      ) {
+        e.stopPropagation();
+      }
+      return;
+    }
     if (!cellCtx || !e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -2794,9 +2950,10 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
                   const colId = columns[c]?.id;
-                  // Cell tint composites ROW-over-COLUMN (TBL-4). Both are palette
-                  // tokens → theme-aware `obe-bg-*` alpha classes (dark-safe).
-                  const tint = tableCellColor(block, row, colId ?? null);
+                  // Cell tint composites CELL-over-ROW-over-COLUMN (TBL-4/TBL-6).
+                  // All three are palette tokens → theme-aware `obe-bg-*` alpha
+                  // classes (dark-safe).
+                  const tint = tableCellColor(block, row, colId ?? null, cell ?? null);
                   const tdDropClass = [
                     colDrag && dropIndex === c ? 'obe-drop-col-before' : '',
                     colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
@@ -2843,14 +3000,33 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   );
                   if (!cell) {
                     // Padding for a ragged row — an empty structural cell.
-                    return (
+                    const pad = (
                       <td
                         key={`pad-${r}-${c}`}
                         aria-hidden
                         className={tdDropClass || undefined}
+                        onMouseDownCapture={extendCellSelect(r, c)}
                         onDragOver={showHandles ? overCol(c) : undefined}
                         onDrop={showHandles ? commitDrop : undefined}
                       />
+                    );
+                    const padInRange =
+                      cellRect &&
+                      isMultiCellRect(cellRect) &&
+                      cellInRect(cellRect, r, c);
+                    if (!padInRange || editor.readOnly || lockText) return pad;
+                    return (
+                      <ContextMenu key={`pad-menu-${r}-${c}`}>
+                        <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+                          {pad}
+                        </ContextMenuTrigger>
+                        <TableRangeMenuContent
+                          rect={cellRect}
+                          tableId={id}
+                          editor={editor}
+                          onClearRange={clearCellRangeSel}
+                        />
+                      </ContextMenu>
                     );
                   }
                   if (blockType(cell) !== 'cell') {
@@ -2866,7 +3042,15 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     );
                   }
                   return (
-                    <TableCellMenu key={blockId(cell)} cell={cell} tableId={id} editor={editor} suppress={editor.readOnly || lockText}>
+                    <TableCellMenu
+                      key={blockId(cell)}
+                      cell={cell}
+                      tableId={id}
+                      editor={editor}
+                      suppress={editor.readOnly || lockText}
+                      range={cellRect}
+                      onClearRange={clearCellRangeSel}
+                    >
                       <td
                         className={tdDropClass || undefined}
                         onMouseDownCapture={extendCellSelect(r, c)}
