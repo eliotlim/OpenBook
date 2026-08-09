@@ -837,7 +837,7 @@ const TimelineCanvas: React.FC<{
                         }
                         scheduleRow(l.row.id, e.clientX);
                       }}
-                      aria-label={t('database.timeline.placeItem')}
+                      aria-label={t('database.timeline.placeOnTimeline')}
                       title={t('database.timeline.placeItem')}
                       className="group/lane absolute left-0 z-[1] flex cursor-copy items-center"
                       style={{top: l.top + BAR_PAD, height: rowH - BAR_PAD * 2, width: bodyW}}
@@ -908,7 +908,7 @@ const TimelineCanvas: React.FC<{
                         // Inside the bar's right edge — the bar is `overflow-hidden`,
                         // so a handle placed outside would be clipped.
                         className="absolute right-0.5 top-1/2 z-20 h-2.5 w-2.5 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-white/30 opacity-0 transition-opacity group-hover/bar:opacity-100"
-                        aria-label={t('database.timeline.addDependency')}
+                        aria-label={t('database.timeline.linkDependency')}
                         title={t('database.timeline.addDependency')}
                       />
                     )}

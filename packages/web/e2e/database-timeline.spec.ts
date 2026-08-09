@@ -205,7 +205,7 @@ test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag
   await openTimeline(page);
 
   // It has a lane (clickable to schedule), but no bar yet.
-  const lane = page.getByRole('button', {name: 'Schedule Floating on the timeline'});
+  const lane = page.getByRole('button', {name: 'Place on timeline'});
   await expect(lane).toBeVisible();
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(0);
 

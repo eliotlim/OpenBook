@@ -1889,7 +1889,9 @@ export const en = {
       saveError: 'Couldn’t save auto-expiry settings. Try again.',
     },
     timeline: {
-      placeItem: 'Place on timeline',
+      placeOnTimeline: 'Place on timeline',
+      placeItem: 'Click to place this item on the timeline',
+      linkDependency: 'Link dependency',
       addDependency: 'Drag onto another row to add a dependency',
     },
     cells: {
