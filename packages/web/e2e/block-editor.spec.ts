@@ -374,6 +374,42 @@ test('reactive plugins: a slider drives live code (and legacy formulas still ren
   await expect(page.locator('.obe-formula-out')).toHaveText('15');
 });
 
+test('code block gutter centers on the first code line below its actions', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/code');
+  await page.keyboard.press('Enter');
+
+  const row = page.locator('[data-block-type="code"]').last();
+  const code = row.locator('.obe-codeblock .obe-text');
+  await code.click();
+  await page.keyboard.type('const total = 42;');
+
+  // A Range rect follows the first rendered glyph even when syntax highlighting
+  // wraps it in a token span; the editor/container rect would include padding.
+  const centerDelta = await row.evaluate((el) => {
+    const handle = el.querySelector<HTMLElement>('.obe-handle')!;
+    const text = el.querySelector<HTMLElement>('.obe-codeblock .obe-text')!;
+    const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+    let first: Text | null = null;
+    while (!first) {
+      const node = walker.nextNode();
+      if (!node) break;
+      if ((node.textContent?.length ?? 0) > 0) first = node as Text;
+    }
+    if (!first) throw new Error('Code block has no rendered text node');
+    const range = document.createRange();
+    range.setStart(first, 0);
+    range.setEnd(first, 1);
+    const lineRect = range.getClientRects()[0];
+    const handleRect = handle.getBoundingClientRect();
+    return handleRect.top + handleRect.height / 2 - (lineRect.top + lineRect.height / 2);
+  });
+
+  expect(Math.abs(centerDelta)).toBeLessThanOrEqual(3);
+});
+
 test('block page: interactive HTML export stays live offline', {tag: ['@editor']}, async ({page, request, context}) => {
   // A legacy reactive page, migrated into the block editor on open.
   const res = await request.post(`${SERVER}/api/pages`, {

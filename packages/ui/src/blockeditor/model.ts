@@ -2157,7 +2157,7 @@ const normalizeTableGrid = (table: HTMLElement): (NormalizedTableCell | null)[][
   // column → number of further rows a rowspan still occupies
   const carry = new Map<number, number>();
   for (const tr of directTableRows(table)) {
-    const cells = [...tr.querySelectorAll<HTMLElement>(':scope > td, :scope > th')];
+    const cells = [...tr.querySelectorAll<HTMLElement>(':scope > td, :scope > th:not([data-obe-chrome])')];
     const carried = [...carry.values()].some((n) => n > 0);
     // A structural/spacer row (e.g. Notion's spacer <tr>): nothing to place and
     // nothing carried into it — skip entirely.

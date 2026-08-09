@@ -973,7 +973,10 @@
 .obe-row[data-block-type='heading'][data-block-level='2'] > .obe-gutter { top: 0.7rem; }
 .obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
 .obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
-.obe-row[data-block-type='code'] > .obe-gutter { top: 0.8rem; }
+/* Code top: 1px row pad + 2px margin + 1px border + .75rem block pad +
+   25px actions + .3rem pad + 1px border + .4rem margin. At a 16px rem base,
+   centering the 1.5rem gutter on the .85rem × 1.55 line yields 3.23rem. */
+.obe-row[data-block-type='code'] > .obe-gutter { top: 3.23rem; }
 .obe-row:hover > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
@@ -1926,11 +1929,19 @@ a.obe-mention {
 
 /* TBL-2 drag-reorder: row/column grips live in a gutter reserved only when the
    handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
-   are the positioning context so a grip anchors to the edge of its row/column. */
+   are the positioning context for column grips. Every row gets a zero-width
+   header-cell host so a rowspan covering column 0 cannot swallow its grip. */
 .obe-table-wrap.obe-has-grips { padding-top: 1.3rem; padding-left: 1.3rem; }
 .obe-has-grips .obe-table-add-col { top: 1.3rem; }
 .obe-has-grips .obe-table-add-row { left: 1.3rem; }
 .obe-table td { position: relative; }
+.obe-table .obe-table-row-grip-host {
+  position: relative;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
 .obe-table-row-grip,
 .obe-table-col-grip {
   position: absolute;
@@ -3312,6 +3323,10 @@ a.obe-mention {
   letter-spacing: 0.02em;
   text-transform: lowercase;
   color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .obe-code-btn {
   display: inline-flex;

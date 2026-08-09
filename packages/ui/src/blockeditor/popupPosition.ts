@@ -26,6 +26,8 @@ export interface PopupPositionOptions {
   minHeight?: number;
   /** Largest scrollable menu height; null leaves the measured height intact. */
   maxHeight?: number | null;
+  /** Preserve a popup whose content is shorter than the configured maximum. */
+  capHeightToContent?: boolean;
   /** Used only before the rendered element exposes measurable dimensions. */
   fallbackSize?: PopupSize;
   /** Frames allowed for a not-yet-painted anchor to acquire a real rect. */
@@ -133,10 +135,13 @@ export function observePopupPosition({
       height > available[preferredPlacement] && available[otherPlacement] > available[preferredPlacement]
         ? otherPlacement
         : preferredPlacement;
+    const maxHeightLimit = options.capHeightToContent
+      ? Math.min(options.maxHeight ?? Infinity, height)
+      : maxHeightOption;
     const maxHeight =
       maxHeightOption === null
         ? undefined
-        : Math.max(minHeight, Math.min(maxHeightOption, available[placement]));
+        : Math.max(minHeight, Math.min(maxHeightLimit!, available[placement]));
     const shownHeight = maxHeight === undefined ? height : Math.min(height, maxHeight);
     const top =
       placement === 'above'

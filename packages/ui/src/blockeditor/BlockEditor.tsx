@@ -2967,9 +2967,31 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
               <tr
                 key={rowId}
                 className={trClass || undefined}
+                data-table-row-id={rowId}
                 onDragOver={showHandles ? overRow(r) : undefined}
                 onDrop={showHandles ? commitDrop : undefined}
               >
+                {showHandles && (
+                  <th
+                    className="obe-table-row-grip-host"
+                    data-obe-chrome="row-grip-host"
+                    aria-hidden="true"
+                    contentEditable={false}
+                  >
+                    <span
+                      className="obe-table-row-grip"
+                      data-drag-axis="row"
+                      data-drag-from={r}
+                      data-drag-id={rowId}
+                      draggable
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
+                      onDragEnd={clearDrag}
+                    >
+                      <GripVertical className="h-3.5 w-3.5" />
+                    </span>
+                  </th>
+                )}
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
                   const slot = spans[r]?.[c];
@@ -2984,47 +3006,55 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   const tdDropClass = [
                     colDrag && dropIndex === c ? 'obe-drop-col-before' : '',
                     colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
-                    colDrag && colId && colDrag.id === colId ? 'obe-col-dragging' : '',
+                    colDrag &&
+                    slot?.kind === 'cell' &&
+                    Array.from({length: slot.colspan}, (_, offset) => columns[c + offset]?.id).includes(colDrag.id)
+                      ? 'obe-col-dragging'
+                      : '',
                     isColorToken(tint) ? `obe-bg-${tint}` : '',
                     cellRect && cellInRect(cellRect, r, c) ? 'obe-cell-selected' : '',
                   ]
                     .filter(Boolean)
                     .join(' ');
-                  // Grips: a row grip on the first cell (left gutter), a column
-                  // grip on the top cell (header edge). Plain draggable divs.
-                  // aria-hidden: the grips are mouse-only drag affordances and not
-                  // focusable; the canonical a11y path for reordering is the
-                  // context-menu "Move" items.
-                  const grips = showHandles && (
-                    <>
-                      {c === 0 && cell && (
-                        <span
-                          className="obe-table-row-grip"
-                          contentEditable={false}
-                          draggable
-                          aria-hidden="true"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
-                          onDragEnd={clearDrag}
-                        >
-                          <GripVertical className="h-3.5 w-3.5" />
-                        </span>
-                      )}
-                      {r === 0 && cell && colId && (
-                        <span
-                          className="obe-table-col-grip"
-                          contentEditable={false}
-                          draggable
-                          aria-hidden="true"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onDragStart={startDrag({axis: 'col', from: c, id: colId})}
-                          onDragEnd={clearDrag}
-                        >
-                          <GripHorizontal className="h-3.5 w-3.5" />
-                        </span>
-                      )}
-                    </>
-                  );
+                  // A top-row anchor owns every coordinate in its colspan, so
+                  // divide its top edge into one grip per logical column. Each
+                  // segment closes over that column's own sorted index/id. The
+                  // model moves registry columns independently; its positional,
+                  // self-healing spans contract if a move separates a column
+                  // from its anchor instead of silently moving the anchor col.
+                  // aria-hidden: grips are mouse-only; the canonical a11y path
+                  // remains the context-menu "Move" items.
+                  const colGrips =
+                    showHandles && r === 0 && cell && slot?.kind === 'cell'
+                      ? Array.from({length: slot.colspan}, (_, offset) => {
+                        const from = c + offset;
+                        const gripColId = columns[from]?.id;
+                        if (!gripColId) return null;
+                        return (
+                          <span
+                            key={gripColId}
+                            className="obe-table-col-grip"
+                            contentEditable={false}
+                            data-drag-axis="col"
+                            data-drag-from={from}
+                            data-drag-id={gripColId}
+                            data-span-offset={offset}
+                            draggable
+                            aria-hidden="true"
+                            style={{
+                              left: `${(offset / slot.colspan) * 100}%`,
+                              right: 'auto',
+                              width: `${100 / slot.colspan}%`,
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onDragStart={startDrag({axis: 'col', from, id: gripColId})}
+                            onDragEnd={clearDrag}
+                          >
+                            <GripHorizontal className="h-3.5 w-3.5" />
+                          </span>
+                        );
+                      })
+                      : null;
                   if (!cell) {
                     // Padding for a ragged row — an empty structural cell.
                     const pad = (
@@ -3086,7 +3116,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                         onDragOver={showHandles ? overCol(c) : undefined}
                         onDrop={showHandles ? commitDrop : undefined}
                       >
-                        {grips}
+                        {colGrips}
                         <TextBlockView block={cell} editor={cellEditor} ui={ui} />
                       </td>
                     </TableCellMenu>
