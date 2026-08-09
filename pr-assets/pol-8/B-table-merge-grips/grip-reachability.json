@@ -1,0 +1,63 @@
+{
+  "afterMergeA": {
+    "rowCount": 4,
+    "rowHasGrip": [
+      true,
+      false,
+      true,
+      true
+    ],
+    "colCount": 4,
+    "colOwnGrip": [
+      true,
+      false,
+      true,
+      true
+    ],
+    "row0Spans": [
+      {
+        "start": 0,
+        "end": 2,
+        "hasGrip": true
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "hasGrip": true
+      },
+      {
+        "start": 3,
+        "end": 4,
+        "hasGrip": true
+      }
+    ]
+  },
+  "afterMergeB": {
+    "rowCount": 4,
+    "rowHasGrip": [
+      true,
+      false,
+      true,
+      true
+    ],
+    "colCount": 4,
+    "colOwnGrip": [
+      true,
+      false,
+      true,
+      false
+    ],
+    "row0Spans": [
+      {
+        "start": 0,
+        "end": 2,
+        "hasGrip": true
+      },
+      {
+        "start": 2,
+        "end": 4,
+        "hasGrip": true
+      }
+    ]
+  }
+}

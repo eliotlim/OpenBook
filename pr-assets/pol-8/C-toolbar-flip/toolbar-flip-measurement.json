@@ -1,0 +1,24 @@
+{
+  "measurement": {
+    "selection": {
+      "top": 20.796875,
+      "bottom": 52.796875,
+      "left": 274,
+      "right": 348.3125
+    },
+    "toolbar": {
+      "top": 53.609375,
+      "bottom": 88.796875,
+      "left": 198.859375,
+      "right": 423.453125,
+      "height": 35.1875
+    },
+    "viewportHeight": 720,
+    "viewportWidth": 1280
+  },
+  "overlapsSelection": false,
+  "clippedTop": false,
+  "clippedLeft": false,
+  "clippedRight": false,
+  "flippedBelow": true
+}
