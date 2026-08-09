@@ -4,6 +4,8 @@ import {PageIcon} from '@/components/PageIcon';
 import {t} from '../i18n';
 import {observePopupPosition, type PopupPosition} from './popupPosition';
 
+// The non-zero x/y are load-bearing: zero-rect classification would burn the
+// 20-frame retry budget. All unit-test renders with anchorEl=null use this path.
 const FALLBACK_ANCHOR_RECT = {
   left: 80,
   right: 80,
@@ -43,7 +45,9 @@ export const LinkPicker: React.FC<{
   );
 
   // Shared positioning preserves the picker's measured content-height cap,
-  // flip, viewport clamp, and result-growth remeasurement.
+  // flip, horizontal and above-placement viewport clamps; below placement can
+  // exceed the viewport only via the shared min-height floor, matching the other
+  // popups. Result growth still triggers remeasurement.
   useLayoutEffect(() => {
     return observePopupPosition({
       popup: () => rootRef.current,

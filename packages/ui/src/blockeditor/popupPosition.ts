@@ -135,7 +135,9 @@ export function observePopupPosition({
       height > available[preferredPlacement] && available[otherPlacement] > available[preferredPlacement]
         ? otherPlacement
         : preferredPlacement;
-    const maxHeightLimit = options.capHeightToContent ? Math.min(maxHeightOption ?? height, height) : maxHeightOption;
+    const maxHeightLimit = options.capHeightToContent
+      ? Math.min(options.maxHeight ?? Infinity, height)
+      : maxHeightOption;
     const maxHeight =
       maxHeightOption === null
         ? undefined
