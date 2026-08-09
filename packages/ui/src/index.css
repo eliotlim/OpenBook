@@ -85,6 +85,29 @@
   --transition-property-height: height;
   --transition-property-spacing: margin, padding;
 
+  /* ── Chrome stacking scale ────────────────────────────────────────────────
+     Local 1–6 tiers order editor adornments without escaping their stacking
+     contexts. Co-tenants: marquee + chart-tooltip share local-overlay; slash +
+     toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
+     (raised / sticky chrome), z-40 (navigation scrims), z-50 (menus and
+     dialogs), and reserved z-60 (image lightbox) conventions used by
+     components. Nested menu panels use 55: above their z-50 parent chrome,
+     never tied with the lightbox's reserved tier. NavBar/DefaultLayout z-40,
+     ImageLightbox z-[60], toast z-[100], and timeline z-30 are not yet migrated
+     (follow-up), so 60 is not the ceiling. */
+  --z-index-raised: 1;
+  --z-index-control: 2;
+  --z-index-drop-indicator: 3;
+  --z-index-pane-overlay: 4;
+  --z-index-local-overlay: 5;
+  --z-index-presence: 6;
+  --z-index-sticky: 10;
+  --z-index-tooltip: 20;
+  --z-index-overlay: 40;
+  --z-index-menu: 50;
+  --z-index-nested-menu: 55;
+  --z-index-lightbox: 60;
+
   /* ── Motion system ──────────────────────────────────────────────────────────
      One considered curve + tempo for the whole UI. `--default-transition-*` are
      the Tailwind v4 theme keys every `transition`/`transition-colors` utility
@@ -226,25 +249,6 @@
        text fields. */
     --ring-control: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
     --ring-field: 0 0 0 3px hsl(var(--ring) / 0.4);
-    /* ── Chrome stacking scale ────────────────────────────────────────────────
-       Local 1–6 tiers order editor adornments without escaping their stacking
-       contexts. The shared 10/40/50/60 tiers mirror Tailwind's z-10 (raised /
-       sticky chrome), z-40 (navigation scrims), z-50 (menus and dialogs), and
-       reserved z-60 (image lightbox) conventions used by components. Nested
-       menu panels use 55: above their z-50 parent chrome, never tied with the
-       lightbox's reserved tier. */
-    --z-raised: 1;
-    --z-control: 2;
-    --z-drop-indicator: 3;
-    --z-pane-overlay: 4;
-    --z-local-overlay: 5;
-    --z-presence: 6;
-    --z-sticky: 10;
-    --z-tooltip: 20;
-    --z-overlay: 40;
-    --z-menu: 50;
-    --z-nested-menu: 55;
-    --z-lightbox: 60;
     /* Press-darken ink for FILLED controls (mixed into the fill on :active).
        Theme-dependent: black in light, white in dark — see the .dark override —
        so the pressed feedback always shifts the fill toward "ink" (darkens on
@@ -496,7 +500,7 @@
    children, so a desk-level negative margin would push the border strip outside
    the row's clip box and erase the top border entirely. Moving the row moves
    its clip box with it, keeping the border visible. The active titlebar tab
-   (`relative z-10`, same fill as the page) then paints over the 1px of sheet
+   (`relative z-[1]`, same fill as the page) then paints over the 1px of sheet
    border directly beneath it, so the border is interrupted precisely where the
    tab connects and the tab merges into the page — while the rest of the top
    border, the rounded top corners, and the inactive tabs floating above the
@@ -529,7 +533,7 @@
      than the page, in both themes. */
   background: linear-gradient(to right, hsl(var(--foreground) / 0.07), transparent);
   pointer-events: none;
-  z-index: var(--z-pane-overlay);
+  z-index: var(--z-index-pane-overlay);
 }
 .dark .ob-desk > [data-split-pane]::before {
   background: linear-gradient(to right, hsl(0 0% 0% / 0.25), transparent);
@@ -881,7 +885,7 @@
    accent/ring tokens. `obe-marqueeing` freezes text selection during the drag. */
 .obe-marquee {
   position: absolute;
-  z-index: var(--z-local-overlay);
+  z-index: var(--z-index-local-overlay);
   pointer-events: none;
   background: hsl(var(--ring) / 0.14);
   border: 1px solid hsl(var(--ring) / 0.65);
@@ -983,7 +987,7 @@
   content: '';
   position: absolute;
   pointer-events: none;
-  z-index: var(--z-drop-indicator);
+  z-index: var(--z-index-drop-indicator);
 }
 .obe-drop-above::after,
 .obe-drop-below::after {
@@ -1634,7 +1638,7 @@ a.obe-mention {
   position: absolute;
   top: 0.75rem;
   right: 0.9rem;
-  z-index: var(--z-sticky);
+  z-index: var(--z-index-sticky);
   opacity: 0;
   transition: opacity 160ms;
 }
@@ -1917,7 +1921,7 @@ a.obe-mention {
   opacity: 0;
   transition: opacity 120ms ease, background 120ms ease;
   cursor: grab; /* explicit for WKWebView — desktop clicks need a pointer cursor */
-  z-index: var(--z-raised);
+  z-index: var(--z-index-raised);
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
@@ -1938,7 +1942,7 @@ a.obe-mention {
 /* Slash menu */
 .obe-slash {
   position: fixed;
-  z-index: var(--z-menu);
+  z-index: var(--z-index-menu);
   width: 17rem;
   max-height: 19rem;
   overflow-y: auto;
@@ -2035,14 +2039,15 @@ a.obe-mention {
 /* Inline toolbar */
 .obe-toolbar {
   position: fixed;
-  z-index: var(--z-menu);
+  z-index: var(--z-index-menu);
   transform: translate(-50%, calc(-100% - 8px));
   display: flex;
   align-items: center;
   gap: 1px;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-lg);
+  /* concentric: child radius (--radius-md) + 3px padding */
+  border-radius: calc(var(--radius-md) + 3px);
   box-shadow: var(--shadow-menu);
   padding: 3px;
 }
@@ -2193,11 +2198,11 @@ a.obe-mention {
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
-  box-shadow: 0 2px 4px hsl(var(--foreground) / 0.04), 0 12px 32px -12px hsl(var(--foreground) / 0.18);
+  box-shadow: var(--shadow-overlay);
   padding: 0.5rem;
   width: max-content;
   /* Nested above the toolbar, but below the lightbox's reserved z-60 tier. */
-  z-index: var(--z-nested-menu);
+  z-index: var(--z-index-nested-menu);
 }
 .obe-tb-colors-label {
   font-size: 0.65rem;
@@ -2495,7 +2500,7 @@ a.obe-mention {
   position: absolute;
   top: 0.25rem;
   right: 0.25rem;
-  z-index: var(--z-control);
+  z-index: var(--z-index-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2503,7 +2508,7 @@ a.obe-mention {
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
   padding: 0.22rem;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -2800,7 +2805,7 @@ a.obe-mention {
 
 .obe-chart-tooltip {
   position: absolute;
-  z-index: var(--z-local-overlay);
+  z-index: var(--z-index-local-overlay);
   transform: translate(-50%, calc(-100% - 10px));
   display: flex;
   align-items: baseline;
@@ -2871,7 +2876,7 @@ a.obe-mention {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: var(--z-tooltip);
+  z-index: var(--z-index-tooltip);
   width: max-content;
   max-width: 18rem;
   background: hsl(var(--popover));
@@ -3038,7 +3043,7 @@ a.obe-mention {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: var(--z-presence);
+  z-index: var(--z-index-presence);
 }
 /* A range highlight: the peer colour at a calm opacity so text stays readable. */
 .obe-rcursor-sel {
