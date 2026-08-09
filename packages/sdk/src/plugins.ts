@@ -2,10 +2,10 @@
  * The plugin contract: what a plugin package IS (a manifest + TypeScript
  * source files), and the signing scheme that lets a registry vouch for one.
  *
- * Trust model, stated plainly: plugins run with the same privileges as the
- * document's own live code — signing provides **provenance** (this exact
- * content was published by a registry you trust), not sandboxing. Unsigned
- * plugins install fine and are labelled unverified.
+ * Extensions run with the same access as your documents’ live code. A
+ * “Verified” badge means a registry you trust signed this exact content —
+ * provenance, not a sandbox. Unsigned plugins install fine and are labelled
+ * unverified.
  *
  * Signing: Ed25519 over a canonical SHA-256 digest of the manifest + every
  * file (sorted paths, length-prefixed — byte-stable across platforms). The
