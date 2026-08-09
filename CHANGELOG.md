@@ -1,3 +1,30 @@
+## 3.9.0 (2026-08-09)
+
+### 🚀 Features
+
+- **build:** registry signing-key rotation + signed first-party bundles (ST-1) ([#236](https://github.com/eliotlim/OpenBook/pull/236), [#8](https://github.com/eliotlim/OpenBook/issues/8), [#1](https://github.com/eliotlim/OpenBook/issues/1))
+- **export:** consent-gated ledger records in HTML site exports (LX-2) ([#231](https://github.com/eliotlim/OpenBook/pull/231), [#1](https://github.com/eliotlim/OpenBook/issues/1), [#2](https://github.com/eliotlim/OpenBook/issues/2))
+- **export:** static ledger report tables in exported HTML (LX-3) ([#232](https://github.com/eliotlim/OpenBook/pull/232))
+- **export:** hydrated viewer preserves the static ledger report tables (LX-5) ([#233](https://github.com/eliotlim/OpenBook/pull/233))
+- **import:** ledger round-trip import + recovery surfacing (LX-4) ([#237](https://github.com/eliotlim/OpenBook/pull/237))
+- **sdk,mcp:** registry-derived block validation — retire the allowlists (API-1/2/3/4) ([#234](https://github.com/eliotlim/OpenBook/pull/234), [#30](https://github.com/eliotlim/OpenBook/issues/30))
+- **sdk,ui,server:** client registry integration — browse, verified installs, upgrades, revocations (ST-6) ([#243](https://github.com/eliotlim/OpenBook/pull/243))
+- **ui:** publish selected pages only — fourth default-access state (PUB-1) ([#230](https://github.com/eliotlim/OpenBook/pull/230))
+- **ui:** database-grid row/column context menus — parity with block tables (TBL-9) ([#239](https://github.com/eliotlim/OpenBook/pull/239))
+- **ui:** range-aware table cell menu + per-cell tint (TBL-6) ([#240](https://github.com/eliotlim/OpenBook/pull/240))
+- **ui:** merge / split table cells — colspan + rowspan (TBL-8) ([#242](https://github.com/eliotlim/OpenBook/pull/242))
+
+### 🩹 Fixes
+
+- **app:** stable forwarding names — narrowed reattach + per-account keystore (NAME-1/2) ([#235](https://github.com/eliotlim/OpenBook/pull/235))
+- **ui:** deterministic reconcile Amend focus handoff (LGR-22 CI flake — real component race) ([#241](https://github.com/eliotlim/OpenBook/pull/241))
+- **web:** bump typecheck target to ES2020 — sdk BigInt literals (LX-4 follow-up) ([#238](https://github.com/eliotlim/OpenBook/pull/238))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.8.0 (2026-08-04)
 
 ### 🚀 Features
