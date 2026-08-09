@@ -30,6 +30,7 @@
     "check:gen": "pnpm run gen:bundled-plugins && (git diff --exit-code -- src/plugins/bundled.gen.ts src/export/ledgerFolds.gen || (echo 'Committed .gen mirror is STALE: run pnpm --filter @book.dev/ui run gen:bundled-plugins and commit the result.' >&2 && exit 1))",
     "build:viewer": "vite build --config vite.viewer.config.js",
     "gen:export-fixtures": "vitest run scripts/exportParityFixtures.test.ts",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "dev": "vite build --watch",
     "dev-css": "pnpm exec tailwindcss --input ./src/index.css --output ./dist/index.css --watch",
     "dev-types": "tsc --watch",
