@@ -1886,11 +1886,19 @@ a.obe-mention {
 
 /* TBL-2 drag-reorder: row/column grips live in a gutter reserved only when the
    handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
-   are the positioning context so a grip anchors to the edge of its row/column. */
+   are the positioning context for column grips. Every row gets a zero-width
+   header-cell host so a rowspan covering column 0 cannot swallow its grip. */
 .obe-table-wrap.obe-has-grips { padding-top: 1.3rem; padding-left: 1.3rem; }
 .obe-has-grips .obe-table-add-col { top: 1.3rem; }
 .obe-has-grips .obe-table-add-row { left: 1.3rem; }
 .obe-table td { position: relative; }
+.obe-table .obe-table-row-grip-host {
+  position: relative;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
 .obe-table-row-grip,
 .obe-table-col-grip {
   position: absolute;
