@@ -90,10 +90,12 @@
      Local 1–6 tiers order editor adornments without escaping their stacking
      contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
      render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
-     slash + toolbar share menu. The shared 10/30/40/50/60/100 tiers cover sticky
-     chrome, raised timeline interaction chrome, navigation scrims, menus/dialogs,
-     the image lightbox, and notifications. Nested menu panels use 55: above their
-     z-50 parent chrome, never tied with the lightbox's reserved tier. */
+     slash + toolbar share menu. Raised-chrome is timeline-local: it participates
+     only in the timeline's local stacking context; it is not a shared tier. The
+     shared 10/40/50/60/100 tiers cover sticky chrome, navigation scrims,
+     menus/dialogs, the image lightbox, and notifications. Nested menu panels
+     use 55: above their z-50 parent chrome, never tied with the lightbox's
+     reserved tier. */
   --z-index-raised: 1;
   --z-index-control: 2;
   --z-index-drop-indicator: 3;
@@ -200,8 +202,8 @@
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
     --muted-foreground: 40 3% 43.2%;
-    /* Secondary text on the deeper accent/sheet/desk canvas family. Kept
-       separate so ordinary muted copy does not become unnecessarily heavy. */
+    /* Secondary text on the deeper accent, sheet-1, sheet-2, and desk canvas
+       family. Kept separate so ordinary muted copy does not become heavy. */
     --muted-foreground-strong: 40 3% 36.5%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
@@ -276,7 +278,7 @@
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
     --muted-foreground: 0 0% 59.1%;
-    --muted-foreground-strong: 0 0% 71%;
+    --muted-foreground-strong: 0 0% 71.3%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
     --hover: hsl(var(--primary) / 0.2);

@@ -8,7 +8,7 @@ const SCHEMES = ['light', 'dark'] as const;
 const INTERFACE_INTENSITIES = [0, 1, 2, 3] as const;
 const BACKGROUNDS = [undefined, ...Object.keys(PAGE_BACKGROUNDS)] as const;
 const SURFACES = ['card', 'background', 'popover', 'muted', 'secondary'] as const;
-const STRONG_SURFACES = ['accent', 'sheet2', 'desk'] as const;
+const STRONG_SURFACES = ['accent', 'sheet2', 'desk', 'sheet1'] as const;
 
 function cssBlock(selector: string): string {
   const start = CSS.indexOf(`${selector} {`);
@@ -65,7 +65,7 @@ describe('muted foreground contrast', () => {
         contrast(palette.mutedForeground, palette.sheet1),
         `${scheme}: muted ${palette.mutedForeground} on first-paint sheet1 ${palette.sheet1}`,
       ).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(strong, palette.foreground), `${scheme}: strong muted must remain distinct from foreground`).toBeGreaterThanOrEqual(1.3);
+      expect(contrast(strong, palette.foreground), `${scheme}: strong muted must remain distinct from foreground`).toBeGreaterThanOrEqual(1.32);
     }
   });
 
@@ -95,7 +95,7 @@ describe('muted foreground contrast', () => {
     }
   });
 
-  it('keeps strong muted text at WCAG AA on accent, sheet-2, and desk surfaces', () => {
+  it('keeps strong muted text at WCAG AA on accent, sheet-2, desk, and sheet-1 surfaces', () => {
     for (const theme of themes) {
       for (const scheme of SCHEMES) {
         const selector = scheme === 'light' ? ':root' : '.dark';
