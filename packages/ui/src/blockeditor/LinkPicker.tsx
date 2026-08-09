@@ -70,7 +70,20 @@ export const LinkPicker: React.FC<{
     return () => window.removeEventListener('resize', measure);
   }, [anchorEl, results.length]);
 
-  useEffect(() => inputRef.current?.focus(), []);
+  // Land focus only once the popover has left the visibility:hidden
+  // pre-measure frame — focusing a hidden element is a silent no-op in
+  // Chromium. This layout effect runs after the DOM commit that clears
+  // `visibility` (unlike a plain mount `useEffect`, which can fire before
+  // that commit lands when the position update is still in flight), and the
+  // ref guard keeps a later remeasure (e.g. the result list changing height)
+  // from re-stealing focus once it has already landed.
+  const focusedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (pos && !focusedRef.current) {
+      focusedRef.current = true;
+      inputRef.current?.focus();
+    }
+  }, [pos]);
   useEffect(() => setIndex(0), [query]);
 
   // Clicks and scrolling outside the fixed popover cancel the pick. Its own

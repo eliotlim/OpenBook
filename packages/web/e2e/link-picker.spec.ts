@@ -27,7 +27,11 @@ test('Link to page picker inserts the keyboard-selected page', {tag: ['@editor']
   await expect(picker).toBeVisible();
   await expect(picker.getByRole('textbox')).toBeFocused();
   await page.keyboard.type('Picker Target');
-  await expect(picker.getByRole('option', {name: /Picker Target/})).toBeVisible();
+  // Both seeded pages match this query ("Picker Target" and "Picker Target
+  // Two") — .first() disambiguates the strict-mode locator; it's just a
+  // "results have rendered" gate before the ArrowDown/Enter below moves
+  // off the default (first) result onto the second one.
+  await expect(picker.getByRole('option', {name: /Picker Target/}).first()).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
 
