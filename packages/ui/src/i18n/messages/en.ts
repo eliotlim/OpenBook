@@ -381,7 +381,7 @@ export const en = {
     // Delivery help (P0-2): the instance invite writes an access row but sends
     // no email, so the owner has to hand over the link and explain the sign-in.
     deliver: {
-      hint: 'Invitees aren’t notified automatically. Send them this page’s link — they open it by signing in with the email you invited them as.',
+      hint: 'Invitees aren’t notified automatically. Send them this page’s link — each opens it by signing in with the email you invited them as.',
       copy: 'Copy link to send',
     },
     // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
@@ -842,7 +842,7 @@ export const en = {
     },
     mcp: {
       title: 'External tools (MCP)',
-      hint: 'Let the assistant use tools from MCP servers you connect. Off by default. External tools see what the assistant sends them and their results are untrusted — once it uses one, its edits stay behind review.',
+      hint: 'Let the assistant use tools from MCP servers you connect. Off by default. External tools see everything the assistant sends them and their results are untrusted — once it uses one, its edits stay behind review.',
       enable: 'Enable external tools',
       enableHint: 'Master switch. With this off, no external server is contacted.',
       empty: 'No external servers yet. Add one to let the assistant use its tools.',
@@ -1342,7 +1342,7 @@ export const en = {
     cadenceWeekly: 'Weekly',
     cadenceNever: 'Never',
     cadenceNeverHint:
-      'With automatic checks off, OpenBook never contacts the update server. You can still check any time below.',
+      'With automatic checks off, OpenBook never contacts the update server. You can still check any time with the button below.',
     securityOnly: 'Security updates only',
     securityOnlyHint:
       'Automatic checks download only updates that fix a security issue. Checking manually still shows every update.',
@@ -1756,7 +1756,7 @@ export const en = {
     // library is published, give the owner the link to hand over and the
     // sign-in they must explain.
     deliver: {
-      hint: 'Invites aren’t emailed. Send people this library link — they open it by signing in with the email you invited them as.',
+      hint: 'Invites aren’t emailed. Send people this library link — each opens it by signing in with the email you invited them as.',
       copy: 'Copy library link',
       copied: 'Copied',
     },
@@ -1781,7 +1781,7 @@ export const en = {
     enableTitle: 'Enable agent API',
     enableHint: 'Off by default — nothing is exposed until you turn it on. While off, agent tokens don’t authenticate and none can be created.',
     remoteTitle: 'Allow remote MCP',
-    remoteHint: 'Off by default. Remote tokens reach only the /api/mcp endpoint: agents can read what the token’s user can read and file suggestions and comments — never share, export, administer, or edit directly. Turning this on doesn’t publish your site.',
+    remoteHint: 'Off by default. Remote tokens reach only the /api/mcp endpoint, over the public web: agents can read what the token’s user can read and file suggestions and comments — never share, export, administer, or edit directly. Turning this on doesn’t publish your site.',
     remoteBadge: 'Remote',
     remoteScopeLabel: 'Remote access',
     remoteScopeLocal: 'Local only',

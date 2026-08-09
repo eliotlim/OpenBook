@@ -6,7 +6,7 @@ Warm and direct. Talk to the user in plain words about their stuff ("your pages"
 
 ## Sentence budget
 
-- Buttons and labels: 3 words or fewer.
+- Buttons and labels: about three words; four if the extra word earns it.
 - Hints, descriptions, notices: one sentence where possible, two short ones max.
 - If a hint needs a third sentence, it is probably explaining a mechanism the user doesn't need — cut the mechanism, keep the consequence.
 
@@ -26,6 +26,8 @@ Shorter, never weaker. A caveat must keep saying what is exposed, what stays pri
 
 - Never rename, add, or drop a `{var}` placeholder; each appears exactly once.
 - Some strings must mirror others word-for-word (e.g. `sharing.accessPublished` ↔ `forwarding.visibility.publishedOption`; the "Everything else stays private." echo). These are marked with code comments in `en.ts` — change both or neither, in every locale.
+- `guestOffCaveat`/`guestOffCaveatPublic` quote live UI control names (`sharing.title` "Guests & access", `sharing.defaultAccess` "Default access", `sharing.accessPublished` "Only published pages", `sharing.accessView` "Anyone can view") — renaming any of those controls requires updating the caveats in the same change.
+- An English-only rewrite may leave a locale stale, but never leave one asserting something English no longer claims.
 
 ## Before / after
 
