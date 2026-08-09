@@ -52,7 +52,7 @@ export const LinkPicker: React.FC<{
       const above = anchorTop - 14;
       const flip = pickerHeight > below && above > below;
       const availableHeight = Math.max(0, flip ? above : below);
-      const maxHeight = Math.min(pickerHeight, availableHeight);
+      const maxHeight = Math.max(120, Math.min(pickerHeight, availableHeight));
       const shownHeight = Math.min(pickerHeight, maxHeight);
       const top = flip
         ? Math.max(8, Math.min(anchorTop - 6 - shownHeight, window.innerHeight - shownHeight - 8))

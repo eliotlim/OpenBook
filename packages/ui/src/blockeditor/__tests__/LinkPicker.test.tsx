@@ -105,7 +105,7 @@ describe('LinkPicker', () => {
 
     naturalHeight = 100;
     fireEvent.change(screen.getByRole('textbox'), {target: {value: 'note'}});
-    expect(picker.style.maxHeight).toBe('100px');
+    expect(picker.style.maxHeight).toBe('120px');
 
     naturalHeight = 300;
     fireEvent.change(screen.getByRole('textbox'), {target: {value: ''}});
@@ -123,7 +123,8 @@ describe('LinkPicker', () => {
     expect(picker.className).toContain('shadow-menu');
     expect(picker.className).toContain('data-[state=open]:fade-in-0');
     expect(picker.className).toContain('data-[state=open]:zoom-in-95');
-    expect(active.className).toContain('bg-hover');
+    expect(active.className.split(/\s+/)).toContain('bg-hover');
+    expect(screen.getByRole('option', {name: /Tasks/}).className.split(/\s+/)).not.toContain('bg-hover');
     expect(active.className).not.toContain('bg-accent');
   });
 

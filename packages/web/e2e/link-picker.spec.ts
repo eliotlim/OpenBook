@@ -3,13 +3,22 @@ import {newPage} from './seed';
 
 test.use({freshWorkspace: true});
 
-test('Link to page picker inserts the keyboard-selected page', {tag: ['@editor']}, async ({page, request}) => {
-  const targetId = await newPage(request, 'Picker Target');
-  const hostId = await newPage(request, 'Picker Host');
-  await page.goto(`/?page=${hostId}`);
+async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
+  await page.goto(`/?page=${pageId}`);
+  const para = page.locator('.obe-text').first();
+  await para.waitFor({state: 'visible'});
+  await expect(async () => {
+    await para.click();
+    await expect(para).toBeFocused({timeout: 500});
+  }).toPass({timeout: 10_000});
+}
 
-  const paragraph = page.locator('.obe-text').first();
-  await paragraph.click();
+test('Link to page picker inserts the keyboard-selected page', {tag: ['@editor']}, async ({page, request}) => {
+  await newPage(request, 'Picker Target');
+  const secondId = await newPage(request, 'Picker Target Two');
+  const hostId = await newPage(request, 'Picker Host');
+
+  await openEditor(page, hostId);
   await page.keyboard.type('/link to page');
   await expect(page.getByRole('option', {name: 'Link to page'})).toBeVisible();
   await page.keyboard.press('Enter');
@@ -24,5 +33,5 @@ test('Link to page picker inserts the keyboard-selected page', {tag: ['@editor']
 
   const link = page.locator('a.obe-mention');
   await expect(link).toHaveText(/Picker Target/);
-  await expect(link).toHaveAttribute('data-page-id', targetId);
+  await expect(link).toHaveAttribute('data-page-id', secondId);
 });
