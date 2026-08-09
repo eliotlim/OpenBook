@@ -76,6 +76,7 @@ export const zh: PartialMessages = {
     graphite: '石墨',
   },
   nav: {
+    sidebar: '侧边栏',
     favorites: '收藏',
     recents: '最近',
     suggested: '推荐',

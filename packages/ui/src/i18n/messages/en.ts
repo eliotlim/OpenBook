@@ -166,6 +166,7 @@ export const en = {
     'pastel-butter': 'Butter',
   },
   nav: {
+    sidebar: 'Sidebar',
     pages: 'Pages',
     newPage: 'New page',
     newDatabase: 'New database',

@@ -116,6 +116,16 @@ export interface HudProps {
   };
 }
 
+/** Toggle the sidebar using its breakpoint-specific presentation semantics. */
+export const toggleSideNav = (draft: HudProps, {narrow}: {narrow: boolean}): void => {
+  if (narrow) {
+    draft.sideNav.open = !draft.sideNav.open;
+    return;
+  }
+  draft.sideNav.open = !draft.sideNav.docked;
+  draft.sideNav.docked = !draft.sideNav.docked;
+};
+
 export const HudDefault: HudProps = {
   commandPalette: {
     open: false,
@@ -181,6 +191,9 @@ export const saveHudStorage = (hud: HudProps) => {
   const persisted: HudProps = {
     ...hud,
     settings: {...hud.settings, open: false, section: null},
+    // `open` is transient: reconstruct it from the persisted dock preference
+    // so a resize-driven narrow close cannot leave a docked desktop seam.
+    sideNav: {...hud.sideNav, open: hud.sideNav.docked},
     trash: {open: false},
     templates: {open: false},
     importer: {open: false},

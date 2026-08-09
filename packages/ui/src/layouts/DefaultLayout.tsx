@@ -32,9 +32,6 @@ export interface DefaultLayoutProps {
 export default function DefaultLayout(props: DefaultLayoutProps) {
   const {hud, setHud} = useHud();
   const {currentPageId, inWindowTabs} = useNavigation();
-  // The page binds straight into the sidebar (no left inset) only while it is
-  // pinned open — i.e. taking layout space. Undocked/closed leaves the inset.
-  const sidebarPinned = hud.sideNav.docked && hud.sideNav.open;
   const closeSidebar = (): void => setHud((draft) => {
     draft.sideNav.open = false;
     return draft;
@@ -47,7 +44,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   }, [currentPageId]);
   useEffect(() => {
     if (!hud.sideNav.open) return;
-    let wasNarrow = window.innerWidth < 768;
+    let wasNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && window.innerWidth < 768) closeSidebar();
     };
@@ -127,7 +124,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
               hide it, leaving the desktop edge-hover peek unchanged. */}
             {hud.sideNav.open && (
               <div
-                className="fixed inset-x-0 bottom-0 top-14 z-overlay bg-foreground/20 md:hidden"
+                className="fixed inset-x-0 top-[calc(var(--ob-titlebar-height,0px)+3.5rem)] z-overlay h-[calc(100vh-var(--ob-titlebar-height,0px)-3.5rem)] bg-foreground/20 print:hidden md:hidden"
                 onClick={closeSidebar}
                 data-sidebar-scrim
                 aria-hidden
@@ -139,7 +136,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
               bordered cards on both platforms. */}
             <div
               className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden"
-              data-sidebar-pinned={sidebarPinned}
+              data-sidebar-docked={hud.sideNav.docked}
             >
               <div className="ob-sheet flex min-h-0 w-full min-w-0 flex-col">
                 <NavBar/>

@@ -76,6 +76,7 @@ export const ja: PartialMessages = {
     graphite: 'グラファイト',
   },
   nav: {
+    sidebar: 'サイドバー',
     favorites: 'お気に入り',
     recents: '最近',
     suggested: 'おすすめ',

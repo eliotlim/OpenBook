@@ -1,6 +1,7 @@
 import {DoubleArrowLeftIcon, HamburgerMenuIcon} from '@radix-ui/react-icons';
 import {cn} from '@/lib/utils';
 import {SIDEBAR_PRESS} from '@/lib/sidebarStyles';
+import {toggleSideNav} from '@/lib/hud';
 import {useHud, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 
@@ -11,9 +12,10 @@ export default function SideNavToggle({className}: {className?: string}) {
     <>
       <IconButton
         aria-label={t('nav.toggleSidebar')}
-        className={cn(SIDEBAR_PRESS, 'md:hidden', className)}
+        className={cn(SIDEBAR_PRESS, 'md:hidden', className, 'h-9 w-9 md:h-8 md:w-8')}
+        data-sidebar-toggle
         onClick={() => setHud((draft) => {
-          draft.sideNav.open = !draft.sideNav.open;
+          toggleSideNav(draft, {narrow: true});
           return draft;
         })}
       >
@@ -21,10 +23,10 @@ export default function SideNavToggle({className}: {className?: string}) {
       </IconButton>
       <IconButton
         aria-label={t('nav.toggleSidebar')}
-        className={cn(SIDEBAR_PRESS, 'hidden md:inline-flex', className)}
+        className={cn(SIDEBAR_PRESS, 'hidden md:inline-flex', className, 'h-9 w-9 md:h-8 md:w-8')}
+        data-sidebar-toggle
         onClick={() => setHud((draft) => {
-          draft.sideNav.open = !draft.sideNav.docked;
-          draft.sideNav.docked = !draft.sideNav.docked;
+          toggleSideNav(draft, {narrow: false});
           return draft;
         })}
       >

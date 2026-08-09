@@ -96,8 +96,8 @@
      render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
      slash + toolbar share menu. Raised-chrome is timeline-local: it participates
      only in the timeline's local stacking context; it is not a shared tier. The
-     shared 10/40/50/60/100 tiers cover sticky chrome, navigation scrims,
-     menus/dialogs, the image lightbox, and notifications. Nested menu panels
+     shared 10/40/45/50/60/100 tiers cover sticky chrome, navigation scrims,
+     drawers, menus/dialogs, the image lightbox, and notifications. Nested menu panels
      use 55: above their z-50 parent chrome, never tied with the lightbox's
      reserved tier. */
   --z-index-raised: 1;
@@ -110,6 +110,7 @@
   --z-index-inline-hint: 20;
   --z-index-raised-chrome: 30;
   --z-index-overlay: 40;
+  --z-index-drawer: 45; /* Narrow sidebar: above its scrim, below menus/dialogs. */
   --z-index-menu: 50;
   --z-index-nested-menu: 55;
   --z-index-lightbox: 60;
@@ -500,9 +501,11 @@
   padding-left: var(--ob-page-inset);
   padding-right: var(--ob-page-inset);
 }
-/* Sidebar pinned open → the primary page binds straight into it (no left inset). */
-.ob-desk[data-sidebar-pinned='true'] {
-  padding-left: 0;
+/* At the same breakpoint that docks the sidebar, bind the page straight into it. */
+@media (min-width: 768px) {
+  .ob-desk[data-sidebar-docked='true'] {
+    padding-left: 0;
+  }
 }
 .ob-sheet {
   background-color: hsl(var(--background));

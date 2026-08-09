@@ -1097,12 +1097,12 @@ const Toolbar: React.FC<{
   const [overView, setOverView] = useState<string | null>(null);
   return (
     <div
-      className="mb-2 flex items-center gap-2 overflow-x-auto [scrollbar-width:none] sm:flex-wrap sm:justify-between sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+      className="mb-2 flex items-center gap-2 overflow-x-auto max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)] sm:flex-wrap sm:justify-between sm:overflow-visible"
       data-database-toolbar
     >
       {/* Below `sm`, both clusters stay on one horizontally scrollable line so
-          the table reaches the viewport instead of sitting under six rows of
-          toolbar controls. Wider layouts retain the existing wrapping. */}
+          the toolbar stays compact instead of wrapping into three rows (62px).
+          Wider layouts retain the existing wrapping. */}
       <div className="flex shrink-0 items-center gap-0.5 sm:shrink sm:flex-wrap">
         {db.database!.schema.views.map((v) => {
           const Icon = viewIcon(v.type);

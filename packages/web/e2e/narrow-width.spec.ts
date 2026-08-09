@@ -4,13 +4,18 @@ import {SERVER, emptySnapshot} from './seed';
 
 test.use({freshWorkspace: true, viewport: {width: 420, height: 800}});
 
-test('narrow shell: persisted sidebar collapses and scrim dismisses drawer', {tag: ['@shell']}, async ({page}) => {
+test('narrow shell: persisted sidebar collapses and drawer dismissals work', {tag: ['@shell']}, async ({page, request}) => {
+  const destinationResponse = await request.post(`${SERVER}/api/pages`, {
+    data: {name: 'Drawer destination', data: emptySnapshot},
+  });
+  expect(destinationResponse.ok()).toBeTruthy();
+  const destinationId = ((await destinationResponse.json()) as {id: string}).id;
   // Reproduce the blocker: an existing desktop session persisted the sidebar
   // as docked + open before the browser was narrowed.
   await page.addInitScript(() => {
     localStorage.setItem('hud', JSON.stringify({sideNav: {open: true, docked: true}}));
   });
-  await page.goto('/');
+  await page.goto(`/?page=${destinationId}`);
 
   const drawer = page.locator('[data-sidebar-drawer]');
   await expect(drawer).not.toBeInViewport();
@@ -23,6 +28,16 @@ test('narrow shell: persisted sidebar collapses and scrim dismisses drawer', {ta
   // Click on the uncovered right edge, not the drawer layered over the scrim.
   await scrim.click({position: {x: 400, y: 100}});
   await expect(scrim).toHaveCount(0);
+  await expect(drawer).not.toBeInViewport();
+
+  await page.getByRole('button', {name: 'Toggle sidebar'}).click();
+  await expect(drawer).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(drawer).not.toBeInViewport();
+
+  await page.getByRole('button', {name: 'Toggle sidebar'}).click();
+  await expect(drawer).toBeInViewport();
+  await drawer.getByRole('button', {name: 'Home', exact: true}).click();
   await expect(drawer).not.toBeInViewport();
 });
 
@@ -74,11 +89,14 @@ async function seedDatabase(request: APIRequestContext): Promise<string> {
   return pageId;
 }
 
-test('narrow database: first data row is within the viewport on load', {tag: ['@database']}, async ({page, request}) => {
+test('narrow database: toolbar stays compact and horizontally scrollable', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seedDatabase(request);
   await page.goto(`/?page=${pageId}`);
 
-  const firstDataRow = page.getByRole('table').locator('tr[data-row-anchor]').first();
-  await expect(firstDataRow).toBeVisible();
-  await expect(firstDataRow).toBeInViewport();
+  const toolbar = page.locator('[data-database-toolbar]');
+  await expect(toolbar).toBeVisible();
+  const box = await toolbar.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.height).toBeLessThan(44);
+  expect(await toolbar.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
 });
