@@ -837,7 +837,7 @@ const TimelineCanvas: React.FC<{
                         }
                         scheduleRow(l.row.id, e.clientX);
                       }}
-                      aria-label={t('database.timeline.placeOnTimeline')}
+                      aria-label={t('database.timeline.scheduleRow', {name})}
                       title={t('database.timeline.placeItem')}
                       className="group/lane absolute left-0 z-[1] flex cursor-copy items-center"
                       style={{top: l.top + BAR_PAD, height: rowH - BAR_PAD * 2, width: bodyW}}
