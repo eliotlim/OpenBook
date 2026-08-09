@@ -10,9 +10,10 @@ export default function SideNavToggle({className}: {className?: string}) {
   const {t} = useTranslation();
   return (
     <>
+      {/* Keep the hardcoded narrow size large enough for a practical touch target. */}
       <IconButton
         aria-label={t('nav.toggleSidebar')}
-        className={cn(SIDEBAR_PRESS, 'md:hidden', className, 'h-9 w-9 md:h-8 md:w-8')}
+        className={cn(SIDEBAR_PRESS, 'md:hidden', 'h-9 w-9 md:h-8 md:w-8', className)}
         data-sidebar-toggle
         onClick={() => setHud((draft) => {
           toggleSideNav(draft, {narrow: true});
@@ -23,7 +24,7 @@ export default function SideNavToggle({className}: {className?: string}) {
       </IconButton>
       <IconButton
         aria-label={t('nav.toggleSidebar')}
-        className={cn(SIDEBAR_PRESS, 'hidden md:inline-flex', className, 'h-9 w-9 md:h-8 md:w-8')}
+        className={cn(SIDEBAR_PRESS, 'hidden md:inline-flex', 'h-9 w-9 md:h-8 md:w-8', className)}
         data-sidebar-toggle
         onClick={() => setHud((draft) => {
           toggleSideNav(draft, {narrow: false});

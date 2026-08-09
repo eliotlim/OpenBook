@@ -433,6 +433,10 @@
   background: linear-gradient(to right, hsl(var(--foreground) / 0.08), transparent);
 }
 
+@utility ob-edge-fade-x {
+  mask-image: linear-gradient(to right, black calc(100% - 1.25rem), transparent);
+}
+
 /* ── Thin, unobtrusive scrollbars ───────────────────────────────────────── */
 * {
   scrollbar-width: thin;

@@ -192,7 +192,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
     <div className="relative flex h-full min-h-0 w-full flex-col sm:flex-row">
       <nav
         className={cn(
-          'ob-accent-chrome flex max-h-64 w-full shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pt-8 text-sheet-1-foreground sm:max-h-none sm:w-[210px]',
+          'ob-accent-chrome flex max-h-64 w-full shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pr-16 pt-8 text-sheet-1-foreground sm:max-h-none sm:w-[210px] sm:pr-3',
           !fullscreen && 'rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none',
         )}
       >

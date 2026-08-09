@@ -47,6 +47,7 @@ test('narrow settings: Appearance color modes remain visible and clickable', {ta
   const drawer = page.locator('[data-sidebar-drawer]');
   await expect(drawer).toBeInViewport();
   await drawer.getByRole('button', {name: 'Settings'}).click();
+  await expect(drawer).not.toBeInViewport();
   await page.getByRole('button', {name: 'Appearance', exact: true}).click();
 
   for (const [label, value] of [

@@ -1097,7 +1097,7 @@ const Toolbar: React.FC<{
   const [overView, setOverView] = useState<string | null>(null);
   return (
     <div
-      className="mb-2 flex items-center gap-2 overflow-x-auto max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)] sm:flex-wrap sm:justify-between sm:overflow-visible"
+      className="mb-2 flex items-center gap-2 overflow-x-auto max-sm:ob-edge-fade-x max-sm:pr-5 sm:flex-wrap sm:justify-between sm:overflow-visible"
       data-database-toolbar
     >
       {/* Below `sm`, both clusters stay on one horizontally scrollable line so

@@ -21,7 +21,7 @@ import ImageLightbox from '@/components/ImageLightbox';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
 import WindowControls from '@/components/WindowControls';
-import {useEffect} from 'react';
+import {useEffect, useRef} from 'react';
 import {useHud, useNavigation} from '@/providers';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
 
@@ -36,12 +36,42 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
     draft.sideNav.open = false;
     return draft;
   });
+  const previousOverlayOpen = useRef({
+    settings: hud.settings.open,
+    trash: hud.trash.open,
+    templates: hud.templates.open,
+    importer: hud.importer.open,
+    commandPalette: hud.commandPalette.open,
+  });
   // Dismiss the narrow drawer on first mount and after navigation. The CSS
   // breakpoint is authoritative about whether a docked preference takes space;
   // this only synchronises the open state for the overlay presentation.
   useEffect(() => {
     if (hud.sideNav.open && typeof window !== 'undefined' && window.innerWidth < 768) closeSidebar();
   }, [currentPageId]);
+  useEffect(() => {
+    const overlayOpened =
+      (hud.settings.open && !previousOverlayOpen.current.settings) ||
+      (hud.trash.open && !previousOverlayOpen.current.trash) ||
+      (hud.templates.open && !previousOverlayOpen.current.templates) ||
+      (hud.importer.open && !previousOverlayOpen.current.importer) ||
+      (hud.commandPalette.open && !previousOverlayOpen.current.commandPalette);
+    previousOverlayOpen.current = {
+      settings: hud.settings.open,
+      trash: hud.trash.open,
+      templates: hud.templates.open,
+      importer: hud.importer.open,
+      commandPalette: hud.commandPalette.open,
+    };
+    if (overlayOpened && hud.sideNav.open && typeof window !== 'undefined' && window.innerWidth < 768) closeSidebar();
+  }, [
+    hud.commandPalette.open,
+    hud.importer.open,
+    hud.settings.open,
+    hud.sideNav.open,
+    hud.templates.open,
+    hud.trash.open,
+  ]);
   useEffect(() => {
     if (!hud.sideNav.open) return;
     let wasNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
