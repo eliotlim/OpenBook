@@ -505,6 +505,8 @@ export default function ShareDialog({
   // site-visibility mismatch as an explicitly-public one — the notice must cover
   // both (Quinn). `null` until the default resolves, in which case it can't fire.
   const effectiveScope = scope === 'inherit' ? defaultVisibility : scope;
+  const publishedAddressHint = publishedHost ? t('share.linkHints.publishedAt', {host: publishedHost}) : '';
+  const publishedHostIndex = publishedHost ? publishedAddressHint.indexOf(publishedHost) : -1;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -515,7 +517,7 @@ export default function ShareDialog({
           </IconButton>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent className="min-w-0 max-w-md">
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t(canManage ? 'share.description' : 'share.readOnlyDescription')}</DialogDescription>
@@ -524,7 +526,7 @@ export default function ShareDialog({
         {loadError ? (
           <p className="text-sm text-destructive">{t('share.loadError')}</p>
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="min-w-0 flex flex-col gap-5">
             {/* In-browser library disclosure (P0-4): nothing outside this
                 browser can reach the library, so these settings can't take
                 effect for anyone else — supersedes the claim disclosures below
@@ -692,7 +694,7 @@ export default function ShareDialog({
                   <Input
                     id="share-invitee"
                     inputSize="sm"
-                    className="flex-1"
+                    className="min-w-0 flex-1"
                     placeholder={t('share.addPlaceholder')}
                     value={invitee}
                     disabled={adding}
@@ -790,7 +792,12 @@ export default function ShareDialog({
             {canManage && !browserLocal && publishedHost && aclReadable && grants.some((g) => g.email != null) && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
                 <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('share.deliver.hint')}</p>
-                <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyDeliverLink()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void copyDeliverLink()}
+                >
                   {deliverCopied ? (
                     <>
                       <Check className="h-4 w-4" />
@@ -858,7 +865,7 @@ export default function ShareDialog({
               <InlinePublish />
             ) : (
               <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                <span className="text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">
                   {browserLocal ? (
                     t('share.linkHints.browserLocal')
                   ) : linkIsLocalOnly ? (
@@ -866,11 +873,29 @@ export default function ShareDialog({
                   ) : (
                     <>
                       {t(LINK_HINT[scope])}
-                      {publishedHost && <> {t('share.linkHints.publishedAt', {host: publishedHost})}</>}
+                      {publishedHost && (
+                        <>
+                          {' '}
+                          {publishedHostIndex < 0 ? (
+                            <span className="break-all">{publishedAddressHint}</span>
+                          ) : (
+                            <>
+                              {publishedAddressHint.slice(0, publishedHostIndex)}
+                              <span className="break-all">{publishedHost}</span>
+                              {publishedAddressHint.slice(publishedHostIndex + publishedHost.length)}
+                            </>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
                 </span>
-                <Button variant="outline" size="sm" onClick={() => void copyLink()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void copyLink()}
+                >
                   {copied ? (
                     <>
                       <Check className="h-4 w-4" />
