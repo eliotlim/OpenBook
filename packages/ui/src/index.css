@@ -15,6 +15,10 @@
   }
 }
 
+@utility shadow-overlay {
+  box-shadow: var(--shadow-overlay);
+}
+
 @theme {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -125,6 +129,7 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 
+  /* Literal shadow tokens bake into utilities; shadow-overlay uses @utility so its dark override stays live (shadow-lift has no override). */
   /* Soft, layered elevation for cards/tiles that lift on hover — a close
      contact shadow plus a wider ambient one, warm-tinted to match the palette
      (Apple's "floating just off the surface" look rather than a hard drop). */
