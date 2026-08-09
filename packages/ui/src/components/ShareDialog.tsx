@@ -3,6 +3,7 @@ import {Check, Globe, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useForwarding, useHud, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
+import {DIALOG_EXIT_MS} from './ui/dialog';
 import {
   Dialog,
   DialogContent,
@@ -940,7 +941,7 @@ export function ShareDialogHost() {
     if (retainedTarget === null) return;
     // Keep Radix mounted through dialog.tsx's duration-200 exit animation; its
     // presence/focus scope can then restore focus before the retained page clears.
-    const timeout = window.setTimeout(() => setRetainedTarget(null), 200);
+    const timeout = window.setTimeout(() => setRetainedTarget(null), DIALOG_EXIT_MS);
     return () => window.clearTimeout(timeout);
   }, [retainedTarget, target]);
   const renderedTarget = target ?? retainedTarget;
@@ -949,6 +950,7 @@ export function ShareDialogHost() {
   if (!renderedTarget || supported === false) return null;
   return (
     <ShareDialog
+      key={renderedTarget}
       pageId={renderedTarget}
       canManage={canManage}
       showTrigger={false}
