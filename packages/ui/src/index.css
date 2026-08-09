@@ -87,8 +87,9 @@
 
   /* ── Chrome stacking scale ────────────────────────────────────────────────
      Local 1–6 tiers order editor adornments without escaping their stacking
-     contexts. Co-tenants: marquee + chart-tooltip share local-overlay; slash +
-     toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
+     contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
+     render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
+     slash + toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
      (raised / sticky chrome), z-40 (navigation scrims), z-50 (menus and
      dialogs), and reserved z-60 (image lightbox) conventions used by
      components. Nested menu panels use 55: above their z-50 parent chrome,
@@ -102,7 +103,7 @@
   --z-index-local-overlay: 5;
   --z-index-presence: 6;
   --z-index-sticky: 10;
-  --z-index-tooltip: 20;
+  --z-index-inline-hint: 20;
   --z-index-overlay: 40;
   --z-index-menu: 50;
   --z-index-nested-menu: 55;
@@ -2876,7 +2877,7 @@ a.obe-mention {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: var(--z-index-tooltip);
+  z-index: var(--z-index-inline-hint);
   width: max-content;
   max-width: 18rem;
   background: hsl(var(--popover));
