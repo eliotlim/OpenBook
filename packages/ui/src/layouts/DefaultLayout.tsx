@@ -35,22 +35,24 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   // The page binds straight into the sidebar (no left inset) only while it is
   // pinned open — i.e. taking layout space. Undocked/closed leaves the inset.
   const sidebarPinned = hud.sideNav.docked && hud.sideNav.open;
-  // The sidebar floats as an overlay when open-but-undocked (the narrow-screen
-  // state the hamburger produces). A backdrop + close-on-navigate make it read
-  // like a mobile drawer; both are gated below `md` so wide layouts never see
-  // them. (The desktop edge-hover overlay stays a no-backdrop peek.)
-  const sidebarOverlay = hud.sideNav.open && !hud.sideNav.docked;
   const closeSidebar = (): void => setHud((draft) => {
     draft.sideNav.open = false;
     return draft;
   });
-  // Dismiss the overlay when navigating on a narrow screen, so the freshly
-  // opened page isn't left hidden behind it.
+  // Dismiss the narrow drawer on first mount and after navigation. The CSS
+  // breakpoint is authoritative about whether a docked preference takes space;
+  // this only synchronises the open state for the overlay presentation.
   useEffect(() => {
-    // Keyed on navigation only (sidebarOverlay/closeSidebar are read fresh each
-    // commit). The project's eslint has no exhaustive-deps rule, so no disable.
-    if (sidebarOverlay && typeof window !== 'undefined' && window.innerWidth < 768) closeSidebar();
+    if (hud.sideNav.open && typeof window !== 'undefined' && window.innerWidth < 768) closeSidebar();
   }, [currentPageId]);
+  useEffect(() => {
+    if (!hud.sideNav.open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && window.innerWidth < 768) closeSidebar();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [hud.sideNav.open, setHud]);
   return (
     // skipDelay 0 keeps the per-trigger delay so shortcut discovery stays a deliberate lingering hover (old per-trigger providers could never skip).
     <TooltipProvider delayDuration={350} skipDelayDuration={0}>
@@ -110,15 +112,14 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
             <PageAppearanceHost/>
             <EmojiPickerHost/>
             <SideNav/>
-            {/* Mobile drawer scrim: dim the page behind the floating sidebar and
-              dismiss it on tap. `md:hidden` keeps it off wide layouts entirely,
-              so the desktop edge-hover peek is unaffected. Sits below the
-              sidebar's own z-50, above the page; starts below the nav bar so the
-              hamburger stays tappable. */}
-            {sidebarOverlay && (
+            {/* Narrow drawer scrim: CSS owns the breakpoint, so it also covers
+              a drawer opened from a persisted docked preference. Wide layouts
+              hide it, leaving the desktop edge-hover peek unchanged. */}
+            {hud.sideNav.open && (
               <div
                 className="fixed inset-x-0 bottom-0 top-14 z-overlay bg-foreground/20 md:hidden"
                 onClick={closeSidebar}
+                data-sidebar-scrim
                 aria-hidden
               />
             )}
