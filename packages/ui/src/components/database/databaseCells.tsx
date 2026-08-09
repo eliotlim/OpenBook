@@ -30,7 +30,7 @@ import {
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageIcon} from '@/components/PageIcon';
-import {usePreferences, useNavigation} from '@/providers';
+import {usePreferences, useNavigation, useTranslation} from '@/providers';
 import {useData} from '@/data';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
@@ -313,10 +313,11 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   onAddOption,
   rowOptions,
 }) => {
+  const {t} = useTranslation();
   switch (property.type) {
   case 'expr':
     return (
-      <div className="px-2 py-1 text-sm tabular-nums text-foreground/80" title="Computed from the row's exported cell">
+      <div className="px-2 py-1 text-sm tabular-nums text-foreground/80" title={t('database.cells.exported')}>
         {formatExprValue(exprValue, property.numberFormat)}
       </div>
     );

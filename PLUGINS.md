@@ -170,9 +170,9 @@ unknown key, or content that doesn't match the signature) shows
   test key is trusted nowhere by default — see `docs/plugin-signing.md`):
   `node scripts/pack-plugin.mjs examples/plugins/hello-openbook out.zip --sign --key scripts/test-registry-key.json`
 
-**Trust model, plainly:** extensions run with the same privileges as your
-documents' live code. A signature is provenance — *who published these exact
-bytes* — not a sandbox.
+**Trust model, plainly:** Extensions run with the same access as your documents’
+live code. A “Verified” badge means a registry you trust signed this exact
+content — provenance, not a sandbox.
 
 ## The example
 

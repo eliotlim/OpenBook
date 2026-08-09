@@ -198,7 +198,7 @@ export const de: PartialMessages = {
     description: 'Lege fest, wer auf diese Seite zugreifen darf, und lade Personen zum Ansehen oder Bearbeiten ein.',
     loadError: 'Die Freigabeeinstellungen für diese Seite konnten nicht geladen werden.',
     unclaimedNotice:
-      'Die Freigabe wird erst wirksam, wenn du diese Instanz beanspruchst. Bis dahin kann jede Person mit Zugriff ansehen und bearbeiten — diese Einstellungen werden gespeichert, aber noch nicht durchgesetzt.',
+      'Diese Einstellungen werden gespeichert, treten aber erst in Kraft, wenn du diese Bibliothek beanspruchst. Bis dahin kann jede Person, die sie erreichen kann, sie ansehen und bearbeiten.',
     browserLocalNotice:
       'Diese Bibliothek existiert nur in diesem Browser — niemand sonst kann sie erreichen, daher wirken sich diese Einstellungen noch auf niemanden aus. Um mit anderen zu teilen, veröffentliche eine Bibliothek über die OpenBook-Desktop-App.',
     enforcementCaveat:
@@ -908,7 +908,7 @@ export const de: PartialMessages = {
     bindFailed: 'Die Veröffentlichung ist aktiv, aber das Absichern der Site-Audience wurde nicht abgeschlossen: {error}',
     unbindHeld: 'Die Audience-Bindung konnte beim Ausschalten der Veröffentlichung nicht vollständig gelöst werden: {error}',
     claimWarning:
-      'Beim ersten Einschalten werden die Bücher dieses Geräts deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Mitglieder können sie öffnen. Das lässt sich nicht rückgängig machen.',
+      'Beim ersten Einschalten wird diese Bibliothek deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Personen können sie öffnen. Das lässt sich nicht rückgängig machen.',
     claimRefusedUnverified: 'Zum Veröffentlichen muss die Identität deines Kontos zuerst verifiziert werden.',
     claimRefusedIssuanceDisabled:
       'Zum Veröffentlichen ist eine verifizierte Identität erforderlich — aber der Account-Server hat die Identitätsausstellung deaktiviert, daher ist eine Verifizierung hier nicht möglich.',

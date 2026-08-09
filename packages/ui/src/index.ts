@@ -14,6 +14,9 @@ export {
   SETTINGS_ALIAS_SECTIONS,
 } from './lib/hud';
 export type {HudProps, SettingsTab, SettingsMode} from './lib/hud';
+// The provider-independent translator is also used by shell-level recovery UI,
+// which renders above I18nProvider and therefore cannot consume its hook.
+export {t} from './i18n';
 // The account update-check client + response mapping, consumed by the desktop
 // shell's `platform.updates` implementation (and the update scheduler).
 export {checkForUpdateViaAccount, mapUpdateCheckResponse, compareSemver} from './lib/updateCheck';

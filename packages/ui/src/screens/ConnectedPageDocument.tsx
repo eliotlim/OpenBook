@@ -248,8 +248,8 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       fallback={() => (
         <ErrorFallback
           variant="inline"
-          title="This page couldn't be opened"
-          message="Its content ran into an error while rendering. Your other pages are fine — open one from the sidebar, or head home."
+          title={t('errorBoundary.pageTitle')}
+          message={t('errorBoundary.pageMessage')}
           onHome={() => selectPage(HOME_PAGE_ID)}
         />
       )}
