@@ -19,6 +19,14 @@
   box-shadow: var(--shadow-overlay);
 }
 
+@utility shadow-menu {
+  box-shadow: var(--shadow-menu);
+}
+
+@utility shadow-sheet {
+  box-shadow: var(--shadow-sheet);
+}
+
 @theme {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -93,7 +101,7 @@
 
   /* ── Chrome stacking scale ────────────────────────────────────────────────
      Local 1–6 tiers order editor adornments without escaping their stacking
-     contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
+     contexts. Inline .obe-kit-tip affordances use 20; real Radix tooltips
      render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
      slash + toolbar share menu. Raised-chrome is timeline-local: it participates
      only in the timeline's local stacking context; it is not a shared tier. The
@@ -130,22 +138,13 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* Literal shadow tokens declared in @theme bake into utilities.
-     --shadow-overlay lives in :root and uses an explicit @utility so its
-     fixed light stops and .dark override stay live. */
+  /* Literal shadow tokens declared in @theme bake into utilities. The
+     scheme-dependent sheet/menu/overlay tokens therefore live in :root and
+     use explicit @utility declarations so their .dark overrides stay live. */
   /* Soft, layered elevation for cards/tiles that lift on hover — a close
      contact shadow plus a wider ambient one, warm-tinted to match the palette
      (Apple's "floating just off the surface" look rather than a hard drop). */
   --shadow-lift: 0 1px 2px hsl(20 14% 12% / 0.05), 0 10px 24px -6px hsl(20 14% 12% / 0.12);
-  /* Hairline RESTING shadow for notebook "sheets" / resting cards — a close
-     contact shadow only, no lift. The hover-lift is the separate --shadow-lift.
-     Unlike --shadow-overlay's fixed per-scheme stops, this tracks --foreground
-     so it adapts per theme. Exposed as `shadow-sheet`. */
-  --shadow-sheet: 0 1px 2px hsl(var(--foreground) / 0.04), 0 1px 3px hsl(var(--foreground) / 0.05);
-  /* Hairline-ring shadow for transient menus (slash menu, inline toolbar): a
-     1px ring plus a soft, tight drop so they read as quietly above the text
-     without the heavier --shadow-overlay. Exposed as `shadow-menu`. */
-  --shadow-menu: 0 0 0 1px hsl(var(--foreground) / 0.03), 0 3px 10px -3px hsl(var(--foreground) / 0.1);
 
   @keyframes accordion-down {
     from {
@@ -240,6 +239,12 @@
     --brand: 207 76% 47%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 207 86% 95%;
+    /* Hairline resting elevation for notebook sheets: close contact only, with
+       a separate neutral-black .dark recipe so the material never flips light. */
+    --shadow-sheet: 0 1px 2px hsl(var(--foreground) / 0.04), 0 1px 3px hsl(var(--foreground) / 0.05);
+    /* Transient menus use a hairline ring plus a soft, tight drop. The .dark
+       recipe stays below overlay elevation and above the resting sheet tier. */
+    --shadow-menu: 0 0 0 1px hsl(var(--foreground) / 0.03), 0 3px 10px -3px hsl(var(--foreground) / 0.1);
     /* Floating surfaces (menus, popovers, dialogs): fixed light stops give a
        diffuse elevation above the page; .dark supplies its own stronger recipe.
        Kept out of @theme so the `shadow-overlay` utility resolves it live. */
@@ -313,6 +318,8 @@
     /* Dark surfaces absorb the light recipe's warm-black shadow. Stronger,
        wider neutral-black stops restore elevation without a light halo and
        keep overlays visibly above the tighter --shadow-menu tier. */
+    --shadow-sheet: 0 1px 2px hsl(0 0% 0% / 0.08), 0 1px 3px hsl(0 0% 0% / 0.12);
+    --shadow-menu: 0 0 0 1px hsl(0 0% 0% / 0.14), 0 3px 10px -3px hsl(0 0% 0% / 0.22);
     --shadow-overlay: 0 3px 6px hsl(0 0% 0% / 0.28), 0 12px 28px -6px hsl(0 0% 0% / 0.42), 0 32px 64px -16px hsl(0 0% 0% / 0.55);
     /* White ink in dark mode: pressing a dark fill lightens it (see :root). */
     --press-ink: hsl(0 0% 100%);
