@@ -1,7 +1,22 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {PageIcon} from '@/components/PageIcon';
 import {t} from '../i18n';
+import {observePopupPosition, type PopupPosition} from './popupPosition';
+
+// The non-zero x/y are load-bearing: zero-rect classification would burn the
+// 20-frame retry budget. All unit-test renders with anchorEl=null use this path.
+const FALLBACK_ANCHOR_RECT = {
+  left: 80,
+  right: 80,
+  top: 120,
+  bottom: 120,
+  width: 0,
+  height: 0,
+  x: 80,
+  y: 120,
+  toJSON: () => ({}),
+} as DOMRect;
 
 /**
  * The page/database link picker: a small search popover that the "Link to
@@ -19,55 +34,27 @@ export const LinkPicker: React.FC<{
 }> = ({kind, anchorEl, onPick, onClose}) => {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
-  const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
+  const [pos, setPos] = useState<PopupPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
 
   const results = useMemo(
     () => pageLinks.searchPages(query, {databasesOnly: kind === 'database'}),
     [query, kind],
   );
 
-  // Fixed positioning is based on the rendered picker, not an assumed box.
-  // Keep the same 6px anchor gap / 8px viewport gutter as the editor menus,
-  // flip when the room above is better, and remeasure when the viewport or
-  // result-set height changes.
+  // Shared positioning preserves the picker's measured content-height cap,
+  // flip, horizontal and above-placement viewport clamps; below placement can
+  // exceed the viewport only via the shared min-height floor, matching the other
+  // popups. Result growth still triggers remeasurement.
   useLayoutEffect(() => {
-    const measure = (): void => {
-      const picker = rootRef.current;
-      if (!picker) return;
-
-      const rect = anchorEl?.getBoundingClientRect();
-      const left = rect?.left ?? 80;
-      const anchorTop = rect?.top ?? 120;
-      const anchorBottom = rect?.bottom ?? anchorTop;
-      // Remove the previous viewport constraint while measuring. Otherwise a
-      // filtered short list can permanently cap a later expanded result set.
-      const previousMaxHeight = picker.style.maxHeight;
-      picker.style.maxHeight = '';
-      const pickerWidth = picker.offsetWidth;
-      const pickerHeight = picker.offsetHeight;
-      picker.style.maxHeight = previousMaxHeight;
-      const below = window.innerHeight - anchorBottom - 14;
-      const above = anchorTop - 14;
-      const flip = pickerHeight > below && above > below;
-      const availableHeight = Math.max(0, flip ? above : below);
-      const maxHeight = Math.max(120, Math.min(pickerHeight, availableHeight));
-      const shownHeight = Math.min(pickerHeight, maxHeight);
-      const top = flip
-        ? Math.max(8, Math.min(anchorTop - 6 - shownHeight, window.innerHeight - shownHeight - 8))
-        : Math.max(8, Math.min(anchorBottom + 6, window.innerHeight - shownHeight - 8));
-
-      setPos({
-        left: Math.max(8, Math.min(left, window.innerWidth - pickerWidth - 8)),
-        top,
-        maxHeight,
-      });
-    };
-
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return observePopupPosition({
+      popup: () => rootRef.current,
+      anchor: () => anchorEl?.getBoundingClientRect() ?? FALLBACK_ANCHOR_RECT,
+      onPosition: setPos,
+      options: {align: 'start', capHeightToContent: true},
+    });
   }, [anchorEl, results.length]);
 
   // Land focus only once the popover has left the visibility:hidden
@@ -109,6 +96,9 @@ export const LinkPicker: React.FC<{
     if (r) onPick(r);
   };
 
+  const optionId = (result: PageLinkResult): string => `${listboxId}-option-${encodeURIComponent(result.id)}`;
+  const activeOptionId = results[index] ? optionId(results[index]) : undefined;
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const n = Math.max(1, results.length);
     if (e.key === 'ArrowDown') {
@@ -137,6 +127,10 @@ export const LinkPicker: React.FC<{
     >
       <input
         ref={inputRef}
+        role="combobox"
+        aria-expanded={true}
+        aria-controls={listboxId}
+        aria-activedescendant={activeOptionId}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
@@ -144,10 +138,11 @@ export const LinkPicker: React.FC<{
         aria-label={kind === 'database' ? t('link.databaseTitle') : t('link.pageTitle')}
         className="mb-1 w-full rounded-sm border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus:border-ring"
       />
-      <div role="listbox" className="min-h-0 max-h-64 flex-1 overflow-y-auto overscroll-contain">
+      <div id={listboxId} role="listbox" className="min-h-0 max-h-64 flex-1 overflow-y-auto overscroll-contain">
         {results.map((r, i) => (
           <button
             key={r.id}
+            id={optionId(r)}
             type="button"
             role="option"
             aria-selected={i === index}
