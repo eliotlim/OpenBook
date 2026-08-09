@@ -1,0 +1,158 @@
+/** A fixed-position popup's measured viewport coordinates. */
+export interface PopupPosition {
+  left: number;
+  top: number;
+  maxHeight?: number;
+  placement: 'above' | 'below';
+}
+
+interface PopupSize {
+  width: number;
+  height: number;
+}
+
+export interface PopupPositionOptions {
+  /** Which side to use while the measured box fits there. */
+  preferredPlacement?: PopupPosition['placement'];
+  /** Align the popup's leading edge or centre to the anchor. */
+  align?: 'start' | 'center';
+  /** Space reserved when deciding whether a side has enough room. */
+  availableSpaceInset?: number;
+  /** Visible space between the anchor and popup. */
+  anchorGap?: number;
+  /** Horizontal edge clamp (and the above-placement top clamp). */
+  viewportMargin?: number;
+  /** Smallest useful scrollable menu height. Ignored when maxHeight is null. */
+  minHeight?: number;
+  /** Largest scrollable menu height; null leaves the measured height intact. */
+  maxHeight?: number | null;
+  /** Used only before the rendered element exposes measurable dimensions. */
+  fallbackSize?: PopupSize;
+  /** Frames allowed for a not-yet-painted anchor to acquire a real rect. */
+  retryFrames?: number;
+}
+
+const RENDERED_MENU_MAX_HEIGHT = 304;
+
+/** Canonical menu geometry: the old 14 / 6 / 8 values, named once. */
+export const POPUP_POSITION_DEFAULTS = {
+  availableSpaceInset: 14,
+  anchorGap: 6,
+  viewportMargin: 8,
+  minHeight: 120,
+  maxHeight: 300,
+  fallbackSize: {width: 272, height: RENDERED_MENU_MAX_HEIGHT},
+  retryFrames: 20,
+} as const;
+
+/** SlashMenu historically allowed the full CSS 19rem rather than 300px. */
+export const SLASH_MENU_POSITION_OPTIONS = {
+  maxHeight: RENDERED_MENU_MAX_HEIGHT,
+} satisfies PopupPositionOptions;
+
+const INLINE_TOOLBAR_GAP = POPUP_POSITION_DEFAULTS.viewportMargin;
+
+/**
+ * The toolbar is centred and above-first. Its flip threshold is now its
+ * measured height plus the existing gap and edge allowance, rather than 56px.
+ * A zero horizontal margin preserves the previous half-width edge clamp.
+ */
+export const INLINE_TOOLBAR_POSITION_OPTIONS = {
+  preferredPlacement: 'above',
+  align: 'center',
+  availableSpaceInset: INLINE_TOOLBAR_GAP + POPUP_POSITION_DEFAULTS.viewportMargin,
+  anchorGap: INLINE_TOOLBAR_GAP,
+  viewportMargin: 0,
+  maxHeight: null,
+} satisfies PopupPositionOptions;
+
+const isZeroRect = (rect: DOMRect | undefined | null): boolean =>
+  !rect || (rect.width === 0 && rect.height === 0 && rect.x === 0 && rect.y === 0);
+
+/** Read the live selection rect, optionally falling back to its editor block. */
+export function selectionAnchorRect(anchorEl: HTMLElement | null, fallbackToElement = false): DOMRect | null {
+  const selection = document.getSelection();
+  const selectionRect =
+    selection && selection.rangeCount > 0 && anchorEl?.contains(selection.anchorNode)
+      ? selection.getRangeAt(0).getBoundingClientRect()
+      : null;
+  if (!isZeroRect(selectionRect)) return selectionRect;
+  return fallbackToElement ? anchorEl?.getBoundingClientRect() ?? null : selectionRect;
+}
+
+interface ObservePopupPositionArgs {
+  popup: () => HTMLElement | null;
+  anchor: () => DOMRect | null | undefined;
+  onPosition: (position: PopupPosition) => void;
+  options?: PopupPositionOptions;
+}
+
+/**
+ * Measure and track a fixed popup. The returned cleanup cancels anchor retries
+ * and removes the viewport-resize re-clamp listener.
+ */
+export function observePopupPosition({
+  popup,
+  anchor,
+  onPosition,
+  options = {},
+}: ObservePopupPositionArgs): () => void {
+  const preferredPlacement = options.preferredPlacement ?? 'below';
+  const align = options.align ?? 'start';
+  const availableSpaceInset = options.availableSpaceInset ?? POPUP_POSITION_DEFAULTS.availableSpaceInset;
+  const anchorGap = options.anchorGap ?? POPUP_POSITION_DEFAULTS.anchorGap;
+  const viewportMargin = options.viewportMargin ?? POPUP_POSITION_DEFAULTS.viewportMargin;
+  const minHeight = options.minHeight ?? POPUP_POSITION_DEFAULTS.minHeight;
+  const maxHeightOption = options.maxHeight === undefined ? POPUP_POSITION_DEFAULTS.maxHeight : options.maxHeight;
+  const fallbackSize = options.fallbackSize ?? POPUP_POSITION_DEFAULTS.fallbackSize;
+  const retryFrames = options.retryFrames ?? POPUP_POSITION_DEFAULTS.retryFrames;
+  let raf = 0;
+  let attempts = 0;
+
+  const measure = (): void => {
+    const rect = anchor();
+    if (isZeroRect(rect)) {
+      if (attempts++ < retryFrames) raf = requestAnimationFrame(measure);
+      return;
+    }
+
+    const element = popup();
+    const width = element?.offsetWidth || fallbackSize.width;
+    const height = element?.offsetHeight || fallbackSize.height;
+    const available = {
+      above: rect!.top - availableSpaceInset,
+      below: window.innerHeight - rect!.bottom - availableSpaceInset,
+    };
+    const otherPlacement = preferredPlacement === 'above' ? 'below' : 'above';
+    const placement =
+      height > available[preferredPlacement] && available[otherPlacement] > available[preferredPlacement]
+        ? otherPlacement
+        : preferredPlacement;
+    const maxHeight =
+      maxHeightOption === null
+        ? undefined
+        : Math.max(minHeight, Math.min(maxHeightOption, available[placement]));
+    const shownHeight = maxHeight === undefined ? height : Math.min(height, maxHeight);
+    const top =
+      placement === 'above'
+        ? Math.max(viewportMargin, rect!.top - anchorGap - shownHeight)
+        : rect!.bottom + anchorGap;
+    const anchorLeft = align === 'center' ? rect!.left + rect!.width / 2 - width / 2 : rect!.left;
+    const left = Math.max(viewportMargin, Math.min(anchorLeft, window.innerWidth - width - viewportMargin));
+
+    onPosition({left, top, maxHeight, placement});
+  };
+
+  const onResize = (): void => {
+    cancelAnimationFrame(raf);
+    attempts = 0;
+    measure();
+  };
+
+  measure();
+  window.addEventListener('resize', onResize);
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener('resize', onResize);
+  };
+}

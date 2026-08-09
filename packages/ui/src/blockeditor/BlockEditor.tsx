@@ -431,16 +431,10 @@ export const BlockEditor: React.FC<{
         setToolbar(null);
         return;
       }
-      const rect = domSel.getRangeAt(0).getBoundingClientRect();
       const found = findBlock(doc, id);
       const text = found && blockText(found.block);
-      // Viewport (fixed) coords: centered over the selection, clamped at the
-      // edges, dropped below the selection when the line sits near the top.
-      const half = 124;
-      const nearTop = rect.top < 56;
       setToolbar({
-        left: Math.max(half, Math.min(rect.left + rect.width / 2, window.innerWidth - half)),
-        top: nearTop ? rect.bottom + 44 : rect.top,
+        anchorEl: el,
         active: text
           ? {
             b: rangeHasAttr(text, sel.start, sel.end, 'b'),

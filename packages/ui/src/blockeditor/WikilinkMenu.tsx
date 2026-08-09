@@ -3,6 +3,7 @@ import {FilePlus2, FileText} from 'lucide-react';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {t} from '../i18n';
 import {blockText, findBlock} from './model';
+import {observePopupPosition, selectionAnchorRect, type PopupPosition} from './popupPosition';
 import type {SlashState} from './SlashMenu';
 import type {BlockEditorController} from './useBlockEditor';
 
@@ -43,7 +44,7 @@ export const WikilinkMenu: React.FC<{
 }> = ({state, editor, anchorEl, parentPageId, onClose, onMentionPage, onCreatePage}) => {
   void parentPageId; // the parent is applied inside onCreatePage (provided by BlockEditor)
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
+  const [pos, setPos] = useState<PopupPosition | null>(null);
   const [index, setIndex] = useState(0);
   const [rows, setRows] = useState<PageLinkResult[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
@@ -92,35 +93,13 @@ export const WikilinkMenu: React.FC<{
     return results;
   }, [query, rows]);
 
-  // Caret-anchored fixed positioning (mirrors MentionMenu).
+  // Shared caret positioning mirrors the other trigger menus.
   useLayoutEffect(() => {
-    let raf = 0;
-    let attempts = 0;
-    const isZero = (r: DOMRect | undefined | null): boolean =>
-      !r || (r.width === 0 && r.height === 0 && r.x === 0 && r.y === 0);
-    const measure = (): void => {
-      const sel = document.getSelection();
-      const caretRect =
-        sel && sel.rangeCount > 0 && anchorEl?.contains(sel.anchorNode) ? sel.getRangeAt(0).getBoundingClientRect() : null;
-      const rect = !isZero(caretRect) ? caretRect! : anchorEl?.getBoundingClientRect();
-      if (isZero(rect)) {
-        if (attempts++ < 20) raf = requestAnimationFrame(measure);
-        return;
-      }
-      const menu = ref.current;
-      const menuH = menu?.offsetHeight ?? 280;
-      const menuW = menu?.offsetWidth ?? 260;
-      const below = window.innerHeight - rect!.bottom - 14;
-      const above = rect!.top - 14;
-      const flip = menuH > below && above > below;
-      const maxHeight = Math.max(120, Math.min(300, flip ? above : below));
-      const shownH = Math.min(menuH, maxHeight);
-      const top = flip ? Math.max(8, rect!.top - 6 - shownH) : rect!.bottom + 6;
-      const left = Math.max(8, Math.min(rect!.left, window.innerWidth - menuW - 8));
-      setPos({left, top, maxHeight});
-    };
-    measure();
-    return () => cancelAnimationFrame(raf);
+    return observePopupPosition({
+      popup: () => ref.current,
+      anchor: () => selectionAnchorRect(anchorEl, true),
+      onPosition: setPos,
+    });
   }, [anchorEl, state.anchorOffset, items.length]);
 
   useEffect(() => setIndex(0), [query]);
