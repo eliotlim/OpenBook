@@ -1229,6 +1229,16 @@ export const en = {
       description: 'A composite dashboard: KPI tiles and bar, pie and trend charts, all live over a seeded sample sales database.',
       guidance: 'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move.',
     },
+    simpleBudget: {
+      name: 'Simple Budget',
+      description: 'Track personal finances with a double-entry journal and a live income statement.',
+      guidance: 'A personal finance budget tracker built on double-entry accounting. The ledger seeds a chart of accounts and a month of sample transactions so you can explore the journal, run reports, and add your own entries.',
+    },
+    startupBooks: {
+      name: 'Startup Books',
+      description: 'Run startup bookkeeping with a journal, financial reports, bank imports, and reconciliation tools.',
+      guidance: 'Comprehensive double-entry bookkeeping for a tech startup, with all reporting surfaces. The ledger seeds accounts for assets, liabilities, equity, revenue and expenses, plus sample transactions showing typical startup operations.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

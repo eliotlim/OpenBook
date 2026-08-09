@@ -105,6 +105,28 @@ describe('LinkPicker', () => {
     expect(picker.style.left).toBe('304px');
   });
 
+  it('scrolls a fully off-viewport anchor into view before measuring', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1000);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
+    const anchor = document.createElement('div');
+    let offscreen = true;
+    anchor.scrollIntoView = vi.fn(() => {
+      offscreen = false;
+    });
+    vi.spyOn(anchor, 'getBoundingClientRect').mockImplementation(() =>
+      offscreen ? new DOMRect(100, -100, 40, 20) : new DOMRect(100, 300, 40, 20),
+    );
+
+    render(<LinkPicker kind="page" anchorEl={anchor} onPick={() => {}} onClose={() => {}} />);
+
+    expect(anchor.scrollIntoView).toHaveBeenCalledWith({block: 'center'});
+    const picker = screen.getByRole('dialog');
+    expect(picker.style.left).toBe('100px');
+    expect(picker.style.top).toBe('326px');
+  });
+
   it('remeasures unconstrained when filtered results expand again', () => {
     let naturalHeight = 300;
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);

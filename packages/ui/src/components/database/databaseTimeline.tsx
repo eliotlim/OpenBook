@@ -30,6 +30,8 @@ const LABEL_W = 200;
 const BAR_PAD = 5;
 /** A bar never renders narrower than this, so it stays visible (and clickable) at coarse zooms. */
 const BAR_MIN = 7;
+/** Short-bar labels move beside the true date span and keep this much readable width. */
+const BAR_LABEL_MIN = 72;
 /** How close (px) to an edge before the range grows for infinite scrolling. */
 const GROW_THRESHOLD = 280;
 
@@ -216,7 +218,7 @@ interface LinkState {
 }
 
 const cnBar = (dragging: boolean): string =>
-  `group/bar absolute flex select-none items-center overflow-hidden rounded px-1.5 text-left text-xs font-medium text-white shadow-sm ${
+  `group/bar absolute flex select-none items-center overflow-visible rounded px-1.5 text-left text-xs font-medium text-white shadow-sm ${
     dragging ? 'cursor-grabbing ring-2 ring-white/60' : 'cursor-grab hover:opacity-90'
   }`;
 
@@ -861,6 +863,7 @@ const TimelineCanvas: React.FC<{
                     width = Math.max(BAR_MIN, width + dpx);
                   }
                 }
+                const labelOutside = width < BAR_LABEL_MIN;
                 return (
                   <div
                     key={l.row.id}
@@ -893,7 +896,16 @@ const TimelineCanvas: React.FC<{
                         aria-hidden
                       />
                     )}
-                    <span className="pointer-events-none truncate">{name}</span>
+                    <span
+                      data-timeline-bar-label={labelOutside ? 'outside' : 'inside'}
+                      className={cn(
+                        'pointer-events-none min-w-0 truncate',
+                        labelOutside && 'absolute left-full top-1/2 ml-1 -translate-y-1/2 text-foreground',
+                      )}
+                      style={labelOutside ? {minWidth: BAR_LABEL_MIN, maxWidth: 160} : undefined}
+                    >
+                      {name}
+                    </span>
                     {canResize && (
                       <span
                         onPointerDown={(e) => begin(e, l.row.id, 'end')}
@@ -905,8 +917,8 @@ const TimelineCanvas: React.FC<{
                       <span
                         onPointerDown={(e) => beginLink(e, l.row.id)}
                         onClick={(e) => e.stopPropagation()}
-                        // Inside the bar's right edge — the bar is `overflow-hidden`,
-                        // so a handle placed outside would be clipped.
+                        // Inside the bar's right edge so the dependency origin
+                        // stays tied to the actual date-span geometry.
                         className="absolute right-0.5 top-1/2 z-20 h-2.5 w-2.5 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-white/30 opacity-0 transition-opacity group-hover/bar:opacity-100"
                         aria-label={t('database.timeline.linkDependency')}
                         title={t('database.timeline.addDependency')}
