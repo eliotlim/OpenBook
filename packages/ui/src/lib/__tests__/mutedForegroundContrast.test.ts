@@ -6,9 +6,10 @@ import {composeAppearance, DEFAULT_APPEARANCE, PAGE_BACKGROUNDS, themes} from '.
 const CSS = readFileSync('src/index.css', 'utf8');
 const SCHEMES = ['light', 'dark'] as const;
 const INTERFACE_INTENSITIES = [0, 1, 2, 3] as const;
+const CONTROL_INTENSITIES = [0, 1, 2, 3] as const;
 const BACKGROUNDS = [undefined, ...Object.keys(PAGE_BACKGROUNDS)] as const;
 const SURFACES = ['card', 'background', 'popover', 'muted', 'secondary'] as const;
-const STRONG_SURFACES = ['accent', 'sheet2', 'desk', 'sheet1'] as const;
+const STRONG_SURFACES = ['accent', 'sheet1'] as const;
 
 function cssBlock(selector: string): string {
   const start = CSS.indexOf(`${selector} {`);
@@ -65,7 +66,7 @@ describe('muted foreground contrast', () => {
         contrast(palette.mutedForeground, palette.sheet1),
         `${scheme}: muted ${palette.mutedForeground} on first-paint sheet1 ${palette.sheet1}`,
       ).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(strong, palette.foreground), `${scheme}: strong muted must remain distinct from foreground`).toBeGreaterThanOrEqual(1.32);
+      expect(contrast(strong, palette.foreground), `${scheme}: strong muted must remain distinct from foreground`).toBeGreaterThanOrEqual(1.5);
     }
   });
 
@@ -95,24 +96,36 @@ describe('muted foreground contrast', () => {
     }
   });
 
-  it('keeps strong muted text at WCAG AA on accent, sheet-2, desk, and sheet-1 surfaces', () => {
+  it('keeps strong muted text at WCAG AA on its accent and sheet-1 binding surfaces', () => {
     for (const theme of themes) {
       for (const scheme of SCHEMES) {
         const selector = scheme === 'light' ? ':root' : '.dark';
         const strong = cssToken(selector, 'muted-foreground-strong');
         for (const interfaceIntensity of INTERFACE_INTENSITIES) {
-          for (const background of BACKGROUNDS) {
-            const palette = composeAppearance(
-              {...DEFAULT_APPEARANCE, themeId: theme.id, interfaceIntensity, background},
-              scheme,
-            );
-            for (const surface of STRONG_SURFACES) {
-              const ratio = contrast(strong, palette[surface]);
-              expect(
-                ratio,
-                `${theme.id}/${scheme}/interface-${interfaceIntensity}/background-${background ?? 'unset'}: ` +
-                  `strong muted ${strong} on ${surface} ${palette[surface]}`,
-              ).toBeGreaterThanOrEqual(4.5);
+          for (const controlIntensity of CONTROL_INTENSITIES) {
+            for (const background of BACKGROUNDS) {
+              const palette = composeAppearance(
+                {...DEFAULT_APPEARANCE, themeId: theme.id, interfaceIntensity, controlIntensity, background},
+                scheme,
+              );
+              for (const surface of STRONG_SURFACES) {
+                const ratio = contrast(strong, palette[surface]);
+                const normalRatio = contrast(palette.mutedForeground, palette[surface]);
+                const context =
+                  `${theme.id}/${scheme}/interface-${interfaceIntensity}/control-${controlIntensity}/` +
+                  `background-${background ?? 'unset'}`;
+                expect(
+                  ratio,
+                  `${context}: strong muted ${strong} on ${surface} ${palette[surface]}`,
+                ).toBeGreaterThanOrEqual(4.5);
+                // Strong is CSS-only (not in ThemeTokens, so applyAppearance never emits it).
+                // Its fixed per-scheme value is safe only while mutedForeground stays
+                // theme-invariant: assert the tiers cannot invert if that ever changes.
+                expect(
+                  ratio,
+                  `${context}: strong muted must be more prominent than normal muted on ${surface}`,
+                ).toBeGreaterThan(normalRatio);
+              }
             }
           }
         }

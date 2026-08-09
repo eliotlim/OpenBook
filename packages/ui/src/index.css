@@ -129,18 +129,17 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* Literal shadow tokens bake into utilities; shadow-overlay uses @utility so its dark override stays live (shadow-lift has no override). */
+  /* Literal shadow tokens declared in @theme bake into utilities.
+     --shadow-overlay lives in :root and uses an explicit @utility so its
+     fixed light stops and .dark override stay live. */
   /* Soft, layered elevation for cards/tiles that lift on hover — a close
      contact shadow plus a wider ambient one, warm-tinted to match the palette
      (Apple's "floating just off the surface" look rather than a hard drop). */
   --shadow-lift: 0 1px 2px hsl(20 14% 12% / 0.05), 0 10px 24px -6px hsl(20 14% 12% / 0.12);
-  /* Floating surfaces (menus, popovers, dialogs): a more pronounced, diffuse
-     three-stop elevation so overlays read as clearly above the page without a
-     hard edge. Used everywhere via the `shadow-overlay` utility. */
-  --shadow-overlay: 0 2px 4px hsl(20 14% 12% / 0.06), 0 8px 16px -4px hsl(20 14% 12% / 0.10), 0 24px 48px -12px hsl(20 14% 12% / 0.20);
   /* Hairline RESTING shadow for notebook "sheets" / resting cards — a close
      contact shadow only, no lift. The hover-lift is the separate --shadow-lift.
-     Tracks --foreground so it adapts per theme. Exposed as `shadow-sheet`. */
+     Unlike --shadow-overlay's fixed per-scheme stops, this tracks --foreground
+     so it adapts per theme. Exposed as `shadow-sheet`. */
   --shadow-sheet: 0 1px 2px hsl(var(--foreground) / 0.04), 0 1px 3px hsl(var(--foreground) / 0.05);
   /* Hairline-ring shadow for transient menus (slash menu, inline toolbar): a
      1px ring plus a soft, tight drop so they read as quietly above the text
@@ -207,9 +206,9 @@
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
     --muted-foreground: 40 3% 43.2%;
-    /* Secondary text on the deeper accent, sheet-1, sheet-2, and desk canvas
-       family. Kept separate so ordinary muted copy does not become heavy. */
-    --muted-foreground-strong: 40 3% 36.5%;
+    /* Secondary text on accent controls and sheet-1 chrome, its two binding
+       surfaces. Kept separate so ordinary muted copy does not become heavy. */
+    --muted-foreground-strong: 40 3% 40%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
     /* Accent-derived interactive highlight (see --color-hover). Mirrors the
@@ -238,6 +237,10 @@
     --brand: 207 76% 47%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 207 86% 95%;
+    /* Floating surfaces (menus, popovers, dialogs): fixed light stops give a
+       diffuse elevation above the page; .dark supplies its own stronger recipe.
+       Kept out of @theme so the `shadow-overlay` utility resolves it live. */
+    --shadow-overlay: 0 2px 4px hsl(20 14% 12% / 0.06), 0 8px 16px -4px hsl(20 14% 12% / 0.10), 0 24px 48px -12px hsl(20 14% 12% / 0.20);
     /* Notebook-page chrome: the primary page and side pane float as rounded
        "sheets" on a desk, inset from the window edge. The desktop shell sets
        --ob-window-radius to the native corner; the page radius is concentric
@@ -283,7 +286,7 @@
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
     --muted-foreground: 0 0% 59.1%;
-    --muted-foreground-strong: 0 0% 71.3%;
+    --muted-foreground-strong: 0 0% 66%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
     --hover: hsl(var(--primary) / 0.2);
