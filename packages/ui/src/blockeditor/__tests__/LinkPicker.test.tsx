@@ -93,6 +93,25 @@ describe('LinkPicker', () => {
     expect(picker.style.left).toBe('304px');
   });
 
+  it('remeasures unconstrained when filtered results expand again', () => {
+    let naturalHeight = 300;
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') !== 'dialog') return 0;
+      return this.style.maxHeight ? Number.parseFloat(this.style.maxHeight) : naturalHeight;
+    });
+    render(<LinkPicker kind="page" anchorEl={null} onPick={() => {}} onClose={() => {}} />);
+    const picker = screen.getByRole('dialog');
+
+    naturalHeight = 100;
+    fireEvent.change(screen.getByRole('textbox'), {target: {value: 'note'}});
+    expect(picker.style.maxHeight).toBe('100px');
+
+    naturalHeight = 300;
+    fireEvent.change(screen.getByRole('textbox'), {target: {value: ''}});
+    expect(picker.style.maxHeight).toBe('300px');
+  });
+
   it('uses menu-family surface, row, and state styles', () => {
     render(<LinkPicker kind="page" anchorEl={null} onPick={() => {}} onClose={() => {}} />);
     const picker = screen.getByRole('dialog');

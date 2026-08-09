@@ -41,8 +41,13 @@ export const LinkPicker: React.FC<{
       const left = rect?.left ?? 80;
       const anchorTop = rect?.top ?? 120;
       const anchorBottom = rect?.bottom ?? anchorTop;
+      // Remove the previous viewport constraint while measuring. Otherwise a
+      // filtered short list can permanently cap a later expanded result set.
+      const previousMaxHeight = picker.style.maxHeight;
+      picker.style.maxHeight = '';
       const pickerWidth = picker.offsetWidth;
       const pickerHeight = picker.offsetHeight;
+      picker.style.maxHeight = previousMaxHeight;
       const below = window.innerHeight - anchorBottom - 14;
       const above = anchorTop - 14;
       const flip = pickerHeight > below && above > below;
