@@ -930,7 +930,10 @@
 .obe-row[data-block-type='heading'][data-block-level='2'] > .obe-gutter { top: 0.7rem; }
 .obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
 .obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
-.obe-row[data-block-type='code'] > .obe-gutter { top: 0.8rem; }
+/* Code's first text line follows the block's top margin/border/padding, the
+   25px action row, and its padding/border/margin. 3.36rem puts the 1.5rem
+   gutter midpoint on that line's midpoint at the editor's 15px type scale. */
+.obe-row[data-block-type='code'] > .obe-gutter { top: 3.36rem; }
 .obe-row:hover > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
