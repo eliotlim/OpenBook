@@ -63,10 +63,9 @@ export interface ErrorFallbackProps {
 }
 
 /**
- * The recovery UI shown by an {@link ErrorBoundary}. Design-system primitives
- * only (Button + theme tokens) so it renders correctly even when the crash took
- * out a provider — the module-level translator falls back to English without an
- * i18n provider, so the recovery path stays available.
+ * The recovery UI shown by an {@link ErrorBoundary}. Its default copy uses the
+ * module-level translator, which falls back to English outside an i18n provider.
+ * What remains visible after a crash depends on where the boundary is mounted.
  */
 export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
   title = t('errorBoundary.title'),

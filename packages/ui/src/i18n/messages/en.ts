@@ -19,6 +19,8 @@ export const en = {
   errorBoundary: {
     title: 'Something went wrong',
     message: 'This part of OpenBook ran into an unexpected error. Your work is saved — you can head back home or reload.',
+    pageTitle: 'This page couldn\'t be opened',
+    pageMessage: 'Its content ran into an error while rendering. Your other pages are fine — open one from the sidebar, or head home.',
   },
   settings: {
     title: 'Settings',
@@ -1888,7 +1890,7 @@ export const en = {
     },
     timeline: {
       placeItem: 'Place on timeline',
-      addDependency: 'Add dependency',
+      addDependency: 'Drag onto another row to add a dependency',
     },
     cells: {
       exported: 'From exported cell',
