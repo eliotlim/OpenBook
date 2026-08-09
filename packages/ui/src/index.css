@@ -291,6 +291,10 @@
     --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 208 48% 22%;
+    /* Dark surfaces absorb the light recipe's warm-black shadow. Stronger,
+       wider neutral-black stops restore elevation without a light halo and
+       keep overlays visibly above the tighter --shadow-menu tier. */
+    --shadow-overlay: 0 3px 6px hsl(0 0% 0% / 0.28), 0 12px 28px -6px hsl(0 0% 0% / 0.42), 0 32px 64px -16px hsl(0 0% 0% / 0.55);
     /* White ink in dark mode: pressing a dark fill lightens it (see :root). */
     --press-ink: hsl(0 0% 100%);
   }
