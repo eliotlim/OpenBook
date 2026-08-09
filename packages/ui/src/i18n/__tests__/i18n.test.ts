@@ -1,5 +1,6 @@
 import {afterEach, describe, it, expect} from 'vitest';
-import {t, setLocale, resolveLocale} from '../index';
+import {PAGE_TEMPLATES} from '@book.dev/sdk';
+import {t, setLocale, resolveLocale, type TKey} from '../index';
 
 afterEach(() => setLocale('en'));
 
@@ -26,6 +27,20 @@ describe('t', () => {
     setLocale('de');
     // @ts-expect-error — intentionally unknown key to exercise the final fallback.
     expect(t('does.not.exist')).toBe('does.not.exist');
+  });
+
+  it('has English copy for every key rendered by the template gallery', () => {
+    setLocale('en');
+    const missing: string[] = [];
+    for (const template of PAGE_TEMPLATES) {
+      const id = template.id.replace(/-(\w)/g, (_, c: string) => c.toUpperCase());
+      const fields = template.guidance === undefined ? ['name', 'description'] : ['name', 'description', 'guidance'];
+      for (const field of fields) {
+        const key = `templates.${id}.${field}`;
+        if (t(key as TKey) === key) missing.push(key);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });
 
