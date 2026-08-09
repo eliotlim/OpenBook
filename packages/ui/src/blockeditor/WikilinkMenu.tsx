@@ -173,6 +173,7 @@ export const WikilinkMenu: React.FC<{
     <div
       ref={ref}
       className="obe-slash"
+      data-placement={pos?.placement}
       style={pos ? {left: pos.left, top: pos.top, maxHeight: pos.maxHeight} : {left: 0, top: 0, visibility: 'hidden'}}
       role="listbox"
       aria-label={t('mention.label')}

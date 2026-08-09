@@ -210,7 +210,7 @@ export const zh: PartialMessages = {
       hint: '发布此页面后，任何拥有链接的人都能在 {host} 打开它。',
       action: '发布页面',
     },
-    siteGlobalHint: '此设置适用于你的整个书库，而不仅是此页面。',
+    siteGlobalHint: '此设置适用于你的整个资料库，而不仅是此页面。',
     scopeLabel: '谁可以访问',
     scopeAdvanced: '更多访问选项',
     scope: {
@@ -513,7 +513,7 @@ export const zh: PartialMessages = {
     artifactNote: '新页面将保存原始文件并在沙箱中运行。不做任何转换。',
     artifactHeuristicNote: '该文件包含脚本，因此建议以交互方式运行。',
     ledgerToggle: '恢复账簿数据',
-    ledgerToggleHint: '此导出包含账簿 — {accounts}、{entries}。只能恢复到尚无账簿数据的文库中。',
+    ledgerToggleHint: '此导出包含账簿 — {accounts}、{entries}。只能恢复到尚无账簿数据的资料库中。',
     ledgerAccounts: '{count} 个账户',
     ledgerAccountsOne: '{count} 个账户',
     ledgerEntries: '{count} 笔分录',
@@ -525,7 +525,7 @@ export const zh: PartialMessages = {
     ledgerEvidenceDropped: '{count} 个凭证附件无法从此文件恢复；请从备份中找回。',
     ledgerEvidenceDroppedOne: '{count} 个凭证附件无法从此文件恢复；请从备份中找回。',
     ledgerFailed: '账簿数据恢复失败：{error} 页面已照常导入。',
-    ledgerAdminOnly: '此导出包含账簿数据，但只有文库管理员才能恢复 — 页面仍会照常导入。',
+    ledgerAdminOnly: '此导出包含账簿数据，但只有资料库管理员才能恢复 — 页面仍会照常导入。',
   },
   slash: {
     text: {label: '文本', hint: '普通段落'},
@@ -916,11 +916,11 @@ export const zh: PartialMessages = {
       publishedOption: '仅已发布页面（推荐）',
       authenticated: '所有已登录的人',
       members: '成员',
-      publicHint: '任何拥有链接的人都能打开此书库的每个页面，即使未登录。',
+      publicHint: '任何拥有链接的人都能打开此资料库的每个页面，即使未登录。',
       publishedHint: '任何拥有链接的人都能打开你发布的页面。其余内容保持私密。',
-      privateHint: '只有资料库成员和访客才能打开此书库——此地址对未登录的访客保持关闭。',
-      authenticatedHint: '任何已登录的人都能查看此书库。',
-      membersHint: '只有资料库成员才能查看此书库。',
+      privateHint: '只有资料库成员和访客才能打开此资料库——此地址对未登录的访客保持关闭。',
+      authenticatedHint: '任何已登录的人都能查看此资料库。',
+      membersHint: '只有资料库成员才能查看此资料库。',
       guestOffCaveat:
         '访客访问已关闭，因此已发布页面仍无法向未登录的访客打开。请在“访客与访问”中，将“默认访问”设置为“仅已发布页面”。',
       guestOffCaveatPublic:

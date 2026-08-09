@@ -41,10 +41,6 @@ let version = 0;
 let paused = false;
 const listeners = new Set<() => void>();
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
-// Dialogs and their floating children use z-50; notifications must stay above
-// them so feedback remains visible when an action leaves a dialog open.
-const TOAST_LAYER_Z_INDEX = 100;
-
 const notify = (): void => {
   version += 1;
   listeners.forEach((cb) => cb());
@@ -106,8 +102,7 @@ export function ToastHost() {
   return (
     <div
       data-toast-host
-      className="pointer-events-none fixed inset-x-0 bottom-6 flex flex-col items-center gap-2 print:hidden"
-      style={{zIndex: TOAST_LAYER_Z_INDEX}}
+      className="pointer-events-none fixed inset-x-0 bottom-6 z-toast flex flex-col items-center gap-2 print:hidden"
       aria-live="polite"
       onMouseEnter={pauseAll}
       onMouseLeave={resumeAll}
