@@ -196,7 +196,7 @@ export const zh: PartialMessages = {
     title: '共享此页面',
     description: '选择谁可以访问此页面，并邀请他人查看或编辑。',
     loadError: '无法加载此页面的共享设置。',
-    unclaimedNotice: '共享将在你认领此实例后生效。在此之前，任何能够访问它的人都可以查看和编辑——这些设置已保存，但尚未强制执行。',
+    unclaimedNotice: '这些设置已保存，但只有在你认领此资料库后才会生效。在此之前，任何能够访问它的人都可以查看和编辑。',
     browserLocalNotice:
       '此资料库仅存在于此浏览器中——其他人无法访问它，因此这些设置暂时不会对任何人生效。要与他人共享，请通过 OpenBook 桌面应用发布资料库。',
     enforcementCaveat:
@@ -898,7 +898,7 @@ export const zh: PartialMessages = {
     copied: '已复制',
     failed: '注册失败：{error}',
     claimWarning:
-      '首次开启时，本设备的图书将归属到你的账户并默认设为私有 —— 只有你和你邀请的成员可以打开。此操作无法撤销。',
+      '首次开启时，此资料库将归属到你的账户并设为私有 —— 只有你和你邀请的人可以打开。此操作无法撤销。',
     claimRefusedUnverified: '要发布，需先验证你的账户身份。',
     claimRefusedIssuanceDisabled:
       '发布需要经过验证的身份，但账户服务器已禁用身份签发，因此无法在此完成验证。',
