@@ -47,11 +47,21 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   }, [currentPageId]);
   useEffect(() => {
     if (!hud.sideNav.open) return;
+    let wasNarrow = window.innerWidth < 768;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && window.innerWidth < 768) closeSidebar();
     };
+    const onResize = () => {
+      const narrow = window.innerWidth < 768;
+      if (narrow && !wasNarrow) closeSidebar();
+      wasNarrow = narrow;
+    };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
   }, [hud.sideNav.open, setHud]);
   return (
     // skipDelay 0 keeps the per-trigger delay so shortcut discovery stays a deliberate lingering hover (old per-trigger providers could never skip).
