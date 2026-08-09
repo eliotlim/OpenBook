@@ -1,3 +1,26 @@
+## 3.10.0 (2026-08-09)
+
+### 🚀 Features
+
+- **sdk:** pin the production registry public key (ST-13, ceremony step 3) ([#244](https://github.com/eliotlim/OpenBook/pull/244))
+- **ui:** overlay primitives — dialog size scale, nowrap buttons, toast tokens, one tooltip clock (POL-2) ([#248](https://github.com/eliotlim/OpenBook/pull/248))
+- **ui:** i18n parity report + localize stray strings + locale scope fixes (POL-7) ([#247](https://github.com/eliotlim/OpenBook/pull/247))
+
+### 🩹 Fixes
+
+- **ui:** share dialog overflow seam, copy-link wrap, single mount (POL-1) ([#246](https://github.com/eliotlim/OpenBook/pull/246))
+- **ui:** rebuild LinkPicker on popover conventions + focus fix (POL-3) ([#250](https://github.com/eliotlim/OpenBook/pull/250))
+- **ui:** muted-foreground WCAG AA contrast across the canvas family (DS-1) ([#252](https://github.com/eliotlim/OpenBook/pull/252))
+- **ui:** editor alignment — code gutter, merged-table grips (POL-8) ([#253](https://github.com/eliotlim/OpenBook/pull/253))
+- **ui:** dark overlay elevation, strong muted tier, z-scale completion (POL-9a) ([#255](https://github.com/eliotlim/OpenBook/pull/255))
+- **ui:** QA-sweep fixes — template i18n keys, LinkPicker anchor, timeline labels ([#256](https://github.com/eliotlim/OpenBook/pull/256))
+- **ui:** narrow-width usability — drawer sidebar, settings stacking, toolbar overflow (POL-10) ([#257](https://github.com/eliotlim/OpenBook/pull/257))
+- **ui:** accessible placeholder contrast + unified dark elevation (A11Y-1) ([#258](https://github.com/eliotlim/OpenBook/pull/258))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.9.0 (2026-08-09)
 
 ### 🚀 Features
