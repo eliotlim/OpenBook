@@ -1,0 +1,30 @@
+{
+  "afterMergeAAndB": {
+    "rowCount": 4,
+    "rowHasGrip": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "colCount": 4,
+    "colOwnGrip": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "row0Spans": [
+      {
+        "start": 0,
+        "end": 2,
+        "hasGrip": true
+      },
+      {
+        "start": 2,
+        "end": 4,
+        "hasGrip": true
+      }
+    ]
+  }
+}
