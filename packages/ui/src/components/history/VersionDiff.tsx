@@ -64,14 +64,14 @@ function WordRuns({runs}: {runs: WordRun[]}) {
           return (
             <ins
               key={i}
-              className="rounded-[3px] bg-emerald-500/20 px-0.5 text-emerald-800 no-underline dark:text-emerald-300"
+              className="rounded-sm bg-emerald-500/20 px-0.5 text-emerald-800 no-underline dark:text-emerald-300"
             >
               {run.value}
             </ins>
           );
         if (run.status === 'removed')
           return (
-            <del key={i} className="rounded-[3px] bg-destructive/15 px-0.5 text-destructive">
+            <del key={i} className="rounded-sm bg-destructive/15 px-0.5 text-destructive">
               {run.value}
             </del>
           );
