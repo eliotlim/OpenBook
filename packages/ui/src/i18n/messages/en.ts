@@ -113,7 +113,7 @@ export const en = {
     // pickers, so each surface links to the other to keep the scope clear.
     appWidePointer: 'App-wide theme & colours',
     perPageTitle: 'Style one page',
-    perPagePointer: 'A single page’s look — theme, fonts, cover, and width — lives in that page’s Customise pane.',
+    perPagePointer: 'To style just one page — theme, fonts, cover, width — use that page’s Customise pane.',
     openPageCustomise: 'Open Customise pane',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
@@ -527,7 +527,7 @@ export const en = {
     justNow: 'just now',
     welcome: 'Welcome to OpenBook',
     getStarted: 'Get started',
-    firstRunHint: 'Create a page and type “/” to add blocks — text, to-dos, charts, live inputs. Press ⌘K (Ctrl+K) anywhere for search and commands.',
+    firstRunHint: 'Create a page and type “/” to add blocks. Press ⌘K (Ctrl+K) anywhere for search and commands.',
     browseTemplates: 'Start from a template',
     trySample: 'Explore the sample document',
     restoreFromTrash: 'Restore from trash',
@@ -546,7 +546,7 @@ export const en = {
     cap: 'Showing the {shown} closest pages of {total} in this neighborhood',
     loading: 'Loading graph…',
     empty: 'No linked pages yet',
-    emptyHint: 'Link pages with @-mentions or database relations — the connections appear here as a graph.',
+    emptyHint: 'Link pages with @-mentions or database relations — the connections appear here.',
   },
   mention: {
     label: 'Link to page',
@@ -750,10 +750,10 @@ export const en = {
   },
   ai: {
     title: 'AI',
-    description: 'An optional model powers note search, task breakdown, and document completion. Run a local model — nothing leaves your machine — or connect the Claude API.',
+    description: 'An optional model powers note search, task breakdown, and writing help. Run it locally — nothing leaves your machine — or connect the Claude API.',
     providerLabel: 'Engine',
     defaultEngine: 'Default engine',
-    defaultEngineHint: 'Used everywhere by default. Each provider below is configured separately — the agent can switch between them per conversation.',
+    defaultEngineHint: 'Used everywhere by default. Each provider below has its own settings, and the agent can switch per conversation.',
     provider: {
       off: 'Off',
       offHint: 'No model. Note search still works (keyword ranking).',
@@ -842,7 +842,7 @@ export const en = {
     },
     mcp: {
       title: 'External tools (MCP)',
-      hint: 'Let the assistant use tools from external MCP servers you connect. Off by default. External tools receive whatever the assistant sends them and their results are treated as untrusted — the assistant’s edits stay behind review once it uses one.',
+      hint: 'Let the assistant use tools from MCP servers you connect. Off by default. External tools see what the assistant sends them and their results are untrusted — once it uses one, its edits stay behind review.',
       enable: 'Enable external tools',
       enableHint: 'Master switch. With this off, no external server is contacted.',
       empty: 'No external servers yet. Add one to let the assistant use its tools.',
@@ -1037,7 +1037,7 @@ export const en = {
     loadError: 'Failed to load: {error}',
     enable: 'Enable {name}',
     remove: 'Remove {name}',
-    trustNote: 'Extensions run with the same privileges as your documents’ live code. A “Verified” badge means a registry you trust signed this exact content — it is provenance, not a sandbox.',
+    trustNote: 'Extensions run with the same access as your documents’ live code. A “Verified” badge means a registry you trust signed this exact content — provenance, not a sandbox.',
     registries: 'Trusted registries',
     registriesHint: 'Extensions signed by any of these keys show as Verified.',
     builtIn: 'Built-in',
@@ -1047,12 +1047,12 @@ export const en = {
     removeRegistry: 'Remove registry {name}',
     registryKeyInvalid: 'Enter a 32-byte Ed25519 public key in base64.',
     store: 'Extension store',
-    storeHint: 'Browse and install extensions from a pinned store. A store is pinned by its URL and keys — confirm the fingerprints against a source you trust (your org’s handbook, an admin’s message) before pinning.',
+    storeHint: 'Browse and install extensions from a pinned store. A store is pinned by its URL and keys — check the fingerprints against a source you trust before pinning.',
     storeUrl: 'Store URL',
     storeConnect: 'Connect',
     storeConnectError: 'Could not read a plugin store at that URL: {error}',
     storePinTitle: 'Pin this store?',
-    storePinHint: 'Compare these fingerprints with a source that is NOT this page before pinning.',
+    storePinHint: 'Before pinning, check these fingerprints against a source outside this page.',
     storePin: 'Pin store',
     storeRemove: 'Remove store {name}',
     storeNotaryFp: 'Notary key',
@@ -1330,7 +1330,7 @@ export const en = {
     resetPrefsHint: 'Restore default appearance, language, and layout on this device. Your pages and libraries are kept.',
     resetPrefsButton: 'Reset',
     resetConfirmTitle: 'Reset preferences & layout?',
-    resetConfirmBody: 'This clears appearance, language, and layout settings on this device and reloads. Your pages and libraries are not affected.',
+    resetConfirmBody: 'Resets appearance, language, and layout on this device, then reloads. Your pages and libraries are kept.',
     resetConfirmButton: 'Reset',
   },
   updates: {
@@ -1342,7 +1342,7 @@ export const en = {
     cadenceWeekly: 'Weekly',
     cadenceNever: 'Never',
     cadenceNeverHint:
-      'With automatic checks off, OpenBook won’t contact the update server at all. You can still check any time with the button below.',
+      'With automatic checks off, OpenBook never contacts the update server. You can still check any time below.',
     securityOnly: 'Security updates only',
     securityOnlyHint:
       'Automatic checks download only updates that fix a security issue. Checking manually still shows every update.',
@@ -1487,7 +1487,7 @@ export const en = {
     },
     nudge: {
       title: 'Sync and publish',
-      body: 'Sign up free to keep your preferences and libraries in sync across devices — then publish your work to the web. Local-first stays the default.',
+      body: 'Sign up free to sync your preferences and libraries across devices, then publish your work to the web. Local-first stays the default.',
       cta: 'Get started free',
       dismiss: 'Dismiss',
     },
@@ -1774,14 +1774,14 @@ export const en = {
   },
   agents: {
     title: 'Agent access',
-    description: 'Personal access tokens let an AI agent or MCP client reach this library over HTTP with a scoped, revocable credential.',
+    description: 'Personal access tokens give an AI agent or MCP client scoped, revocable access to this library over HTTP.',
     unavailable: 'Agent tokens run on the desktop app or a connected server — not in the browser.',
     // Shown when a confirmed non-admin reaches this admin-only tab (SET2-10).
     adminOnly: 'This tab is available to library admins.',
     enableTitle: 'Enable agent API',
-    enableHint: 'Off by default. While off, agent tokens do not authenticate and none can be minted. Nothing is exposed until you turn this on.',
+    enableHint: 'Off by default — nothing is exposed until you turn it on. While off, agent tokens don’t authenticate and none can be created.',
     remoteTitle: 'Allow remote MCP',
-    remoteHint: 'Off by default. When on, a remote-flagged token can reach only the /api/mcp endpoint over the public web. Remote agents can read pages the token’s user can read and file suggestions and comments — they can never share, export, administer, or directly edit. Publishing the site with agent access on is a separate step.',
+    remoteHint: 'Off by default. Remote tokens reach only the /api/mcp endpoint: agents can read what the token’s user can read and file suggestions and comments — never share, export, administer, or edit directly. Turning this on doesn’t publish your site.',
     remoteBadge: 'Remote',
     remoteScopeLabel: 'Remote access',
     remoteScopeLocal: 'Local only',
@@ -1801,7 +1801,7 @@ export const en = {
     createButton: 'Create token',
     creating: 'Creating…',
     revealTitle: 'Copy your new token now',
-    revealHint: 'This is the only time the full token is shown. Store it securely — you cannot see it again.',
+    revealHint: 'This is the only time the full token is shown — store it securely.',
     copy: 'Copy',
     copied: 'Copied',
     revealDone: 'Done',
@@ -1820,8 +1820,8 @@ export const en = {
     // Local MCP connector setup (STAB-5). Shown on the desktop app when the agent
     // API is on: the loopback endpoint + the exact config an MCP client registers.
     localMcpTitle: 'Local MCP connector',
-    localMcpHint: 'This library also answers on a loopback address so a local MCP client (Claude Desktop, Claude Code, Cursor) can reach it. Register the connector with the snippet below — it points at this exact library and refuses any other server on the port.',
-    localMcpFollowsDefault: 'The connector follows your default local library. If you switch libraries in the app, the connector keeps talking to the default one.',
+    localMcpHint: 'This library also answers on a loopback address for local MCP clients (Claude Desktop, Claude Code, Cursor). Register the connector with the snippet below — it’s pinned to this exact library and refuses any other server on the port.',
+    localMcpFollowsDefault: 'The connector always talks to your default local library, even if you switch libraries in the app.',
     localMcpCopy: 'Copy config',
   },
   agentEdits: {
@@ -1830,7 +1830,7 @@ export const en = {
     modeLabel: 'When an agent edits a page',
     // The honest tradeoff: Direct writes land immediately with no review step; every
     // edit is still attributed in the page’s history, and a page can override this.
-    modeHint: 'Suggest keeps a human in the loop — every agent change waits as a suggestion for you to accept or reject. Direct lets MCP clients and the built-in AI edit pages immediately, with no suggestion step; the edits are attributed in the page’s history.',
+    modeHint: 'Suggest holds every agent change as a suggestion for you to accept or reject. Direct lets agents edit pages immediately — every edit is still attributed in the page’s history.',
     modeSuggest: 'Suggest edits for review',
     modeDirect: 'Edit pages directly',
     ownerLocked: 'Only the library owner can change how agents edit.',
