@@ -617,7 +617,7 @@ const TrustedRegistries: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{registry.name}</span>
                   {builtIn && (
-                    <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-muted-foreground-strong">
                       {t('extensions.builtIn')}
                     </span>
                   )}

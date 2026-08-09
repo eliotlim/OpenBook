@@ -8,12 +8,7 @@ const SCHEMES = ['light', 'dark'] as const;
 const INTERFACE_INTENSITIES = [0, 1, 2, 3] as const;
 const BACKGROUNDS = [undefined, ...Object.keys(PAGE_BACKGROUNDS)] as const;
 const SURFACES = ['card', 'background', 'popover', 'muted', 'secondary'] as const;
-
-// Deliberate POL-9 exclusions: these pairs need a surface-specific foreground,
-// rather than further movement of the shared --muted-foreground token.
-// - --muted-foreground on --accent
-// - --muted-foreground on --sheet-2
-// - light --muted-foreground on --desk
+const STRONG_SURFACES = ['accent', 'sheet2', 'desk'] as const;
 
 function cssBlock(selector: string): string {
   const start = CSS.indexOf(`${selector} {`);
@@ -61,6 +56,7 @@ describe('muted foreground contrast', () => {
     for (const scheme of SCHEMES) {
       const selector = scheme === 'light' ? ':root' : '.dark';
       const palette = defaultTheme[scheme];
+      const strong = cssToken(selector, 'muted-foreground-strong');
       expect(cssToken(selector, 'muted-foreground')).toBe(palette.mutedForeground);
       expect(cssToken(selector, 'card')).toBe(palette.card);
       expect(cssToken(selector, 'background')).toBe(palette.background);
@@ -69,6 +65,7 @@ describe('muted foreground contrast', () => {
         contrast(palette.mutedForeground, palette.sheet1),
         `${scheme}: muted ${palette.mutedForeground} on first-paint sheet1 ${palette.sheet1}`,
       ).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(strong, palette.foreground), `${scheme}: strong muted must remain distinct from foreground`).toBeGreaterThanOrEqual(1.3);
     }
   });
 
@@ -90,6 +87,31 @@ describe('muted foreground contrast', () => {
                 ratio,
                 `${theme.id}/${scheme}/interface-${interfaceIntensity}/background-${background ?? 'unset'}: ` +
                   `muted ${palette.mutedForeground} on ${surface} ${palette[surface]}`,
+              ).toBeGreaterThanOrEqual(4.5);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps strong muted text at WCAG AA on accent, sheet-2, and desk surfaces', () => {
+    for (const theme of themes) {
+      for (const scheme of SCHEMES) {
+        const selector = scheme === 'light' ? ':root' : '.dark';
+        const strong = cssToken(selector, 'muted-foreground-strong');
+        for (const interfaceIntensity of INTERFACE_INTENSITIES) {
+          for (const background of BACKGROUNDS) {
+            const palette = composeAppearance(
+              {...DEFAULT_APPEARANCE, themeId: theme.id, interfaceIntensity, background},
+              scheme,
+            );
+            for (const surface of STRONG_SURFACES) {
+              const ratio = contrast(strong, palette[surface]);
+              expect(
+                ratio,
+                `${theme.id}/${scheme}/interface-${interfaceIntensity}/background-${background ?? 'unset'}: ` +
+                  `strong muted ${strong} on ${surface} ${palette[surface]}`,
               ).toBeGreaterThanOrEqual(4.5);
             }
           }

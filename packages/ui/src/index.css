@@ -33,6 +33,7 @@
 
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-foreground-strong: hsl(var(--muted-foreground-strong));
 
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
@@ -199,6 +200,9 @@
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
     --muted-foreground: 40 3% 43.2%;
+    /* Secondary text on the deeper accent/sheet/desk canvas family. Kept
+       separate so ordinary muted copy does not become unnecessarily heavy. */
+    --muted-foreground-strong: 40 3% 36.5%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
     /* Accent-derived interactive highlight (see --color-hover). Mirrors the
@@ -272,6 +276,7 @@
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
     --muted-foreground: 0 0% 59.1%;
+    --muted-foreground-strong: 0 0% 71%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
     --hover: hsl(var(--primary) / 0.2);
@@ -551,8 +556,8 @@
 
    On the saturated accent sheet the neutral text/icon and hover tokens can't
    read, so we remap them to the sheet's own contrast-audited poles. Crucially we
-   override the Tailwind `--color-*` tokens (what `text-muted-foreground` /
-   `bg-hover` actually resolve), NOT the underlying `--muted-foreground` etc: the
+   override the Tailwind `--color-*` tokens (what `text-muted-foreground*` /
+   `bg-hover` actually resolve), NOT the underlying `--muted-foreground*` etc: the
    `--color-*` intermediates are declared at :root (@theme) and substitute their
    nested `var()` there, so overriding the base tokens in this subtree would never
    reach them. De-emphasised text collapses to the FULL sheet foreground
@@ -564,6 +569,7 @@
    render outside these subtrees, so they stay neutral popovers. */
 [data-sidebar='accent'] .ob-accent-chrome {
   --color-muted-foreground: hsl(var(--sheet-1-foreground));
+  --color-muted-foreground-strong: hsl(var(--sheet-1-foreground));
   --color-accent-foreground: hsl(var(--sheet-1-foreground));
   --color-hover: hsl(var(--sheet-veil) / 0.1);
   --color-hover-strong: hsl(var(--sheet-veil) / 0.16);
