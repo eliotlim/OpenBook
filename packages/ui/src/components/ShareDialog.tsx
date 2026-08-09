@@ -290,8 +290,8 @@ function PublishRow({
  * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
  * shows the *effective* library default behind `inherit` and links out to
  * the library-level Sharing tab (its top, and its People roster section). A non-manager
- * (`canManage: false`) gets the same dialog read-only. Rendered from the
- * page-actions cluster.
+ * (`canManage: false`) gets the same dialog read-only. Production entry points
+ * all target the single app-shell {@link ShareDialogHost}.
  */
 export default function ShareDialog({
   pageId,
@@ -919,11 +919,10 @@ export default function ShareDialog({
 
 /**
  * The single mounted host that opens the Share dialog imperatively — driven by
- * the {@link requestShareDialog} store so the command palette and the page "…"
- * menu can reach Share without the always-mounted cluster trigger (which
- * vanishes when sharing is unsupported). Renders nothing until a page is
- * targeted, and only when the server actually supports sharing. Mounted once in
- * the app shell (see DefaultLayout).
+ * the {@link requestShareDialog} store so the toolbar, publish indicator,
+ * command palette, and page "…" menu share one open state. Renders nothing
+ * until a page is targeted, and only when the server actually supports sharing.
+ * Mounted once in the app shell (see DefaultLayout).
  */
 export function ShareDialogHost() {
   useSyncExternalStore(subscribeShareDialog, shareDialogVersion, shareDialogVersion);
