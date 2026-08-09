@@ -85,6 +85,30 @@
   --transition-property-height: height;
   --transition-property-spacing: margin, padding;
 
+  /* ── Chrome stacking scale ────────────────────────────────────────────────
+     Local 1–6 tiers order editor adornments without escaping their stacking
+     contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
+     render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
+     slash + toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
+     (raised / sticky chrome), z-40 (navigation scrims), z-50 (menus and
+     dialogs), and reserved z-60 (image lightbox) conventions used by
+     components. Nested menu panels use 55: above their z-50 parent chrome,
+     never tied with the lightbox's reserved tier. NavBar/DefaultLayout z-40,
+     ImageLightbox z-[60], toast z-[100], and timeline z-30 are not yet migrated
+     (follow-up), so 60 is not the ceiling. */
+  --z-index-raised: 1;
+  --z-index-control: 2;
+  --z-index-drop-indicator: 3;
+  --z-index-pane-overlay: 4;
+  --z-index-local-overlay: 5;
+  --z-index-presence: 6;
+  --z-index-sticky: 10;
+  --z-index-inline-hint: 20;
+  --z-index-overlay: 40;
+  --z-index-menu: 50;
+  --z-index-nested-menu: 55;
+  --z-index-lightbox: 60;
+
   /* ── Motion system ──────────────────────────────────────────────────────────
      One considered curve + tempo for the whole UI. `--default-transition-*` are
      the Tailwind v4 theme keys every `transition`/`transition-colors` utility
@@ -510,7 +534,7 @@
      than the page, in both themes. */
   background: linear-gradient(to right, hsl(var(--foreground) / 0.07), transparent);
   pointer-events: none;
-  z-index: 4;
+  z-index: var(--z-index-pane-overlay);
 }
 .dark .ob-desk > [data-split-pane]::before {
   background: linear-gradient(to right, hsl(0 0% 0% / 0.25), transparent);
@@ -862,7 +886,7 @@
    accent/ring tokens. `obe-marqueeing` freezes text selection during the drag. */
 .obe-marquee {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-index-local-overlay);
   pointer-events: none;
   background: hsl(var(--ring) / 0.14);
   border: 1px solid hsl(var(--ring) / 0.65);
@@ -964,7 +988,7 @@
   content: '';
   position: absolute;
   pointer-events: none;
-  z-index: 3;
+  z-index: var(--z-index-drop-indicator);
 }
 .obe-drop-above::after,
 .obe-drop-below::after {
@@ -1615,7 +1639,7 @@ a.obe-mention {
   position: absolute;
   top: 0.75rem;
   right: 0.9rem;
-  z-index: 10;
+  z-index: var(--z-index-sticky);
   opacity: 0;
   transition: opacity 160ms;
 }
@@ -1898,7 +1922,7 @@ a.obe-mention {
   opacity: 0;
   transition: opacity 120ms ease, background 120ms ease;
   cursor: grab; /* explicit for WKWebView — desktop clicks need a pointer cursor */
-  z-index: 1;
+  z-index: var(--z-index-raised);
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
@@ -1919,7 +1943,7 @@ a.obe-mention {
 /* Slash menu */
 .obe-slash {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-index-menu);
   width: 17rem;
   max-height: 19rem;
   overflow-y: auto;
@@ -2016,13 +2040,14 @@ a.obe-mention {
 /* Inline toolbar */
 .obe-toolbar {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-index-menu);
   display: flex;
   align-items: center;
   gap: 1px;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  /* concentric: child radius (--radius-md) + 3px padding */
+  border-radius: calc(var(--radius-md) + 3px);
   box-shadow: var(--shadow-menu);
   padding: 3px;
 }
@@ -2031,7 +2056,7 @@ a.obe-mention {
   height: 1.7rem;
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 0.82rem;
   color: hsl(var(--foreground) / 0.85);
   cursor: pointer;
@@ -2172,11 +2197,12 @@ a.obe-mention {
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
-  box-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
   padding: 0.5rem;
   width: max-content;
-  z-index: 60;
+  /* Nested above the toolbar, but below the lightbox's reserved z-60 tier. */
+  z-index: var(--z-index-nested-menu);
 }
 .obe-tb-colors-label {
   font-size: 0.65rem;
@@ -2474,7 +2500,7 @@ a.obe-mention {
   position: absolute;
   top: 0.25rem;
   right: 0.25rem;
-  z-index: 2;
+  z-index: var(--z-index-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2482,7 +2508,7 @@ a.obe-mention {
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
   padding: 0.22rem;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -2779,17 +2805,17 @@ a.obe-mention {
 
 .obe-chart-tooltip {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-index-local-overlay);
   transform: translate(-50%, calc(-100% - 10px));
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
   padding: 0.2rem 0.45rem;
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 4px 14px hsl(var(--foreground) / 0.14);
+  box-shadow: var(--shadow-menu);
   font-size: 0.72rem;
   line-height: 1.2;
   white-space: nowrap;
@@ -2850,18 +2876,18 @@ a.obe-mention {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: 20;
+  z-index: var(--z-index-inline-hint);
   width: max-content;
   max-width: 18rem;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 0.45rem 0.65rem;
   font-size: 0.8rem;
   font-weight: 400;
   line-height: 1.45;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
+  box-shadow: var(--shadow-menu);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms;
@@ -3017,7 +3043,7 @@ a.obe-mention {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 6;
+  z-index: var(--z-index-presence);
 }
 /* A range highlight: the peer colour at a calm opacity so text stays readable. */
 .obe-rcursor-sel {

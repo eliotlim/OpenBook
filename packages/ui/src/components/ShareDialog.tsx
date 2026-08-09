@@ -3,6 +3,7 @@ import {Check, Globe, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useForwarding, useHud, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
+import {DIALOG_EXIT_MS} from './ui/dialog';
 import {
   Dialog,
   DialogContent,
@@ -210,6 +211,13 @@ function InlinePublish() {
   );
 }
 
+/** Render `msg` with the (unbreakable) host segment allowed to break mid-token. */
+function HostHint({msg, host}: {msg: string; host: string}) {
+  const i = msg.indexOf(host);
+  if (i < 0) return <span className="break-all">{msg}</span>;
+  return <>{msg.slice(0, i)}<span className="break-all">{host}</span>{msg.slice(i + host.length)}</>;
+}
+
 /**
  * The per-page "Publish to the web" affordance (GATE-6). Four states, all under a
  * reachable published address:
@@ -248,8 +256,8 @@ function PublishRow({
         <Globe className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="text-xs font-medium text-foreground">{t('share.publishState.live')}</span>
-          <span className="truncate text-xs text-muted-foreground">
-            {t('share.publishState.liveHint', {host})}
+          <span className="text-xs text-muted-foreground">
+            <HostHint msg={t('share.publishState.liveHint', {host})} host={host}/>
           </span>
         </span>
       </div>
@@ -274,7 +282,9 @@ function PublishRow({
   if (!canPublish) return null;
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">{t('share.publishState.hint', {host})}</p>
+      <p className="text-xs text-muted-foreground">
+        <HostHint msg={t('share.publishState.hint', {host})} host={host}/>
+      </p>
       <Button size="sm" className="self-start" disabled={busy} onClick={onPublish}>
         <Globe className="h-4 w-4" />
         {t('share.publishState.action')}
@@ -290,8 +300,8 @@ function PublishRow({
  * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
  * shows the *effective* library default behind `inherit` and links out to
  * the library-level Sharing tab (its top, and its People roster section). A non-manager
- * (`canManage: false`) gets the same dialog read-only. Rendered from the
- * page-actions cluster.
+ * (`canManage: false`) gets the same dialog read-only. Production entry points
+ * all target the single app-shell {@link ShareDialogHost}.
  */
 export default function ShareDialog({
   pageId,
@@ -505,9 +515,12 @@ export default function ShareDialog({
   // site-visibility mismatch as an explicitly-public one — the notice must cover
   // both (Quinn). `null` until the default resolves, in which case it can't fire.
   const effectiveScope = scope === 'inherit' ? defaultVisibility : scope;
+  const publishedAddressHint = publishedHost ? t('share.linkHints.publishedAt', {host: publishedHost}) : '';
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {/* The showTrigger/openState path is exercised only by unit tests; production
+          always mounts via ShareDialogHost with showTrigger={false} open. */}
       {showTrigger && (
         <DialogTrigger asChild>
           <IconButton size="sm" aria-label={t('share.open')} title={t('share.open')}>
@@ -524,7 +537,8 @@ export default function ShareDialog({
         {loadError ? (
           <p className="text-sm text-destructive">{t('share.loadError')}</p>
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="min-w-0 flex flex-col gap-5">
+            {/* grid-item min-width guard — the real overflow fix; a base-level min-w-0 on DialogContent does NOT subsume this */}
             {/* In-browser library disclosure (P0-4): nothing outside this
                 browser can reach the library, so these settings can't take
                 effect for anyone else — supersedes the claim disclosures below
@@ -692,7 +706,7 @@ export default function ShareDialog({
                   <Input
                     id="share-invitee"
                     inputSize="sm"
-                    className="flex-1"
+                    className="min-w-0 flex-1"
                     placeholder={t('share.addPlaceholder')}
                     value={invitee}
                     disabled={adding}
@@ -790,7 +804,12 @@ export default function ShareDialog({
             {canManage && !browserLocal && publishedHost && aclReadable && grants.some((g) => g.email != null) && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
                 <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('share.deliver.hint')}</p>
-                <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyDeliverLink()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void copyDeliverLink()}
+                >
                   {deliverCopied ? (
                     <>
                       <Check className="h-4 w-4" />
@@ -858,7 +877,7 @@ export default function ShareDialog({
               <InlinePublish />
             ) : (
               <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                <span className="text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">
                   {browserLocal ? (
                     t('share.linkHints.browserLocal')
                   ) : linkIsLocalOnly ? (
@@ -866,11 +885,21 @@ export default function ShareDialog({
                   ) : (
                     <>
                       {t(LINK_HINT[scope])}
-                      {publishedHost && <> {t('share.linkHints.publishedAt', {host: publishedHost})}</>}
+                      {publishedHost && (
+                        <>
+                          {' '}
+                          <HostHint msg={publishedAddressHint} host={publishedHost}/>
+                        </>
+                      )}
                     </>
                   )}
                 </span>
-                <Button variant="outline" size="sm" onClick={() => void copyLink()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void copyLink()}
+                >
                   {copied ? (
                     <>
                       <Check className="h-4 w-4" />
@@ -894,25 +923,38 @@ export default function ShareDialog({
 
 /**
  * The single mounted host that opens the Share dialog imperatively — driven by
- * the {@link requestShareDialog} store so the command palette and the page "…"
- * menu can reach Share without the always-mounted cluster trigger (which
- * vanishes when sharing is unsupported). Renders nothing until a page is
- * targeted, and only when the server actually supports sharing. Mounted once in
- * the app shell (see DefaultLayout).
+ * the {@link requestShareDialog} store so the toolbar, publish indicator,
+ * command palette, and page "…" menu share one open state. Renders nothing
+ * until a page is targeted, and only when the server actually supports sharing.
+ * Mounted once in the app shell (see DefaultLayout).
  */
 export function ShareDialogHost() {
   useSyncExternalStore(subscribeShareDialog, shareDialogVersion, shareDialogVersion);
   const target = readShareTarget();
+  const [retainedTarget, setRetainedTarget] = useState(target);
   const {supported, canManage} = useSharingCapability();
+  useEffect(() => {
+    if (target !== null) {
+      setRetainedTarget(target);
+      return;
+    }
+    if (retainedTarget === null) return;
+    // Keep Radix mounted through dialog.tsx's duration-200 exit animation; its
+    // presence/focus scope can then restore focus before the retained page clears.
+    const timeout = window.setTimeout(() => setRetainedTarget(null), DIALOG_EXIT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [retainedTarget, target]);
+  const renderedTarget = target ?? retainedTarget;
   // Unsupported servers have no Share dialog to show; the menu/command entries
   // stay visible-but-disabled, so a stray request here is simply a no-op.
-  if (!target || supported === false) return null;
+  if (!renderedTarget || supported === false) return null;
   return (
     <ShareDialog
-      pageId={target}
+      key={renderedTarget}
+      pageId={renderedTarget}
       canManage={canManage}
       showTrigger={false}
-      open
+      open={target !== null}
       onOpenChange={(next) => {
         if (!next) clearShareTarget();
       }}
