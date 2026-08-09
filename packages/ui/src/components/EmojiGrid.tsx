@@ -51,7 +51,7 @@ export default function EmojiGrid({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t(source === 'emoji' ? 'emoji.searchEmoji' : 'emoji.searchIcons')}
-          className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:shadow-[var(--ring-field)]"
+          className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-hidden placeholder:text-placeholder-foreground focus-visible:border-ring focus-visible:shadow-[var(--ring-field)]"
           aria-label={t('emoji.search')}
         />
       </div>

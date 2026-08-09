@@ -253,6 +253,7 @@ const GroupRenameField: React.FC<{initial: string; onCommit: (value: string) => 
   };
   return (
     <div className="p-1" onKeyDown={(e) => e.stopPropagation()}>
+      {/* The stronger tier remains AA on the accent fill, and therefore on its 40% composite. */}
       <input
         autoFocus
         defaultValue={initial}
@@ -264,7 +265,7 @@ const GroupRenameField: React.FC<{initial: string; onCommit: (value: string) => 
         onClick={(e) => e.stopPropagation()}
         placeholder="Group name…"
         aria-label="Rename group"
-        className="w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden placeholder:text-muted-foreground/50"
+        className="w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden placeholder:text-muted-foreground-strong"
       />
     </div>
   );
@@ -1212,7 +1213,7 @@ const NewGroupColumn: React.FC<{onAdd: (label: string) => void}> = ({onAdd}) => 
         onBlur={commit}
         placeholder="Group name…"
         aria-label="New group name"
-        className="w-full bg-transparent py-0.5 text-sm outline-hidden placeholder:text-muted-foreground/50"
+        className="w-full bg-transparent py-0.5 text-sm outline-hidden placeholder:text-placeholder-foreground"
       />
     </div>
   );

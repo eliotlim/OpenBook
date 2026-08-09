@@ -144,7 +144,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
         if (e.key === 'Enter') e.currentTarget.blur();
       }}
       placeholder="Untitled"
-      className="w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/40"
+      className="w-full bg-transparent text-sm outline-hidden placeholder:text-placeholder-foreground"
     />
   </div>
 );
@@ -1011,7 +1011,7 @@ const SearchBox: React.FC<{db: UseDatabase}> = ({db}) => (
         if (e.key === 'Escape') db.setSearch('');
       }}
       placeholder="Search"
-      className="w-24 bg-transparent py-1 text-xs outline-hidden placeholder:text-muted-foreground/60 focus:w-36"
+      className="w-24 bg-transparent py-1 text-xs outline-hidden placeholder:text-placeholder-foreground focus:w-36"
       aria-label="Search rows"
     />
     {db.search && (
@@ -1517,7 +1517,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
               defaultValue={db.database.name ?? ''}
               onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
               placeholder="Untitled database"
-              className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
+              className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-placeholder-foreground"
             />
           )}
           <Toolbar

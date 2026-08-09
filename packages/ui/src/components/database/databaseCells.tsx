@@ -283,7 +283,7 @@ export function parseCsv(text: string): string[][] {
    focused — a table of mostly-empty cells reads as calm whitespace, not a grid
    of grey "Empty" labels. Rows (and the page property panel) carry `group`. */
 const inputClass =
-  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-hover';
+  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-placeholder-foreground placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-hover';
 
 /** The hover-revealed "Empty" label for button-style cells (select, date…). */
 const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
