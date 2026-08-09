@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 // @ts-expect-error -- Vitest runs in Node; the browser package omits Node ambient types.
-import {readFileSync} from 'node:fs';
+import {readFileSync, readdirSync} from 'node:fs';
 import {composeAppearance, DEFAULT_APPEARANCE, PAGE_BACKGROUNDS, themes} from '../themes';
 
 const CSS = readFileSync('src/index.css', 'utf8');
@@ -9,6 +9,7 @@ const INTERFACE_INTENSITIES = [0, 1, 2, 3] as const;
 const CONTROL_INTENSITIES = [0, 1, 2, 3] as const;
 const BACKGROUNDS = [undefined, ...Object.keys(PAGE_BACKGROUNDS)] as const;
 const SURFACES = ['card', 'background', 'popover', 'muted', 'secondary'] as const;
+const PLACEHOLDER_SURFACES = ['background', 'card', 'popover'] as const;
 const STRONG_SURFACES = ['accent', 'sheet1'] as const;
 
 function cssBlock(selector: string): string {
@@ -48,6 +49,15 @@ function luminance(triple: string): number {
 function contrast(a: string, b: string): number {
   const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, {withFileTypes: true}).flatMap(
+    (entry: {name: string; isDirectory(): boolean}): string[] => {
+      const path = `${directory}/${entry.name}`;
+      return entry.isDirectory() ? sourceFiles(path) : [path];
+    },
+  );
 }
 
 describe('muted foreground contrast', () => {
@@ -94,6 +104,42 @@ describe('muted foreground contrast', () => {
         }
       }
     }
+  });
+
+  it('keeps placeholder text at WCAG AA across every composed canvas appearance', () => {
+    for (const theme of themes) {
+      for (const scheme of SCHEMES) {
+        const selector = scheme === 'light' ? ':root' : '.dark';
+        const placeholder = cssToken(selector, 'placeholder-foreground');
+        for (const interfaceIntensity of INTERFACE_INTENSITIES) {
+          for (const background of BACKGROUNDS) {
+            const palette = composeAppearance(
+              {...DEFAULT_APPEARANCE, themeId: theme.id, interfaceIntensity, background},
+              scheme,
+            );
+            for (const surface of PLACEHOLDER_SURFACES) {
+              const ratio = contrast(placeholder, palette[surface]);
+              expect(
+                ratio,
+                `${theme.id}/${scheme}/interface-${interfaceIntensity}/background-${background ?? 'unset'}: ` +
+                  `placeholder ${placeholder} on ${surface} ${palette[surface]}`,
+              ).toBeGreaterThanOrEqual(4.5);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('forbids alpha-reduced placeholder color utilities in source', () => {
+    const violations = sourceFiles('src')
+      .filter((file) => /\.(?:css|js|ts|tsx)$/.test(file))
+      .flatMap((file) => {
+        const matches = readFileSync(file, 'utf8').match(/placeholder:[^\s'"`]*\/[0-9][^\s'"`]*/g) ?? [];
+        return matches.map((utility: string) => `${file}: ${utility}`);
+      });
+
+    expect(violations, violations.join('\n')).toEqual([]);
   });
 
   it('keeps strong muted text at WCAG AA on its accent and sheet-1 binding surfaces', () => {

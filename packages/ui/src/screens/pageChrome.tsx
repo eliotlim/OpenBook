@@ -129,7 +129,7 @@ export const PageHeader: React.FC<{
         ref={inputRef}
         rows={1}
         readOnly={readOnly}
-        className="ob-page-title w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
+        className="ob-page-title w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-placeholder-foreground"
         value={title}
         placeholder={readOnly ? '' : t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}

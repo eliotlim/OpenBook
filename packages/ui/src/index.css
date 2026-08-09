@@ -38,6 +38,7 @@
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
   --color-muted-foreground-strong: hsl(var(--muted-foreground-strong));
+  --color-placeholder-foreground: hsl(var(--placeholder-foreground));
 
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
@@ -206,6 +207,8 @@
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
     --muted-foreground: 40 3% 43.2%;
+    /* Form hints share one opaque, AA-audited tier across canvas surfaces. */
+    --placeholder-foreground: 40 3% 43.2%;
     /* Secondary text on accent controls and sheet-1 chrome, its two binding
        surfaces. Kept separate so ordinary muted copy does not become heavy. */
     --muted-foreground-strong: 40 3% 40%;
@@ -286,6 +289,7 @@
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
     --muted-foreground: 0 0% 59.1%;
+    --placeholder-foreground: 0 0% 59.1%;
     --muted-foreground-strong: 0 0% 66%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;

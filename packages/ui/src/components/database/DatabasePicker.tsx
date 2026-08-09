@@ -22,7 +22,7 @@ const DatabasePicker: React.FC<{onPick: (pageId: string) => void; onBack: () => 
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search databases…"
-          className="w-full bg-transparent py-1.5 text-sm outline-hidden placeholder:text-muted-foreground/50"
+          className="w-full bg-transparent py-1.5 text-sm outline-hidden placeholder:text-placeholder-foreground"
         />
       </div>
       <div className="max-h-60 space-y-0.5 overflow-y-auto">
