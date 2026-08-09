@@ -47,8 +47,18 @@ export const LinkPicker: React.FC<{
   // Shared positioning preserves the picker's measured content-height cap,
   // flip, horizontal and above-placement viewport clamps; below placement can
   // exceed the viewport only via the shared min-height floor, matching the other
-  // popups. Result growth still triggers remeasurement.
+  // popups. Bring a fully off-screen command block back first so its live rect,
+  // rather than an out-of-viewport coordinate, drives the initial measurement.
+  // Result growth still triggers remeasurement.
   useLayoutEffect(() => {
+    const rect = anchorEl?.getBoundingClientRect();
+    if (
+      anchorEl &&
+      rect &&
+      (rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth)
+    ) {
+      anchorEl.scrollIntoView({block: 'center'});
+    }
     return observePopupPosition({
       popup: () => rootRef.current,
       anchor: () => anchorEl?.getBoundingClientRect() ?? FALLBACK_ANCHOR_RECT,
