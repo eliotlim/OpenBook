@@ -2,7 +2,18 @@ import {describe, it, expect, afterEach} from 'vitest';
 import {render, cleanup, fireEvent} from '@testing-library/react';
 import * as Y from 'yjs';
 import {BlockEditor, tableDropTarget} from '../BlockEditor';
-import {blockId, createDoc, findBlock, makeTable, rootBlocks, tableColumns, tableGrid} from '../model';
+import {
+  blockId,
+  createDoc,
+  findBlock,
+  makeTable,
+  rootBlocks,
+  tableColumns,
+  tableGrid,
+  tableMergeCells,
+  tableMoveColumn,
+  tableSpans,
+} from '../model';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +79,26 @@ describe('table drag grips (render gating)', () => {
     expect(container.querySelector('.obe-table-col-grip')).toBeNull();
     expect(container.querySelector('.obe-has-grips')).toBeNull();
   });
+
+  it('keeps every row/column grip bound to its logical index after a 2×2 merge', () => {
+    const doc = seedTableDoc(3, 3);
+    tableMergeCells(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1});
+    const {container} = render(<BlockEditor doc={doc} />);
+    const rows = container.querySelectorAll('.obe-table tbody > tr');
+
+    expect(rows).toHaveLength(3);
+    rows.forEach((row, from) => {
+      const grip = row.querySelector<HTMLElement>('.obe-table-row-grip');
+      expect(grip?.dataset.dragFrom).toBe(String(from));
+      expect(grip?.dataset.dragId).toBe((row as HTMLElement).dataset.tableRowId);
+    });
+
+    const colGrips = [...container.querySelectorAll<HTMLElement>('.obe-table-col-grip')];
+    expect(colGrips.map((grip) => grip.dataset.dragFrom)).toEqual(['0', '1', '2']);
+    expect(new Set(colGrips.map((grip) => grip.dataset.dragId)).size).toBe(3);
+    const anchor = container.querySelector('[data-block-text="r0c0"]')!.closest('td')!;
+    expect(anchor.querySelectorAll('.obe-table-col-grip')).toHaveLength(2);
+  });
 });
 
 // ── Grip → op wiring (real drag events, sorted indices) ──────────────────────
@@ -106,6 +137,47 @@ describe('table drag reorder (grip → op wiring)', () => {
     fireEvent.drop(firstRowCells[0], {dataTransfer: dt()});
 
     expect(colOrder(doc)).toEqual([cols[1], cols[0], cols[2]]);
+  });
+
+  it('drags a rowspan-covered row by that row’s own grip', () => {
+    const doc = seedTableDoc(3, 3);
+    tableMergeCells(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1});
+    const {container} = render(<BlockEditor doc={doc} />);
+
+    fireEvent.dragStart(trs(container)[1].querySelector('.obe-table-row-grip')!, {dataTransfer: dt()});
+    fireEvent.dragOver(trs(container)[0], {dataTransfer: dt(), clientY: 0});
+    fireEvent.drop(trs(container)[0], {dataTransfer: dt()});
+
+    expect(rowOrder(doc)).toEqual(['row1', 'row0', 'row2']);
+  });
+
+  it('drags a merged anchor’s covered-column segment, not the anchor column', () => {
+    const doc = seedTableDoc(3, 3);
+    tableMergeCells(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1});
+    const cols = colOrder(doc);
+    const {container} = render(<BlockEditor doc={doc} />);
+
+    const coveredColumnGrip = [...colGrips(container)].find(
+      (grip) => (grip as HTMLElement).dataset.dragFrom === '1',
+    )!;
+    fireEvent.dragStart(coveredColumnGrip, {dataTransfer: dt()});
+    fireEvent.dragOver(trs(container)[0].querySelectorAll('td')[0], {dataTransfer: dt(), clientX: 0});
+    fireEvent.drop(trs(container)[0].querySelectorAll('td')[0], {dataTransfer: dt()});
+
+    expect(colOrder(doc)).toEqual([cols[1], cols[0], cols[2]]);
+    expect(tableSpans(tableGrid(findBlock(doc, 'tbl')!.block))[0][1]).toEqual({
+      kind: 'cell',
+      colspan: 1,
+      rowspan: 2,
+    });
+
+    tableMoveColumn(doc, 'tbl', cols[1], 1);
+    expect(colOrder(doc)).toEqual(cols);
+    expect(tableSpans(tableGrid(findBlock(doc, 'tbl')!.block))[0][0]).toEqual({
+      kind: 'cell',
+      colspan: 2,
+      rowspan: 2,
+    });
   });
 
   it('targets the SORTED position on an ALREADY-reordered table (the classic bug)', () => {
