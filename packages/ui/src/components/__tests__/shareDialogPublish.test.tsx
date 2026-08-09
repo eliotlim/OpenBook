@@ -69,8 +69,30 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows a "Published" indicator with the address when the page is public on a serving address', async () => {
     wrap('public');
     open();
-    expect(await screen.findByText('Published')).toBeTruthy();
-    expect(screen.getByText(/open this page at rae\.book\.cloud/)).toBeTruthy();
+    const published = await screen.findByText('Published');
+    expect(published.parentElement?.textContent).toContain('open this page at rae.book.cloud');
+  });
+
+  it('lets the published address break mid-token so it cannot overflow the panel', async () => {
+    mockHost = 'a-very-long-library-slug-for-overflow.book.cloud';
+    wrap('public');
+    open();
+    const published = await screen.findByText('Published');
+    const host = Array.from(published.parentElement?.querySelectorAll('span') ?? []).find(
+      (span) => span.textContent === mockHost,
+    );
+    expect(host?.className).toContain('break-all');
+    expect(host?.textContent).toBe(mockHost);
+  });
+
+  it('lets the unpublished address hint break mid-token so it cannot overflow the panel', async () => {
+    mockHost = 'a-very-long-library-slug-for-overflow.book.cloud';
+    wrap('restricted');
+    open();
+    const hint = await screen.findByText(/Publish this page so anyone with the link can open it at/);
+    const host = Array.from(hint.querySelectorAll('span')).find((span) => span.textContent === mockHost);
+    expect(host?.className).toContain('break-all');
+    expect(host?.textContent).toBe(mockHost);
   });
 
   it('offers a one-click "Publish page" that sets the page public when it is not yet', async () => {
@@ -116,8 +138,8 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows "Published" when the guest gate admits signed-out reads (read)', async () => {
     wrap('public', {}, {guestAccess: 'read'});
     open();
-    expect(await screen.findByText('Published')).toBeTruthy();
-    expect(screen.getByText(/open this page at rae\.book\.cloud/)).toBeTruthy();
+    const published = await screen.findByText('Published');
+    expect(published.parentElement?.textContent).toContain('open this page at rae.book.cloud');
     expect(screen.queryByText(/Guest access is off/)).toBeNull();
   });
 
