@@ -1,5 +1,5 @@
 import type {AwarenessState} from '@/blockeditor';
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {initialsOf} from '@/components/ProfileAvatar';
 import {presencePeers, readableTextColor} from '@/lib/presence';
 import {useAwareness} from './useAwareness';
@@ -27,42 +27,40 @@ export function PresenceAvatars({pageId}: {pageId: string}) {
   const overflow = peers.length - shown.length;
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div
-        className="flex shrink-0 items-center -space-x-1.5 print:hidden"
-        aria-label={`${peers.length} other ${peers.length === 1 ? 'person' : 'people'} here`}
-      >
-        {shown.map((peer) => (
-          <Tooltip key={peer.clientId}>
-            <TooltipTrigger asChild>
-              <span
-                aria-label={peer.name}
-                className="flex h-6 w-6 select-none items-center justify-center rounded-full text-[10px] font-semibold leading-none ring-2 ring-background"
-                style={{backgroundColor: peer.color, color: readableTextColor(peer.color)}}
-              >
-                {initialsOf(peer.name)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{peer.name}</TooltipContent>
-          </Tooltip>
-        ))}
-        {overflow > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex h-6 w-6 select-none items-center justify-center rounded-full bg-muted text-[10px] font-semibold leading-none text-muted-foreground ring-2 ring-background">
-                +{overflow}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {peers
-                .slice(MAX_AVATARS)
-                .map((p) => p.name)
-                .join(', ')}
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-    </TooltipProvider>
+    <div
+      className="flex shrink-0 items-center -space-x-1.5 print:hidden"
+      aria-label={`${peers.length} other ${peers.length === 1 ? 'person' : 'people'} here`}
+    >
+      {shown.map((peer) => (
+        <Tooltip key={peer.clientId}>
+          <TooltipTrigger asChild>
+            <span
+              aria-label={peer.name}
+              className="flex h-6 w-6 select-none items-center justify-center rounded-full text-[10px] font-semibold leading-none ring-2 ring-background"
+              style={{backgroundColor: peer.color, color: readableTextColor(peer.color)}}
+            >
+              {initialsOf(peer.name)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{peer.name}</TooltipContent>
+        </Tooltip>
+      ))}
+      {overflow > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex h-6 w-6 select-none items-center justify-center rounded-full bg-muted text-[10px] font-semibold leading-none text-muted-foreground ring-2 ring-background">
+              +{overflow}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {peers
+              .slice(MAX_AVATARS)
+              .map((p) => p.name)
+              .join(', ')}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 }
 
