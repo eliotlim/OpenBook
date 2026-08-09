@@ -931,7 +931,7 @@ const TimelineCanvas: React.FC<{
               {link && (() => {
                 const a = linkAnchor(link.sourceRowId);
                 return a ? (
-                  <svg className="pointer-events-none absolute inset-0 z-30" width={bodyW} height={bodyH}>
+                  <svg className="pointer-events-none absolute inset-0 z-raised-chrome" width={bodyW} height={bodyH}>
                     <path d={`M ${a.x} ${a.y} L ${link.toX} ${link.toY}`} className="stroke-brand" strokeWidth={2} strokeDasharray="4 3" fill="none" />
                   </svg>
                 ) : null;

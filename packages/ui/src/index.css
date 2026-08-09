@@ -15,6 +15,10 @@
   }
 }
 
+@utility shadow-overlay {
+  box-shadow: var(--shadow-overlay);
+}
+
 @theme {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -33,6 +37,7 @@
 
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-foreground-strong: hsl(var(--muted-foreground-strong));
 
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
@@ -89,13 +94,12 @@
      Local 1–6 tiers order editor adornments without escaping their stacking
      contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
      render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
-     slash + toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
-     (raised / sticky chrome), z-40 (navigation scrims), z-50 (menus and
-     dialogs), and reserved z-60 (image lightbox) conventions used by
-     components. Nested menu panels use 55: above their z-50 parent chrome,
-     never tied with the lightbox's reserved tier. NavBar/DefaultLayout z-40,
-     ImageLightbox z-[60], toast z-[100], and timeline z-30 are not yet migrated
-     (follow-up), so 60 is not the ceiling. */
+     slash + toolbar share menu. Raised-chrome is timeline-local: it participates
+     only in the timeline's local stacking context; it is not a shared tier. The
+     shared 10/40/50/60/100 tiers cover sticky chrome, navigation scrims,
+     menus/dialogs, the image lightbox, and notifications. Nested menu panels
+     use 55: above their z-50 parent chrome, never tied with the lightbox's
+     reserved tier. */
   --z-index-raised: 1;
   --z-index-control: 2;
   --z-index-drop-indicator: 3;
@@ -104,10 +108,12 @@
   --z-index-presence: 6;
   --z-index-sticky: 10;
   --z-index-inline-hint: 20;
+  --z-index-raised-chrome: 30;
   --z-index-overlay: 40;
   --z-index-menu: 50;
   --z-index-nested-menu: 55;
   --z-index-lightbox: 60;
+  --z-index-toast: 100;
 
   /* ── Motion system ──────────────────────────────────────────────────────────
      One considered curve + tempo for the whole UI. `--default-transition-*` are
@@ -123,17 +129,17 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 
+  /* Literal shadow tokens declared in @theme bake into utilities.
+     --shadow-overlay lives in :root and uses an explicit @utility so its
+     fixed light stops and .dark override stay live. */
   /* Soft, layered elevation for cards/tiles that lift on hover — a close
      contact shadow plus a wider ambient one, warm-tinted to match the palette
      (Apple's "floating just off the surface" look rather than a hard drop). */
   --shadow-lift: 0 1px 2px hsl(20 14% 12% / 0.05), 0 10px 24px -6px hsl(20 14% 12% / 0.12);
-  /* Floating surfaces (menus, popovers, dialogs): a more pronounced, diffuse
-     three-stop elevation so overlays read as clearly above the page without a
-     hard edge. Used everywhere via the `shadow-overlay` utility. */
-  --shadow-overlay: 0 2px 4px hsl(20 14% 12% / 0.06), 0 8px 16px -4px hsl(20 14% 12% / 0.10), 0 24px 48px -12px hsl(20 14% 12% / 0.20);
   /* Hairline RESTING shadow for notebook "sheets" / resting cards — a close
      contact shadow only, no lift. The hover-lift is the separate --shadow-lift.
-     Tracks --foreground so it adapts per theme. Exposed as `shadow-sheet`. */
+     Unlike --shadow-overlay's fixed per-scheme stops, this tracks --foreground
+     so it adapts per theme. Exposed as `shadow-sheet`. */
   --shadow-sheet: 0 1px 2px hsl(var(--foreground) / 0.04), 0 1px 3px hsl(var(--foreground) / 0.05);
   /* Hairline-ring shadow for transient menus (slash menu, inline toolbar): a
      1px ring plus a soft, tight drop so they read as quietly above the text
@@ -200,6 +206,9 @@
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
     --muted-foreground: 40 3% 43.2%;
+    /* Secondary text on accent controls and sheet-1 chrome, its two binding
+       surfaces. Kept separate so ordinary muted copy does not become heavy. */
+    --muted-foreground-strong: 40 3% 40%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
     /* Accent-derived interactive highlight (see --color-hover). Mirrors the
@@ -228,6 +237,10 @@
     --brand: 207 76% 47%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 207 86% 95%;
+    /* Floating surfaces (menus, popovers, dialogs): fixed light stops give a
+       diffuse elevation above the page; .dark supplies its own stronger recipe.
+       Kept out of @theme so the `shadow-overlay` utility resolves it live. */
+    --shadow-overlay: 0 2px 4px hsl(20 14% 12% / 0.06), 0 8px 16px -4px hsl(20 14% 12% / 0.10), 0 24px 48px -12px hsl(20 14% 12% / 0.20);
     /* Notebook-page chrome: the primary page and side pane float as rounded
        "sheets" on a desk, inset from the window edge. The desktop shell sets
        --ob-window-radius to the native corner; the page radius is concentric
@@ -273,6 +286,7 @@
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
     --muted-foreground: 0 0% 59.1%;
+    --muted-foreground-strong: 0 0% 66%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
     --hover: hsl(var(--primary) / 0.2);
@@ -292,6 +306,10 @@
     --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 208 48% 22%;
+    /* Dark surfaces absorb the light recipe's warm-black shadow. Stronger,
+       wider neutral-black stops restore elevation without a light halo and
+       keep overlays visibly above the tighter --shadow-menu tier. */
+    --shadow-overlay: 0 3px 6px hsl(0 0% 0% / 0.28), 0 12px 28px -6px hsl(0 0% 0% / 0.42), 0 32px 64px -16px hsl(0 0% 0% / 0.55);
     /* White ink in dark mode: pressing a dark fill lightens it (see :root). */
     --press-ink: hsl(0 0% 100%);
   }
@@ -548,8 +566,8 @@
 
    On the saturated accent sheet the neutral text/icon and hover tokens can't
    read, so we remap them to the sheet's own contrast-audited poles. Crucially we
-   override the Tailwind `--color-*` tokens (what `text-muted-foreground` /
-   `bg-hover` actually resolve), NOT the underlying `--muted-foreground` etc: the
+   override the Tailwind `--color-*` tokens (what `text-muted-foreground*` /
+   `bg-hover` actually resolve), NOT the underlying `--muted-foreground*` etc: the
    `--color-*` intermediates are declared at :root (@theme) and substitute their
    nested `var()` there, so overriding the base tokens in this subtree would never
    reach them. De-emphasised text collapses to the FULL sheet foreground
@@ -561,6 +579,7 @@
    render outside these subtrees, so they stay neutral popovers. */
 [data-sidebar='accent'] .ob-accent-chrome {
   --color-muted-foreground: hsl(var(--sheet-1-foreground));
+  --color-muted-foreground-strong: hsl(var(--sheet-1-foreground));
   --color-accent-foreground: hsl(var(--sheet-1-foreground));
   --color-hover: hsl(var(--sheet-veil) / 0.1);
   --color-hover-strong: hsl(var(--sheet-veil) / 0.16);

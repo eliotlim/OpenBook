@@ -702,11 +702,11 @@ export default function ShareDialog({
             {canManage && (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="share-invitee">{t('share.addLabel')}</Label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
                     id="share-invitee"
                     inputSize="sm"
-                    className="min-w-0 flex-1"
+                    className="min-w-40 flex-1"
                     placeholder={t('share.addPlaceholder')}
                     value={invitee}
                     disabled={adding}

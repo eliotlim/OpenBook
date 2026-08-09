@@ -53,6 +53,7 @@ export const InlineToolbar: React.FC<{
     <div
       ref={ref}
       className="obe-toolbar"
+      data-placement={position?.placement}
       role="toolbar"
       aria-label="Text formatting"
       style={
