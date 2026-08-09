@@ -16,6 +16,10 @@ export const en = {
     undo: 'Undo',
     settings: 'Settings',
   },
+  errorBoundary: {
+    title: 'Something went wrong',
+    message: 'This part of OpenBook ran into an unexpected error. Your work is saved — you can head back home or reload.',
+  },
   settings: {
     title: 'Settings',
     fullscreen: 'Full screen',
@@ -1879,6 +1883,16 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    autoExpiry: {
+      saveError: 'Couldn’t save auto-expiry settings. Try again.',
+    },
+    timeline: {
+      placeItem: 'Place on timeline',
+      addDependency: 'Add dependency',
+    },
+    cells: {
+      exported: 'From exported cell',
+    },
     toolbar: {
       group: 'Group',
       fields: 'Fields',

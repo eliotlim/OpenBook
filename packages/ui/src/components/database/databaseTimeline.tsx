@@ -18,6 +18,7 @@ import type {UseDatabase} from './useDatabase';
 import {dotStyle, swatchColor} from './databaseColors';
 import {groupCollapsed, GroupContextMenu, groupGlyph, groupHeading, RowChips, RowContextMenu, setAllGroupsCollapsed, useRelationGroupTitles} from './databaseLayouts';
 import {ViewSetupCard} from './ViewSetupCard';
+import {useTranslation} from '@/providers';
 
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
@@ -254,6 +255,7 @@ const TimelineCanvas: React.FC<{
   startProp: DatabaseProperty;
   cardProperties?: DatabaseProperty[];
 }> = ({db, view, properties, startProp, cardProperties}) => {
+  const {t} = useTranslation();
   // Collapsed swimlane bands persist per view (mirrors the board's lane folds).
   const [collapsedBands, setCollapsedBands] = useState<Set<string>>(() => readBandFolds(view.id));
   const toggleBand = (key: string): void =>
@@ -836,7 +838,7 @@ const TimelineCanvas: React.FC<{
                         scheduleRow(l.row.id, e.clientX);
                       }}
                       aria-label={`Schedule ${name} on the timeline`}
-                      title="Click to place this item on the timeline"
+                      title={t('database.timeline.placeItem')}
                       className="group/lane absolute left-0 z-[1] flex cursor-copy items-center"
                       style={{top: l.top + BAR_PAD, height: rowH - BAR_PAD * 2, width: bodyW}}
                     >
@@ -907,7 +909,7 @@ const TimelineCanvas: React.FC<{
                         // so a handle placed outside would be clipped.
                         className="absolute right-0.5 top-1/2 z-20 h-2.5 w-2.5 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-white/30 opacity-0 transition-opacity group-hover/bar:opacity-100"
                         aria-label="Link dependency"
-                        title="Drag onto another row to add a dependency"
+                        title={t('database.timeline.addDependency')}
                       />
                     )}
                   </div>

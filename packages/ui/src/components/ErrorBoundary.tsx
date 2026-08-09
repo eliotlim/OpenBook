@@ -2,6 +2,7 @@ import * as React from 'react';
 import {TriangleAlert} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
+import {t} from '@/i18n';
 
 /**
  * A generic React error boundary (STAB-3). React has no hook equivalent, so this
@@ -64,12 +65,12 @@ export interface ErrorFallbackProps {
 /**
  * The recovery UI shown by an {@link ErrorBoundary}. Design-system primitives
  * only (Button + theme tokens) so it renders correctly even when the crash took
- * out a provider — copy is deliberately plain English (no i18n dependency), since
- * this must be bulletproof.
+ * out a provider — the module-level translator falls back to English without an
+ * i18n provider, so the recovery path stays available.
  */
 export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
-  title = 'Something went wrong',
-  message = 'This part of OpenBook ran into an unexpected error. Your work is saved — you can head back home or reload.',
+  title = t('errorBoundary.title'),
+  message = t('errorBoundary.message'),
   onReload,
   onHome,
   variant = 'screen',

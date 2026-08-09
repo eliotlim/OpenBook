@@ -1280,6 +1280,7 @@ const DatabaseContextMenu: React.FC<{
  * default. Persists via {@link UseDatabase.saveSchema} → `updateDatabase`.
  */
 const AutoExpiryForm: React.FC<{db: UseDatabase; onClose: () => void}> = ({db, onClose}) => {
+  const {t} = useTranslation();
   const schema = db.database!.schema;
   const current = schema.autoExpiry;
   // Only `date` columns get their own basis option. A `created_time` column would
@@ -1299,7 +1300,7 @@ const AutoExpiryForm: React.FC<{db: UseDatabase; onClose: () => void}> = ({db, o
       onClose();
     } catch {
       // Keep the dialog open + usable; never strand it with both buttons disabled.
-      showToast({message: 'Could not save auto-expiry settings. Please try again.'});
+      showToast({message: t('database.autoExpiry.saveError')});
     } finally {
       setSaving(false);
     }

@@ -10,6 +10,7 @@ import {
   PreferencesProvider,
   ThemeProvider,
   LibraryProvider,
+  t,
 } from '@book.dev/ui';
 
 
@@ -22,7 +23,14 @@ export default function App({Component, pageProps}: AppProps) {
 
   return (
     <>
-      <ErrorBoundary errorComponent={(err) => <div>Something went wrong {JSON.stringify(err.error)}</div>}>
+      <ErrorBoundary
+        errorComponent={() => (
+          <div role="alert">
+            <strong>{t('errorBoundary.title')}</strong>
+            <p>{t('errorBoundary.message')}</p>
+          </div>
+        )}
+      >
         <ThemeProvider>
           <I18nProvider>
             <PreferencesProvider>
