@@ -33,7 +33,7 @@ import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
 import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, GRAPH_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
-import {SETTINGS_TABS} from '@/lib/hud';
+import {SETTINGS_TABS, toggleSideNav} from '@/lib/hud';
 import {settingsKeywordsForTab} from '@/lib/settingsIndex';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
@@ -195,8 +195,7 @@ export function useAppCommands(): AppCommand[] {
         shortcut: SHORTCUTS.toggleSidebar,
         run: () =>
           setHud((draft) => {
-            draft.sideNav.open = !draft.sideNav.docked;
-            draft.sideNav.docked = !draft.sideNav.docked;
+            toggleSideNav(draft, {narrow: typeof window !== 'undefined' && window.innerWidth < 768});
             return draft;
           }),
       },

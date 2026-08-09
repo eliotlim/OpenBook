@@ -1096,10 +1096,14 @@ const Toolbar: React.FC<{
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
   return (
-    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-      {/* Both clusters wrap so the toolbar degrades to stacked rows on narrow
-          screens instead of clipping the trailing controls. */}
-      <div className="flex flex-wrap items-center gap-0.5">
+    <div
+      className="mb-2 flex items-center gap-2 overflow-x-auto max-sm:ob-edge-fade-x max-sm:pr-5 sm:flex-wrap sm:justify-between sm:overflow-visible"
+      data-database-toolbar
+    >
+      {/* Below `sm`, both clusters stay on one horizontally scrollable line so
+          the toolbar stays compact instead of wrapping into three rows (62px).
+          Wider layouts retain the existing wrapping. */}
+      <div className="flex shrink-0 items-center gap-0.5 sm:shrink sm:flex-wrap">
         {db.database!.schema.views.map((v) => {
           const Icon = viewIcon(v.type);
           const active = v.id === view.id;
@@ -1159,7 +1163,7 @@ const Toolbar: React.FC<{
         })}
         <AddViewMenu onAdd={onAddView} />
       </div>
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1 sm:shrink sm:flex-wrap">
         <NewRowMenu db={db} />
         <SearchBox db={db} />
         <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />

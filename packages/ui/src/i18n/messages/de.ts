@@ -77,6 +77,7 @@ export const de: PartialMessages = {
     graphite: 'Graphit',
   },
   nav: {
+    sidebar: 'Seitenleiste',
     favorites: 'Favoriten',
     recents: 'Zuletzt besucht',
     suggested: 'Vorgeschlagen',
