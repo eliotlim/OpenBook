@@ -55,14 +55,14 @@ const DialogContent = React.forwardRef<
         className={cn(
           // `min-w-0 [&>*]:min-w-0` removes the panel/direct-child auto minimums so long children cannot widen it past max-w-*; deep content still needs min-w-0/truncate/break-*.
           // Nothing is clipped, so portaled Select/Popover content and edge focus rings are unaffected; a future direct child's min-w-* loses to `[&>*]:min-w-0` by utility order, not intent.
-          "relative grid min-w-0 w-full gap-4 border bg-background p-6 shadow-overlay duration-200 [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+          "relative grid min-w-0 w-full gap-4 rounded-lg border bg-background p-6 shadow-overlay duration-200 [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           dialogContentSizes[size],
           className
         )}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none data-[state=open]:bg-hover data-[state=open]:text-muted-foreground">
+        <DialogPrimitive.Close className="absolute right-4 top-4 -m-1 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none data-[state=open]:bg-hover data-[state=open]:text-muted-foreground">
           <Cross2Icon className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
@@ -92,7 +92,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end",
       className
     )}
     {...props}
