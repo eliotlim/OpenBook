@@ -10,6 +10,7 @@ const DialogTrigger = DialogPrimitive.Trigger
 
 const DialogPortal = DialogPrimitive.Portal
 
+// Dialog scale at all viewport widths (not only ≥sm): sm=448px, md=512px, lg=576px.
 const dialogContentSizes = {
   sm: "max-w-md",
   md: "max-w-lg",
@@ -52,6 +53,8 @@ const DialogContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
+          // `min-w-0 [&>*]:min-w-0` removes the panel/direct-child auto minimums so long children cannot widen it past max-w-*; deep content still needs min-w-0/truncate/break-*.
+          // Nothing is clipped, so portaled Select/Popover content and edge focus rings are unaffected; a future direct child's min-w-* loses to `[&>*]:min-w-0` by utility order, not intent.
           "relative grid min-w-0 w-full gap-4 border bg-background p-6 shadow-overlay duration-200 [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
           dialogContentSizes[size],
           className

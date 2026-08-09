@@ -52,7 +52,8 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
     if (sidebarOverlay && typeof window !== 'undefined' && window.innerWidth < 768) closeSidebar();
   }, [currentPageId]);
   return (
-    <TooltipProvider delayDuration={350}>
+    // skipDelay 0 keeps the per-trigger delay so shortcut discovery stays a deliberate lingering hover (old per-trigger providers could never skip).
+    <TooltipProvider delayDuration={350} skipDelayDuration={0}>
       <ConfirmProvider>
         {/* App root fills the viewport. On the desktop in-window-titlebar shell it
           carries the cover tint (`--sheet-1`, painted via `.ob-app-root[data-titlebar]`

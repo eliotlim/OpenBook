@@ -35,7 +35,7 @@ test('delete page: centered in-app confirm moves the page to the trash', {tag: [
 
 // The moment-of-mistake affordance: trashing shows a toast whose Undo restores
 // the page without a trip to the Trash dialog.
-test('delete page: the toast Undo restores the page', {tag: ['@shell']}, async ({page, request}) => {
+test('delete page: the toast Undo restores the page', {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
   await page.goto('/');
 
   const actions = page.getByRole('button', {name: 'Page actions'});
@@ -49,6 +49,7 @@ test('delete page: the toast Undo restores the page', {tag: ['@shell']}, async (
   // target it via the host hook.
   const toast = page.locator('[data-toast-host] > div').filter({hasText: 'to trash'});
   await expect(toast).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: trash toast with Undo
   await toast.getByRole('button', {name: 'Undo'}).click();
 
   // Restored: gone from the trash, and reopened as the current page.

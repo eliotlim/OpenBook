@@ -400,7 +400,7 @@ export function HistoryPaneBody() {
                   <RotateCcw className="h-3.5 w-3.5" />
                   {restoringId === selectedItem.version.id
                     ? t('history.restoring')
-                    : t('history.restore')}
+                    : <span className="truncate">{t('history.restore')}</span>}
                 </Button>
               </div>
             )}

@@ -44,7 +44,7 @@ export default function AccountSettings() {
               </Button>
             </div>
           ) : (
-            <Button variant="outline" className="w-full sm:w-auto" onClick={signIn}>
+            <Button variant="outline" className="w-full truncate sm:w-auto" onClick={signIn}>
               {t('account.signin.signInButton')}
             </Button>
           )}

@@ -563,7 +563,7 @@ function RestoreDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{t('backup.dialog.title')}</DialogTitle>
           <DialogDescription>

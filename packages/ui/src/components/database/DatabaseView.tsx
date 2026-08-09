@@ -1378,7 +1378,7 @@ const AutoExpiryDialog: React.FC<{db: UseDatabase; open: boolean; onOpenChange: 
   onOpenChange,
 }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-w-md">
+    <DialogContent size="sm">
       {/* Keyed so the form re-seeds from the persisted schema every time it opens. */}
       {open && <AutoExpiryForm key={db.database?.id ?? 'db'} db={db} onClose={() => onOpenChange(false)} />}
     </DialogContent>
