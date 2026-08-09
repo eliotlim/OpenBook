@@ -11,7 +11,7 @@ const buttonVariants = cva(
   // transparent controls (outline/ghost) deepen to --hover-strong (link stays text-
   // only). Focus: a crisp 2px-offset keyboard ring (--ring-control) that only shows
   // for keyboard nav — the native-app focus look.
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow] focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow] focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {

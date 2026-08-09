@@ -39,6 +39,10 @@ test('keyboard shortcut: ⌘. toggles the full-width view', {tag: ['@shell']}, a
   const before = await columnIsFull(page);
   await page.keyboard.press('ControlOrMeta+.');
   await expect.poll(() => columnIsFull(page)).toBe(!before);
+
+  const trashRow = page.getByRole('button', {name: 'Trash'});
+  await trashRow.hover();
+  await expect(page.getByRole('tooltip')).toContainText(/(?:⇧⌘|Ctrl\+Shift\+)Delete/);
 });
 
 // The sidebar row reveals quick actions on hover: a "+" to add a subpage and a

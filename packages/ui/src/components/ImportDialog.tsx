@@ -359,7 +359,7 @@ export default function ImportDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{t('importer.title')}</DialogTitle>
           <DialogDescription>{t('importer.description')}</DialogDescription>

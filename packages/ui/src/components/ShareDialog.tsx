@@ -528,7 +528,7 @@ export default function ShareDialog({
           </IconButton>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t(canManage ? 'share.description' : 'share.readOnlyDescription')}</DialogDescription>
@@ -807,7 +807,7 @@ export default function ShareDialog({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="shrink-0 whitespace-nowrap"
+                  className="shrink-0"
                   onClick={() => void copyDeliverLink()}
                 >
                   {deliverCopied ? (
@@ -897,7 +897,7 @@ export default function ShareDialog({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="shrink-0 whitespace-nowrap"
+                  className="shrink-0"
                   onClick={() => void copyLink()}
                 >
                   {copied ? (

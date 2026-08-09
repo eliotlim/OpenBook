@@ -298,7 +298,7 @@ export default function ImageLightbox() {
             aria-label={t('blocks.image.close')}
             title={t('blocks.image.close')}
           >
-            <X className="h-5 w-5" aria-hidden />
+            <X className="h-4 w-4" aria-hidden />
           </DialogPrimitive.Close>
         </DialogPrimitive.Content>
       </DialogPortal>

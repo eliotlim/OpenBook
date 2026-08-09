@@ -328,7 +328,7 @@ const StoreSection: React.FC<{
                 aria-label={t('extensions.storeRemove', {name: store.name})}
                 onClick={() => removeStore(store.baseUrl)}
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </Button>
             </div>
           ))}
@@ -632,7 +632,7 @@ const TrustedRegistries: React.FC = () => {
                   aria-label={t('extensions.removeRegistry', {name: registry.name})}
                   onClick={() => remove(registry.publicKey)}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-4 w-4" />
                 </Button>
               )}
             </div>

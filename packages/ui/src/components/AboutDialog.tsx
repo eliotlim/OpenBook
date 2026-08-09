@@ -27,7 +27,7 @@ export default function AboutDialog({open, onOpenChange}: {open?: boolean; onOpe
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent size="sm">
         <div className="flex justify-center pt-1">
           {/* Cover follows the user's accent colour and recolours with the scheme. */}
           <OpenBookLogo size={104} />

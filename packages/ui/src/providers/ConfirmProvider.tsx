@@ -69,7 +69,7 @@ export function ConfirmProvider({children}: {children: React.ReactNode}) {
       {children}
       <Dialog open={options !== null} onOpenChange={onOpenChange}>
         {options && (
-          <DialogContent className="sm:max-w-[420px]">
+          <DialogContent size="sm">
             <DialogHeader>
               <DialogTitle>{options.title}</DialogTitle>
               {options.description && <DialogDescription>{options.description}</DialogDescription>}
