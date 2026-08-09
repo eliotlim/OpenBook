@@ -189,11 +189,11 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
   };
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-row">
+    <div className="relative flex h-full min-h-0 w-full flex-col sm:flex-row">
       <nav
         className={cn(
-          'ob-accent-chrome flex w-[210px] shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pt-8 text-sheet-1-foreground',
-          !fullscreen && 'rounded-l-lg',
+          'ob-accent-chrome flex max-h-64 w-full shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pt-8 text-sheet-1-foreground sm:max-h-none sm:w-[210px]',
+          !fullscreen && 'rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none',
         )}
       >
         <h4 className="px-2 pb-1 text-sm font-semibold">{t('settings.title')}</h4>
@@ -279,7 +279,10 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
       {/* The panel wrapper carries the tab's screen-level anchor (`settings-<tab>`),
           so a search result pointing at a screen's top lands here immediately;
           sub-section results resolve to their own inner ids inside the panel. */}
-      <div id={`settings-${tab}`} className="flex min-h-0 w-full flex-col overflow-y-auto px-8 pb-8 pt-12">
+      <div
+        id={`settings-${tab}`}
+        className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto px-4 pb-6 pt-6 sm:px-8 sm:pb-8 sm:pt-12"
+      >
         <Panel />
       </div>
 
