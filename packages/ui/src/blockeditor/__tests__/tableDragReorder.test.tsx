@@ -2,7 +2,18 @@ import {describe, it, expect, afterEach} from 'vitest';
 import {render, cleanup, fireEvent} from '@testing-library/react';
 import * as Y from 'yjs';
 import {BlockEditor, tableDropTarget} from '../BlockEditor';
-import {blockId, createDoc, findBlock, makeTable, rootBlocks, tableColumns, tableGrid, tableMergeCells} from '../model';
+import {
+  blockId,
+  createDoc,
+  findBlock,
+  makeTable,
+  rootBlocks,
+  tableColumns,
+  tableGrid,
+  tableMergeCells,
+  tableMoveColumn,
+  tableSpans,
+} from '../model';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -154,6 +165,19 @@ describe('table drag reorder (grip → op wiring)', () => {
     fireEvent.drop(trs(container)[0].querySelectorAll('td')[0], {dataTransfer: dt()});
 
     expect(colOrder(doc)).toEqual([cols[1], cols[0], cols[2]]);
+    expect(tableSpans(tableGrid(findBlock(doc, 'tbl')!.block))[0][1]).toEqual({
+      kind: 'cell',
+      colspan: 1,
+      rowspan: 2,
+    });
+
+    tableMoveColumn(doc, 'tbl', cols[1], 1);
+    expect(colOrder(doc)).toEqual(cols);
+    expect(tableSpans(tableGrid(findBlock(doc, 'tbl')!.block))[0][0]).toEqual({
+      kind: 'cell',
+      colspan: 2,
+      rowspan: 2,
+    });
   });
 
   it('targets the SORTED position on an ALREADY-reordered table (the classic bug)', () => {

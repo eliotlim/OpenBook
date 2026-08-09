@@ -2973,13 +2973,17 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
               <tr
                 key={rowId}
                 className={trClass || undefined}
-                data-table-row-index={r}
                 data-table-row-id={rowId}
                 onDragOver={showHandles ? overRow(r) : undefined}
                 onDrop={showHandles ? commitDrop : undefined}
               >
                 {showHandles && (
-                  <th className="obe-table-row-grip-host" aria-hidden="true" contentEditable={false}>
+                  <th
+                    className="obe-table-row-grip-host"
+                    data-obe-chrome="row-grip-host"
+                    aria-hidden="true"
+                    contentEditable={false}
+                  >
                     <span
                       className="obe-table-row-grip"
                       data-drag-axis="row"
