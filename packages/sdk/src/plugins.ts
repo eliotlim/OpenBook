@@ -281,17 +281,16 @@ export async function verifyPlugin(
  * The signing key SHOULD be entry [0]; extra entries exist only during
  * rotation windows. Full runbook: docs/plugin-signing.md.
  *
- * NOTE: currently a single PLACEHOLDER key whose private half was generated
- * in memory and destroyed — nothing can ever sign for it, so first-party
- * bundles show Unverified until the owner performs the key ceremony. No
- * entry may EVER match scripts/test-registry-key.json (its private half is
- * public); CI guards enforce that for every entry
- * (.github/workflows/release.yml).
+ * NOTE: currently a single production key, minted 2026-08-09. Its private
+ * half is held only in the GitHub Actions `publish` environment secret
+ * `OPENBOOK_REGISTRY_PRIVATE_KEY`. No entry may EVER match
+ * scripts/test-registry-key.json (its private half is public); CI guards
+ * enforce that for every entry (.github/workflows/release.yml).
  */
 export const OPENBOOK_REGISTRY_KEYS: Array<{name: string; publicKey: string}> = [
   {
     name: 'OpenBook Registry',
-    publicKey: 'auvZjhjbcZgepWphhILsmuQNl82djsb6dkao+/S+7zU=',
+    publicKey: '62Gry7q0cRFZFgZNFXwuB4XyVHQhGxTXuR5oqZG4eVU=',
   },
 ];
 

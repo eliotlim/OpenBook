@@ -44,12 +44,15 @@ node scripts/pack-plugin.mjs <plugin-dir> <out.zip> --sign --key <key.json>
 # or: OPENBOOK_REGISTRY_PRIVATE_KEY=<base64 pkcs8> node scripts/pack-plugin.mjs … --sign
 ```
 
-## Current state (until the ceremony)
+## Current state (ceremony performed 2026-08-09)
 
-The pinned key is a **placeholder** whose private half was generated in
-memory and destroyed — nothing can ever sign for it. Bundled plugins are
-TEST-signed and therefore show **Unverified**, exactly like the pre-signing
-builds. Nothing breaks; the ceremony below turns the badge on.
+The pinned key is the production key minted during the 2026-08-09 ceremony.
+Its private half is held only in the GitHub Actions `publish` environment
+secret **`OPENBOOK_REGISTRY_PRIVATE_KEY`**. Release builds sign bundled
+first-party plugins with that key, so they will show **Verified** beginning
+with the next release. Ceremony step 6 (`OPENBOOK_REGISTRY_REQUIRE_KEY`
+lock-in) remains **PENDING** until that first verified release confirms the
+secret works.
 
 ## Key ceremony (owner runbook)
 
