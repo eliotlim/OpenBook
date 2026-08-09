@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {PageIcon} from '@/components/PageIcon';
 import {t} from '../i18n';
@@ -35,6 +35,7 @@ export const LinkPicker: React.FC<{
   const [pos, setPos] = useState<PopupPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
 
   const results = useMemo(
     () => pageLinks.searchPages(query, {databasesOnly: kind === 'database'}),
@@ -91,6 +92,9 @@ export const LinkPicker: React.FC<{
     if (r) onPick(r);
   };
 
+  const optionId = (result: PageLinkResult): string => `${listboxId}-option-${encodeURIComponent(result.id)}`;
+  const activeOptionId = results[index] ? optionId(results[index]) : undefined;
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const n = Math.max(1, results.length);
     if (e.key === 'ArrowDown') {
@@ -119,6 +123,10 @@ export const LinkPicker: React.FC<{
     >
       <input
         ref={inputRef}
+        role="combobox"
+        aria-expanded={true}
+        aria-controls={listboxId}
+        aria-activedescendant={activeOptionId}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
@@ -126,10 +134,11 @@ export const LinkPicker: React.FC<{
         aria-label={kind === 'database' ? t('link.databaseTitle') : t('link.pageTitle')}
         className="mb-1 w-full rounded-sm border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus:border-ring"
       />
-      <div role="listbox" className="min-h-0 max-h-64 flex-1 overflow-y-auto overscroll-contain">
+      <div id={listboxId} role="listbox" className="min-h-0 max-h-64 flex-1 overflow-y-auto overscroll-contain">
         {results.map((r, i) => (
           <button
             key={r.id}
+            id={optionId(r)}
             type="button"
             role="option"
             aria-selected={i === index}

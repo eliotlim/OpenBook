@@ -47,7 +47,7 @@ describe('LinkPicker', () => {
 
   it('filters by the search query', () => {
     render(<LinkPicker kind="page" anchorEl={null} onPick={() => {}} onClose={() => {}} />);
-    fireEvent.change(screen.getByRole('textbox'), {target: {value: 'note'}});
+    fireEvent.change(screen.getByRole('combobox'), {target: {value: 'note'}});
     expect(screen.getByText('Notes')).toBeTruthy();
     expect(screen.queryByText('Roadmap')).toBeNull();
   });
@@ -55,8 +55,20 @@ describe('LinkPicker', () => {
   it('preserves arrow-key navigation and Enter selection', () => {
     const onPick = vi.fn();
     render(<LinkPicker kind="page" anchorEl={null} onPick={onPick} onClose={() => {}} />);
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
+    const options = screen.getAllByRole('option');
 
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(input.getAttribute('aria-controls')).toBe(screen.getByRole('listbox').id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
+
+    fireEvent.keyDown(input, {key: 'ArrowDown'});
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1].id);
+    expect(options[1].getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, {key: 'ArrowUp'});
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(input, {key: 'ArrowDown'});
     fireEvent.keyDown(input, {key: 'Enter'});
 
@@ -104,11 +116,11 @@ describe('LinkPicker', () => {
     const picker = screen.getByRole('dialog');
 
     naturalHeight = 100;
-    fireEvent.change(screen.getByRole('textbox'), {target: {value: 'note'}});
+    fireEvent.change(screen.getByRole('combobox'), {target: {value: 'note'}});
     expect(picker.style.maxHeight).toBe('120px');
 
     naturalHeight = 300;
-    fireEvent.change(screen.getByRole('textbox'), {target: {value: ''}});
+    fireEvent.change(screen.getByRole('combobox'), {target: {value: ''}});
     expect(picker.style.maxHeight).toBe('300px');
   });
 
@@ -136,7 +148,7 @@ describe('LinkPicker', () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.scroll(window);
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.keyDown(screen.getByRole('textbox'), {key: 'Escape'});
+    fireEvent.keyDown(screen.getByRole('combobox'), {key: 'Escape'});
     expect(onClose).toHaveBeenCalledTimes(2);
     fireEvent.mouseDown(document.body);
     expect(onClose).toHaveBeenCalledTimes(3);
