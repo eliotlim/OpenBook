@@ -83,6 +83,7 @@ export const EmojiMenu: React.FC<{
     <div
       ref={ref}
       className="obe-slash"
+      data-placement={pos?.placement}
       style={pos ? {left: pos.left, top: pos.top, maxHeight: pos.maxHeight} : {left: 0, top: 0, visibility: 'hidden'}}
     >
       {items.length === 0 ? (
