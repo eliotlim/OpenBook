@@ -199,7 +199,7 @@
     --secondary: 40 9% 96%;
     --secondary-foreground: 34 9% 19%;
     --muted: 40 9% 96%;
-    --muted-foreground: 40 3% 48%;
+    --muted-foreground: 40 3% 45.4%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
     /* Accent-derived interactive highlight (see --color-hover). Mirrors the
@@ -272,7 +272,7 @@
     --secondary: 0 0% 18.5%;
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
-    --muted-foreground: 0 0% 56%;
+    --muted-foreground: 0 0% 56.7%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
     --hover: hsl(var(--primary) / 0.2);
