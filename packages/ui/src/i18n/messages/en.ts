@@ -336,11 +336,11 @@ export const en = {
     description: 'Choose who can access this page, and invite people to view or edit it.',
     loadError: 'Couldn’t load sharing settings for this page.',
     unclaimedNotice:
-      'Sharing takes effect once you claim this library. Until then, anyone who can reach it can view and edit — these settings are saved but not yet enforced.',
+      'These settings are saved, but take effect only once you claim this library. Until then, anyone who can reach it can view and edit.',
     browserLocalNotice:
-      'This library lives only in this browser — no one else can reach it, so these settings can’t take effect for anyone else yet. To share with others, publish a library from the OpenBook desktop app.',
+      'This library lives only in this browser — no one else can reach it, so these settings don’t apply to anyone yet. To share, publish a library from the OpenBook desktop app.',
     enforcementCaveat:
-      'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
+      'People you invite may not be able to open this page at its published link yet — that’s still rolling out. Direct access is already limited as set here.',
     siteRestrictedNotice:
       'This page is set to anyone-with-the-link, but your address doesn’t serve pages to signed-out visitors yet — turn on published pages so they can open it.',
     makeSitePublished: 'Serve published pages',
@@ -381,7 +381,7 @@ export const en = {
     // Delivery help (P0-2): the instance invite writes an access row but sends
     // no email, so the owner has to hand over the link and explain the sign-in.
     deliver: {
-      hint: 'Invitees aren’t notified automatically. Send them this page’s link — each one opens it by signing in with the email you invited them as.',
+      hint: 'Invitees aren’t notified automatically. Send them this page’s link — they open it by signing in with the email you invited them as.',
       copy: 'Copy link to send',
     },
     // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
@@ -1508,7 +1508,7 @@ export const en = {
     description: 'Claim a private ✦.book.cloud address that opens this library in any browser — nothing to host, nothing to expose on your network.',
     toggle: 'Publish this library',
     signInHint: 'Sign in to your account first to claim an address.',
-    signInPending: 'Finish signing in to your account — publishing will turn on automatically once you’re signed in.',
+    signInPending: 'Finish signing in — publishing will turn on automatically.',
     resumedToast: 'Publishing is on — your address is {host}.',
     signIn: 'Sign in',
     registering: 'Connecting…',
@@ -1524,7 +1524,7 @@ export const en = {
     bindFailed: 'Publishing is on, but securing the site audience didn’t finish: {error}',
     unbindHeld: 'Couldn’t fully relax the audience binding while turning publishing off: {error}',
     claimWarning:
-      'The first time you turn this on, this library is claimed to your account and made private — only you and members you invite can open it. This can’t be undone.',
+      'The first time you turn this on, this library is claimed to your account and made private — only you and people you invite can open it. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',
     claimRefusedIssuanceDisabled:
       'To publish, a verified identity is required — but the account server has identity issuance disabled, so it can’t be verified from here.',
@@ -1679,7 +1679,7 @@ export const en = {
     youGuestNamed: 'You’re editing as guest “{name}”.',
     youGuestAnon: 'You’re editing as an anonymous guest.',
     defaultAccess: 'Default access',
-    defaultAccessHint: 'Sets what people who reach this library without signing in can do — over the network or a shared ✦.book.cloud link — and the default visibility for new pages. Your own access is never affected.',
+    defaultAccessHint: 'What people who reach this library without signing in can do, and the default visibility for new pages. Your own access is never affected.',
     accessPrivate: 'Private (members only)',
     // PUB-1: the state a freshly-claimed library already sits in — the guest gate
     // is open to reading, but only pages the owner explicitly publishes resolve to
@@ -1718,7 +1718,7 @@ export const en = {
     title: 'Members',
     description: 'People with a role on this library. Invite by email, change who can manage, and remove access.',
     browserLocalNotice:
-      'This library lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a library from the OpenBook desktop app.',
+      'This library lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share, publish a library from the OpenBook desktop app.',
     youUser: 'You’re signed in as {name}.',
     youGuest: 'You’re browsing as a guest.',
     loading: 'Loading members…',
@@ -1756,7 +1756,7 @@ export const en = {
     // library is published, give the owner the link to hand over and the
     // sign-in they must explain.
     deliver: {
-      hint: 'Invites aren’t emailed. Send people this library link — each one opens it by signing in with the email you invited them as.',
+      hint: 'Invites aren’t emailed. Send people this library link — they open it by signing in with the email you invited them as.',
       copy: 'Copy library link',
       copied: 'Copied',
     },
