@@ -130,7 +130,7 @@ export const LinkPicker: React.FC<{
     <div
       ref={rootRef}
       data-state="open"
-      className="fixed z-50 flex w-72 flex-col overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-menu data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+      className="fixed z-50 flex w-72 flex-col overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
       style={pos ? {left: pos.left, top: pos.top, maxHeight: pos.maxHeight} : {left: 0, top: 0, visibility: 'hidden'}}
       role="dialog"
       aria-label={kind === 'database' ? t('link.databaseTitle') : t('link.pageTitle')}
@@ -142,7 +142,7 @@ export const LinkPicker: React.FC<{
         onKeyDown={onKeyDown}
         placeholder={kind === 'database' ? t('link.databasePlaceholder') : t('link.pagePlaceholder')}
         aria-label={kind === 'database' ? t('link.databaseTitle') : t('link.pageTitle')}
-        className="mb-1 w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus:border-ring"
+        className="mb-1 w-full rounded-sm border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus:border-ring"
       />
       <div role="listbox" className="min-h-0 max-h-64 flex-1 overflow-y-auto overscroll-contain">
         {results.map((r, i) => (
@@ -151,7 +151,7 @@ export const LinkPicker: React.FC<{
             type="button"
             role="option"
             aria-selected={i === index}
-            className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden transition-colors hover:bg-hover focus:bg-hover ${i === index ? 'bg-hover' : ''}`}
+            className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden transition-colors ${i === index ? 'bg-hover' : ''}`}
             onMouseEnter={() => setIndex(i)}
             onMouseDown={(e) => {
               e.preventDefault(); // keep focus; pick before the outside-click closes

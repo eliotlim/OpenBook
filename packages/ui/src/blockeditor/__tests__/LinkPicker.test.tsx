@@ -120,7 +120,7 @@ describe('LinkPicker', () => {
     expect(picker.dataset.state).toBe('open');
     expect(picker.className).toContain('rounded-md');
     expect(picker.className).toContain('p-1');
-    expect(picker.className).toContain('shadow-menu');
+    expect(picker.className).toContain('shadow-overlay');
     expect(picker.className).toContain('data-[state=open]:fade-in-0');
     expect(picker.className).toContain('data-[state=open]:zoom-in-95');
     expect(active.className.split(/\s+/)).toContain('bg-hover');
