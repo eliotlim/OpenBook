@@ -2041,7 +2041,6 @@ a.obe-mention {
 .obe-toolbar {
   position: fixed;
   z-index: var(--z-index-menu);
-  transform: translate(-50%, calc(-100% - 8px));
   display: flex;
   align-items: center;
   gap: 1px;

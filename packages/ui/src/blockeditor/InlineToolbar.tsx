@@ -1,6 +1,12 @@
-import React, {useState} from 'react';
+import React, {useLayoutEffect, useRef, useState} from 'react';
 import type {InlineAttrs} from './model';
 import {COLOR_TOKENS} from './colors';
+import {
+  INLINE_TOOLBAR_POSITION_OPTIONS,
+  observePopupPosition,
+  selectionAnchorRect,
+  type PopupPosition,
+} from './popupPosition';
 
 /**
  * The floating formatting toolbar shown over a non-collapsed text selection.
@@ -9,8 +15,7 @@ import {COLOR_TOKENS} from './colors';
  */
 
 export interface ToolbarState {
-  left: number;
-  top: number;
+  anchorEl: HTMLElement;
   active: Partial<Record<keyof InlineAttrs, boolean>>;
 }
 
@@ -28,17 +33,33 @@ export const InlineToolbar: React.FC<{
   /** Set (or, with `null`, clear) a colour on the selection. */
   onColor: (key: 'tc' | 'hl', token: string | null) => void;
 }> = ({state, onToggle, onColor}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<PopupPosition | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
+  useLayoutEffect(() => {
+    return observePopupPosition({
+      popup: () => ref.current,
+      anchor: () => selectionAnchorRect(state.anchorEl),
+      onPosition: setPosition,
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+  }, [state]);
+
   const pick = (key: 'tc' | 'hl', token: string | null): void => {
     onColor(key, token);
     setColorOpen(false);
   };
   return (
     <div
+      ref={ref}
       className="obe-toolbar"
       role="toolbar"
       aria-label="Text formatting"
-      style={{left: state.left, top: state.top}}
+      style={
+        position
+          ? {left: position.left, top: position.top}
+          : {left: 0, top: 0, visibility: 'hidden'}
+      }
     >
       {BUTTONS.map((b) => (
         <button

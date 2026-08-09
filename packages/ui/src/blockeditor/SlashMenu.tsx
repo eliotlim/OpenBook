@@ -52,6 +52,12 @@ import {aiSlashItems} from './aiBlocks';
 import {featureShown, readFeatureVisibility, type FeatureVisibility} from '@/lib/aiFeatures';
 import {pageLinks, type SubpageKind} from '@/lib/pageLinks';
 import {t, type TKey} from '../i18n';
+import {
+  observePopupPosition,
+  selectionAnchorRect,
+  SLASH_MENU_POSITION_OPTIONS,
+  type PopupPosition,
+} from './popupPosition';
 import type {BlockEditorController} from './useBlockEditor';
 
 type IconComp = React.ComponentType<{className?: string}>;
@@ -262,7 +268,7 @@ export const SlashMenu: React.FC<{
   onLink?: (kind: 'page' | 'database', blockId: string, anchorOffset: number) => void;
 }> = ({state, editor, anchorEl, rootEl, onClose, pageId, onLink}) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
+  const [pos, setPos] = useState<PopupPosition | null>(null);
   const [index, setIndex] = useState(0);
 
   // Labels resolve through the catalog at open time (`slash.<id>` for core
@@ -340,44 +346,15 @@ export const SlashMenu: React.FC<{
       .sort((a, b) => score(b) - score(a) || groupRank(a) - groupRank(b));
   }, [state.query, pageId, onLink]);
 
-  // Fixed (viewport) positioning: anchored to the caret, measured after
-  // render, flipped above the line when there's no room below, clamped to the
-  // viewport edges. `pos === null` renders the menu invisibly for measuring
-  // (the anchor block can mount a frame later than the menu — e.g. the “+”
-  // gutter button inserts a block and opens the menu in the same action).
+  // `pos === null` renders invisibly while the shared helper measures. The
+  // anchor block can mount a frame later than the menu in the “+” gutter flow.
   useLayoutEffect(() => {
-    let raf = 0;
-    let attempts = 0;
-    const isZero = (r: DOMRect | undefined | null): boolean => !r || (r.width === 0 && r.height === 0 && r.x === 0 && r.y === 0);
-    const measure = (): void => {
-      const sel = document.getSelection();
-      // The caret rect is all-zero in a not-yet-painted empty block (the “+”
-      // gutter flow) — fall back to the block's own rect, and retry a few
-      // frames while the anchor finishes mounting; bailing silently left the
-      // menu invisible until the first query keystroke re-ran this effect.
-      const caretRect =
-        sel && sel.rangeCount > 0 && anchorEl?.contains(sel.anchorNode) ? sel.getRangeAt(0).getBoundingClientRect() : null;
-      const rect = !isZero(caretRect) ? caretRect! : anchorEl?.getBoundingClientRect();
-      if (isZero(rect)) {
-        if (attempts++ < 20) raf = requestAnimationFrame(measure);
-        return;
-      }
-      const menu = ref.current;
-      const menuH = menu?.offsetHeight ?? 304;
-      const menuW = menu?.offsetWidth ?? 272;
-      // Open into whichever side of the caret line has more room, and never
-      // cover the line itself: the menu's height caps to the chosen side.
-      const below = window.innerHeight - rect!.bottom - 14;
-      const above = rect!.top - 14;
-      const flip = menuH > below && above > below;
-      const maxHeight = Math.max(120, Math.min(304, flip ? above : below));
-      const shownH = Math.min(menuH, maxHeight);
-      const top = flip ? Math.max(8, rect!.top - 6 - shownH) : rect!.bottom + 6;
-      const left = Math.max(8, Math.min(rect!.left, window.innerWidth - menuW - 8));
-      setPos({left, top, maxHeight});
-    };
-    measure();
-    return () => cancelAnimationFrame(raf);
+    return observePopupPosition({
+      popup: () => ref.current,
+      anchor: () => selectionAnchorRect(anchorEl, true),
+      onPosition: setPos,
+      options: SLASH_MENU_POSITION_OPTIONS,
+    });
   }, [anchorEl, rootEl, state.anchorOffset, items.length]);
 
   useEffect(() => setIndex(0), [state.query]);
