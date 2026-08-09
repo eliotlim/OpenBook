@@ -1,11 +1,19 @@
 import {describe, expect, it} from 'vitest';
 // @ts-expect-error -- Vitest runs in Node; the browser package omits Node ambient types.
 import {readFileSync} from 'node:fs';
-import {themes} from '../themes';
+import {composeAppearance, DEFAULT_APPEARANCE, PAGE_BACKGROUNDS, themes} from '../themes';
 
 const CSS = readFileSync('src/index.css', 'utf8');
 const SCHEMES = ['light', 'dark'] as const;
-const SURFACES = ['card', 'background'] as const;
+const INTERFACE_INTENSITIES = [0, 1, 2, 3] as const;
+const BACKGROUNDS = [undefined, ...Object.keys(PAGE_BACKGROUNDS)] as const;
+const SURFACES = ['card', 'background', 'popover', 'muted', 'secondary'] as const;
+
+// Deliberate POL-9 exclusions: these pairs need a surface-specific foreground,
+// rather than further movement of the shared --muted-foreground token.
+// - --muted-foreground on --accent
+// - --muted-foreground on --sheet-2
+// - light --muted-foreground on --desk
 
 function cssBlock(selector: string): string {
   const start = CSS.indexOf(`${selector} {`);
@@ -56,19 +64,35 @@ describe('muted foreground contrast', () => {
       expect(cssToken(selector, 'muted-foreground')).toBe(palette.mutedForeground);
       expect(cssToken(selector, 'card')).toBe(palette.card);
       expect(cssToken(selector, 'background')).toBe(palette.background);
+      expect(cssToken(selector, 'popover')).toBe(palette.popover);
+      expect(
+        contrast(palette.mutedForeground, palette.sheet1),
+        `${scheme}: muted ${palette.mutedForeground} on first-paint sheet1 ${palette.sheet1}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 
-  it('keeps muted text at WCAG AA on card and background for every theme and mode', () => {
+  it('keeps muted text at WCAG AA across every composed canvas appearance', () => {
+    expect(themes).toHaveLength(17);
+    expect(Object.keys(PAGE_BACKGROUNDS)).toHaveLength(8);
+
     for (const theme of themes) {
       for (const scheme of SCHEMES) {
-        const palette = theme[scheme];
-        for (const surface of SURFACES) {
-          const ratio = contrast(palette.mutedForeground, palette[surface]);
-          expect(
-            ratio,
-            `${theme.id}/${scheme}: muted ${palette.mutedForeground} on ${surface} ${palette[surface]}`,
-          ).toBeGreaterThanOrEqual(4.5);
+        for (const interfaceIntensity of INTERFACE_INTENSITIES) {
+          for (const background of BACKGROUNDS) {
+            const palette = composeAppearance(
+              {...DEFAULT_APPEARANCE, themeId: theme.id, interfaceIntensity, background},
+              scheme,
+            );
+            for (const surface of SURFACES) {
+              const ratio = contrast(palette.mutedForeground, palette[surface]);
+              expect(
+                ratio,
+                `${theme.id}/${scheme}/interface-${interfaceIntensity}/background-${background ?? 'unset'}: ` +
+                  `muted ${palette.mutedForeground} on ${surface} ${palette[surface]}`,
+              ).toBeGreaterThanOrEqual(4.5);
+            }
+          }
         }
       }
     }

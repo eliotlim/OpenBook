@@ -267,14 +267,13 @@ export const titleStyle: React.CSSProperties = {
 /**
  * Secondary text colour for the reports.
  *
- * NOT `--muted-foreground`: that token measures 4.17:1 on `--card` (and 3.40:1
- * once it lands on the opening-balance row), which fails WCAG AA for body text —
- * and these are not decorative surfaces, they are column headers, account types,
- * cleared states, and the opening balance that seeds every running balance below
- * it. A translucent `--foreground` measures 5.33:1 light / 5.71:1 dark while
- * still reading as secondary. Defined ONCE here so the whole report family moves
- * together. (The underlying token defect is app-wide and tracked separately as
- * DS-1 — this is a local fix, the host token is untouched.)
+ * DS-1 lands `--muted-foreground` at the fixed 43.2% light / 59.1% dark values,
+ * clearing AA across the host's audited canvas family. Reports retain this
+ * stronger translucent `--foreground` for their additional opening-balance wash:
+ * these are column headers, account types, cleared states, and the balance that
+ * seeds every running balance below it. It measures 5.33:1 light / 5.71:1 dark
+ * on the base report surface while still reading as secondary, and is defined
+ * once here so the whole report family moves together.
  */
 export const SECONDARY_TEXT = 'hsl(var(--foreground) / 0.72)';
 

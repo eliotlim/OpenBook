@@ -131,14 +131,13 @@ const buttonStyle: React.CSSProperties = {
 };
 
 /**
- * Secondary text that still READS. `--muted-foreground` measures 4.17:1 on this
- * card — under 4.5:1, and it was carrying the row-status cell, i.e. the entire
- * dedup verdict. This local alpha of the foreground token measures 5.37:1 while
- * staying visibly secondary, and it follows the host's theme exactly as the
- * token does. (The disabled button label lands at 5.14:1, up from 3.83:1; the
- * status cell now uses `--foreground` outright, 12.91:1.) The host token itself
- * is NOT touched here: that is a design-system fix, tracked as DS-1, and a
- * plugin is the wrong place for it.
+ * Secondary text that still READS. DS-1 lands `--muted-foreground` at the fixed
+ * 43.2% light / 59.1% dark values and clears the host canvas-family audit. This
+ * local alpha of `--foreground` remains the stronger plugin treatment for the
+ * import verdict's compound row/button surfaces: it measures 5.37:1 while
+ * staying visibly secondary, the disabled button label measures 5.14:1, and the
+ * status cell uses `--foreground` outright at 12.91:1. It follows the host theme
+ * and keeps the entire dedup verdict readable.
  */
 const SECONDARY_TEXT = 'hsl(var(--foreground) / 0.72)';
 
