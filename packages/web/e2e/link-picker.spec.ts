@@ -25,7 +25,7 @@ test('Link to page picker inserts the keyboard-selected page', {tag: ['@editor']
 
   const picker = page.getByRole('dialog', {name: 'Link to page'});
   await expect(picker).toBeVisible();
-  await expect(picker.getByRole('textbox')).toBeFocused();
+  await expect(picker.getByRole('combobox')).toBeFocused();
   await page.keyboard.type('Picker Target');
   // Both seeded pages match this query ("Picker Target" and "Picker Target
   // Two") — .first() disambiguates the strict-mode locator; it's just a
