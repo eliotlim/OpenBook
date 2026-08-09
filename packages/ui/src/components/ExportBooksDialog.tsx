@@ -59,7 +59,7 @@ export function ExportBooksDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose(null)}>
       {open && (
-        <DialogContent className="sm:max-w-[440px]" data-testid="export-books-dialog">
+        <DialogContent size="sm" data-testid="export-books-dialog">
           <DialogHeader>
             <DialogTitle>{t('page.exportBooksTitle')}</DialogTitle>
           </DialogHeader>

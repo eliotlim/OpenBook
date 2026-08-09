@@ -305,7 +305,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
       </DropdownMenu>
 
       <Dialog open={addOpen} onOpenChange={(open) => (open ? setAddOpen(true) : closeAdd())}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>{t('library.connectTitle')}</DialogTitle>
             <DialogDescription>{t('library.connectDescription')}</DialogDescription>

@@ -68,7 +68,7 @@ export default function TrashDialog() {
           </Button>
         </DialogTrigger>
       </ShortcutTooltip>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{t('nav.trash')}</DialogTitle>
           <DialogDescription>{t('trash.description')}</DialogDescription>

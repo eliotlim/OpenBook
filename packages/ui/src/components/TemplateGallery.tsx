@@ -65,7 +65,7 @@ export function TemplateGallery() {
 
   return (
     <Dialog open={hud.templates.open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{t('templates.title')}</DialogTitle>
           <DialogDescription>{t('templates.description')}</DialogDescription>
