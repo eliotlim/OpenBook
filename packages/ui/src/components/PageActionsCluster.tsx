@@ -1,10 +1,10 @@
 import {useEffect, useState, useSyncExternalStore} from 'react';
-import {Globe, Link2, Presentation, Star} from 'lucide-react';
+import {Globe, Link2, Presentation, Share2, Star} from 'lucide-react';
 import {useForwarding, useHud, useNavigation, useTranslation} from '@/providers';
 import {useData} from '@/data';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
-import ShareDialog, {useSharingCapability} from '@/components/ShareDialog';
+import {useSharingCapability} from '@/components/ShareDialog';
 import {requestShareDialog} from '@/lib/shareDialog';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
@@ -90,7 +90,16 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
           click opens the Share dialog, where the page can be unpublished or its
           audience changed. */}
       {actionable && sharing.supported && <PagePublishIndicator pageId={targetPageId!} />}
-      {actionable && sharing.supported && <ShareDialog pageId={targetPageId!} canManage={sharing.canManage} />}
+      {actionable && sharing.supported && (
+        <IconButton
+          size="sm"
+          onClick={() => requestShareDialog(targetPageId!)}
+          aria-label={t('share.open')}
+          title={t('share.open')}
+        >
+          <Share2 className="h-4 w-4" />
+        </IconButton>
+      )}
       <IconButton
         size="sm"
         disabled={!actionable}
