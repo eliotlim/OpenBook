@@ -65,6 +65,20 @@ describe('observePopupPosition', () => {
     cleanup();
   });
 
+  it('clamps the centred toolbar to the shared viewport margin', () => {
+    viewport(800, 600);
+    let position: PopupPosition | undefined;
+    const cleanup = observePopupPosition({
+      popup: () => popup(248, 36),
+      anchor: () => new DOMRect(0, 60, 2, 20),
+      onPosition: (next) => (position = next),
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+
+    expect(position?.left).toBe(8);
+    cleanup();
+  });
+
   it('re-clamps against the new viewport width on resize', () => {
     viewport(500, 600);
     let position: PopupPosition | undefined;
@@ -79,6 +93,21 @@ describe('observePopupPosition', () => {
     window.dispatchEvent(new Event('resize'));
     expect(position?.left).toBe(70);
     cleanup();
+  });
+
+  it('stops observing viewport resizes after cleanup', () => {
+    viewport(500, 600);
+    const onPosition = vi.fn();
+    const cleanup = observePopupPosition({
+      popup: () => popup(272, 200),
+      anchor: () => new DOMRect(400, 100, 2, 20),
+      onPosition,
+    });
+
+    expect(onPosition).toHaveBeenCalledTimes(1);
+    cleanup();
+    window.dispatchEvent(new Event('resize'));
+    expect(onPosition).toHaveBeenCalledTimes(1);
   });
 
   it('retries an all-zero anchor rect until its mount frame is measurable', () => {

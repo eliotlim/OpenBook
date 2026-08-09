@@ -2017,7 +2017,6 @@ a.obe-mention {
 .obe-toolbar {
   position: fixed;
   z-index: 50;
-  transform: translate(-50%, calc(-100% - 8px));
   display: flex;
   align-items: center;
   gap: 1px;

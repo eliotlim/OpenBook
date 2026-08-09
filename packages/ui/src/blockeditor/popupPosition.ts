@@ -50,19 +50,19 @@ export const SLASH_MENU_POSITION_OPTIONS = {
   maxHeight: RENDERED_MENU_MAX_HEIGHT,
 } satisfies PopupPositionOptions;
 
-const INLINE_TOOLBAR_GAP = POPUP_POSITION_DEFAULTS.viewportMargin;
+const INLINE_TOOLBAR_GAP = 8; // was baked into .obe-toolbar's CSS transform
 
 /**
  * The toolbar is centred and above-first. Its flip threshold is now its
  * measured height plus the existing gap and edge allowance, rather than 56px.
- * A zero horizontal margin preserves the previous half-width edge clamp.
+ * Its edge clamp now uses the shared menu viewport margin.
  */
 export const INLINE_TOOLBAR_POSITION_OPTIONS = {
   preferredPlacement: 'above',
   align: 'center',
   availableSpaceInset: INLINE_TOOLBAR_GAP + POPUP_POSITION_DEFAULTS.viewportMargin,
   anchorGap: INLINE_TOOLBAR_GAP,
-  viewportMargin: 0,
+  viewportMargin: POPUP_POSITION_DEFAULTS.viewportMargin, // 8 — old centre clamp kept the toolbar ~12px off each edge; 8px matches the menus
   maxHeight: null,
 } satisfies PopupPositionOptions;
 

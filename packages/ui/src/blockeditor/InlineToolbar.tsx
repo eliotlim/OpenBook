@@ -57,8 +57,8 @@ export const InlineToolbar: React.FC<{
       aria-label="Text formatting"
       style={
         position
-          ? {left: position.left, top: position.top, transform: 'none'}
-          : {left: 0, top: 0, transform: 'none', visibility: 'hidden'}
+          ? {left: position.left, top: position.top}
+          : {left: 0, top: 0, visibility: 'hidden'}
       }
     >
       {BUTTONS.map((b) => (
