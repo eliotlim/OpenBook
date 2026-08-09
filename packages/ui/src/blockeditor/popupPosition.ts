@@ -117,8 +117,13 @@ export function observePopupPosition({
     }
 
     const element = popup();
+    // Remove the previous viewport constraint while measuring. Otherwise a
+    // filtered short list can permanently cap a later expanded result set.
+    const previousMaxHeight = element?.style.maxHeight;
+    if (element) element.style.maxHeight = '';
     const width = element?.offsetWidth || fallbackSize.width;
     const height = element?.offsetHeight || fallbackSize.height;
+    if (element) element.style.maxHeight = previousMaxHeight ?? '';
     const available = {
       above: rect!.top - availableSpaceInset,
       below: window.innerHeight - rect!.bottom - availableSpaceInset,

@@ -11,8 +11,14 @@ const viewport = (width: number, height: number): void => {
   Object.defineProperty(window, 'innerHeight', {configurable: true, value: height});
 };
 
-const popup = (width: number, height: number): HTMLElement =>
-  ({offsetWidth: width, offsetHeight: height}) as HTMLElement;
+const popup = (width: number, height: number): HTMLElement => {
+  const element = document.createElement('div');
+  Object.defineProperties(element, {
+    offsetWidth: {configurable: true, value: width},
+    offsetHeight: {configurable: true, value: height},
+  });
+  return element;
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -92,6 +98,37 @@ describe('observePopupPosition', () => {
     viewport(350, 600);
     window.dispatchEvent(new Event('resize'));
     expect(position?.left).toBe(70);
+    cleanup();
+  });
+
+  it('remeasures a widened list without its stale max-height cap', () => {
+    viewport(800, 628);
+    const element = document.createElement('div');
+    let naturalHeight = 160;
+    Object.defineProperties(element, {
+      offsetWidth: {configurable: true, get: () => 272},
+      offsetHeight: {
+        configurable: true,
+        get: () => {
+          const cap = Number.parseFloat(element.style.maxHeight);
+          return Number.isNaN(cap) ? naturalHeight : Math.min(naturalHeight, cap);
+        },
+      },
+    });
+    let position: PopupPosition | undefined;
+    const cleanup = observePopupPosition({
+      popup: () => element,
+      anchor: () => new DOMRect(100, 414, 2, 20),
+      onPosition: (next) => {
+        position = next;
+        element.style.maxHeight = `${next.maxHeight}px`;
+      },
+    });
+
+    expect(position).toEqual({left: 100, top: 440, maxHeight: 180, placement: 'below'});
+    naturalHeight = 350;
+    window.dispatchEvent(new Event('resize'));
+    expect(position).toEqual({left: 100, top: 108, maxHeight: 300, placement: 'above'});
     cleanup();
   });
 
