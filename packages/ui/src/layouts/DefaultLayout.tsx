@@ -117,7 +117,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
               hamburger stays tappable. */}
             {sidebarOverlay && (
               <div
-                className="fixed inset-x-0 bottom-0 top-14 z-40 bg-foreground/20 md:hidden"
+                className="fixed inset-x-0 bottom-0 top-14 z-overlay bg-foreground/20 md:hidden"
                 onClick={closeSidebar}
                 aria-hidden
               />

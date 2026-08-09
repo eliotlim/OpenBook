@@ -89,13 +89,10 @@
      Local 1–6 tiers order editor adornments without escaping their stacking
      contexts. Inline .obe-hint/kit-tip affordances use 20; real Radix tooltips
      render at z-50. Co-tenants: marquee + chart-tooltip share local-overlay;
-     slash + toolbar share menu. The shared 10/40/50/60 tiers mirror Tailwind's z-10
-     (raised / sticky chrome), z-40 (navigation scrims), z-50 (menus and
-     dialogs), and reserved z-60 (image lightbox) conventions used by
-     components. Nested menu panels use 55: above their z-50 parent chrome,
-     never tied with the lightbox's reserved tier. NavBar/DefaultLayout z-40,
-     ImageLightbox z-[60], toast z-[100], and timeline z-30 are not yet migrated
-     (follow-up), so 60 is not the ceiling. */
+     slash + toolbar share menu. The shared 10/30/40/50/60/100 tiers cover sticky
+     chrome, raised timeline interaction chrome, navigation scrims, menus/dialogs,
+     the image lightbox, and notifications. Nested menu panels use 55: above their
+     z-50 parent chrome, never tied with the lightbox's reserved tier. */
   --z-index-raised: 1;
   --z-index-control: 2;
   --z-index-drop-indicator: 3;
@@ -104,10 +101,12 @@
   --z-index-presence: 6;
   --z-index-sticky: 10;
   --z-index-inline-hint: 20;
+  --z-index-raised-chrome: 30;
   --z-index-overlay: 40;
   --z-index-menu: 50;
   --z-index-nested-menu: 55;
   --z-index-lightbox: 60;
+  --z-index-toast: 100;
 
   /* ── Motion system ──────────────────────────────────────────────────────────
      One considered curve + tempo for the whole UI. `--default-transition-*` are
