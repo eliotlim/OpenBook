@@ -41,6 +41,9 @@ let version = 0;
 let paused = false;
 const listeners = new Set<() => void>();
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
+// Dialogs and their floating children use z-50; notifications must stay above
+// them so feedback remains visible when an action leaves a dialog open.
+const TOAST_LAYER_Z_INDEX = 100;
 
 const notify = (): void => {
   version += 1;
@@ -103,7 +106,8 @@ export function ToastHost() {
   return (
     <div
       data-toast-host
-      className="pointer-events-none fixed inset-x-0 bottom-6 z-[100] flex flex-col items-center gap-2 print:hidden"
+      className="pointer-events-none fixed inset-x-0 bottom-6 flex flex-col items-center gap-2 print:hidden"
+      style={{zIndex: TOAST_LAYER_Z_INDEX}}
       aria-live="polite"
       onMouseEnter={pauseAll}
       onMouseLeave={resumeAll}
@@ -113,7 +117,7 @@ export function ToastHost() {
       {items.map((item) => (
         <div
           key={item.id}
-          className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-lift"
+          className="pointer-events-auto flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-overlay"
         >
           <span className="min-w-0">{item.message}</span>
           {item.actionLabel && (
@@ -129,7 +133,7 @@ export function ToastHost() {
             </button>
           )}
           <IconButton size="sm" aria-label={t('common.close')} onClick={() => dismissToast(item.id)}>
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </IconButton>
         </div>
       ))}
