@@ -7,7 +7,6 @@ import {
   type QuickJSWASMModule,
 } from 'quickjs-emscripten-core';
 import RELEASE_SYNC from '@jitl/quickjs-wasmfile-release-sync';
-import quickJSWasmUrl from '@jitl/quickjs-wasmfile-release-sync/wasm?url&inline';
 import type {EvalRequest, EvalResult} from '../scope';
 import {isEvalResult, prepareEvalRequest} from './scopeMarshal';
 
@@ -52,19 +51,24 @@ const isCapacityError = (message: string): boolean => /out of memory|interrupted
 
 let quickJSModule: Promise<QuickJSWASMModule> | undefined;
 
+const releaseVariant = async (): Promise<typeof RELEASE_SYNC> => {
+  if (import.meta.env.MODE !== 'test') return RELEASE_SYNC;
+  // Emscripten's browser loader tries to open Vite's development URL through
+  // Node's filesystem in Vitest. Tests receive the same WASM bytes explicitly;
+  // production lets Vite bundle the variant's normal URL exactly once.
+  const {default: quickJSWasmUrl} = await import('@jitl/quickjs-wasmfile-release-sync/wasm?url&inline');
+  return newVariant(RELEASE_SYNC, {
+    locateFile: () => quickJSWasmUrl,
+    wasmBinary: async () => {
+      const response = await fetch(quickJSWasmUrl);
+      if (!response.ok) throw new Error(`Unable to load QuickJS WASM (${response.status})`);
+      return response.arrayBuffer();
+    },
+  });
+};
+
 const loadQuickJSModule = (): Promise<QuickJSWASMModule> => {
-  quickJSModule ??= newQuickJSWASMModuleFromVariant(
-    newVariant(RELEASE_SYNC, {
-      // Vite's inline Worker is an IIFE in the viewer build, so Emscripten
-      // cannot rely on import.meta.url to locate its sibling WASM file.
-      locateFile: () => quickJSWasmUrl,
-      wasmBinary: async () => {
-        const response = await fetch(quickJSWasmUrl);
-        if (!response.ok) throw new Error(`Unable to load QuickJS WASM (${response.status})`);
-        return response.arrayBuffer();
-      },
-    }),
-  );
+  quickJSModule ??= releaseVariant().then((variant) => newQuickJSWASMModuleFromVariant(variant));
   return quickJSModule;
 };
 
