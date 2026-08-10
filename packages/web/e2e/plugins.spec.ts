@@ -36,6 +36,8 @@ const SOURCES: Record<string, string> = {
   'src/greet.ts': 'export const greet = (): string => \'plugin says hi\';',
 };
 
+test.use({ownerGatedRequests: true});
+
 const zipOf = (withSignature?: object): Buffer => {
   const entries: Record<string, Uint8Array> = {'openbook.json': strToU8(JSON.stringify(MANIFEST))};
   for (const [p, s] of Object.entries(SOURCES)) entries[p] = strToU8(s);

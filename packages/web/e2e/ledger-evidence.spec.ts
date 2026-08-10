@@ -6,6 +6,8 @@ import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
 import {ensureAccount, pageWithBlock, postEntry, type ApiTransaction} from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-14: evidence integrity, end to end — the REAL plugin against the REAL
  * ledger server.

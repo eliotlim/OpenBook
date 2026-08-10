@@ -4,6 +4,8 @@ import {ensureLedgerPlugin} from './ledgerPlugin';
 import {createDraft, ensureAccount, pageWithBlock, postEntry} from './ledgerApi';
 import type {Page} from '@playwright/test';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-11: statement reconciliation, end to end — the REAL first-party plugin
  * from examples/plugins/ledger (zipped from disk, installed through Settings →

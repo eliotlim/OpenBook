@@ -3,6 +3,8 @@ import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
 import {createDraft, ensureAccount, getTransaction, pageWithBlock, postEntry} from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-12: period close, end to end — the REAL first-party plugin driving the
  * REAL ledger server. One test walks the whole lifecycle the acceptance

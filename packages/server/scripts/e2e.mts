@@ -18,6 +18,7 @@ import {PGLiteSocketServer} from '@electric-sql/pglite-socket';
 import {
   API,
   CLIENT_HEADER,
+  LOCAL_OWNER_HEADER,
   applyView,
   defaultDatabaseSchema,
   HttpDataClient,
@@ -33,6 +34,7 @@ import {startServer} from '../src/server';
 
 const ROOT = '/tmp/openbook-e2e';
 const EMBEDDED_DIR = `${ROOT}/embedded`;
+const LOCAL_OWNER_SECRET = 'openbook-server-e2e-local-owner';
 
 let passed = 0;
 function check(label: string, cond: boolean): void {
@@ -53,6 +55,20 @@ const clientHeaders = (extra: Record<string, string> = {}): Record<string, strin
   [CLIENT_HEADER]: '1',
   ...extra,
 });
+
+/** Host-authenticated headers for owner-only machine configuration mutations. */
+const localOwnerHeaders = (extra: Record<string, string> = {}): Record<string, string> =>
+  clientHeaders({[LOCAL_OWNER_HEADER]: LOCAL_OWNER_SECRET, ...extra});
+
+/** SDK client matching the desktop host's non-forwarded local-owner transport. */
+const localOwnerClient = (baseUrl: string): HttpDataClient =>
+  new HttpDataClient(baseUrl, undefined, {
+    fetchImpl: (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set(LOCAL_OWNER_HEADER, LOCAL_OWNER_SECRET);
+      return fetch(input, {...init, headers});
+    },
+  });
 
 const sampleSnapshot = (n: number): PageSnapshot => ({
   editorjs: {blocks: [{type: 'paragraph', data: {text: `hello ${n}`}}]},
@@ -432,7 +448,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Configure the mock engine; config persists in the settings table.
   const put = await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: clientHeaders({'content-type': 'application/json'}),
+    headers: localOwnerHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'mock'}),
   }).then((r) => r.json());
   check('config accepts the mock provider', put.provider === 'mock');
@@ -473,7 +489,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   check('reindex counts pages', reindex.pages > 0);
   const bad = await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: clientHeaders({'content-type': 'application/json'}),
+    headers: localOwnerHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'nonsense'}),
   });
   check('unknown provider rejected (400)', bad.status === 400);
@@ -501,20 +517,20 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Back off for the rest of the suite.
   await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: clientHeaders({'content-type': 'application/json'}),
+    headers: localOwnerHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'off'}),
   });
 }
 
 
-async function exercisePlugins(baseUrl: string, client: HttpDataClient, mode: string): Promise<void> {
+async function exercisePlugins(baseUrl: string, client: HttpDataClient, ownerClient: HttpDataClient, mode: string): Promise<void> {
   console.log(`\n[${mode}] extensions (plugins API)`);
 
   const manifest = {id: 'acme.hello', name: 'Hello', version: '1.0.0', main: 'src/index.ts'};
   const files = {'src/index.ts': 'export default function activate() {}'};
 
   // Install (unsigned), list, fetch round-trip.
-  const installed = await client.installPlugin({manifest, files});
+  const installed = await ownerClient.installPlugin({manifest, files});
   check('install returns the stored plugin', installed.manifest.id === 'acme.hello' && installed.enabled === true);
   const listed = await client.listPlugins();
   check('installed plugin is listed', listed.some((p) => p.manifest.id === 'acme.hello'));
@@ -522,7 +538,7 @@ async function exercisePlugins(baseUrl: string, client: HttpDataClient, mode: st
   // A signed package stores its signature verbatim and verifies client-side.
   const keys = await generateRegistryKeys();
   const signature = await signPlugin({manifest, files}, keys.privateKey, 'E2E Registry', keys.publicKey);
-  const signed = await client.installPlugin({manifest, files, signature});
+  const signed = await ownerClient.installPlugin({manifest, files, signature});
   check('signature survives the round-trip', signed.signature?.signature === signature.signature);
   const verdict = await verifyPlugin(signed, [{name: 'E2E Registry', publicKey: keys.publicKey}]);
   check('stored package verifies against the trusted key', verdict?.registry === 'E2E Registry');
@@ -530,21 +546,21 @@ async function exercisePlugins(baseUrl: string, client: HttpDataClient, mode: st
   // Validation: bad manifests and missing entries are rejected.
   const badManifest = await fetch(`${baseUrl}${API.plugins}`, {
     method: 'POST',
-    headers: clientHeaders({'content-type': 'application/json'}),
+    headers: localOwnerHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({manifest: {id: 'NoDots', name: 'x', version: '1', main: 'a.ts'}, files: {'a.ts': 'x'}}),
   });
   check('malformed id rejected (400)', badManifest.status === 400);
   const noEntry = await fetch(`${baseUrl}${API.plugins}`, {
     method: 'POST',
-    headers: clientHeaders({'content-type': 'application/json'}),
+    headers: localOwnerHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({manifest: {...manifest, main: 'missing.ts'}, files}),
   });
   check('missing entry file rejected (400)', noEntry.status === 400);
 
   // Enable toggle + removal.
-  const disabled = await client.setPluginEnabled('acme.hello', false);
+  const disabled = await ownerClient.setPluginEnabled('acme.hello', false);
   check('disable persists', disabled.enabled === false);
-  check('remove returns true', (await client.removePlugin('acme.hello')) === true);
+  check('remove returns true', (await ownerClient.removePlugin('acme.hello')) === true);
   check('removed plugin is gone', !(await client.listPlugins()).some((p) => p.manifest.id === 'acme.hello'));
 }
 
@@ -553,7 +569,12 @@ async function main(): Promise<void> {
 
   // ---- 1. Embedded mode (PGlite) ----
   console.log('\n=== 1. EMBEDDED MODE (embedded PGlite) ===');
-  let server = await startServer({dataDir: EMBEDDED_DIR, host: '127.0.0.1', port: 4401});
+  let server = await startServer({
+    dataDir: EMBEDDED_DIR,
+    host: '127.0.0.1',
+    port: 4401,
+    localOwnerSecret: LOCAL_OWNER_SECRET,
+  });
   console.log(`  server up at ${server.url}`);
   const embeddedClient = new HttpDataClient(server.url);
 
@@ -569,7 +590,7 @@ async function main(): Promise<void> {
   await exerciseBackup(embeddedClient, 'embedded');
   await exerciseTrash(embeddedClient, 'embedded');
   await exerciseAi(server.url, embeddedClient, 'embedded');
-  await exercisePlugins(server.url, embeddedClient, 'embedded');
+  await exercisePlugins(server.url, embeddedClient, localOwnerClient(server.url), 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');
@@ -583,7 +604,12 @@ async function main(): Promise<void> {
   await server.close();
   console.log('  server stopped');
 
-  server = await startServer({dataDir: EMBEDDED_DIR, host: '127.0.0.1', port: 4401});
+  server = await startServer({
+    dataDir: EMBEDDED_DIR,
+    host: '127.0.0.1',
+    port: 4401,
+    localOwnerSecret: LOCAL_OWNER_SECRET,
+  });
   console.log(`  server restarted at ${server.url}`);
   const restartedClient = new HttpDataClient(server.url);
   const survivor = await restartedClient.getPage(durable.id);

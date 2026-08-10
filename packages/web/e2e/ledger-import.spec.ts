@@ -3,6 +3,8 @@ import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
 import {pageWithBlock, runPaletteCommand} from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-10: the bank CSV importer, end to end — the REAL first-party plugin from
  * examples/plugins/ledger (read from disk, zipped, installed through Settings →

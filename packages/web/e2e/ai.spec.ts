@@ -6,6 +6,7 @@ import {SERVER} from './seed';
 // persists server-side, so each test sets what it needs and the suite
 // resets to 'off' at the end.
 
+test.use({ownerGatedRequests: true});
 
 const setProvider = async (request: import('@playwright/test').APIRequestContext, provider: string): Promise<void> => {
   const res = await request.put(`${SERVER}/api/ai/config`, {data: {provider}});
@@ -24,12 +25,12 @@ async function openAssistant(page: import('@playwright/test').Page) {
   return panel;
 }
 
-test.afterAll(async ({request}) => {
-  await setProvider(request, 'off');
+test.afterAll(async ({ownerRequest}) => {
+  await setProvider(ownerRequest, 'off');
 });
 
-test('settings: AI tab shows providers and engine status', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'off');
+test('settings: AI tab shows providers and engine status', {tag: ['@ai']}, async ({page, ownerRequest}) => {
+  await setProvider(ownerRequest, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.keyboard.press('ControlOrMeta+,');
@@ -43,8 +44,8 @@ test('settings: AI tab shows providers and engine status', {tag: ['@ai']}, async
   await page.keyboard.press('Escape');
 });
 
-test('settings: every provider is configurable in its own panel + the radio picks the default', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'off');
+test('settings: every provider is configurable in its own panel + the radio picks the default', {tag: ['@ai']}, async ({page, request, ownerRequest}) => {
+  await setProvider(ownerRequest, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.keyboard.press('ControlOrMeta+,');
@@ -80,8 +81,8 @@ test('settings: every provider is configurable in its own panel + the radio pick
   await page.keyboard.press('Escape');
 });
 
-test('unified search: ⌘K surfaces content snippets and navigates to the hit', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('unified search: ⌘K surfaces content snippets and navigates to the hit', {tag: ['@ai']}, async ({page, request, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   const name = `AI Search Note ${Date.now()}`;
   const created = await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -111,16 +112,16 @@ test('unified search: ⌘K surfaces content snippets and navigates to the hit', 
   await expect(page).toHaveURL(new RegExp(id));
 });
 
-test('unified search: ⌘⇧F opens the palette pre-primed for search', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('unified search: ⌘⇧F opens the palette pre-primed for search', {tag: ['@ai']}, async ({page, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.keyboard.press('ControlOrMeta+Shift+f');
   await expect(page.getByPlaceholder(/Search pages or run a command/)).toBeVisible();
 });
 
-test('editor: Break into tasks and Continue writing run through the engine', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('editor: Break into tasks and Continue writing run through the engine', {tag: ['@ai']}, async ({page, request, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   const created = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `AI Editor ${Date.now()}`,
@@ -168,8 +169,8 @@ test('editor: Break into tasks and Continue writing run through the engine', {ta
   await expect(page.getByText('This continues the document with a mock completion.')).toBeVisible();
 });
 
-test('assistant panel: ask a question, watch the tool run, get a grounded answer', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('assistant panel: ask a question, watch the tool run, get a grounded answer', {tag: ['@ai']}, async ({page, request, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   const name = `Agent Note ${Date.now()}`;
   await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -228,8 +229,8 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   await expect(panel).toHaveCount(0);
 });
 
-test('assistant panel: a multi-step interview collects answers and resumes the agent', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('assistant panel: a multi-step interview collects answers and resumes the agent', {tag: ['@ai']}, async ({page, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   const panel = await openAssistant(page);
   await panel.locator('[data-agent-input]').fill('interview me about the doc');
   await panel.locator('[data-agent-send]').click();
@@ -251,8 +252,8 @@ test('assistant panel: a multi-step interview collects answers and resumes the a
   await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
 });
 
-test('assistant panel: granting direct edit access resumes the agent', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'mock');
+test('assistant panel: granting direct edit access resumes the agent', {tag: ['@ai']}, async ({page, ownerRequest}) => {
+  await setProvider(ownerRequest, 'mock');
   const panel = await openAssistant(page);
   await panel.locator('[data-agent-input]').fill('edit directly please');
   await panel.locator('[data-agent-send]').click();
@@ -268,8 +269,8 @@ test('assistant panel: granting direct edit access resumes the agent', {tag: ['@
   await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
 });
 
-test('with AI off, the slash menu hides AI actions but search stays lexical', {tag: ['@ai']}, async ({page, request}) => {
-  await setProvider(request, 'off');
+test('with AI off, the slash menu hides AI actions but search stays lexical', {tag: ['@ai']}, async ({page, request, ownerRequest}) => {
+  await setProvider(ownerRequest, 'off');
   const search = await request.post(`${SERVER}/api/ai/search`, {data: {query: 'migration rollback'}});
   const body = (await search.json()) as {mode: string; results: unknown[]};
   expect(body.mode).toBe('lexical');
