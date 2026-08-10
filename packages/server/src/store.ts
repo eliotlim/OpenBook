@@ -377,6 +377,9 @@ async function bundleKey(req: ImportRequest): Promise<string> {
     ledger: req.ledger ?? null,
     assets: req.assets ?? null,
     pageAccess: req.pageAccess ?? null,
+    instanceId: req.instanceId ?? null,
+    ownerSubject: req.ownerSubject ?? null,
+    installForeignPageAccess: req.installForeignPageAccess === true,
   });
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -410,33 +413,62 @@ async function assetHash(bytes: Uint8Array): Promise<string> {
 }
 
 const ASSET_ID_RE = /^[0-9a-f]{64}$/;
+const ASSET_ID_RUN_RE = /[0-9a-f]{64,}/g;
+const MAX_BACKUP_JSON_DEPTH = 100;
 
 /**
  * Asset references are document state, not `asset_refs` state: a moved/copied
- * block can legitimately have no edge row (the GC has the same rule). Walk the
- * two supported reference shapes: block/property `assetId`, and ledger evidence
- * manifest `sha256` entries.
+ * block can legitimately have no edge row. Match the GC's conservative liveness
+ * rule: any known stored 64-hex id appearing anywhere in serialized page data
+ * or properties is reachable. Scanning every overlapping window also covers
+ * future property names and URL forms such as `/assets/<id>` without coupling
+ * backup completeness to today's block schema. The structural walk retains loud
+ * missing-byte diagnostics for today's `assetId` and evidence `sha256` shapes.
  */
-function referencedAssets(pages: StoredPage[]): Map<string, Set<string>> {
+function referencedAssets(pages: StoredPage[], knownAssetIds: Iterable<string> = []): Map<string, Set<string>> {
   const refs = new Map<string, Set<string>>();
-  const walk = (value: unknown, pageId: string): void => {
+  const known = new Set([...knownAssetIds].filter((id) => ASSET_ID_RE.test(id)));
+  const add = (assetId: string, pageId: string): void => {
+    const pagesForAsset = refs.get(assetId) ?? new Set<string>();
+    pagesForAsset.add(pageId);
+    refs.set(assetId, pagesForAsset);
+  };
+  const scan = (value: unknown, pageId: string): void => {
+    const json = JSON.stringify(value);
+    if (!json) return;
+    for (const match of json.matchAll(ASSET_ID_RUN_RE)) {
+      const run = match[0];
+      for (let offset = 0; offset <= run.length - 64; offset += 1) {
+        const assetId = run.slice(offset, offset + 64);
+        if (known.has(assetId)) add(assetId, pageId);
+      }
+    }
+  };
+  const walk = (value: unknown, pageId: string, depth: number): void => {
+    if (depth > MAX_BACKUP_JSON_DEPTH) {
+      throw new BackupFormatError(
+        `invalid backup: page ${pageId} JSON exceeds the ${MAX_BACKUP_JSON_DEPTH}-level nesting cap`,
+      );
+    }
     if (Array.isArray(value)) {
-      for (const item of value) walk(item, pageId);
+      for (const item of value) walk(item, pageId, depth + 1);
       return;
     }
     if (!value || typeof value !== 'object') return;
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
       if ((key === 'assetId' || key === 'sha256') && typeof child === 'string' && ASSET_ID_RE.test(child)) {
-        const pagesForAsset = refs.get(child) ?? new Set<string>();
-        pagesForAsset.add(pageId);
-        refs.set(child, pagesForAsset);
+        add(child, pageId);
       }
-      walk(child, pageId);
+      walk(child, pageId, depth + 1);
     }
   };
   for (const page of pages) {
-    walk(page.data, page.id);
-    walk(page.properties, page.id);
+    // Validate before JSON.stringify: deeply nested hostile input must fail as a
+    // clean BackupFormatError, not overflow the serializer's call stack.
+    walk(page.data, page.id, 0);
+    walk(page.properties, page.id, 0);
+    scan(page.data, page.id);
+    scan(page.properties, page.id);
   }
   return refs;
 }
@@ -475,17 +507,38 @@ function partialRestoreDiagnostic(version: 1 | 2): BackupRestoreDiagnostic {
   };
 }
 
+function foreignPageAccessDiagnostic(sourceInstanceId: string | undefined, targetInstanceId: string): BackupRestoreDiagnostic {
+  const origin = sourceInstanceId ? `foreign instance ${sourceInstanceId}` : 'an origin-less v3 backup';
+  return {
+    code: 'partial-restore',
+    version: 3,
+    missing: ['page-access-state'],
+    message:
+      `partial restore from ${origin}: page access state was skipped for target instance ${targetInstanceId}; ` +
+      'pages were restored restricted (pass installForeignPageAccess:true to install it explicitly)',
+  };
+}
+
+const MAX_BACKUP_IDENTITY_LENGTH = 2048;
+
+function validBackupIdentity(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && value.length > 0 && value.length <= MAX_BACKUP_IDENTITY_LENGTH);
+}
+
 /**
  * Validate the v3 envelope in full before opening the write transaction. This
  * makes a malformed/incomplete manifest a loud no-write failure, not a partly
  * restored library whose broken images are discovered later.
  */
-async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnostic[]> {
+async function preflightBackup(
+  req: ImportRequest,
+  targetInstanceId: string,
+): Promise<{diagnostics: BackupRestoreDiagnostic[]; installPageAccess: boolean}> {
   if (req.version == null) {
     if (req.assets != null || req.pageAccess != null) {
       throw new BackupFormatError('invalid import: v3 assets/pageAccess require an explicit backup format version');
     }
-    return []; // ordinary content import, not a backup reader
+    return {diagnostics: [], installPageAccess: false}; // ordinary content import, not a backup reader
   }
   if (!Number.isSafeInteger(req.version) || req.version < 1) {
     throw new BackupFormatError(`invalid backup format version ${String(req.version)}`);
@@ -499,13 +552,22 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
     if (req.assets != null || req.pageAccess != null) {
       throw new BackupFormatError(`invalid backup v${req.version}: v3 assets/pageAccess fields are not allowed`);
     }
-    return [partialRestoreDiagnostic(req.version)];
+    return {diagnostics: [partialRestoreDiagnostic(req.version)], installPageAccess: false};
   }
   if (!Array.isArray(req.assets) || !Array.isArray(req.pageAccess)) {
     throw new BackupFormatError('invalid backup v3: assets and pageAccess manifests are required');
   }
   if (req.ledger?.assets && req.ledger.assets.length > 0) {
     throw new BackupFormatError('invalid backup v3: ledger.assets must be deduplicated into the top-level assets manifest');
+  }
+  if (req.instanceId !== undefined && !validBackupIdentity(req.instanceId)) {
+    throw new BackupFormatError('invalid backup v3: instanceId must be a non-empty string of at most 2048 characters');
+  }
+  if (req.ownerSubject !== undefined && !validBackupIdentity(req.ownerSubject)) {
+    throw new BackupFormatError('invalid backup v3: ownerSubject must be a non-empty string of at most 2048 characters');
+  }
+  if (req.installForeignPageAccess !== undefined && typeof req.installForeignPageAccess !== 'boolean') {
+    throw new BackupFormatError('invalid backup v3: installForeignPageAccess must be a boolean');
   }
 
   const pageIds = new Set<string>();
@@ -533,6 +595,21 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
     }
     const aclKeys = new Set<string>();
     for (const acl of access.acl) {
+      if (!acl || !validBackupIdentity(acl.subject)) {
+        throw new BackupFormatError(
+          `invalid backup v3: page ${access.pageId} ACL subject must be null or a non-empty string of at most 2048 characters`,
+        );
+      }
+      if (!validBackupIdentity(acl.issuer)) {
+        throw new BackupFormatError(
+          `invalid backup v3: page ${access.pageId} ACL issuer must be null or a non-empty string of at most 2048 characters`,
+        );
+      }
+      if (!validBackupIdentity(acl.invitedBy)) {
+        throw new BackupFormatError(
+          `invalid backup v3: page ${access.pageId} ACL invitedBy must be null or a non-empty string of at most 2048 characters`,
+        );
+      }
       const hasSubject = typeof acl?.subject === 'string' && acl.subject.length > 0;
       const hasEmail = typeof acl?.email === 'string' && acl.email.length > 0;
       if (hasSubject === hasEmail || (hasEmail && (typeof acl.issuer !== 'string' || acl.issuer.length === 0))) {
@@ -554,13 +631,15 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
     throw new BackupFormatError(`invalid backup v3: pageAccess is missing page(s): ${missing.join(', ')}`);
   }
 
-  const expectedRefs = referencedAssets(req.pages);
   const manifestIds = new Set<string>();
   for (const asset of req.assets) {
     if (!asset || typeof asset.id !== 'string' || !ASSET_ID_RE.test(asset.id) || manifestIds.has(asset.id)) {
       throw new BackupFormatError(`invalid backup v3: duplicate or malformed asset id ${JSON.stringify(asset?.id)}`);
     }
     manifestIds.add(asset.id);
+  }
+  const expectedRefs = referencedAssets(req.pages, manifestIds);
+  for (const asset of req.assets) {
     if (typeof asset.mime !== 'string' || typeof asset.bytesBase64 !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0) {
       throw new BackupFormatError(`invalid backup v3: asset ${asset.id} has malformed bytes metadata`);
     }
@@ -599,7 +678,12 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
   if (missingAssets.length > 0) {
     throw new BackupFormatError(`invalid backup v3: referenced asset bytes are missing: ${missingAssets.join(', ')}`);
   }
-  return [];
+  const sameOrigin = req.instanceId !== undefined && req.instanceId === targetInstanceId;
+  const installPageAccess = sameOrigin || req.installForeignPageAccess === true;
+  return {
+    diagnostics: installPageAccess ? [] : [foreignPageAccessDiagnostic(req.instanceId, targetInstanceId)],
+    installPageAccess,
+  };
 }
 
 /**
@@ -909,6 +993,8 @@ export class PageStore {
    *  bundle also carries its durability surface (LGR-15); v3 additionally
    *  carries every referenced asset and every page's stored access posture. */
   async exportAll(exportedAt: string = new Date().toISOString()): Promise<LibraryBackup> {
+    const instanceId = await this.ensureInstanceId();
+    const {ownerSubject} = await this.getInstanceConfig();
     const pageRows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
     );
@@ -925,6 +1011,8 @@ export class PageStore {
     return {
       version: BACKUP_VERSION,
       exportedAt,
+      instanceId,
+      ...(ownerSubject ? {ownerSubject} : {}),
       pages,
       databases: dbRows.map(databaseFromRow),
       assets,
@@ -935,7 +1023,11 @@ export class PageStore {
 
   /** Build and self-verify the v3 content-addressed asset manifest. */
   private async exportAssets(pages: StoredPage[]): Promise<BackupAsset[]> {
-    const wanted = referencedAssets(pages);
+    // Seed the document scanner with every actually stored id. This makes the
+    // backup liveness set a superset of the GC's `position(a.id IN ...::text)`
+    // predicate without treating unrelated 64-hex document hashes as assets.
+    const stored = await this.db.query<{id: string}>('SELECT id FROM assets');
+    const wanted = referencedAssets(pages, stored.map((asset) => asset.id));
     const assets: BackupAsset[] = [];
     for (const id of [...wanted.keys()].sort()) {
       const rows = await this.db.query<{id: string; mime: string; size: number | string; bytes: Uint8Array | string}>(
@@ -1043,7 +1135,8 @@ export class PageStore {
    * upload door enforces).
    */
   async importBundle(req: ImportRequest, opts: {actor?: Principal; assetBudgetBytes?: number} = {}): Promise<ImportResult> {
-    const diagnostics = await preflightBackup(req);
+    const targetInstanceId = await this.ensureInstanceId();
+    const {diagnostics, installPageAccess} = await preflightBackup(req, targetInstanceId);
     // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
@@ -1100,7 +1193,15 @@ export class PageStore {
           ? await this.importOverwriteTx(tx, pages, databases)
           : await this.importCopyTx(tx, pages, databases);
       if (req.assets) {
-        await this.restoreAssetsTx(tx, req.assets, pages, result.idMap, opts.assetBudgetBytes, 'backup v3');
+        await this.restoreAssetsTx(
+          tx,
+          req.assets,
+          pages,
+          result.idMap,
+          opts.assetBudgetBytes,
+          'backup v3',
+          req.mode === 'overwrite',
+        );
       }
       // LGR-15: the bundle's ledger durability section (audit stream, settings,
       // evidence assets). Deliberately narrow: overwrite mode only (copy re-ids
@@ -1124,8 +1225,13 @@ export class PageStore {
         result = {...result, ledger: outcome};
       }
       // Apply page access LAST: ledger restore defensively re-asserts its host
-      // pages restricted, then the complete v3 source state is installed over it.
-      if (req.pageAccess) await this.restorePageAccessTx(tx, req.pageAccess, result.idMap);
+      // pages restricted, then SAME-origin (or explicitly opted-in foreign)
+      // source state is installed over it. A foreign/origin-less v3 bundle gets
+      // the safe baseline instead so subject-keyed grants cannot cross instances.
+      if (req.pageAccess) {
+        if (installPageAccess) await this.restorePageAccessTx(tx, req.pageAccess, result.idMap);
+        else await this.restrictRestoredPageAccessTx(tx, req.pageAccess, result.idMap);
+      }
       if (diagnostics.length > 0) result = {...result, diagnostics};
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
@@ -1274,8 +1380,20 @@ export class PageStore {
     idMap: Record<string, string>,
     budget: number | undefined,
     context: string,
+    replaceRefs: boolean,
   ): Promise<void> {
     const bundlePageIds = new Set(pages.map((page) => page.id));
+    if (replaceRefs) {
+      const targetPageIds = [...bundlePageIds]
+        .map((sourcePageId) => idMap[sourcePageId])
+        .filter((pageId): pageId is string => typeof pageId === 'string');
+      if (targetPageIds.length > 0) {
+        // Overwrite restores replace the page documents, so their reachability
+        // edges must be replaced too. Leaving old edges behind makes a removed
+        // restored image permanently block GC even after no document uses it.
+        await tx.query('DELETE FROM asset_refs WHERE page_id = ANY($1)', [targetPageIds]);
+      }
+    }
     for (const asset of assets) {
       if (typeof asset.id !== 'string' || !ASSET_ID_RE.test(asset.id) || typeof asset.bytesBase64 !== 'string') {
         throw new BackupFormatError(`invalid ${context}: malformed asset entry`);
@@ -1356,6 +1474,23 @@ export class PageStore {
           [targetPageId, acl.subject, acl.email, acl.issuer, acl.level, acl.invitedBy, acl.createdAt],
         );
       }
+    }
+  }
+
+  /** Safe access baseline for an origin-less/foreign v3 restore. */
+  private async restrictRestoredPageAccessTx(
+    tx: Db,
+    manifest: BackupPageAccess[],
+    idMap: Record<string, string>,
+  ): Promise<void> {
+    for (const access of manifest) {
+      const targetPageId = idMap[access.pageId];
+      if (!targetPageId) continue; // a managed target stripped by the import guard
+      await tx.query(
+        'UPDATE pages SET visibility = \'restricted\', agent_edits = \'suggest\' WHERE id = $1',
+        [targetPageId],
+      );
+      await tx.query('DELETE FROM page_acl WHERE page_id = $1', [targetPageId]);
     }
   }
 
@@ -4162,6 +4297,10 @@ export class PageStore {
    * (an asset that still has any ref is kept regardless), and the id-in-document scan
    * is the confirming check that makes the GC block-move-safe: 0 refs but present in a
    * page document ⇒ KEPT.
+   *
+   * Backup capture's `referencedAssets` deliberately mirrors this substring
+   * predicate (including future keys and `/assets/<id>` URLs), so anything this
+   * GC preserves from a live page is also included in a v3 backup.
    *
    * **Includes TRASHED pages (data-loss fix).** The scan does NOT filter on
    * `deleted_at` — a soft-deleted page is restorable for the whole trash-retention

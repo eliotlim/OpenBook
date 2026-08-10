@@ -99,6 +99,10 @@ export interface LedgerBackupSection {
 export interface LibraryBackup {
   version: number;
   exportedAt: string;
+  /** STAB-5 origin binding: the instance that authored this backup. */
+  instanceId?: string;
+  /** Informational provenance for claimed instances; `instanceId` is the binding key. */
+  ownerSubject?: string;
   pages: StoredPage[];
   databases: StoredDatabase[];
   /** pageId → emoji icon (added client-side; ignored by the server). */
@@ -121,6 +125,9 @@ export interface ImportRequest {
    * unknown future versions are refused before any writes.
    */
   version?: number;
+  /** Origin fields copied from the backup envelope. */
+  instanceId?: string;
+  ownerSubject?: string;
   pages: StoredPage[];
   databases: StoredDatabase[];
   mode: ImportMode;
@@ -134,6 +141,11 @@ export interface ImportRequest {
   assets?: BackupAsset[];
   /** v3 selected-page access-state manifest. */
   pageAccess?: BackupPageAccess[];
+  /**
+   * Explicitly install v3 access state whose `instanceId` is absent or differs
+   * from the target. Omitted/false restores those pages restricted instead.
+   */
+  installForeignPageAccess?: boolean;
 }
 
 /**
@@ -154,10 +166,10 @@ export type PartialRestoreMissing =
   | 'page-access-state'
   | 'ledger-durability-section';
 
-/** Loud, machine-readable compatibility warning returned after a v1/v2 restore. */
+/** Loud, machine-readable warning for an intentionally partial restore. */
 export interface BackupRestoreDiagnostic {
   code: 'partial-restore';
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   missing: PartialRestoreMissing[];
   message: string;
 }
@@ -173,7 +185,7 @@ export interface ImportResult {
   idMap: Record<string, string>;
   /** LGR-15: outcome of the bundle's ledger section; absent when none was sent. */
   ledger?: LedgerRestoreOutcome;
-  /** Compatibility warnings; notably, explicit v1/v2 restores are never silent. */
+  /** Compatibility/security warnings; partial legacy and skipped foreign access restores are never silent. */
   diagnostics?: BackupRestoreDiagnostic[];
   /**
    * True when this apply was a **replay** of an already-imported bundle (ER-6):

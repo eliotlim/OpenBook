@@ -150,13 +150,65 @@ describe('BackupScheduler', () => {
     const restored = new PageStore(await PgliteDb.create(restoreDir));
     await restored.migrate();
     try {
-      const result = await restored.importBundle({...parsed, mode: 'copy'});
+      const result = await restored.importBundle({...parsed, mode: 'copy', installForeignPageAccess: true});
       expect(result.created).toBe(parsed.pages.length);
       expect(result.diagnostics).toBeUndefined();
       expect((await restored.listPages()).map((p) => p.name)).toContain(`rt-${seq}`);
     } finally {
       await restored.close();
       await rm(restoreDir, {recursive: true, force: true});
+    }
+  });
+
+  it('binds v3 access state to its origin and requires opt-in on a foreign target', async () => {
+    await store.updateInstanceConfig({ownerSubject: 'account#owner'});
+    const page = await store.upsertPage({name: `origin-${seq}`, data: snapshot()});
+    await store.setPageVisibility(page.id, 'public');
+    await store.setPageAgentEdits(page.id, 'direct');
+    await store.setPageAcl(page.id, {subject: 'account#viewer', level: 'write', invitedBy: 'account#owner'});
+
+    const bundle = await store.exportAll();
+    expect(bundle.instanceId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(bundle.ownerSubject).toBe('account#owner');
+
+    const sameOrigin = await store.importBundle({...bundle, mode: 'copy'});
+    const sameOriginId = sameOrigin.idMap[page.id];
+    expect(sameOrigin.diagnostics).toBeUndefined();
+    expect(await store.getPageVisibility(sameOriginId)).toBe('public');
+    expect(await store.getPageAgentEdits(sameOriginId)).toBe('direct');
+    expect(await store.getPageAcl(sameOriginId)).toHaveLength(1);
+
+    const foreignDir = join(tmpdir(), `ob-backup-foreign-${process.pid}-${seq}`);
+    const foreign = new PageStore(await PgliteDb.create(foreignDir));
+    await foreign.migrate();
+    try {
+      const safe = await foreign.importBundle({...bundle, mode: 'copy'});
+      const safeId = safe.idMap[page.id];
+      expect(safe.diagnostics).toEqual([
+        expect.objectContaining({code: 'partial-restore', version: 3, missing: ['page-access-state']}),
+      ]);
+      expect(await foreign.getPageVisibility(safeId)).toBe('restricted');
+      expect(await foreign.getPageAgentEdits(safeId)).toBe('suggest');
+      expect(await foreign.getPageAcl(safeId)).toEqual([]);
+
+      const optedIn = await foreign.importBundle({...bundle, mode: 'copy', installForeignPageAccess: true});
+      const optedInId = optedIn.idMap[page.id];
+      expect(optedIn.diagnostics).toBeUndefined();
+      expect(await foreign.getPageVisibility(optedInId)).toBe('public');
+      expect(await foreign.getPageAgentEdits(optedInId)).toBe('direct');
+      expect(await foreign.getPageAcl(optedInId)).toHaveLength(1);
+
+      const originless = structuredClone(bundle);
+      delete originless.instanceId;
+      delete originless.ownerSubject;
+      const noOrigin = await foreign.importBundle({...originless, mode: 'copy'});
+      expect(noOrigin.diagnostics).toEqual([
+        expect.objectContaining({code: 'partial-restore', version: 3, missing: ['page-access-state']}),
+      ]);
+      expect(await foreign.getPageVisibility(noOrigin.idMap[page.id])).toBe('restricted');
+    } finally {
+      await foreign.close();
+      await rm(foreignDir, {recursive: true, force: true});
     }
   });
 
@@ -191,6 +243,64 @@ describe('BackupScheduler', () => {
       },
     });
     await expect(store.exportAll()).rejects.toThrow(`referenced asset ${missing} has no stored bytes`);
+  });
+
+  it('keeps backup reachability aligned with GC for future asset URL shapes', async () => {
+    const bytes = Uint8Array.from([7, 8, 9]);
+    const {id} = await store.putAsset(bytes, 'image/png');
+    const page = await store.upsertPage({
+      name: `future-asset-url-${seq}`,
+      data: {
+        editorjs: {blocks: [{type: 'future-attachment', data: {downloadUrl: `/assets/${id}?download=1`}}]},
+        values: [],
+        names: [],
+      },
+    });
+
+    // No edge-table help: both safety-critical paths must derive liveness from
+    // the same page document substring semantics.
+    expect(await store.pagesReferencingAsset(id)).toEqual([]);
+    expect((await store.gcUnreferencedAssets({graceMs: 0})).reaped).toBe(0);
+    expect((await store.exportAll()).assets).toEqual([
+      expect.objectContaining({id, refs: [page.id]}),
+    ]);
+  });
+
+  it('overwrite restore replaces stale asset refs for the target page', async () => {
+    const oldBytes = Uint8Array.from([1, 2, 3]);
+    const newBytes = Uint8Array.from([4, 5, 6]);
+    const {id: oldId} = await store.putAsset(oldBytes, 'image/png');
+    const page = await store.upsertPage({
+      name: `replace-restored-ref-${seq}`,
+      data: {
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+        blockdoc: {v: 1, update: '', blocks: [{id: 'old', type: 'image', props: {assetId: oldId}}]},
+      },
+    });
+    await store.refAsset(oldId, page.id);
+    const original = await store.exportAll();
+    const {id: newId} = await store.putAsset(newBytes, 'image/png');
+    const replacement = structuredClone(original);
+    replacement.pages[0].data = {
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+      blockdoc: {v: 1, update: '', blocks: [{id: 'new', type: 'image', props: {assetId: newId}}]},
+    };
+    replacement.assets = [{
+      id: newId,
+      mime: 'image/png',
+      size: newBytes.byteLength,
+      bytesBase64: Buffer.from(newBytes).toString('base64'),
+      refs: [page.id],
+    }];
+
+    await store.importBundle({...replacement, mode: 'overwrite'});
+    expect(await store.pagesReferencingAsset(oldId)).toEqual([]);
+    expect(await store.pagesReferencingAsset(newId)).toEqual([page.id]);
+    expect((await store.gcUnreferencedAssets({graceMs: 0})).ids).toContain(oldId);
   });
 
   it('preflights the v3 asset manifest before writing any page', async () => {
@@ -315,5 +425,57 @@ describe('backup HTTP routes', () => {
     expect(await res.json()).toEqual({
       error: `unsupported backup format version ${BACKUP_VERSION + 1}; this build reads through v${BACKUP_VERSION}`,
     });
+  });
+
+  it('returns clean 400s for malformed or overlong ACL identity fields before writing', async () => {
+    await store.upsertPage({name: `acl-preflight-${seq}`, data: snapshot()});
+    const base = await store.exportAll();
+    const now = new Date().toISOString();
+    const cases: Array<{field: 'subject' | 'issuer' | 'invitedBy'; value: unknown}> = [
+      {field: 'subject', value: 7},
+      {field: 'issuer', value: {not: 'a string'}},
+      {field: 'invitedBy', value: false},
+      {field: 'subject', value: 's'.repeat(2049)},
+      {field: 'issuer', value: 'i'.repeat(2049)},
+      {field: 'invitedBy', value: 'b'.repeat(2049)},
+    ];
+    const app = createApp(store, undefined, new PageHub());
+
+    for (const testCase of cases) {
+      const forged = structuredClone(base) as unknown as Record<string, unknown> & LibraryBackup;
+      forged.pageAccess![0].acl = [{
+        subject: 'account#viewer',
+        email: null,
+        issuer: null,
+        level: 'read',
+        invitedBy: null,
+        createdAt: now,
+        [testCase.field]: testCase.value,
+      } as never];
+      const res = await app.request('/api/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+        body: JSON.stringify({...forged, mode: 'overwrite'}),
+      });
+      expect(res.status, testCase.field).toBe(400);
+      expect((await res.json()).error).toContain(`ACL ${testCase.field}`);
+    }
+  });
+
+  it('returns a clean 400 when page JSON exceeds the backup nesting cap', async () => {
+    await store.upsertPage({name: `deep-preflight-${seq}`, data: snapshot()});
+    const forged = structuredClone(await store.exportAll());
+    let nested: Record<string, unknown> = {leaf: true};
+    for (let depth = 0; depth < 102; depth += 1) nested = {child: nested};
+    forged.pages[0].data = nested as never;
+
+    const app = createApp(store, undefined, new PageHub());
+    const res = await app.request('/api/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({...forged, mode: 'overwrite'}),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('exceeds the 100-level nesting cap');
   });
 });

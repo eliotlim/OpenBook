@@ -116,6 +116,8 @@ describe('LocalDataClient — export / import round-trip', () => {
     const dump = await client.exportLibrary();
     expect(dump.pages.map((p) => p.id)).toContain(a.id);
     expect(dump.databases.map((d) => d.id)).toContain(db.id);
+    expect(dump.instanceId).toBeTruthy();
+    expect((await client.getInstanceInfo()).instanceId).toBe(dump.instanceId);
 
     // Import as a copy into the same space: new ids minted, nothing clobbered.
     const result = await client.importLibrary({pages: dump.pages, databases: dump.databases, mode: 'copy'});

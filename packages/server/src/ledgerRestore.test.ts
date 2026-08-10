@@ -242,7 +242,10 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     const target = await provision();
     cleanups.push(target.destroy);
     const targetStore = new PageStore(target.db);
-    const result = await targetStore.importBundle({...bundle, mode: 'overwrite'}, {actor: SEED_ACTOR});
+    const result = await targetStore.importBundle(
+      {...bundle, mode: 'overwrite', installForeignPageAccess: true},
+      {actor: SEED_ACTOR},
+    );
     expect(result.ledger).toBe('restored');
     expect(result.diagnostics).toBeUndefined();
     const restoredImage = await targetStore.getAsset(imageId);

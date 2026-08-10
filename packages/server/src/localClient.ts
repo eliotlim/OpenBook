@@ -686,6 +686,7 @@ export class LocalDataClient implements DataClient {
       // Settings toggle round-trips and a page's `inherit` policy resolves without
       // a second probe. Mirrors the HTTP `GET /api/instance` field.
       agentEdits: config.agentEdits,
+      instanceId: config.instanceId ?? null,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
