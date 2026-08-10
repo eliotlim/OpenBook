@@ -52,6 +52,7 @@ export default defineConfig({
     // Inlined React et al. read NODE_ENV; the IIFE must carry a production
     // value itself (lib builds don't substitute it by default).
     "process.env.NODE_ENV": JSON.stringify("production"),
+    __OB_SAFE_EXPORT_VIEWER__: 'true',
   },
   build: {
     outDir: "src/export/vendor",
@@ -67,7 +68,12 @@ export default defineConfig({
     // NO rollupOptions.external: inlining everything is the whole point.
   },
   resolve: {
-    alias: [{ find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) }],
+    alias: [
+      // The read-only viewer has no DataProvider and cannot install plugins.
+      // Exclude the app's source compiler (Sucrase + Function constructor).
+      { find: "@/plugins", replacement: fileURLToPath(new URL("./src/viewer/pluginStubs.ts", import.meta.url)) },
+      { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+    ],
     dedupe: ["react", "react-dom"],
   },
 });

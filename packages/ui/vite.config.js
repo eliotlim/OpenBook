@@ -12,6 +12,9 @@ import { defineConfig } from "vite";
 const isWatch = process.argv.includes("--watch");
 
 export default defineConfig ({
+  define: {
+    __OB_SAFE_EXPORT_VIEWER__: 'false',
+  },
   build: {
     emptyOutDir: !isWatch,
     lib: {

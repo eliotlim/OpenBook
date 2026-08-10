@@ -22,6 +22,7 @@ describe('standalone safe-expression grammar', () => {
     expect(readSafeExpression('__C__{tags}__.map(tag => tag.length).reduce((sum, n) => sum + n, 0)', get)).toEqual({ok: true, value: 21});
     expect(readSafeExpression('__C__{series}__.Projected[__C__{series}__.Projected.length - 1]', get)).toEqual({ok: true, value: 44});
     expect(readSafeExpression('({Apples: 3, "Red pears": 5})', get)).toEqual({ok: true, value: {Apples: 3, 'Red pears': 5}});
+    expect(readSafeExpression('group.count.value + offset', get, {group: {count: {value: 4}}, offset: 2})).toEqual({ok: true, value: 6});
   });
 
   it('supports the expression-only compound-series form used by exported sample charts', () => {
@@ -37,6 +38,24 @@ describe('standalone safe-expression grammar', () => {
     expect(value.high[3]).toBeCloseTo(Math.pow(1.1, 3 / 12));
   });
 
+  it('covers the bounded local statement shell used by bundled live-code pages', () => {
+    const cheapest = readSafeExpression(
+      'const m = {Aldi: aldi, Tesco: tesco, Ocado: ocado}; return Object.keys(m).sort((a, b) => m[a] - m[b])[0];',
+      get,
+      {aldi: 86, tesco: 99, ocado: 112},
+    );
+    expect(cheapest).toEqual({ok: true, value: 'Aldi'});
+
+    const projection = readSafeExpression(
+      'const r = rate / 100; let bal = initial; const Invested = [Math.round(initial)], Projected = [Math.round(initial)]; ' +
+        'for (let y = 1; y <= years; y++) { bal = (bal + monthly * 12) * (1 + r); Invested.push(Math.round(initial + monthly * 12 * y)); Projected.push(Math.round(bal)); } ' +
+        'return {Invested, Projected};',
+      get,
+      {rate: 6, initial: 2_000, monthly: 300, years: 2},
+    );
+    expect(projection).toEqual({ok: true, value: {Invested: [2_000, 5_600, 9_200], Projected: [2_000, 5_936, 10_108]}});
+  });
+
   it('fails closed on statements, ambient globals, constructors and prototype access', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
@@ -46,7 +65,7 @@ describe('standalone safe-expression grammar', () => {
         'window.__TAURI_INTERNALS__',
         'globalThis.process',
         '({}).constructor.constructor("return 1")()',
-        'const x = 1; return x',
+        'if (true) return 1',
         'for (;;) {}',
         'new Date()',
         '<script>window.pwned=1</script>',
@@ -57,6 +76,13 @@ describe('standalone safe-expression grammar', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('never mutates a bound array after a local is reassigned to it', () => {
+    const external = [1];
+    expect(readSafeExpression('let values = []; values = external; values.push(2); return values;', get, {external}))
+      .toEqual({ok: false});
+    expect(external).toEqual([1]);
   });
 
   it('bounds generated collections and source complexity', () => {

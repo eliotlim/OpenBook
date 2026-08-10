@@ -1,10 +1,12 @@
 /**
  * A deliberately small expression interpreter for standalone exports.
  *
- * Grammar (no statements except an optional leading `return`): literals,
- * tokenized cells/get(), arrays and plain objects, safe member reads, unary and
- * binary operators, ternaries, expression-bodied arrows, allowlisted Math/
- * Array/Object/Number helpers, and non-mutating array/string helpers.
+ * Grammar: literals, tokenized cells/get(), arrays and plain objects, safe
+ * member reads, unary/binary/ternary operators, expression-bodied arrows,
+ * allowlisted Math/Array/Object/Number helpers, and non-mutating array/string
+ * helpers. A bounded statement shell covers the two real bundled programs:
+ * local const/let declarations, local assignment, counted `for (let i…; i++)`,
+ * local-array push, and return.
  * Unknown identifiers, assignments, constructors, prototype keys and every
  * non-allowlisted call fail closed.
  */
@@ -103,13 +105,13 @@ function tokenize(source) {
       at = end;
       continue;
     }
-    const operator = ['===', '!==', '**', '<=', '>=', '==', '!=', '&&', '||', '??', '=>'].find((op) => source.startsWith(op, at));
+    const operator = ['===', '!==', '**', '++', '<=', '>=', '==', '!=', '&&', '||', '??', '=>'].find((op) => source.startsWith(op, at));
     if (operator) {
       push('punct', operator);
       at += operator.length;
       continue;
     }
-    if ('+-*/%!<>()[]{}?:,.'.includes(c) || c === ';') {
+    if ('=+-*/%!<>()[]{}?:,.'.includes(c) || c === ';') {
       push('punct', c);
       at += 1;
       continue;
@@ -237,8 +239,9 @@ function parse(source) {
           if (key.type !== 'identifier' && key.type !== 'literal') stop();
           const name = String(key.value);
           if (BAD_KEYS.has(name)) stop();
-          expect(':');
-          entries.push([name, expression()]);
+          if (accept(':')) entries.push([name, expression()]);
+          else if (key.type === 'identifier') entries.push([name, {type: 'identifier', name}]);
+          else stop();
         } while (accept(',') && !punct('}'));
         expect('}');
       }
@@ -247,7 +250,75 @@ function parse(source) {
     stop();
   };
 
-  if (peek().type === 'identifier' && peek().value === 'return') take();
+  const keyword = (value) => peek().type === 'identifier' && peek().value === value;
+  const identifier = () => {
+    const token = take();
+    if (token.type !== 'identifier' || ['const', 'let', 'for', 'return'].includes(token.value)) stop();
+    return token.value;
+  };
+  const declaration = () => {
+    const kind = take().value;
+    if (kind !== 'const' && kind !== 'let') stop();
+    const entries = [];
+    do {
+      const name = identifier();
+      expect('=');
+      entries.push([name, expression()]);
+    } while (accept(','));
+    expect(';');
+    return {type: 'declaration', kind, entries};
+  };
+  const update = () => {
+    const name = identifier();
+    if (!accept('++')) stop();
+    return {type: 'update', name};
+  };
+  const block = () => {
+    expect('{');
+    const statements = [];
+    while (!accept('}')) {
+      if (peek().type === 'eof') stop();
+      statements.push(statement());
+    }
+    return statements;
+  };
+  const statement = () => {
+    if (keyword('const') || keyword('let')) return declaration();
+    if (keyword('return')) {
+      take();
+      const value = expression();
+      accept(';');
+      return {type: 'return', value};
+    }
+    if (keyword('for')) {
+      take();
+      expect('(');
+      if (!keyword('let')) stop();
+      const init = declaration();
+      const test = expression();
+      expect(';');
+      const next = update();
+      expect(')');
+      return {type: 'for', init, test, next, body: block()};
+    }
+    if (peek().type === 'identifier' && peek(1).value === '=') {
+      const name = identifier();
+      expect('=');
+      const value = expression();
+      expect(';');
+      return {type: 'assignment', name, value};
+    }
+    const value = expression();
+    expect(';');
+    return {type: 'expressionStatement', value};
+  };
+
+  if (keyword('const') || keyword('let') || keyword('for')) {
+    const statements = [];
+    while (peek().type !== 'eof') statements.push(statement());
+    return {type: 'program', statements};
+  }
+  if (keyword('return')) take();
   const tree = expression();
   accept(';');
   if (peek().type !== 'eof') stop();
@@ -263,7 +334,7 @@ const safeKey = (value) => {
   return key;
 };
 
-function interpret(tree, get) {
+function interpret(tree, get, bindings) {
   let remaining = STEP_LIMIT;
   const tick = (amount = 1) => { remaining -= amount; if (remaining < 0) stop(); };
   const bounded = (value) => {
@@ -301,13 +372,21 @@ function interpret(tree, get) {
     const input = list(array);
     tick(input.length);
     if (name === 'slice') return input.slice(args[0], args[1]);
-    if (name === 'concat') return bounded(input.concat(...args.map((item) => Array.isArray(item) ? item : [item])));
+    if (name === 'concat') {
+      const pieces = args.map((item) => Array.isArray(item) ? item : [item]);
+      if (input.length + pieces.reduce((total, piece) => total + piece.length, 0) > COLLECTION_LIMIT) stop();
+      return input.concat(...pieces);
+    }
     if (name === 'includes') return input.includes(args[0], args[1]);
     if (name === 'indexOf') return input.indexOf(args[0], args[1]);
     if (name === 'lastIndexOf') return input.lastIndexOf(args[0], args[1]);
-    if (name === 'join') return bounded(input.join(args[0] === undefined ? ',' : String(args[0])));
+    if (name === 'join') {
+      const separator = args[0] === undefined ? ',' : String(args[0]);
+      const parts = input.map((item) => item === null || item === undefined ? '' : String(item));
+      if (parts.reduce((total, part) => total + part.length, Math.max(0, parts.length - 1) * separator.length) > STRING_LIMIT) stop();
+      return parts.join(separator);
+    }
     if (name === 'at') return input.at(Number(args[0]));
-    if (name === 'flat') return bounded(input.flat(Math.min(10, Math.max(0, Number(args[0] ?? 1)))));
     if (name === 'reverse') return input.slice().reverse();
     if (name === 'map') return bounded(input.map((value, index) => lambda(args[0], [value, index, input])));
     if (name === 'filter') return input.filter((value, index) => Boolean(lambda(args[0], [value, index, input])));
@@ -315,7 +394,15 @@ function interpret(tree, get) {
     if (name === 'every') return input.every((value, index) => Boolean(lambda(args[0], [value, index, input])));
     if (name === 'find') return input.find((value, index) => Boolean(lambda(args[0], [value, index, input])));
     if (name === 'findIndex') return input.findIndex((value, index) => Boolean(lambda(args[0], [value, index, input])));
-    if (name === 'flatMap') return bounded(input.flatMap((value, index) => list(lambda(args[0], [value, index, input]))));
+    if (name === 'flatMap') {
+      const output = [];
+      input.forEach((value, index) => {
+        const part = list(lambda(args[0], [value, index, input]));
+        if (output.length + part.length > COLLECTION_LIMIT) stop();
+        output.push(...part);
+      });
+      return output;
+    }
     if (name === 'reduce') {
       if (input.length === 0 && args.length < 2) stop();
       let index = args.length < 2 ? 1 : 0;
@@ -373,7 +460,8 @@ function interpret(tree, get) {
       if (name === 'from') {
         const raw = args[0];
         let values;
-        if (Array.isArray(raw) || typeof raw === 'string') values = Array.from(raw).slice(0, COLLECTION_LIMIT + 1);
+        if (Array.isArray(raw)) values = raw.slice(0, COLLECTION_LIMIT + 1);
+        else if (typeof raw === 'string') values = Array.from(raw.slice(0, COLLECTION_LIMIT + 1));
         else if (raw && typeof raw === 'object' && own(raw, 'length')) {
           const length = Math.min(COLLECTION_LIMIT + 1, Math.max(0, Math.floor(Number(raw.length))));
           values = Array.from({length}, (_, index) => own(raw, index) ? raw[index] : undefined);
@@ -386,6 +474,7 @@ function interpret(tree, get) {
     if (marker(object, 'Object')) {
       if (!['keys', 'values', 'entries'].includes(name) || args.length !== 1 || args[0] === null || typeof args[0] !== 'object') stop();
       const keys = Object.keys(args[0]).filter((key) => !BAD_KEYS.has(key));
+      if (keys.length > COLLECTION_LIMIT) stop();
       if (name === 'keys') return bounded(keys);
       if (name === 'values') return bounded(keys.map((key) => args[0][key]));
       return bounded(keys.map((key) => [key, args[0][key]]));
@@ -409,7 +498,10 @@ function interpret(tree, get) {
     if (node.type === 'literal') return node.value;
     if (node.type === 'cell') return get(node.id);
     if (node.type === 'identifier') {
-      if (own(locals, node.name)) return locals[node.name];
+      // Lambda scopes form a prototype chain of interpreter-created null-proto
+      // objects; no ambient/prototype names can enter it.
+      if (node.name in locals) return locals[node.name];
+      if (own(bindings, node.name)) return bindings[node.name];
       if (own(GLOBALS, node.name)) return GLOBALS[node.name];
       stop();
     }
@@ -454,13 +546,70 @@ function interpret(tree, get) {
     }
     stop();
   };
+  const execute = (statements, locals, mutable, pushable) => {
+    for (const statement of statements) {
+      tick();
+      if (statement.type === 'declaration') {
+        for (const [name, value] of statement.entries) {
+          if (own(locals, name) || own(GLOBALS, name) || name === 'get') stop();
+          locals[name] = bounded(visit(value, locals));
+          if (statement.kind === 'let') mutable.add(name);
+          if (value.type === 'array') pushable.add(name);
+        }
+        continue;
+      }
+      if (statement.type === 'assignment') {
+        if (!mutable.has(statement.name) || !own(locals, statement.name)) stop();
+        locals[statement.name] = bounded(visit(statement.value, locals));
+        // A reassignment loses the identity guarantee from the declaration's
+        // fresh array literal; never let push mutate a value sourced elsewhere.
+        pushable.delete(statement.name);
+        continue;
+      }
+      if (statement.type === 'update') {
+        if (!mutable.has(statement.name) || typeof locals[statement.name] !== 'number') stop();
+        locals[statement.name] += 1;
+        continue;
+      }
+      if (statement.type === 'return') return {returned: true, value: bounded(visit(statement.value, locals))};
+      if (statement.type === 'for') {
+        // The narrow loop form is `for (let i = …; condition; i++)`; every
+        // iteration spends budget and can only mutate declared locals.
+        execute([statement.init], locals, mutable, pushable);
+        while (visit(statement.test, locals)) {
+          tick();
+          const returned = execute(statement.body, locals, mutable, pushable);
+          if (returned.returned) return returned;
+          execute([statement.next], locals, mutable, pushable);
+        }
+        continue;
+      }
+      if (statement.type === 'expressionStatement') {
+        const call = statement.value;
+        if (call.type !== 'call' || call.callee.type !== 'member') stop();
+        if (call.callee.object.type !== 'identifier' || !pushable.has(call.callee.object.name)) stop();
+        const array = visit(call.callee.object, locals);
+        const name = safeKey(visit(call.callee.key, locals));
+        if (!Array.isArray(array) || name !== 'push') stop();
+        const values = call.args.map((arg) => bounded(visit(arg, locals)));
+        if (array.length + values.length > COLLECTION_LIMIT) stop();
+        array.push(...values);
+        continue;
+      }
+      stop();
+    }
+    return {returned: false, value: undefined};
+  };
+  if (tree.type === 'program') {
+    return execute(tree.statements, Object.create(null), new Set(), new Set()).value;
+  }
   return visit(tree, Object.create(null));
 }
 
 /** Interpret one expression. Failure is data, never executable fallback code. */
-export function readSafeExpression(source, get) {
+export function readSafeExpression(source, get, bindings = Object.create(null)) {
   try {
-    return {ok: true, value: interpret(parse(source), get)};
+    return {ok: true, value: interpret(parse(source), get, bindings)};
   } catch {
     return {ok: false};
   }
