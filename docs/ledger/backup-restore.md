@@ -28,12 +28,18 @@ retention counts, output dir) lives in Settings → Backup and
 `GET/PUT /api/backups`. The in-webview (browser-storage) home has no
 filesystem, so only the ad-hoc export applies there.
 
+**Protect the backup directory permissions.** Version 3 bundles — including
+scheduled on-disk snapshots — contain page ACLs and member email addresses in
+addition to private page and ledger content. Only the service account and the
+operators responsible for recovery should be able to read that directory.
+
 ### What a bundle contains (`BACKUP_VERSION = 3`)
 
 ```jsonc
 {
   "version": 3,
   "exportedAt": "…",
+  "instanceId": "…", // stable origin binding (ownerSubject is included when claimed)
   "pages": [ /* every live page: data, nesting, properties, position, created_at */ ],
   "databases": [ /* every database: schema, host page */ ],
   "icons": { /* pageId → emoji, added client-side */ },
@@ -59,6 +65,11 @@ before writing anything.
 `pageAccess` preserves the stored access posture exactly: visibility scope,
 agent-edits policy, and subject/email ACL grants with issuer, level, inviter,
 and creation time. It contains exactly one record for every exported page.
+The restore door installs it automatically only when the envelope's
+`instanceId` matches the target. Foreign or older origin-less v3 bundles restore
+pages as `restricted` with no ACLs and safe agent-edit settings, and return a
+`partial-restore` diagnostic, unless the operator explicitly opts in with
+`installForeignPageAccess: true` after reviewing the access delta.
 
 The ledger's *entities* (accounts, transactions, postings, reconciliations and
 their host pages) travel as ordinary pages/databases. The `ledger` section
@@ -146,10 +157,14 @@ mode, and reports why.)
    keep it for forensics.
 3. **Restore the newest good snapshot**, either way:
    - UI: Settings → Backup → Restore → choose the `.openbook.json` file, keep
-     **everything** selected, mode **Overwrite**.
+     **everything** selected, mode **Overwrite**. A fresh recovery target has a
+     different instance id, so review the displayed access delta and explicitly
+     enable installing the backup's access settings if that is intended.
    - API: `POST /api/import` with the bundle's `version`, `pages`, `databases`,
-     `assets`, `pageAccess`, `ledger`, and `"mode": "overwrite"`
-     (instance-admin gated).
+     `assets`, `pageAccess`, `ledger`, `instanceId`, optional `ownerSubject`, and
+     `"mode": "overwrite"` (instance-admin gated). Add
+     `"installForeignPageAccess": true` only after reviewing the ACL/public/
+     agent-edit delta; otherwise the fresh target restores those pages restricted.
 4. **Check the outcome field.** The response's `ledger` field must read
    `"restored"`. Anything else names the reason it was skipped:
    `skipped-existing-ledger` (the target already has a ledger — LGR-3
