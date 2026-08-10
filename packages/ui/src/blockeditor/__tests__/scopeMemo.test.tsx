@@ -4,6 +4,7 @@ import {BlockEditor} from '../BlockEditor';
 import {createDoc, findBlock, setBlockProp} from '../model';
 import {registerReactiveBlocks} from '../reactiveBlocks';
 import {registerArtifactKit} from '../kit';
+import {useBlockEditor, type BlockEditorController} from '../useBlockEditor';
 
 registerReactiveBlocks();
 registerArtifactKit();
@@ -14,6 +15,21 @@ afterEach(() => {
 });
 
 describe('reactive scope memo', () => {
+  it('stays lazy when no mounted render consumer needs evaluation', () => {
+    const doc = createDoc([{id: 'text', type: 'paragraph', text: 'ordinary typing'}]);
+    let controller: BlockEditorController | undefined;
+    const Probe = () => {
+      controller = useBlockEditor(doc);
+      return null;
+    };
+    render(<Probe />);
+    expect(controller?.evalCache.getScopeSnapshot()).toEqual({pending: true, version: -1});
+
+    const paragraph = findBlock(doc, 'text')!.block;
+    act(() => setBlockProp(paragraph, 'align', 'center'));
+    expect(controller?.evalCache.getScopeSnapshot()).toEqual({pending: true, version: -1});
+  });
+
   it('compiles N formulas once per document version across N reactive renders', async () => {
     const NativeFunction = globalThis.Function;
     const compile = vi.spyOn(globalThis, 'Function').mockImplementation(function (...args: string[]) {

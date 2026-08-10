@@ -1472,7 +1472,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // in the bound control recomputes this and re-aggregates the series below.
   const filterValue = dbBinding?.filterInput ? reactiveScope[dbBinding.filterInput] : undefined;
   const {series: dbSeries} = useDbChartSeries(dbBinding, filterValue);
-  const evaluated = useCachedEval(editor, blockId(block), source);
+  const evaluated = useCachedEval(editor, blockId(block), source, 'expression', !dbBinding);
 
   // Resolve the plotted data from whichever source is active. Expression mode is
   // the original path (evaluated over the page's inputs). Database mode reads the

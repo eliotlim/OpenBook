@@ -99,7 +99,6 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     evalCache.activate();
     return () => evalCache.dispose();
   }, [evalCache]);
-  useEffect(() => evalCache.requestVersion(version), [evalCache, version]);
 
   // The UndoManager lives in an effect: StrictMode's mount-cycle cleanup
   // would otherwise destroy a useMemo-created instance and leave the editor

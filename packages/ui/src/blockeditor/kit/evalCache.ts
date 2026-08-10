@@ -109,6 +109,14 @@ export class ReactiveEvalCache {
     this.runCell(cellId, request);
   }
 
+  /** Stop recomputing a render-only expression after its consumer unmounts or
+   * switches to a non-expression mode. Identity guards protect a newer request
+   * from an older effect cleanup. */
+  releaseCell(version: number, cellId: string, source: string, kind: EvalRequest['kind'] = 'expression'): void {
+    const current = this.cellRequests.get(cellId);
+    if (current?.version === version && current.source === source && current.kind === kind) this.cellRequests.delete(cellId);
+  }
+
   dispose(): void {
     this.disposed = true;
     this.requestedVersion = -1;

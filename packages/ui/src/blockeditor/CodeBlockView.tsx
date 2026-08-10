@@ -35,7 +35,7 @@ export const CodeBlockView: React.FC<{
   const [, forceRun] = useReducer((x: number) => x + 1, 0);
   const [copied, setCopied] = useState(false);
 
-  const cachedResult = useCachedCell(editor, id);
+  const cachedResult = useCachedCell(editor, id, live);
   const result = live ? cachedResult : undefined;
   // Large outputs (a 60-element series, a big object) must not blow out the
   // page — clamp the preview; the full value still flows to consumers.

@@ -14,21 +14,27 @@ const EMPTY_SCOPE: CachedScopeSnapshot = {pending: true, version: -1};
 /** Read the latest completed document scope without evaluating during render. */
 export function useCachedScope(editor: BlockEditorController): CachedScopeSnapshot {
   const cache = editor.evalCache;
-  return useSyncExternalStore(cache.subscribe, cache.getScopeSnapshot, cache.getScopeSnapshot);
+  const snapshot = useSyncExternalStore(cache.subscribe, cache.getScopeSnapshot, cache.getScopeSnapshot);
+  useEffect(() => cache.requestVersion(editor.version), [cache, editor.version]);
+  return snapshot;
 }
 
 /** Read named input/container values from the cache (no live-code outputs). */
 export function useCachedInputScope(editor: BlockEditorController): CachedInputScopeSnapshot {
   const cache = editor.evalCache;
-  return useSyncExternalStore(cache.subscribe, cache.getInputScopeSnapshot, cache.getInputScopeSnapshot);
+  const snapshot = useSyncExternalStore(cache.subscribe, cache.getInputScopeSnapshot, cache.getInputScopeSnapshot);
+  useEffect(() => cache.requestVersion(editor.version), [cache, editor.version]);
+  return snapshot;
 }
 
 /** Read one core formula/live-code cell from the document scope cache. */
-export function useCachedCell(editor: BlockEditorController, cellId: string): CachedEvalSnapshot {
+export function useCachedCell(editor: BlockEditorController, cellId: string, enabled = true): CachedEvalSnapshot {
   const cache = editor.evalCache;
   const getSnapshot = useCallback(() => cache.getCellSnapshot(cellId), [cache, cellId]);
   const snapshot = useSyncExternalStore(cache.subscribe, getSnapshot, getSnapshot);
-  useEffect(() => cache.requestVersion(editor.version), [cache, editor.version]);
+  useEffect(() => {
+    if (enabled) cache.requestVersion(editor.version);
+  }, [cache, editor.version, enabled]);
   return snapshot;
 }
 
@@ -44,11 +50,16 @@ export function useCachedEval(
   cellId: string,
   source: string,
   kind: EvalRequest['kind'] = 'expression',
+  enabled = true,
 ): CachedEvalSnapshot {
   const cache = editor.evalCache;
   const getSnapshot = useCallback(() => cache.getCellSnapshot(cellId), [cache, cellId]);
   const snapshot = useSyncExternalStore(cache.subscribe, getSnapshot, getSnapshot);
-  useEffect(() => cache.requestCell(editor.version, cellId, source, kind), [cache, cellId, editor.version, kind, source]);
+  useEffect(() => {
+    if (!enabled) return;
+    cache.requestCell(editor.version, cellId, source, kind);
+    return () => cache.releaseCell(editor.version, cellId, source, kind);
+  }, [cache, cellId, editor.version, kind, source, enabled]);
   return snapshot;
 }
 

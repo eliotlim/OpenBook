@@ -233,7 +233,7 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
  *  input scope (a string list, an array, or another input's value). */
 function useDynamicOptions(block: BlockMap, editor: CustomBlockProps['editor']): KitOption[] {
   const source = (blockProp<string>(block, 'dynamic') ?? '').trim();
-  const {value} = useCachedEval(editor, blockId(block), source);
+  const {value} = useCachedEval(editor, blockId(block), source, 'expression', Boolean(source));
   if (!source) return resolveOptions(block);
   const list = Array.isArray(value)
     ? value
