@@ -76,7 +76,7 @@ describe('resident QuickJS sandbox', () => {
       .resolves.toEqual({value: 42});
   });
 
-  it("SECURITY: closes Sasha's __TAURI_INTERNALS__ zero-click IPC exploit", async () => {
+  it('SECURITY: closes Sasha\'s __TAURI_INTERNALS__ zero-click IPC exploit', async () => {
     const invoke = vi.fn();
     const host = globalThis as typeof globalThis & {
       __TAURI_INTERNALS__?: {invoke: typeof invoke};
@@ -85,7 +85,7 @@ describe('resident QuickJS sandbox', () => {
     try {
       const result = await vm.evaluate({
         kind: 'expression',
-        source: "globalThis.__TAURI_INTERNALS__?.invoke?.('api_request', {path: '/keychain'})",
+        source: 'globalThis.__TAURI_INTERNALS__?.invoke?.(\'api_request\', {path: \'/keychain\'})',
         scope: {},
       });
       expect(result).toEqual({value: undefined});
