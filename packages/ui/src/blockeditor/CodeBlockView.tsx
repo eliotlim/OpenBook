@@ -3,6 +3,7 @@ import {Check, Copy, Eye, EyeOff, Play} from 'lucide-react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
 import {TextBlockView} from './TextBlockView';
 import {formatValue} from './kit/scope';
+import {useCachedCell} from './kit/useCachedEval';
 import {KitSettings} from './kit/KitSettings';
 import {ConfigField, ConfigInput, ConfigToggle} from './kit/KitFrame';
 import {copyText} from '@/lib/pageActions';
@@ -34,7 +35,8 @@ export const CodeBlockView: React.FC<{
   const [, forceRun] = useReducer((x: number) => x + 1, 0);
   const [copied, setCopied] = useState(false);
 
-  const result = live ? editor.computedScope().results.get(id) : undefined;
+  const cachedResult = useCachedCell(editor, id);
+  const result = live ? cachedResult : undefined;
   // Large outputs (a 60-element series, a big object) must not blow out the
   // page — clamp the preview; the full value still flows to consumers.
   const shownValue = (() => {
@@ -55,6 +57,7 @@ export const CodeBlockView: React.FC<{
 
   const onRun = (): void => {
     if (!live) set('live', true);
+    else editor.evalCache.refresh(editor.version);
     forceRun();
   };
 

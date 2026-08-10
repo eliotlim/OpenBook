@@ -547,7 +547,7 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
   // Mirror the editor's scope exactly (kit/scope.ts): an INPUT inside a named
   // `group` is addressable as `<group>.<field>.value` (inputScope namespaces it);
   // a top-level input as the bare `<field>`. Live code / formulas publish their
-  // bare name regardless of nesting (computeScope does NOT namespace them). `group`
+  // bare name regardless of nesting (the reactive scope does NOT namespace them). `group`
   // tracks the nearest enclosing group's key (`varNameFromLabel` of its name).
   const collect = (list: BlockJSON[], group: string): void => {
     for (const b of list) {
@@ -557,7 +557,7 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         propsById.set(b.id, b.props ?? {});
       }
       if (b.type === 'code' && b.props?.live && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
-      // Formula blocks publish a named value too (computeScope treats them the
+      // Formula blocks publish a named value too (the reactive scope treats them the
       // same as live code) — so a formula referencing another formula/input must
       // be tokenizable, or its dependents resolve to `undefined` in the runtime.
       if (b.type === 'formula' && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
@@ -760,7 +760,7 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         sink.push({id: b.id, type: 'expr', data: {name, source: tokenize(String(b.props?.source ?? ''))}});
         pushCell(b.id);
         // Publish the name so the runtime maps cell→name (and downstream
-        // tokenized refs to this formula resolve live), matching computeScope.
+        // tokenized refs to this formula resolve live), matching the reactive scope.
         if (name) out.names.push([name, b.id]);
         i += 1;
         break;

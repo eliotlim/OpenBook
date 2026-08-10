@@ -1,6 +1,6 @@
 import type * as Y from 'yjs';
 import {blockProp, blockType, rootBlocks, walkBlocks, type BlockMap} from '../model';
-import {computeScope, formatValue, INPUT_TYPES, publishedName} from './scope';
+import {formatValue, INPUT_TYPES, publishedName, type ComputedScope} from './scope';
 
 /**
  * The page's reactive wiring as a graph: which blocks publish named values,
@@ -83,8 +83,8 @@ const clip = (s: string, max = 80): string => {
  * name to the block that reads it; a button targeting an input points AT the
  * input (it writes).
  */
-export function dataflowGraph(doc: Y.Doc, outlets: DataflowOutlet[] = []): DataflowGraph {
-  const {scope, results} = computeScope(doc);
+export function dataflowGraph(doc: Y.Doc, computed: ComputedScope, outlets: DataflowOutlet[] = []): DataflowGraph {
+  const {scope, results} = computed;
   const nodes: DataflowNode[] = [];
   const edges: DataflowEdge[] = [];
 

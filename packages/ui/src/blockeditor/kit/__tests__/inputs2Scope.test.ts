@@ -4,7 +4,7 @@ import {inputScope, inputValue, evalExpr, richTextPlain} from '../scope';
 import {sectionCompletion, overallCompletion, completionRead, containerCompletions} from '../completion';
 
 describe('June-2026 inputs publish into the scope', () => {
-  it('publishes single vs multi choice cards, search-select, tags, and the long/rich text projection', () => {
+  it('publishes single vs multi choice cards, search-select, tags, and the long/rich text projection', async () => {
     const doc = createDoc([
       {type: 'choicecards', props: {name: 'plan', opts: [{label: 'Free'}, {label: 'Pro'}], value: 'pro'}},
       {type: 'choicecards', props: {name: 'addons', multi: true, opts: [{label: 'A'}, {label: 'B'}], selected: ['a', 'b']}},
@@ -25,7 +25,7 @@ describe('June-2026 inputs publish into the scope', () => {
       bio: 'Hi there', // plain-text projection, markup dropped
     });
     // The published values are usable in expressions / charts.
-    expect(evalExpr('addons.length + langs.length + topics.length', scope).value).toBe(6);
+    expect((await evalExpr('addons.length + langs.length + topics.length', scope)).value).toBe(6);
   });
 
   it('projects rich-text runs to plain text', () => {
@@ -100,15 +100,15 @@ describe('container completion (auto-computed reads)', () => {
     expect(read.sections[1].complete).toBe(false);
   });
 
-  it('injects the completion read into the input scope under the container name', () => {
+  it('injects the completion read into the input scope under the container name', async () => {
     const doc = wizard();
     const scope = inputScope(doc) as {setup: {complete: boolean; ratio: number; done: number; total: number}};
     expect(scope.setup.total).toBe(4);
     expect(scope.setup.done).toBe(3);
     expect(scope.setup.complete).toBe(false);
     // A progress bar binds this read directly.
-    expect(evalExpr('setup.ratio', scope).value).toBeCloseTo(0.75);
-    expect(evalExpr('setup.complete', scope).value).toBe(false);
+    expect((await evalExpr('setup.ratio', scope)).value).toBeCloseTo(0.75);
+    expect((await evalExpr('setup.complete', scope)).value).toBe(false);
   });
 
   it('keys multiple containers by their names', () => {

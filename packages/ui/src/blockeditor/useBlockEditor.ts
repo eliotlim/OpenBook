@@ -19,7 +19,7 @@ import {
   type BlockType,
   type NewBlock,
 } from './model';
-import {computeScope, type ComputedScope} from './kit/scope';
+import {ReactiveEvalCache} from './kit/evalCache';
 
 /**
  * The editor's working state around a Y.Doc: one version counter that bumps
@@ -39,8 +39,8 @@ export interface CaretRequest {
 export interface BlockEditorController {
   doc: Y.Doc;
   version: number;
-  /** Lazily computed once for this doc version and shared by every reactive block. */
-  computedScope(): ComputedScope;
+  /** Async evaluator + synchronously readable per-version/per-cell snapshots. */
+  evalCache: ReactiveEvalCache;
   /** Undo/redo over local edits (a live wrapper — see useBlockEditor).
    *  `stopCapturing` forces the next tracked change to start a fresh undo item
    *  even inside the capture window — the "[[" wikilink accept uses it so a
@@ -78,7 +78,7 @@ export interface BlockEditorController {
 export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorController {
   const [, force] = useState(0);
   const versionRef = useRef(0);
-  const computedScopeRef = useRef<{doc: Y.Doc; version: number; value: ComputedScope} | null>(null);
+  const evalCache = useMemo(() => new ReactiveEvalCache(doc), [doc]);
 
   const subscribe = useMemo(() => {
     return (cb: () => void) => {
@@ -95,6 +95,11 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     () => versionRef.current,
     () => versionRef.current,
   );
+  useEffect(() => {
+    evalCache.activate();
+    return () => evalCache.dispose();
+  }, [evalCache]);
+  useEffect(() => evalCache.requestVersion(version), [evalCache, version]);
 
   // The UndoManager lives in an effect: StrictMode's mount-cycle cleanup
   // would otherwise destroy a useMemo-created instance and leave the editor
@@ -126,14 +131,6 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
   return useMemo<BlockEditorController>(() => {
-    const getComputedScope = (): ComputedScope => {
-      const cached = computedScopeRef.current;
-      if (cached?.doc === doc && cached.version === version) return cached.value;
-      const value = computeScope(doc);
-      computedScopeRef.current = {doc, version, value};
-      return value;
-    };
-
     const requestCaret = (req: CaretRequest): void => {
       pendingCaret.current = req;
       force((n) => n + 1); // ensure a render even if the doc didn't change
@@ -158,7 +155,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     return {
       doc,
       version,
-      computedScope: getComputedScope,
+      evalCache,
       undo,
       readOnly,
       pendingCaret,
@@ -267,7 +264,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
 
       textBlockIds: orderedTextIds,
     };
-  }, [doc, version, undo, readOnly, selection, focusedId]);
+  }, [doc, version, evalCache, undo, readOnly, selection, focusedId]);
 }
 
 // Helpers kept module-local (the controller stays a plain object).

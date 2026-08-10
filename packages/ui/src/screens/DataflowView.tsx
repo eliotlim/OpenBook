@@ -30,6 +30,7 @@ import {
   type DataflowNode,
   type DataflowOutlet,
 } from '@/blockeditor/kit/dataflow';
+import {useDocumentCachedScope} from '@/blockeditor/kit/useCachedEval';
 import {openDoc, subscribeOpenDocs} from '@/lib/openDocs';
 import {HOME_PAGE_ID} from '@/lib/homePage';
 import {useData} from '@/data';
@@ -178,24 +179,11 @@ export default function DataflowView() {
   const {pageId, doc} = usePrimaryDoc();
   const {outlets, parentPageId} = useOutlets(pageId);
 
-  const [graph, setGraph] = useState<DataflowGraph>(EMPTY);
-  useEffect(() => {
-    if (!doc) {
-      setGraph(EMPTY);
-      return;
-    }
-    let raf = 0;
-    const recompute = (): void => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setGraph(dataflowGraph(doc, outlets)));
-    };
-    recompute();
-    doc.on('update', recompute);
-    return () => {
-      doc.off('update', recompute);
-      cancelAnimationFrame(raf);
-    };
-  }, [doc, outlets]);
+  const computed = useDocumentCachedScope(doc);
+  const graph = useMemo(
+    () => doc && computed.value ? dataflowGraph(doc, computed.value, outlets) : EMPTY,
+    [computed.value, doc, outlets],
+  );
 
   // Re-fit when the graph's SHAPE changes (outlets arrive async, blocks come
   // and go) — but never on value ticks, and never fight the user's pan/zoom.

@@ -27,7 +27,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import {aggregateDbSeries, readDbBinding, DB_AGG_TYPES, NUMERIC_PROP_TYPES, type ChartDbBinding, type ChartSeriesData} from './chartData';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockDef, CustomBlockProps} from '../registry';
-import {evalExpr, inputScope} from './scope';
+import {useCachedEval, useCachedInputScope} from './useCachedEval';
 import {useKitLock, useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
@@ -1033,6 +1033,7 @@ const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; s
   const filterInput = blockProp<string>(block, 'dbFilterInput') ?? '';
   const filterProp = blockProp<string>(block, 'dbFilterProp') ?? '';
   const [properties, setProperties] = useState<DatabaseProperty[]>([]);
+  const reactiveScope = useCachedInputScope(editor).value ?? {};
   useEffect(() => {
     if (!client || !dbId) {
       setProperties([]);
@@ -1079,14 +1080,13 @@ const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; s
   // scalar match sources, so they're excluded. A dashboard author picks one here
   // + a property; every chart bound to the same input re-scopes together.
   const filterInputNames = useMemo(() => {
-    const scope = inputScope(editor.doc);
-    return Object.keys(scope)
+    return Object.keys(reactiveScope)
       .filter((k) => {
-        const v = scope[k];
+        const v = reactiveScope[k];
         return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || Array.isArray(v);
       })
       .sort();
-  }, [editor.doc]);
+  }, [reactiveScope]);
   // When an input is chosen but no property is set yet, suggest one whose name
   // matches the input's (region → "Region"), else the first select/status column
   // — the natural categorical axis a cross-filter slices.
@@ -1465,12 +1465,14 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // existing config Kind selector's gate plus the group/page locks.
   const canChangeKind = !editor.readOnly && !pageLocked && !groupLocked;
   const dbBinding = readDbBinding(block);
+  const reactiveScope = useCachedInputScope(editor).value ?? {};
   // Cross-filter (DASH-7): a DB chart bound to a named input reads that input's
   // LIVE value from the page scope and scopes its rows to it. ChartBlock already
   // re-renders on any doc change (the reactive backbone), so picking a new value
   // in the bound control recomputes this and re-aggregates the series below.
-  const filterValue = dbBinding?.filterInput ? inputScope(editor.doc)[dbBinding.filterInput] : undefined;
+  const filterValue = dbBinding?.filterInput ? reactiveScope[dbBinding.filterInput] : undefined;
   const {series: dbSeries} = useDbChartSeries(dbBinding, filterValue);
+  const evaluated = useCachedEval(editor, blockId(block), source);
 
   // Resolve the plotted data from whichever source is active. Expression mode is
   // the original path (evaluated over the page's inputs). Database mode reads the
@@ -1484,7 +1486,6 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     value = dbSeries?.value;
     effectiveLabels = dbSeries?.labels ?? [];
   } else {
-    const evaluated = evalExpr(source, editor.computedScope().scope);
     value = evaluated.value;
     error = evaluated.error;
   }

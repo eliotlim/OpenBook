@@ -3,7 +3,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {buildSampleDocument, PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
-import {computeScope, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
+import {computeScopeAuthoritative, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
 
 const page = (over: Partial<StoredPage> = {}): StoredPage =>
   ({
@@ -216,7 +216,7 @@ describe('block-doc artifacts', () => {
 
   it('every reactive expression evaluates without error', async () => {
     for (const id of BLOCK_DOC_IDS) {
-      const {results} = computeScope(await docOf(id));
+      const {results} = computeScopeAuthoritative(await docOf(id));
       for (const [blockId, res] of results) {
         expect(res.error, `${id}: live block ${blockId} → ${res.error}`).toBeUndefined();
       }
@@ -226,7 +226,7 @@ describe('block-doc artifacts', () => {
 
 describe('grocery price tracker', () => {
   it('picks the cheapest shop and its saving from the basket sliders', async () => {
-    const {scope} = computeScope(await docOf('grocery-tracker'));
+    const {scope} = computeScopeAuthoritative(await docOf('grocery-tracker'));
     expect(scope.best).toBe(86); // min(86, 99, 112)
     expect(scope.store).toBe('Aldi');
     expect(scope.saving).toBe(26); // 112 − 86
@@ -314,7 +314,7 @@ describe('reading list (database)', () => {
 describe('project intake', () => {
   it('keeps the gated wizard and prioritises effort vs impact live', async () => {
     const doc = await docOf('project-intake');
-    const {scope} = computeScope(doc);
+    const {scope} = computeScopeAuthoritative(doc);
     // The gated accordion with its three stages (the kit-blocks e2e fixture).
     const accordion = allBlocks(doc).find((b) => blockType(b) === 'accordion')!;
     const sections = allBlocks(doc).filter((b) => blockType(b) === 'accordionsection');
@@ -323,14 +323,14 @@ describe('project intake', () => {
     expect(allBlocks(doc).some((b) => (blockType(b) as string) === 'choicecards')).toBe(true);
     // Live prioritisation + the accordion's auto-computed completion signals.
     expect(scope.verdict).toBe('Do it now'); // impact 7 ≥ effort 4 × 1.5 (= 6)
-    expect(evalExpr('intake.ratio', scope).error).toBeUndefined();
-    expect(evalExpr('intake.complete', scope).error).toBeUndefined();
+    expect((await evalExpr('intake.ratio', scope)).error).toBeUndefined();
+    expect((await evalExpr('intake.complete', scope)).error).toBeUndefined();
   });
 });
 
 describe('savings & investing', () => {
   it('projects a compounding balance and an emergency-fund runway', async () => {
-    const {scope} = computeScope(await docOf('savings-planner'));
+    const {scope} = computeScopeAuthoritative(await docOf('savings-planner'));
     const projection = scope.projection as {Invested: number[]; Projected: number[]};
     expect(projection.Projected).toHaveLength(21); // years 20 → 21 points incl. year 0
     expect(scope.final).toBe(projection.Projected[projection.Projected.length - 1]);
@@ -358,7 +358,7 @@ describe('pitch deck', () => {
     expect(blockProp<string>(donut, 'kind')).toBe('donut');
 
     // Sliders → recurring-revenue share: 62 / (62 + 26 + 12) = 62%.
-    const {scope} = computeScope(doc);
+    const {scope} = computeScopeAuthoritative(doc);
     expect(scope.recurring).toBe(62);
   });
 
@@ -391,7 +391,7 @@ describe('team status dashboard', () => {
 
   it('publishes the Pulse inputs namespaced, and the kudos button feeds the formula', async () => {
     const doc = await docOf('team-status');
-    const {scope} = computeScope(doc);
+    const {scope} = computeScopeAuthoritative(doc);
     const pulse = scope.pulse as Record<string, {value: unknown}>;
     expect(pulse.kudos.value).toBe(2);
     expect(pulse.onCall.value).toBe(true);
@@ -402,7 +402,7 @@ describe('team status dashboard', () => {
     // formula tracks it (what the e2e drives through the real button — the
     // click that flips the Momentum light from amber to green).
     setNamedNumber(doc, 'kudos', (v) => v + 1);
-    expect(computeScope(doc).scope.morale).toBe(35);
+    expect(computeScopeAuthoritative(doc).scope.morale).toBe(35);
   });
 
   it('tags itself interactive only (a dashboard, not a deck)', () => {
@@ -427,7 +427,7 @@ describe('compound growth (the sample document, in the gallery)', () => {
   });
 
   it('drives four growth curves off the months slider', async () => {
-    const {scope} = computeScope(await docOf('compound-growth'));
+    const {scope} = computeScopeAuthoritative(await docOf('compound-growth'));
     const growth = scope.growth as Record<string, number[]>;
     expect(Object.keys(growth)).toEqual(['3%', '5%', '7%', '10%']);
     for (const curve of Object.values(growth)) expect(curve).toHaveLength(120); // months default

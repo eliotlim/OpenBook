@@ -1,19 +1,20 @@
 import {describe, it, expect, afterEach} from 'vitest';
-import {render, screen, cleanup, fireEvent} from '@testing-library/react';
+import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import {createDoc, rootBlocks, blockProp, type BlockMap} from '../../model';
 import type {BlockEditorController} from '../../useBlockEditor';
 import {INPUT2_BLOCKS} from '../inputs2';
 import {PROGRESS_BLOCKS} from '../progress';
 import {hasKitConfig} from '../kitConfig';
-import {computeScope} from '../scope';
+import {ReactiveEvalCache} from '../evalCache';
 
 function renderBlock(blocks: typeof INPUT2_BLOCKS | typeof PROGRESS_BLOCKS, type: string, props: Record<string, unknown>) {
   const doc = createDoc([{id: 'x', type, props}]);
   const block: BlockMap = rootBlocks(doc).get(0);
   const def = blocks.find((d) => d.type === type)!;
   const Comp = def.render;
-  const editor = {doc, readOnly: false, computedScope: () => computeScope(doc)} as unknown as BlockEditorController;
-  return {...render(<Comp block={block} editor={editor} pageReadOnly={false} />), doc, block};
+  const evalCache = new ReactiveEvalCache(doc);
+  const editor = {doc, version: 0, readOnly: false, evalCache} as unknown as BlockEditorController;
+  return {...render(<Comp block={block} editor={editor} pageReadOnly={false} />), doc, block, evalCache};
 }
 
 afterEach(() => cleanup());
@@ -65,8 +66,9 @@ describe('tag field', () => {
 });
 
 describe('progress bar', () => {
-  it('renders a progressbar role with the computed percentage and publishes nothing', () => {
-    const {block} = renderBlock(PROGRESS_BLOCKS, 'progressbar', {label: 'Done', source: '0.5', max: 1, format: 'percent'});
+  it('renders a progressbar role with the computed percentage and publishes nothing', async () => {
+    const {block, evalCache} = renderBlock(PROGRESS_BLOCKS, 'progressbar', {label: 'Done', source: '0.5', max: 1, format: 'percent'});
+    await waitFor(() => expect(evalCache.getCellSnapshot('x').pending).toBe(false));
     const bar = screen.getByRole('progressbar');
     expect(bar.getAttribute('aria-valuenow')).toBe('50');
     // It's a display, not an input — no value prop written.
