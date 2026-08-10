@@ -10,7 +10,7 @@ const workerScope = self as unknown as WorkerScope;
 const evaluator = QuickJSEvaluator.create();
 
 workerScope.onmessage = (event): void => {
-  void evaluator.then((vm) => vm.evaluate(event.data.request)).then(
+  void evaluator.then((vm) => vm.evaluatePrepared(event.data.request)).then(
     (result) => workerScope.postMessage({id: event.data.id, result}),
     (error: unknown) => workerScope.postMessage({
       id: event.data.id,

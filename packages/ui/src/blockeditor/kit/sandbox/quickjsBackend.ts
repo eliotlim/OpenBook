@@ -39,7 +39,7 @@ export class QuickJSWorkerEvalBackend implements EvalBackend {
       // bundler resolution here: a bare relative specifier breaks consumers.
       this.localTestBackend ??= import('./quickjsVm').then(async ({QuickJSEvaluator}) => {
         const evaluator = await QuickJSEvaluator.create();
-        return {evaluate: (next: EvalRequest) => evaluator.evaluate(next)};
+        return {evaluate: (next: EvalRequest) => evaluator.evaluatePrepared(next)};
       });
       return this.localTestBackend.then((backend) => backend.evaluate(request));
     }

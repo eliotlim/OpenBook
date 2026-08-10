@@ -72,6 +72,12 @@ export default defineConfig({
       // The read-only viewer has no DataProvider and cannot install plugins.
       // Exclude the app's source compiler (Sucrase + Function constructor).
       { find: "@/plugins", replacement: fileURLToPath(new URL("./src/viewer/pluginStubs.ts", import.meta.url)) },
+      // Viewer expressions are handled by SBX-3's safe interpreter; keep the
+      // render Worker/WASM implementation out of the standalone IIFE too.
+      {
+        find: "./sandbox/quickjsBackend",
+        replacement: fileURLToPath(new URL("./src/viewer/quickjsUnavailable.ts", import.meta.url)),
+      },
       // The viewer has no save/export surface, so keep the in-process QuickJS
       // backend out of the standalone bundle. scope.ts handles expressions
       // with the CSP-safe export interpreter before this fail-closed fallback.

@@ -61,10 +61,10 @@ describe('varNameFromLabel', () => {
     expect(varNameFromLabel('— / —')).toBe('');
   });
 
-  it('keeps reserved names because the sandbox receives one scope object', () => {
-    expect(varNameFromLabel('Class')).toBe('class');
-    expect(varNameFromLabel('new')).toBe('new');
-    expect(varNameFromLabel('Default')).toBe('default');
+  it('keeps the historical reserved-word suffix for saved formula compatibility', () => {
+    expect(varNameFromLabel('Class')).toBe('class_');
+    expect(varNameFromLabel('new')).toBe('new_');
+    expect(varNameFromLabel('Default')).toBe('default_');
     // A reserved word as one of several words is fine (only the whole match matters).
     expect(varNameFromLabel('class name')).toBe('className');
   });

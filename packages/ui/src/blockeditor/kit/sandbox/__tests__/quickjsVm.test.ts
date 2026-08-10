@@ -56,13 +56,18 @@ describe('resident QuickJS sandbox', () => {
   });
 
   it('interrupts runaway code and keeps the resident evaluator usable', async () => {
+    const cachedSource = '21 * 2';
+    await expect(vm.evaluate({kind: 'expression', source: cachedSource, scope: {}}))
+      .resolves.toEqual({value: 42});
     const started = performance.now();
     const runaway = await vm.evaluate({kind: 'code', source: 'while (true) {}', scope: {}});
     const elapsedMs = performance.now() - started;
     expect(runaway.error).toMatch(/timed out/i);
     expect(elapsedMs).toBeLessThan(1_000);
-    await expect(vm.evaluate({kind: 'expression', source: '6 * 7', scope: {}}))
+    const compiledAfterTimeout = vm.compiledSourceCount;
+    await expect(vm.evaluate({kind: 'expression', source: cachedSource, scope: {}}))
       .resolves.toEqual({value: 42});
+    expect(vm.compiledSourceCount).toBe(compiledAfterTimeout);
   });
 
   it('enforces the runtime memory cap and recovers for the next evaluation', async () => {

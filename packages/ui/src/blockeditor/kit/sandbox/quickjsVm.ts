@@ -47,7 +47,7 @@ const errorMessage = (context: QuickJSContext, handle: QuickJSHandle): string =>
   return name && name !== 'Error' ? `${name}: ${message}` : message;
 };
 
-const isCapacityError = (message: string): boolean => /out of memory|interrupted|stack overflow/i.test(message);
+const isCapacityError = (message: string): boolean => /out of memory|stack overflow/i.test(message);
 
 let quickJSModule: Promise<QuickJSWASMModule> | undefined;
 
@@ -104,7 +104,13 @@ export class QuickJSEvaluator {
   }
 
   evaluate(rawRequest: EvalRequest): Promise<EvalResult> {
-    return Promise.resolve(this.evaluateSync(rawRequest));
+    const prepared = prepareEvalRequest(rawRequest);
+    return Promise.resolve(isEvalResult(prepared) ? prepared : this.evaluatePreparedSync(prepared));
+  }
+
+  /** Worker entry point: its transport already prepared the request once. */
+  evaluatePrepared(request: EvalRequest): Promise<EvalResult> {
+    return Promise.resolve(this.evaluatePreparedSync(request));
   }
 
   /**
@@ -113,12 +119,21 @@ export class QuickJSEvaluator {
    * entry point; render evaluation stays on the asynchronous Worker backend.
    */
   evaluateSync(rawRequest: EvalRequest): EvalResult {
-    if (!rawRequest.source.trim()) return {value: undefined};
     const prepared = prepareEvalRequest(rawRequest);
     if (isEvalResult(prepared)) return prepared;
+    return this.evaluatePreparedSync(prepared);
+  }
 
+  private evaluatePreparedSync(prepared: EvalRequest): EvalResult {
+    if (!prepared.source.trim()) return {value: undefined};
+    if (prepared.deadlineMs !== undefined && Date.now() >= prepared.deadlineMs) {
+      return {error: 'Evaluation deadline exceeded'};
+    }
     const {context, runtime} = this.state;
-    this.deadline = Date.now() + this.options.timeoutMs;
+    this.deadline = Math.min(
+      Date.now() + this.options.timeoutMs,
+      prepared.deadlineMs ?? Number.POSITIVE_INFINITY,
+    );
     runtime.setInterruptHandler(() => Date.now() >= this.deadline);
     let capacityFailure = false;
     try {
@@ -169,6 +184,18 @@ export class QuickJSEvaluator {
     runtime.setMemoryLimit(this.options.memoryLimitBytes);
     runtime.setMaxStackSize(this.options.stackLimitBytes);
     const context = runtime.newContext();
+    // Document code gets a resident realm for compiled-source reuse. Make its
+    // global non-extensible once so one document cannot publish ambient state
+    // that a later save/export observes.
+    const frozen = context.evalCode('"use strict"; Object.freeze(globalThis);', 'openbook-bootstrap.js');
+    if (frozen.error) {
+      const message = errorMessage(context, frozen.error);
+      frozen.error.dispose();
+      context.dispose();
+      runtime.dispose();
+      throw new Error(`Unable to harden QuickJS global: ${message}`);
+    }
+    frozen.value.dispose();
     const array = context.getProp(context.global, 'Array');
     const arrayIsArray = context.getProp(array, 'isArray');
     array.dispose();
@@ -247,7 +274,9 @@ export class QuickJSEvaluator {
 
   private compile(source: string, expression: boolean): QuickJSHandle | string {
     const body = expression ? `return (${source});` : source;
-    const wrapped = `(function(__openbookScope){const scope=__openbookScope;with(__openbookScope){${body}\n}})`;
+    // `with` supplies convenient bare scope names, while the nested strict
+    // function prevents unqualified assignment from creating realm globals.
+    const wrapped = `(function(__openbookScope){const scope=__openbookScope;with(__openbookScope){return (function(){'use strict';${body}\n}).call(undefined);}})`;
     const result = this.state.context.evalCode(wrapped, 'openbook-eval.js');
     this.compileTotal += 1;
     if (result.error) {

@@ -237,6 +237,8 @@ export interface EvalRequest {
   kind: 'expression' | 'code';
   source: string;
   scope: Record<string, unknown>;
+  /** Absolute host timestamp shared by one authoritative export pass. */
+  deadlineMs?: number;
 }
 
 /** Async evaluator seam, implemented by the resident QuickJS Worker. */
@@ -246,15 +248,44 @@ export interface EvalBackend {
 
 /** Synchronous evaluator seam for authoritative save/export checkpoints. */
 export interface SyncEvalBackend {
-  evaluate(request: EvalRequest): EvalResult;
+  /** Fixed-cost WASM setup is lazy, but happens before the document budget starts. */
+  prepare?(): Promise<void>;
+  /** The release-SYNC VM runs without yielding once its lazily-loaded WASM is ready. */
+  evaluate(request: EvalRequest): Promise<EvalResult>;
 }
+
+interface ExportSafeResult {
+  ok: boolean;
+  value?: unknown;
+}
+
+type ExportSafeReader = (
+  source: string,
+  get: (cellId: string) => unknown,
+  bindings: Readonly<Record<string, unknown>>,
+) => ExportSafeResult;
+
+/** The standalone viewer injects SBX-3's compiler-free interpreter first. */
+function readExportExpression(source: string, scope: Record<string, unknown>): EvalResult {
+  const reader = (globalThis as {__OB_SAFE_EXPRESSION__?: ExportSafeReader}).__OB_SAFE_EXPRESSION__;
+  if (!reader) return {error: 'Safe expression runtime is unavailable'};
+  const result = reader(source, () => undefined, scope);
+  return result.ok ? {value: result.value} : {error: 'Unsupported expression in standalone export'};
+}
+
+/** Viewer render evaluation stays inside SBX-3's interpreter; the app uses the Worker. */
+export const renderEvalBackend: EvalBackend = __OB_SAFE_EXPORT_VIEWER__ ? {
+  evaluate(request) {
+    return Promise.resolve(readExportExpression(request.source, request.scope));
+  },
+} : quickJSEvalBackend;
 
 /** Non-render async helpers. UI components should use `useCachedEval` so they
  * also get versioning, subscriptions, and last-known snapshots. */
 export function evalExpr(
   source: string,
   scope: Record<string, unknown>,
-  backend: EvalBackend = quickJSEvalBackend,
+  backend: EvalBackend = renderEvalBackend,
 ): Promise<EvalResult> {
   return backend.evaluate({kind: 'expression', source, scope});
 }
@@ -262,7 +293,7 @@ export function evalExpr(
 export function evalCode(
   source: string,
   scope: Record<string, unknown>,
-  backend: EvalBackend = quickJSEvalBackend,
+  backend: EvalBackend = renderEvalBackend,
 ): Promise<EvalResult> {
   return backend.evaluate({kind: 'code', source, scope});
 }
@@ -303,7 +334,7 @@ export function captureScopeProgram(doc: Y.Doc): ScopeProgram {
  * chaining (each named cell is visible to the cells below it). */
 export async function evaluateScopeProgram(
   program: ScopeProgram,
-  backend: EvalBackend = quickJSEvalBackend,
+  backend: EvalBackend = renderEvalBackend,
 ): Promise<ComputedScope> {
   const scope = {...program.input};
   const results = new Map<string, EvalResult>();
@@ -315,6 +346,41 @@ export async function evaluateScopeProgram(
   return {scope, results};
 }
 
+export const EXPORT_EVALUATION_BUDGET_MS = 100;
+export const EXPORT_DEADLINE_ERROR = `Export evaluation exceeded the ${EXPORT_EVALUATION_BUDGET_MS} ms budget`;
+
+const deadlineResult = (): EvalResult => ({error: EXPORT_DEADLINE_ERROR});
+
+/**
+ * Authoritative expression evaluation composes both safety layers: the app
+ * awaits the lazily-created in-process release-SYNC QuickJS VM, while the
+ * standalone viewer delegates to SBX-3's compiler-free expression reader.
+ */
+function evalExprSync(
+  source: string,
+  scope: Record<string, unknown>,
+  backend: SyncEvalBackend,
+  deadlineMs: number,
+): Promise<EvalResult> {
+  if (!source.trim()) return Promise.resolve({value: undefined});
+  if (Date.now() >= deadlineMs) return Promise.resolve(deadlineResult());
+  if (__OB_SAFE_EXPORT_VIEWER__) return Promise.resolve(readExportExpression(source, scope));
+  return backend.evaluate({kind: 'expression', source, scope, deadlineMs});
+}
+
+/** Same composition for live-code bodies (the safe reader supports its bounded statement shell). */
+function evalCodeSync(
+  source: string,
+  scope: Record<string, unknown>,
+  backend: SyncEvalBackend,
+  deadlineMs: number,
+): Promise<EvalResult> {
+  if (!source.trim()) return Promise.resolve({value: undefined});
+  if (Date.now() >= deadlineMs) return Promise.resolve(deadlineResult());
+  if (__OB_SAFE_EXPORT_VIEWER__) return Promise.resolve(readExportExpression(source, scope));
+  return backend.evaluate({kind: 'code', source, scope, deadlineMs});
+}
+
 /**
  * The document's full reactive scope: input values first, then every LIVE
  * code block (and legacy formula block) evaluated **in document order**, each
@@ -322,15 +388,22 @@ export async function evaluateScopeProgram(
  * A single ordered pass: forward references read `undefined`, cycles can't
  * happen.
  */
-export function computeScopeAuthoritative(
+export async function computeScopeAuthoritative(
   doc: Y.Doc,
   backend: SyncEvalBackend = quickJSSyncEvalBackend,
-): ComputedScope {
+  deadlineMs?: number,
+): Promise<ComputedScope> {
+  await backend.prepare?.();
+  const evaluationDeadline = deadlineMs ?? Date.now() + EXPORT_EVALUATION_BUDGET_MS;
   const program = captureScopeProgram(doc);
   const scope = {...program.input};
   const results = new Map<string, EvalResult>();
   for (const cell of program.cells) {
-    const result = backend.evaluate({...cell.request, scope});
+    const result = Date.now() >= evaluationDeadline
+      ? deadlineResult()
+      : await (cell.request.kind === 'code'
+        ? evalCodeSync(cell.request.source, scope, backend, evaluationDeadline)
+        : evalExprSync(cell.request.source, scope, backend, evaluationDeadline));
     results.set(cell.id, result);
     if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
   }
@@ -393,15 +466,17 @@ export interface ExportCell {
  * status lights, and progress bars evaluate their expression over the same
  * scope (mirroring their block components).
  */
-export function computeExportCells(
+export async function computeExportCells(
   doc: Y.Doc,
   dbSeries?: DbChartSeriesMap,
   backend: SyncEvalBackend = quickJSSyncEvalBackend,
-): Map<string, ExportCell> {
+): Promise<Map<string, ExportCell>> {
   // Export is an explicit non-render checkpoint and reflects this exact
   // document through an in-process QuickJS sandbox. It must not depend on an
   // async render Worker or execute document formulas in the host realm.
-  const {scope, results} = computeScopeAuthoritative(doc, backend);
+  await backend.prepare?.();
+  const deadlineMs = Date.now() + EXPORT_EVALUATION_BUDGET_MS;
+  const {scope, results} = await computeScopeAuthoritative(doc, backend, deadlineMs);
   const cells = new Map<string, ExportCell>();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const id = blockId(block);
@@ -418,18 +493,10 @@ export function computeExportCells(
       // snapshot, so viewing/presenting the chart never writes anything.
       cells.set(id, {value: dbSeries?.get(id)?.value});
     } else if (type === 'kitchart' || type === 'progressbar') {
-      const {value} = backend.evaluate({
-        kind: 'expression',
-        source: blockProp<string>(block, 'source') ?? '',
-        scope,
-      });
+      const {value} = await evalExprSync(blockProp<string>(block, 'source') ?? '', scope, backend, deadlineMs);
       cells.set(id, {value});
     } else if (type === 'statuslight') {
-      const {value, error} = backend.evaluate({
-        kind: 'expression',
-        source: blockProp<string>(block, 'source') ?? '',
-        scope,
-      });
+      const {value, error} = await evalExprSync(blockProp<string>(block, 'source') ?? '', scope, backend, deadlineMs);
       const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
       const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
       cells.set(id, {value, status: statusOf(value, error, okAt, warnAt)});

@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {beforeAll, describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {toHtml, toHtmlSite, toSlideDeck} from '../toHtml';
 import type {SiteBundle} from '../exportSite';
@@ -23,8 +23,12 @@ const legacySnapshot = (): PageSnapshot =>
   }) as never;
 
 describe('viewer-hydrated page export', () => {
-  const snap = parityExportSnapshot();
-  const html = toHtml(snap, 'Parity fixture', '🧪', new Map(), {id: 'fx-root', updatedAt: '2026-07-04T00:00:00.000Z'});
+  let snap: PageSnapshot;
+  let html: string;
+  beforeAll(async () => {
+    snap = await parityExportSnapshot();
+    html = toHtml(snap, 'Parity fixture', '🧪', new Map(), {id: 'fx-root', updatedAt: '2026-07-04T00:00:00.000Z'});
+  });
 
   it('ships the vendored viewer + boot instead of the bespoke runtime', () => {
     expect(html).toContain('OpenBookViewer');
@@ -94,20 +98,20 @@ describe('legacy-snapshot page export (no block-doc)', () => {
 });
 
 describe('site export runtime selection', () => {
-  it('hydrates an all-block-doc, database-free bundle through the viewer', () => {
-    const html = toHtmlSite(paritySiteBundle());
+  it('hydrates an all-block-doc, database-free bundle through the viewer', async () => {
+    const html = toHtmlSite(await paritySiteBundle());
     expect(html).toContain('OpenBookViewer');
     expect(html).not.toContain('id="ob-back"'); // legacy router replaced by #page= nav
     expect(html).not.toContain('id="ob-data"');
   });
 
-  it('is deterministic for site bundles too', () => {
-    const bundle = paritySiteBundle();
+  it('is deterministic for site bundles too', async () => {
+    const bundle = await paritySiteBundle();
     expect(toHtmlSite(bundle)).toBe(toHtmlSite(bundle));
   });
 
-  it('falls back to the legacy router when the bundle carries a database', () => {
-    const bundle = paritySiteBundle();
+  it('falls back to the legacy router when the bundle carries a database', async () => {
+    const bundle = await paritySiteBundle();
     const withDb: SiteBundle = {
       ...bundle,
       space: {
@@ -120,8 +124,8 @@ describe('site export runtime selection', () => {
     expect(html).not.toContain('OpenBookViewer');
   });
 
-  it('falls back to the legacy router when any page lacks a block-doc', () => {
-    const bundle = paritySiteBundle();
+  it('falls back to the legacy router when any page lacks a block-doc', async () => {
+    const bundle = await paritySiteBundle();
     bundle.space.pages[1] = {...bundle.space.pages[1], data: {editorjs: {blocks: []}, values: [], names: []} as never};
     const html = toHtmlSite(bundle);
     expect(html).toContain('id="ob-back"');
@@ -130,8 +134,8 @@ describe('site export runtime selection', () => {
 });
 
 describe('slide decks (viewer deck mode is a follow-up)', () => {
-  it('keeps the legacy deck runtime + slide nav', () => {
-    const html = toSlideDeck(parityExportSnapshot(), 'Deck', '');
+  it('keeps the legacy deck runtime + slide nav', async () => {
+    const html = toSlideDeck(await parityExportSnapshot(), 'Deck', '');
     expect(html).toContain('deck-nav');
     expect(html).toContain('id="ob-data"');
     expect(html).not.toContain('OpenBookViewer');

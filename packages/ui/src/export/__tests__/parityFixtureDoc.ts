@@ -13,8 +13,9 @@
  */
 import type {LedgerExportSection, LibrarySnapshot, PageSnapshot, StoredPage} from '@book.dev/sdk';
 import {LEDGER_PROP, STARTUP_BOOKS_CHART, startupBooksTransactions} from '@book.dev/sdk';
-import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
+import {createDoc, decodeSnapshot, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
+import {computeExportCells} from '../../blockeditor/kit/scope';
 import {emptyExportAssets, type ExportAssets} from '../exportAssets';
 import type {SiteBundle} from '../exportSite';
 
@@ -298,8 +299,10 @@ export function parityRawSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): PageSnaps
 
 /** The projected snapshot the app's export action passes to toHtml (the
  *  projection KEEPS the blockdoc, so the island stays lossless). */
-export function parityExportSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): PageSnapshot {
-  return projectSnapshotForExport(parityRawSnapshot(blocks));
+export async function parityExportSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): Promise<PageSnapshot> {
+  const raw = parityRawSnapshot(blocks);
+  const doc = decodeSnapshot(raw.blockdoc as never);
+  return projectSnapshotForExport(raw, undefined, await computeExportCells(doc));
 }
 
 const SECOND_PAGE: NewBlock[] = [
@@ -308,7 +311,7 @@ const SECOND_PAGE: NewBlock[] = [
 
 /** A two-page, database-free site bundle (mirrors gatherSite's output shape:
  *  projected snapshots in `pages`, raw records in `space`). */
-export function paritySiteBundle(): SiteBundle {
+export async function paritySiteBundle(): Promise<SiteBundle> {
   const rootRaw = parityRawSnapshot();
   const secondRaw = parityRawSnapshot(SECOND_PAGE);
   const record = (id: string, name: string, data: PageSnapshot, parentId: string | null) => ({
@@ -322,8 +325,8 @@ export function paritySiteBundle(): SiteBundle {
   return {
     rootId: 'fx-root',
     pages: [
-      {id: 'fx-root', title: 'Parity fixture', icon: '🧪', snapshot: projectSnapshotForExport(rootRaw)},
-      {id: 'fx-two', title: 'Second page', icon: '', snapshot: projectSnapshotForExport(secondRaw)},
+      {id: 'fx-root', title: 'Parity fixture', icon: '🧪', snapshot: await parityExportSnapshot()},
+      {id: 'fx-two', title: 'Second page', icon: '', snapshot: await parityExportSnapshot(SECOND_PAGE)},
     ],
     space,
   };

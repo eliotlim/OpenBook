@@ -32,7 +32,7 @@ import {
 afterEach(() => cleanup());
 
 const rawSnapshot = parityRawSnapshot(PARITY_PLUGIN_BLOCKS);
-const snapshot = parityExportSnapshot(PARITY_PLUGIN_BLOCKS);
+const snapshot = await parityExportSnapshot(PARITY_PLUGIN_BLOCKS);
 const meta = {id: 'lx-root', updatedAt: '2026-07-04T00:00:00.000Z'};
 
 /** A hand-built projection (what a legacy/foreign snapshot looks like): the only
