@@ -77,10 +77,14 @@ const asVersionString = (v: unknown): string | undefined =>
 
 /** JSON Schema string lengths count Unicode code points, not UTF-16 units. */
 const asContractString = (value: unknown, maxCodePoints?: number): string | undefined => {
-  if (typeof value !== 'string' || value.length === 0) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
   if (maxCodePoints !== undefined && Array.from(value).length > maxCodePoints) return undefined;
   return value;
 };
+
+/** Keep server-authored advisory prose readable without allowing vertical spam. */
+const collapseAdvisoryMessageNewlines = (value: unknown): unknown =>
+  typeof value === 'string' ? value.replace(/(?:\r\n|\r|\n){3,}/g, '\n\n') : value;
 
 /**
  * Parse the additive LNCH-8 advisory. An invalid advisory is ignored without
@@ -93,7 +97,7 @@ function parseAdvisory(value: unknown): UpdateAdvisory | undefined {
   const raw = value as Record<string, unknown>;
   const id = asContractString(raw.id);
   const severity = raw.severity;
-  const message = asContractString(raw.message, 500);
+  const message = asContractString(collapseAdvisoryMessageNewlines(raw.message), 500);
   const affectedRange = asContractString(raw.affected_range, 200);
   const minSafeVersion =
     raw.min_safe_version === undefined ? undefined : asContractString(raw.min_safe_version, 64);

@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useId, useRef, useState} from 'react';
-import {Loader2, ShieldAlert} from 'lucide-react';
+import {Bug, Loader2, ShieldAlert} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
   Dialog,
@@ -138,36 +138,47 @@ export function UpdateAdvisoryWarning({
                   : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
               )}
             >
-              <ShieldAlert className="h-5 w-5" aria-hidden />
+              {vulnerable ? (
+                <ShieldAlert className="h-5 w-5" aria-hidden />
+              ) : (
+                <Bug className="h-5 w-5" aria-hidden />
+              )}
             </span>
             {title}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Deliberately a React text child. No HTML parser, Markdown renderer,
-            or linkifier is involved in the server-authored message. */}
-        <DialogDescription className="whitespace-pre-wrap break-words text-left text-base font-medium leading-relaxed text-foreground">
-          {advisory.message}
-        </DialogDescription>
+        <div
+          className="grid max-h-[40vh] gap-4 overflow-y-auto"
+          data-testid="update-advisory-scroll-region"
+        >
+          {/* Deliberately a React text child. No HTML parser, Markdown renderer,
+              or linkifier is involved in the server-authored message. */}
+          <DialogDescription className="whitespace-pre-wrap break-words text-left text-base font-medium leading-relaxed text-foreground">
+            {advisory.message}
+          </DialogDescription>
 
-        <dl className="grid gap-1 rounded-md border border-foreground/15 bg-background/70 px-3 py-2 text-sm">
-          <div className="flex min-w-0 justify-between gap-4">
-            <dt className="text-muted-foreground">{t('updates.advisory.currentVersionLabel')}</dt>
-            <dd className="min-w-0 break-all font-mono font-medium">
-              {currentVersion ?? t('updates.advisory.unknownVersion')}
-            </dd>
-          </div>
-          <div className="flex min-w-0 justify-between gap-4">
-            <dt className="text-muted-foreground">{t('updates.advisory.affectedRangeLabel')}</dt>
-            <dd className="min-w-0 break-all font-mono font-medium">{advisory.affectedRange}</dd>
-          </div>
-          {advisory.minSafeVersion && (
+          <dl className="grid gap-1 rounded-md border border-foreground/15 bg-background/70 px-3 py-2 text-sm">
             <div className="flex min-w-0 justify-between gap-4">
-              <dt className="text-muted-foreground">{t('updates.advisory.minSafeVersionLabel')}</dt>
-              <dd className="min-w-0 break-all font-mono font-medium">{advisory.minSafeVersion}</dd>
+              <dt className="text-muted-foreground">{t('updates.advisory.currentVersionLabel')}</dt>
+              <dd className="min-w-0 break-all font-mono font-medium">
+                {currentVersion ?? t('updates.advisory.unknownVersion')}
+              </dd>
             </div>
-          )}
-        </dl>
+            <div className="flex min-w-0 justify-between gap-4">
+              <dt className="text-muted-foreground">{t('updates.advisory.affectedRangeLabel')}</dt>
+              <dd className="min-w-0 break-all font-mono font-medium">{advisory.affectedRange}</dd>
+            </div>
+            {advisory.minSafeVersion && (
+              <div className="flex min-w-0 justify-between gap-4">
+                <dt className="text-muted-foreground">{t('updates.advisory.minSafeVersionLabel')}</dt>
+                <dd className="min-w-0 break-all font-mono font-medium">
+                  {advisory.minSafeVersion}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
 
         <div className="grid gap-2">
           <Label htmlFor={inputId}>{t('updates.advisory.ackLabel')}</Label>

@@ -84,6 +84,40 @@ describe('mapUpdateCheckResponse', () => {
     });
   });
 
+  it('collapses excessive message newlines before enforcing the code-point cap', () => {
+    const r = mapUpdateCheckResponse('1.69.1', {
+      ...CHECK_OK,
+      advisory: {
+        id: 'newline-warning',
+        severity: 'major-bug',
+        message: `Warning${'\n'.repeat(500)}Update now.`,
+        affected_range: '<2.0.0',
+      },
+    });
+    expect(r.advisory?.message).toBe('Warning\n\nUpdate now.');
+  });
+
+  it('ignores advisories with whitespace-only ids or messages', () => {
+    const baseAdvisory = {
+      id: 'warning',
+      severity: 'major-bug',
+      message: 'Update now.',
+      affected_range: '<2.0.0',
+    };
+    expect(
+      mapUpdateCheckResponse('1.69.1', {
+        ...CHECK_OK,
+        advisory: {...baseAdvisory, id: ' \t '},
+      }).advisory,
+    ).toBeUndefined();
+    expect(
+      mapUpdateCheckResponse('1.69.1', {
+        ...CHECK_OK,
+        advisory: {...baseAdvisory, message: ' \n\t '},
+      }).advisory,
+    ).toBeUndefined();
+  });
+
   it('ignores a malformed advisory without failing the update check', () => {
     const malformed = [
       null,

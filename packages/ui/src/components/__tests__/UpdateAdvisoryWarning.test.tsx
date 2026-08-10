@@ -94,6 +94,36 @@ describe('UpdateAdvisoryWarning', () => {
     expect(screen.getByText('1.72.3')).toBeTruthy();
   });
 
+  it('keeps every action outside the capped scroll region for newline-heavy messages', async () => {
+    shell(
+      <UpdateAdvisoryWarning
+        advisory={{...ADVISORY, message: `Warning${'\n'.repeat(500)}Update now.`}}
+        currentVersion="1.71.0"
+        updates={makePlatform()}
+        onSnooze={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await flush();
+
+    const scrollRegion = screen.getByTestId('update-advisory-scroll-region');
+    expect(scrollRegion.classList.contains('max-h-[40vh]')).toBe(true);
+    expect(scrollRegion.classList.contains('overflow-y-auto')).toBe(true);
+
+    const actions = [
+      screen.getByRole('button', {name: 'Update now'}),
+      screen.getByRole('button', {name: 'Snooze'}),
+      screen.getByRole('button', {name: 'Dismiss'}),
+    ];
+    const footer = actions[0].parentElement;
+    expect(footer).not.toBeNull();
+    expect(footer?.parentElement).toBe(scrollRegion.parentElement);
+    for (const action of actions) {
+      expect(action.parentElement).toBe(footer);
+      expect(scrollRegion.contains(action)).toBe(false);
+    }
+  });
+
   it('gates dismissal on the localized phrase, case-insensitive and trimmed', () => {
     const onDismiss = vi.fn();
     shell(
