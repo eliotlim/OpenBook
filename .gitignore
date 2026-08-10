@@ -170,3 +170,5 @@ packages/web/e2e-viewer/generated/
 # Key-ceremony output (gen-registry-key.mjs --out): a PRIVATE signing key —
 # stored as a CI secret and destroyed, never committed.
 registry-key.json
+.claude/skills/pr-visual-captures/
+_captures/
