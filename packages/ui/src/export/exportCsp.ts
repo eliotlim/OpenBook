@@ -97,7 +97,7 @@ export function inlineScriptHash(source: string): string {
   return hash;
 }
 
-/** Network-off page policy; only the exact emitted inline scripts may execute. */
+/** Deny-by-default page policy; only the exact emitted inline scripts may execute. */
 export function pageCsp(scriptHashes: readonly string[]): string {
   const scripts = scriptHashes.length > 0 ? [...new Set(scriptHashes)].join(' ') : '\'none\'';
   return [
@@ -111,10 +111,13 @@ export function pageCsp(scriptHashes: readonly string[]): string {
     // The renderer relies on generated style attributes (chart dimensions,
     // progress fills, viewer layout). No external stylesheet is permitted.
     'style-src \'unsafe-inline\'',
+    // Legacy snapshots may intentionally retain an author-provided remote image
+    // URL; all exporter-resolved assets use data:/blob: instead.
     'img-src data: blob: https:',
     'font-src data:',
     'media-src data: blob:',
-    'frame-src \'self\' data: blob:',
+    // Hydrated HTML artifacts use iframe srcdoc, never data: frame URLs.
+    'frame-src \'self\' blob:',
     'connect-src \'none\'',
     'worker-src \'none\'',
     'manifest-src \'none\'',

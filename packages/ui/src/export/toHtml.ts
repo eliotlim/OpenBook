@@ -109,7 +109,7 @@ function escapeHtml(s: string): string {
 
 /** Make JS safe to inline inside a `<script>` element. */
 function escapeScript(js: string): string {
-  return js.replace(/<\/script>/gi, '<\\/script>');
+  return js.replace(/<\//g, '<\\/');
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
