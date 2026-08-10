@@ -36,6 +36,7 @@ import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAsse
 // module doc) — viewer-hydrated exports carry their own chart renderer.
 import d3Umd from './vendor/d3.min.js?raw';
 import plotUmd from './vendor/plot.umd.min.js?raw';
+import SAFE_EXPRESSION_JS from './safeExpressionRuntime.js?raw';
 // The self-contained viewer bundle (IIFE exposing `OpenBookViewer`), generated
 // into vendor/ by `pnpm --filter @book.dev/ui run build:viewer` (which runs
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
@@ -1336,8 +1337,12 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 .divider[data-style=labeled]::before, .divider[data-style=labeled]::after { content: ""; flex: 1; border-top: 1px solid rgba(127,127,127,.3); }
 `;
 
-// Inlined live runtime: recomputes expressions from slider values and redraws
-// charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
+// Inlined live runtime: safely interprets expressions from slider values and
+// redraws charts. Reuses the saved \`__C__{cellId}__\` reference tokens. The
+// interpreter accepts expression syntax only (literals, arithmetic/comparison/
+// logical/ternary operators, arrays/plain objects, safe member reads, Math.* and
+// allowlisted array/string helpers); unsupported statement bodies retain their
+// last export-time value. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline. The kit
 // palette prepended by `kitChartRuntime(scheme)` bakes the active scheme (OB-379)
 // so a redrawn kit chart keeps the exporting user's colours — and the kind-less
@@ -1349,13 +1354,12 @@ const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
 const get = (id) => store.get(id);
 const fmt = (v) => v === undefined ? "—" : typeof v === "number" ? (Number.isInteger(v) ? ""+v : ""+(Math.round(v*1000)/1000)) : Array.isArray(v) ? "["+v.slice(0,8).join(", ")+(v.length>8?", …":"")+"]" : JSON.stringify(v);
-function evalExpr(src){ const code = src.replace(/__C__\\{([^}]+)\\}__/g, (_,id)=>"get("+JSON.stringify(id)+")"); try { return new Function("get","return ("+code+");")(get); } catch(e){ if(!(e instanceof SyntaxError)) return undefined; } try { return new Function("get",code)(get); } catch(e){ return undefined; } }
 function normalize(v,name){ if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return [{name,data:v}]; if(v&&Array.isArray(v.series)) return v.series.map(s=>({name:String(s.name),data:(s.data||[]).filter(n=>typeof n==="number")})); return []; }
 
 function statusOf(v, okAt, warnAt){ if(v===undefined||v===null) return "off"; if(typeof v==="boolean") return v?"ok":"bad"; if(typeof v==="string") return (v==="ok"||v==="warn"||v==="bad")?v:"off"; if(typeof v==="number"){ if(v>=okAt) return "ok"; if(v>=warnAt) return "warn"; return "bad"; } return "off"; }
 function progressOf(v, max, format){ const raw = typeof v==="boolean"?(v?max:0):Number(v==null?0:v); const fr = isFinite(raw)?Math.max(0,Math.min(1, max===0?0:raw/max)):0; const pct=Math.round(fr*100); const trim=(n)=>Number.isInteger(n)?(""+n):(""+(Math.round(n*100)/100)); return {pct:pct, readout: format==="fraction"?(trim(raw)+" / "+trim(max)):(pct+"%")}; }
 function recompute(){
-  for (const e of D.exprs) store.set(e.cell, evalExpr(e.source));
+  for (const e of D.exprs){ const result=readSafeExpression(e.source,get); if(result.ok) store.set(e.cell,result.value); }
   for (const e of D.exprs){ const el=document.querySelector('[data-cell="'+e.cell+'"] [data-val]'); if(el) el.textContent = fmt(get(e.cell)); }
   for (const l of (D.lights||[])){ const el=document.querySelector('[data-light="'+l.cell+'"]'); if(el){ const v=get(l.cell); el.setAttribute("data-status", statusOf(v, l.okAt, l.warnAt)); const val=el.querySelector("[data-val]"); if(val) val.textContent = fmt(v); } }
   for (const p of (D.progress||[])){ const el=document.querySelector('[data-progress="'+p.cell+'"]'); if(el){ const r=progressOf(get(p.cell), p.max, p.format); const fill=el.querySelector("[data-fill]"); if(fill) fill.style.width = r.pct+"%"; const val=el.querySelector("[data-val]"); if(val) val.textContent = r.readout; } }
@@ -1425,7 +1429,7 @@ recompute();
 
 /** The full live runtime for a scheme: the kit palette (scheme-baked) + drawing
  *  source + the slider/expr/chart re-computation loop. */
-const runtimeFor = (scheme: DataColorScheme): string => kitChartRuntime(scheme) + RUNTIME_REST;
+const runtimeFor = (scheme: DataColorScheme): string => kitChartRuntime(scheme) + SAFE_EXPRESSION_JS + RUNTIME_REST;
 
 // Inlined navigation runtime: shows one page section at a time, swapping on clicks
 // of any in-bundle link (mentions, subpages, database rows) via the URL hash, so
