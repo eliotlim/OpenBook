@@ -45,6 +45,19 @@ describe('parseBackup', () => {
     // …and a v1 file simply has none.
     expect(parseBackup(JSON.stringify({version: 1, pages: [], databases: []})).ledger).toBeUndefined();
   });
+
+  it('carries the v3 asset and page-access manifests through unchanged (OB-699)', () => {
+    const assets = [{id: 'a'.repeat(64), mime: 'image/png', size: 1, bytesBase64: 'AA==', refs: ['p']}];
+    const pageAccess = [{pageId: 'p', visibility: 'restricted', agentEdits: 'suggest', acl: []}];
+    const parsed = parseBackup(JSON.stringify({version: 3, pages: [page('p')], databases: [], assets, pageAccess}));
+    expect(parsed.assets).toEqual(assets);
+    expect(parsed.pageAccess).toEqual(pageAccess);
+  });
+
+  it('rejects invalid and future format versions', () => {
+    expect(() => parseBackup(JSON.stringify({version: 0, pages: [], databases: []}))).toThrow();
+    expect(() => parseBackup(JSON.stringify({version: 4, pages: [], databases: []}))).toThrow();
+  });
 });
 
 describe('bundleRoots', () => {

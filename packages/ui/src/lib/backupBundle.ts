@@ -11,11 +11,12 @@ export function parseBackup(text: string): LibraryBackup {
   if (!parsed || !Array.isArray(parsed.pages) || !Array.isArray(parsed.databases)) {
     throw new Error('Not an OpenBook backup file.');
   }
-  if (typeof parsed.version !== 'number' || parsed.version > BACKUP_VERSION) {
+  const version = parsed.version;
+  if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1 || version > BACKUP_VERSION) {
     throw new Error('This backup was made by a newer version of OpenBook.');
   }
   return {
-    version: parsed.version,
+    version,
     exportedAt: parsed.exportedAt ?? '',
     pages: parsed.pages,
     databases: parsed.databases,
@@ -23,6 +24,8 @@ export function parseBackup(text: string): LibraryBackup {
     // LGR-15: the ledger durability section (v2 bundles). Carried through so an
     // overwrite restore can forward it; absent in v1 files.
     ...(parsed.ledger ? {ledger: parsed.ledger} : {}),
+    ...(parsed.assets ? {assets: parsed.assets} : {}),
+    ...(parsed.pageAccess ? {pageAccess: parsed.pageAccess} : {}),
   };
 }
 

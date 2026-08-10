@@ -1,6 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
-  BACKUP_VERSION,
   getServerUrlOverride,
   parseBookFolder,
   libraryToBookFiles,
@@ -91,7 +90,8 @@ export default function BackupSettings() {
     setBusy('export');
     setStatus(null);
     try {
-      const {pages, databases, ledger} = await client.exportLibrary();
+      const serverBundle = await client.exportLibrary();
+      const {pages} = serverBundle;
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
       // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
@@ -99,10 +99,9 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      // LGR-15: the ledger durability section (audit stream, settings, evidence
-      // assets) rides in the same file — dropping it here would export a book
-      // whose restore could never verify.
-      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons, ...(ledger ? {ledger} : {})};
+      // Preserve the server-authored v3 envelope intact: reconstructing only the
+      // old pages/databases/ledger fields here would silently drop assets/access.
+      const backup: LibraryBackup = {...serverBundle, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
       setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
@@ -160,7 +159,9 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      setBundle({version: BACKUP_VERSION, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
+      // A readable-folder import is intentionally a content import, not a
+      // lossless v3 backup (the folder format does not carry assets/access).
+      setBundle({version: 1, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
     } catch (e) {
       setStatus(t('backup.readFailed', {error: (e as Error).message}));
     }
@@ -533,7 +534,20 @@ function RestoreDialog({
       // an OVERWRITE restore — the server applies it only into a library with no
       // seeded ledger (and only when the selection carried the ledger's own
       // pages), so this is safe to send unconditionally in that mode.
-      const result = await run({pages: sel.pages, databases: sel.databases, mode, ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {})});
+      const selectedPageIds = new Set(sel.pages.map((page) => page.id));
+      const assets = bundle.assets?.flatMap((asset) => {
+        const refs = asset.refs.filter((pageId) => selectedPageIds.has(pageId));
+        return refs.length > 0 ? [{...asset, refs}] : [];
+      });
+      const pageAccess = bundle.pageAccess?.filter((access) => selectedPageIds.has(access.pageId));
+      const result = await run({
+        version: bundle.version,
+        pages: sel.pages,
+        databases: sel.databases,
+        mode,
+        ...(bundle.version === 3 ? {assets: assets ?? [], pageAccess: pageAccess ?? []} : {}),
+        ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {}),
+      });
       const bits = [
         result.created ? t('backup.added', {count: result.created}) : '',
         result.overwritten ? t('backup.overwrittenCount', {count: result.overwritten}) : '',
