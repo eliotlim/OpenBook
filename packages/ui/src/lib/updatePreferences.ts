@@ -7,7 +7,8 @@
  * keys and value shapes have a single source of truth.
  *
  * Storage: discrete keys (`updates.cadence`, `updates.securityOnly`,
- * `updates.lastCheckAt`, `updates.lastCheckSuccessAt`) rather than one blob, so
+ * `updates.lastCheckAt`, `updates.lastCheckSuccessAt`, and advisory state)
+ * rather than one blob, so
  * the scheduler can read just the cadence without parsing the rest, and a
  * partial write can't clobber an unrelated field.
  *
@@ -26,6 +27,13 @@
  *  update server at all (a manual "Check for updates" still works). */
 export type UpdateCadence = 'daily' | 'weekly' | 'never';
 
+export interface UpdateAdvisorySnooze {
+  advisoryId: string;
+  snoozedAt: number;
+  /** A process-local token: a different app launch expires the snooze early. */
+  launchId: string;
+}
+
 export interface UpdatePreferences {
   /** Automatic-check frequency. Default `daily`. */
   cadence: UpdateCadence;
@@ -37,6 +45,10 @@ export interface UpdatePreferences {
   /** Epoch-ms of the last check that *completed* (reported a result) — what the
    *  UI shows as "Last checked". `null` if no check has ever succeeded. */
   lastCheckSuccessAt: number | null;
+  /** The one active advisory snooze, if its stored shape is valid. */
+  advisorySnooze: UpdateAdvisorySnooze | null;
+  /** Advisory ids whose typed acknowledgement was completed on this device. */
+  dismissedAdvisoryIds: string[];
 }
 
 export const UPDATE_PREFERENCE_KEYS = {
@@ -44,6 +56,8 @@ export const UPDATE_PREFERENCE_KEYS = {
   securityOnly: 'updates.securityOnly',
   lastCheckAt: 'updates.lastCheckAt',
   lastCheckSuccessAt: 'updates.lastCheckSuccessAt',
+  advisorySnooze: 'updates.advisorySnooze',
+  dismissedAdvisoryIds: 'updates.dismissedAdvisoryIds',
 } as const;
 
 export const DEFAULT_UPDATE_PREFERENCES: UpdatePreferences = {
@@ -51,7 +65,15 @@ export const DEFAULT_UPDATE_PREFERENCES: UpdatePreferences = {
   securityOnly: false,
   lastCheckAt: null,
   lastCheckSuccessAt: null,
+  advisorySnooze: null,
+  dismissedAdvisoryIds: [],
 };
+
+export const UPDATE_ADVISORY_SNOOZE_MS = 24 * 60 * 60 * 1000;
+
+// One token per loaded desktop UI. It survives component remounts, while a
+// relaunch loads a fresh bundle and therefore makes every snooze visible again.
+const UPDATE_ADVISORY_LAUNCH_ID = `${Date.now()}-${Math.random()}`;
 
 const CADENCES: ReadonlySet<UpdateCadence> = new Set(['daily', 'weekly', 'never']);
 
@@ -121,6 +143,77 @@ export function setUpdateLastCheckSuccessAt(at: number): void {
   writeRaw(UPDATE_PREFERENCE_KEYS.lastCheckSuccessAt, String(at));
 }
 
+/** Read the persisted advisory snooze, rejecting partial/corrupt JSON. */
+export function getUpdateAdvisorySnooze(): UpdateAdvisorySnooze | null {
+  const value = readRaw(UPDATE_PREFERENCE_KEYS.advisorySnooze);
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return typeof parsed.advisoryId === 'string' &&
+      parsed.advisoryId.length > 0 &&
+      typeof parsed.snoozedAt === 'number' &&
+      Number.isFinite(parsed.snoozedAt) &&
+      parsed.snoozedAt > 0 &&
+      typeof parsed.launchId === 'string' &&
+      parsed.launchId.length > 0
+      ? {
+          advisoryId: parsed.advisoryId,
+          snoozedAt: parsed.snoozedAt,
+          launchId: parsed.launchId,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Hide one advisory for this launch, for no longer than 24 hours. */
+export function setUpdateAdvisorySnooze(
+  advisoryId: string,
+  snoozedAt = Date.now(),
+  launchId = UPDATE_ADVISORY_LAUNCH_ID,
+): void {
+  writeRaw(UPDATE_PREFERENCE_KEYS.advisorySnooze, JSON.stringify({advisoryId, snoozedAt, launchId}));
+}
+
+/** True only during the launch that created the still-fresh 24-hour snooze. */
+export function isUpdateAdvisorySnoozed(
+  advisoryId: string,
+  now = Date.now(),
+  launchId = UPDATE_ADVISORY_LAUNCH_ID,
+): boolean {
+  const snooze = getUpdateAdvisorySnooze();
+  return (
+    snooze?.advisoryId === advisoryId &&
+    snooze.launchId === launchId &&
+    now < snooze.snoozedAt + UPDATE_ADVISORY_SNOOZE_MS
+  );
+}
+
+/** Read the locally acknowledged advisory ids, ignoring corrupt entries. */
+export function getDismissedUpdateAdvisoryIds(): string[] {
+  const value = readRaw(UPDATE_PREFERENCE_KEYS.dismissedAdvisoryIds);
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  } catch {
+    return [];
+  }
+}
+
+export function isUpdateAdvisoryDismissed(advisoryId: string): boolean {
+  return getDismissedUpdateAdvisoryIds().includes(advisoryId);
+}
+
+/** Persist a completed typed acknowledgement for this exact advisory id. */
+export function dismissUpdateAdvisory(advisoryId: string): void {
+  const ids = getDismissedUpdateAdvisoryIds();
+  if (!ids.includes(advisoryId)) ids.push(advisoryId);
+  writeRaw(UPDATE_PREFERENCE_KEYS.dismissedAdvisoryIds, JSON.stringify(ids));
+}
+
 /** Read all preferences at once (the shape the scheduler wants). */
 export function readUpdatePreferences(): UpdatePreferences {
   return {
@@ -128,5 +221,7 @@ export function readUpdatePreferences(): UpdatePreferences {
     securityOnly: getUpdateSecurityOnly(),
     lastCheckAt: getUpdateLastCheckAt(),
     lastCheckSuccessAt: getUpdateLastCheckSuccessAt(),
+    advisorySnooze: getUpdateAdvisorySnooze(),
+    dismissedAdvisoryIds: getDismissedUpdateAdvisoryIds(),
   };
 }
