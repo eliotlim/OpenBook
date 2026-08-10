@@ -48,6 +48,7 @@ import type {
   LedgerTransaction,
   LedgerTransactionState,
   LedgerVerifyReport,
+  LibraryBackup,
   McpClientConfig,
   McpConfigResponse,
   McpTestResult,
@@ -69,7 +70,6 @@ import type {
   StoredDatabase,
   StoredEdit,
   StoredPage,
-  LedgerBackupSection,
   StoredPlugin,
   StoredSuggestion,
   SuggestionInput,
@@ -248,7 +248,7 @@ export class LocalDataClient implements DataClient {
     return true;
   }
 
-  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
+  exportLibrary(): Promise<LibraryBackup> {
     return this.store.exportAll();
   }
 

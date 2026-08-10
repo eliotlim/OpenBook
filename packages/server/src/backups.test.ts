@@ -2,7 +2,7 @@ import {readdir, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {BACKUP_CADENCE_MS, type LibraryBackup} from '@book.dev/sdk';
+import {BACKUP_CADENCE_MS, BACKUP_VERSION, type LibraryBackup, type StoredPage} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -33,7 +33,7 @@ beforeEach(async () => {
   nowMs = Date.parse('2026-06-01T00:00:00.000Z');
   dataDir = join(tmpdir(), `ob-backup-test-${process.pid}-${seq}`);
   backupDir = join(tmpdir(), `ob-backup-out-${process.pid}-${seq}`);
-  rm(dataDir, {recursive: true, force: true});
+  await rm(dataDir, {recursive: true, force: true});
   await rm(backupDir, {recursive: true, force: true});
   store = new PageStore(await PgliteDb.create(dataDir));
   await store.migrate();
@@ -52,8 +52,10 @@ describe('BackupScheduler', () => {
     expect(res).toBeTruthy();
     expect(await listSnapshots('daily')).toHaveLength(1);
     const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as LibraryBackup;
-    expect(parsed.version).toBeGreaterThanOrEqual(1);
+    expect(parsed.version).toBe(BACKUP_VERSION);
     expect(parsed.pages.some((p) => p.name === `bk-${seq}`)).toBe(true);
+    expect(parsed.assets).toEqual([]);
+    expect(parsed.pageAccess).toHaveLength(parsed.pages.length);
   });
 
   it('backs up on a fresh install without configuration (default-on / opt-out)', async () => {
@@ -148,13 +150,80 @@ describe('BackupScheduler', () => {
     const restored = new PageStore(await PgliteDb.create(restoreDir));
     await restored.migrate();
     try {
-      const result = await restored.importBundle({pages: parsed.pages, databases: parsed.databases, mode: 'copy'});
+      const result = await restored.importBundle({...parsed, mode: 'copy'});
       expect(result.created).toBe(parsed.pages.length);
+      expect(result.diagnostics).toBeUndefined();
       expect((await restored.listPages()).map((p) => p.name)).toContain(`rt-${seq}`);
     } finally {
       await restored.close();
-      rm(restoreDir, {recursive: true, force: true});
+      await rm(restoreDir, {recursive: true, force: true});
     }
+  });
+
+  it('accepts v2 only with an explicit partial-restore diagnostic', async () => {
+    const result = await store.importBundle({version: 2, pages: [], databases: [], mode: 'overwrite'});
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'partial-restore',
+        version: 2,
+        missing: ['complete-asset-manifest', 'page-access-state'],
+      }),
+    ]);
+  });
+
+  it('refuses unknown future versions clearly and writes nothing', async () => {
+    const before = await store.exportAll();
+    await expect(
+      store.importBundle({version: BACKUP_VERSION + 1, pages: [], databases: [], mode: 'overwrite'}),
+    ).rejects.toThrow(`unsupported backup format version ${BACKUP_VERSION + 1}`);
+    expect((await store.exportAll()).pages).toEqual(before.pages);
+  });
+
+  it('fails backup loudly when a live page references missing asset bytes', async () => {
+    const missing = 'a'.repeat(64);
+    await store.upsertPage({
+      name: `missing-asset-${seq}`,
+      data: {
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+        blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId: missing}}]},
+      },
+    });
+    await expect(store.exportAll()).rejects.toThrow(`referenced asset ${missing} has no stored bytes`);
+  });
+
+  it('preflights the v3 asset manifest before writing any page', async () => {
+    const missing = 'b'.repeat(64);
+    const now = new Date().toISOString();
+    const page: StoredPage = {
+      id: '00000000-0000-4000-8000-000000000099',
+      name: 'must-not-land',
+      data: {
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+        blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId: missing}}]},
+      },
+      hostedDatabaseId: null,
+      databaseId: null,
+      parentId: null,
+      properties: {},
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await expect(
+      store.importBundle({
+        version: 3,
+        pages: [page],
+        databases: [],
+        assets: [],
+        pageAccess: [{pageId: page.id, visibility: 'inherit', agentEdits: 'inherit', acl: []}],
+        mode: 'overwrite',
+      }),
+    ).rejects.toThrow(`referenced asset bytes are missing: ${missing}`);
+    expect(await store.getPage(page.id)).toBeNull();
   });
 
   it('reports per-cadence status (last/next run + count)', async () => {
@@ -213,5 +282,18 @@ describe('backup HTTP routes', () => {
   it('reports 501 when the server cannot write backups (no scheduler)', async () => {
     const app = createApp(store, undefined, new PageHub());
     expect((await app.request('/api/backups')).status).toBe(501);
+  });
+
+  it('returns a clear 400 for an unknown future bundle version', async () => {
+    const app = createApp(store, undefined, new PageHub());
+    const res = await app.request('/api/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({version: BACKUP_VERSION + 1, pages: [], databases: [], mode: 'overwrite'}),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: `unsupported backup format version ${BACKUP_VERSION + 1}; this build reads through v${BACKUP_VERSION}`,
+    });
   });
 });

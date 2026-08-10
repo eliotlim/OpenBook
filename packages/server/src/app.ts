@@ -48,7 +48,7 @@ import {
   type LedgerTransactionState,
   localPrincipal,
 } from '@book.dev/sdk';
-import {PageStore, AssetBudgetError} from './store';
+import {PageStore, AssetBudgetError, BackupFormatError} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
 import {ServerAuthoritativePersister} from './collabPersist';
@@ -2511,6 +2511,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // 400/422 status — surface them in the API `{error}` shape (OB-191).
     if (err instanceof InviteResolutionError) {
       return c.json({error: err.message}, err.status);
+    }
+    // Backup envelopes are untrusted input. Unsupported future versions,
+    // incomplete manifests, and hash/size mismatches are clear 400s, never a
+    // generic 500 that could be mistaken for transient restore corruption.
+    if (err instanceof BackupFormatError) {
+      return c.json({error: err.message}, 400);
     }
     // Page names are not unique (migration 0015), so a unique violation here is
     // another constraint (e.g. a member email index) — surface it as a conflict.

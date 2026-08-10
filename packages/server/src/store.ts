@@ -7,7 +7,11 @@ import type {
   AgentEditsPolicy,
   AgentTokenMeta,
   AgentTokenScope,
+  BackupAsset,
   BackupConfig,
+  BackupPageAccess,
+  BackupPageAcl,
+  BackupRestoreDiagnostic,
   CommentInput,
   CommentRun,
   DatabaseInput,
@@ -16,9 +20,9 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
-  LedgerBackupAsset,
   LedgerBackupSection,
   LedgerRestoreOutcome,
+  LibraryBackup,
   EffectiveRole,
   InstanceConfig,
   Member,
@@ -45,8 +49,8 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
-import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
+import {AGENT_EDITS_POLICIES, authorize, BACKUP_VERSION, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, PAGE_VISIBILITIES, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {LedgerError, LEDGER_AUDIT_ACTIONS, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {compareSemver, isSemver} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
@@ -106,6 +110,14 @@ export class AssetBudgetError extends Error {
   }
 }
 
+/** A malformed, incomplete, or unsupported backup envelope. */
+export class BackupFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BackupFormatError';
+  }
+}
+
 /** Raw row shape returned by the database. */
 interface PageRow {
   id: string;
@@ -122,6 +134,9 @@ interface PageRow {
   icon?: string | null;
   // Sibling sort key; selected by full page fetches so exports carry it (LGR-15).
   position?: number | string | null;
+  // Stored access posture; selected only by the v3 manifest query.
+  visibility?: string | null;
+  agent_edits?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
   // Set when the page is in the trash (soft-deleted); null for live pages.
@@ -352,6 +367,7 @@ const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 async function bundleKey(req: ImportRequest): Promise<string> {
   const byId = <T extends {id: string}>(a: T, b: T): number => a.id.localeCompare(b.id);
   const canonical = JSON.stringify({
+    version: req.version ?? null,
     mode: req.mode ?? 'copy',
     pages: [...req.pages].sort(byId),
     databases: [...req.databases].sort(byId),
@@ -359,6 +375,8 @@ async function bundleKey(req: ImportRequest): Promise<string> {
     // pages WITH a ledger to restore must never dedupe against a prior apply
     // WITHOUT one. `null` (not absent) so a v1 key can't collide by accident.
     ledger: req.ledger ?? null,
+    assets: req.assets ?? null,
+    pageAccess: req.pageAccess ?? null,
   });
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -389,6 +407,189 @@ async function assetHash(bytes: Uint8Array): Promise<string> {
   // `BufferSource` accepts it (a bare `Uint8Array` is `ArrayBufferLike`).
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+const ASSET_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * Asset references are document state, not `asset_refs` state: a moved/copied
+ * block can legitimately have no edge row (the GC has the same rule). Walk the
+ * two supported reference shapes: block/property `assetId`, and ledger evidence
+ * manifest `sha256` entries.
+ */
+function referencedAssets(pages: StoredPage[]): Map<string, Set<string>> {
+  const refs = new Map<string, Set<string>>();
+  const walk = (value: unknown, pageId: string): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, pageId);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if ((key === 'assetId' || key === 'sha256') && typeof child === 'string' && ASSET_ID_RE.test(child)) {
+        const pagesForAsset = refs.get(child) ?? new Set<string>();
+        pagesForAsset.add(pageId);
+        refs.set(child, pagesForAsset);
+      }
+      walk(child, pageId);
+    }
+  };
+  for (const page of pages) {
+    walk(page.data, page.id);
+    walk(page.properties, page.id);
+  }
+  return refs;
+}
+
+/** Strict/canonical base64 decoding: Buffer's permissive decoder is unsuitable
+ * for a restore manifest because ignored junk would make the JSON lie. */
+function decodeBackupBase64(value: string, assetId: string): Uint8Array {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new BackupFormatError(`invalid backup: asset ${assetId} has malformed base64 bytes`);
+  }
+  const bytes = Uint8Array.from(Buffer.from(value, 'base64'));
+  if (Buffer.from(bytes).toString('base64') !== value) {
+    throw new BackupFormatError(`invalid backup: asset ${assetId} has non-canonical base64 bytes`);
+  }
+  return bytes;
+}
+
+function safeBackupMime(raw: unknown, assetId: string): string {
+  const value = typeof raw === 'string' ? raw : '';
+  // eslint-disable-next-line no-control-regex -- header-injection characters are never legitimate
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new BackupFormatError(`invalid backup: asset ${assetId} carries a control character in its mime`);
+  }
+  const base = value.split(';', 1)[0].trim().toLowerCase();
+  return ASSET_IMAGE_MIMES.has(base) ? base : 'application/octet-stream';
+}
+
+function partialRestoreDiagnostic(version: 1 | 2): BackupRestoreDiagnostic {
+  const missing: BackupRestoreDiagnostic['missing'] = ['complete-asset-manifest', 'page-access-state'];
+  if (version === 1) missing.push('ledger-durability-section');
+  return {
+    code: 'partial-restore',
+    version,
+    missing,
+    message: `partial restore from backup v${version}: missing ${missing.join(', ')}`,
+  };
+}
+
+/**
+ * Validate the v3 envelope in full before opening the write transaction. This
+ * makes a malformed/incomplete manifest a loud no-write failure, not a partly
+ * restored library whose broken images are discovered later.
+ */
+async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnostic[]> {
+  if (req.version == null) return []; // ordinary content import, not a backup reader
+  if (!Number.isSafeInteger(req.version) || req.version < 1) {
+    throw new BackupFormatError(`invalid backup format version ${String(req.version)}`);
+  }
+  if (req.version > BACKUP_VERSION) {
+    throw new BackupFormatError(
+      `unsupported backup format version ${req.version}; this build reads through v${BACKUP_VERSION}`,
+    );
+  }
+  if (req.version === 1 || req.version === 2) return [partialRestoreDiagnostic(req.version)];
+  if (!Array.isArray(req.assets) || !Array.isArray(req.pageAccess)) {
+    throw new BackupFormatError('invalid backup v3: assets and pageAccess manifests are required');
+  }
+  if (req.ledger?.assets && req.ledger.assets.length > 0) {
+    throw new BackupFormatError('invalid backup v3: ledger.assets must be deduplicated into the top-level assets manifest');
+  }
+
+  const pageIds = new Set<string>();
+  for (const page of req.pages) {
+    if (!page || typeof page.id !== 'string' || pageIds.has(page.id)) {
+      throw new BackupFormatError(`invalid backup v3: duplicate or malformed page id ${JSON.stringify(page?.id)}`);
+    }
+    pageIds.add(page.id);
+  }
+
+  const accessIds = new Set<string>();
+  for (const access of req.pageAccess) {
+    if (!access || typeof access.pageId !== 'string' || accessIds.has(access.pageId) || !pageIds.has(access.pageId)) {
+      throw new BackupFormatError(`invalid backup v3: duplicate or foreign pageAccess id ${JSON.stringify(access?.pageId)}`);
+    }
+    accessIds.add(access.pageId);
+    if (!(PAGE_VISIBILITIES as readonly unknown[]).includes(access.visibility)) {
+      throw new BackupFormatError(`invalid backup v3: page ${access.pageId} has unknown visibility ${JSON.stringify(access.visibility)}`);
+    }
+    if (!(AGENT_EDITS_POLICIES as readonly unknown[]).includes(access.agentEdits)) {
+      throw new BackupFormatError(`invalid backup v3: page ${access.pageId} has unknown agentEdits ${JSON.stringify(access.agentEdits)}`);
+    }
+    if (!Array.isArray(access.acl)) {
+      throw new BackupFormatError(`invalid backup v3: page ${access.pageId} ACL is not an array`);
+    }
+    const aclKeys = new Set<string>();
+    for (const acl of access.acl) {
+      const hasSubject = typeof acl?.subject === 'string' && acl.subject.length > 0;
+      const hasEmail = typeof acl?.email === 'string' && acl.email.length > 0;
+      if (hasSubject === hasEmail || (hasEmail && (typeof acl.issuer !== 'string' || acl.issuer.length === 0))) {
+        throw new BackupFormatError(`invalid backup v3: page ${access.pageId} has a malformed ACL grantee`);
+      }
+      if (acl.level !== 'read' && acl.level !== 'write') {
+        throw new BackupFormatError(`invalid backup v3: page ${access.pageId} has unknown ACL level ${JSON.stringify(acl.level)}`);
+      }
+      if (typeof acl.createdAt !== 'string' || !Number.isFinite(Date.parse(acl.createdAt))) {
+        throw new BackupFormatError(`invalid backup v3: page ${access.pageId} has an invalid ACL timestamp`);
+      }
+      const key = hasSubject ? `subject:${acl.subject}` : `email:${acl.email!.toLowerCase()}`;
+      if (aclKeys.has(key)) throw new BackupFormatError(`invalid backup v3: page ${access.pageId} repeats ACL ${key}`);
+      aclKeys.add(key);
+    }
+  }
+  if (accessIds.size !== pageIds.size) {
+    const missing = [...pageIds].filter((id) => !accessIds.has(id));
+    throw new BackupFormatError(`invalid backup v3: pageAccess is missing page(s): ${missing.join(', ')}`);
+  }
+
+  const expectedRefs = referencedAssets(req.pages);
+  const manifestIds = new Set<string>();
+  for (const asset of req.assets) {
+    if (!asset || typeof asset.id !== 'string' || !ASSET_ID_RE.test(asset.id) || manifestIds.has(asset.id)) {
+      throw new BackupFormatError(`invalid backup v3: duplicate or malformed asset id ${JSON.stringify(asset?.id)}`);
+    }
+    manifestIds.add(asset.id);
+    if (typeof asset.bytesBase64 !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} has malformed bytes metadata`);
+    }
+    const bytes = decodeBackupBase64(asset.bytesBase64, asset.id);
+    if (bytes.byteLength !== asset.size) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} declares ${asset.size} bytes but contains ${bytes.byteLength}`);
+    }
+    if (bytes.byteLength > DEFAULT_MAX_ASSET_BYTES) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} exceeds the ${DEFAULT_MAX_ASSET_BYTES}-byte asset cap`);
+    }
+    const actual = await assetHash(bytes);
+    if (actual !== asset.id) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} bytes hash to ${actual}`);
+    }
+    safeBackupMime(asset.mime, asset.id);
+    if (!Array.isArray(asset.refs) || asset.refs.some((id) => typeof id !== 'string')) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} refs are malformed`);
+    }
+    const actualRefs = new Set(asset.refs);
+    if (actualRefs.size !== asset.refs.length || [...actualRefs].some((id) => !pageIds.has(id))) {
+      throw new BackupFormatError(`invalid backup v3: asset ${asset.id} has duplicate or foreign page refs`);
+    }
+    const expected = expectedRefs.get(asset.id);
+    if (!expected) throw new BackupFormatError(`invalid backup v3: asset ${asset.id} is not referenced by a selected page`);
+    const missingRefs = [...expected].filter((id) => !actualRefs.has(id));
+    const extraRefs = [...actualRefs].filter((id) => !expected.has(id));
+    if (missingRefs.length > 0 || extraRefs.length > 0) {
+      throw new BackupFormatError(
+        `invalid backup v3: asset ${asset.id} ref manifest differs from page state` +
+          `${missingRefs.length ? `; missing ${missingRefs.join(', ')}` : ''}` +
+          `${extraRefs.length ? `; extra ${extraRefs.join(', ')}` : ''}`,
+      );
+    }
+  }
+  const missingAssets = [...expectedRefs.keys()].filter((id) => !manifestIds.has(id));
+  if (missingAssets.length > 0) {
+    throw new BackupFormatError(`invalid backup v3: referenced asset bytes are missing: ${missingAssets.join(', ')}`);
+  }
+  return [];
 }
 
 /**
@@ -695,38 +896,117 @@ export class PageStore {
 
   /** Export every live page (full data, nesting, database membership) + every
    *  database — the entire library as one bundle. When a ledger is seeded the
-   *  bundle also carries its durability surface (LGR-15): the audit stream,
-   *  the ledger settings rows, and the evidence assets its manifests name. */
-  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
+   *  bundle also carries its durability surface (LGR-15); v3 additionally
+   *  carries every referenced asset and every page's stored access posture. */
+  async exportAll(exportedAt: string = new Date().toISOString()): Promise<LibraryBackup> {
     const pageRows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
     );
     const dbRows = await this.db.query<DatabaseRowRecord>(
       'SELECT id, page_id, name, schema, created_at, updated_at FROM databases',
     );
+    const pages = pageRows.map(pageFromRow);
+    // Keep reads sequential: the embedded PGlite adapter serializes through a
+    // single mutex, and a failing completeness branch must settle before cleanup
+    // closes the store (no orphaned sibling promise still queued on the mutex).
     const ledger = await this.exportLedgerSection();
+    const assets = await this.exportAssets(pages);
+    const pageAccess = await this.exportPageAccess(pages.map((page) => page.id));
     return {
-      pages: pageRows.map(pageFromRow),
+      version: BACKUP_VERSION,
+      exportedAt,
+      pages,
       databases: dbRows.map(databaseFromRow),
+      assets,
+      pageAccess,
       ...(ledger ? {ledger} : {}),
     };
+  }
+
+  /** Build and self-verify the v3 content-addressed asset manifest. */
+  private async exportAssets(pages: StoredPage[]): Promise<BackupAsset[]> {
+    const wanted = referencedAssets(pages);
+    const assets: BackupAsset[] = [];
+    for (const id of [...wanted.keys()].sort()) {
+      const rows = await this.db.query<{id: string; mime: string; size: number | string; bytes: Uint8Array | string}>(
+        'SELECT id, mime, size, bytes FROM assets WHERE id = $1',
+        [id],
+      );
+      if (rows.length === 0) {
+        throw new BackupFormatError(
+          `backup incomplete: referenced asset ${id} has no stored bytes (pages: ${[...wanted.get(id)!].sort().join(', ')})`,
+        );
+      }
+      const bytes = byteaToBytes(rows[0].bytes);
+      const actual = await assetHash(bytes);
+      if (actual !== id) {
+        throw new BackupFormatError(`backup incomplete: asset ${id} bytes hash to ${actual}`);
+      }
+      if (Number(rows[0].size) !== bytes.byteLength) {
+        throw new BackupFormatError(
+          `backup incomplete: asset ${id} stores size ${String(rows[0].size)} but contains ${bytes.byteLength} bytes`,
+        );
+      }
+      assets.push({
+        id,
+        mime: rows[0].mime,
+        size: bytes.byteLength,
+        bytesBase64: Buffer.from(bytes).toString('base64'),
+        refs: [...wanted.get(id)!].sort(),
+      });
+    }
+    // Deliberately redundant with the missing-row throw: keep the writer's
+    // completeness invariant obvious if the loop is later batched/streamed.
+    if (assets.length !== wanted.size) {
+      throw new BackupFormatError(`backup incomplete: captured ${assets.length} of ${wanted.size} referenced assets`);
+    }
+    return assets;
+  }
+
+  /** Export exactly one access-state record per live exported page. */
+  private async exportPageAccess(pageIds: string[]): Promise<BackupPageAccess[]> {
+    const rows = await this.db.query<{id: string; visibility: string; agent_edits: string}>(
+      'SELECT id, visibility, agent_edits FROM pages WHERE deleted_at IS NULL ORDER BY created_at ASC',
+    );
+    const expected = new Set(pageIds);
+    if (rows.length !== expected.size || rows.some((row) => !expected.has(row.id))) {
+      throw new BackupFormatError('backup incomplete: page access state changed while the page snapshot was captured');
+    }
+    const aclRows = await this.db.query<AclRow>(
+      `SELECT ${ACL_COLS} FROM page_acl
+       WHERE page_id = ANY($1)
+       ORDER BY page_id ASC, created_at ASC`,
+      [pageIds],
+    );
+    const aclByPage = new Map<string, BackupPageAcl[]>();
+    for (const raw of aclRows) {
+      const acl = aclFromRow(raw);
+      const list = aclByPage.get(acl.pageId) ?? [];
+      list.push({
+        subject: acl.subject,
+        email: acl.email,
+        issuer: acl.issuer,
+        level: acl.level,
+        invitedBy: acl.invitedBy,
+        createdAt: acl.createdAt,
+      });
+      aclByPage.set(acl.pageId, list);
+    }
+    return rows.map((row) => ({
+      pageId: row.id,
+      visibility: row.visibility as PageVisibility,
+      agentEdits: row.agent_edits as AgentEditsPolicy,
+      acl: aclByPage.get(row.id) ?? [],
+    }));
   }
 
   /**
    * The ledger durability surface of a backup (LGR-15), or `undefined` when no
    * ledger is seeded. The entity rows travel as ordinary pages; this collects
-   * what they cannot express: the settings rows (ids, periods, entry sequence),
-   * the FULL audit stream (verbatim — the tamper-evidence chain must survive
-   * the round trip), and the evidence assets any transaction manifest names
-   * (drafts included: a restored draft must still be able to post).
-   *
-   * Asset bytes are read ONE ASSET PER QUERY, which bounds the QUERY-SIDE peak
-   * (no `bytes = ANY(...)` materializing every receipt at once, plus its driver
-   * copy) — but be honest about the ceiling: the returned section still holds
-   * the whole corpus base64-encoded, because the export IS the corpus (the
-   * bundle is one JSON document; streaming it means restructuring the export
-   * wire format, out of scope here and noted in the runbook). The verifier's
-   * evidence check, which returns only findings, is the truly O(1)-memory one.
+   * what they cannot express: the settings rows (ids, periods, entry sequence)
+   * and the FULL audit stream (verbatim — the tamper-evidence chain must survive
+   * the round trip). v2 nested evidence bytes here; v3 deduplicates them into
+   * the top-level complete asset manifest.
    */
   private async exportLedgerSection(): Promise<LedgerBackupSection | undefined> {
     const ids = await this.ledgerIds();
@@ -738,43 +1018,7 @@ export class PageStore {
     }
     const audit = await this.ledger.exportAuditStream();
 
-    const txRows = await this.db.query<{properties: Record<string, unknown> | string | null}>(
-      'SELECT properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
-      [ids.transactions],
-    );
-    const wanted = new Set<string>();
-    for (const row of txRows) {
-      const props = parseJson<Record<string, unknown>>(row.properties, {});
-      const manifest = props[LEDGER_PROP.transaction.evidence];
-      if (!Array.isArray(manifest)) continue;
-      for (const item of manifest) {
-        const sha = (item as {sha256?: unknown} | null)?.sha256;
-        if (typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha)) wanted.add(sha);
-      }
-    }
-    const assets: LedgerBackupAsset[] = [];
-    for (const id of [...wanted].sort()) {
-      const rows = await this.db.query<{id: string; mime: string; bytes: Uint8Array | string}>(
-        'SELECT id, mime, bytes FROM assets WHERE id = $1',
-        [id],
-      );
-      // A manifest naming bytes the store no longer holds is the verifier's
-      // finding to report — the backup carries what exists, never invents.
-      if (rows.length === 0) continue;
-      const bytes = byteaToBytes(rows[0].bytes);
-      const refs = await this.db.query<{page_id: string}>(
-        'SELECT page_id FROM asset_refs WHERE asset_id = $1 ORDER BY page_id ASC',
-        [id],
-      );
-      assets.push({
-        id,
-        mime: rows[0].mime,
-        size: bytes.byteLength,
-        bytesBase64: Buffer.from(bytes).toString('base64'),
-        refs: refs.map((r) => r.page_id),
-      });
-    }
-    return {settings, audit, assets};
+    return {settings, audit};
   }
 
   /**
@@ -789,6 +1033,7 @@ export class PageStore {
    * upload door enforces).
    */
   async importBundle(req: ImportRequest, opts: {actor?: Principal; assetBudgetBytes?: number} = {}): Promise<ImportResult> {
+    const diagnostics = await preflightBackup(req);
     // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
@@ -823,7 +1068,7 @@ export class PageStore {
     // or the restricted host page. Read (cached) ids outside the tx like above.
     const ledgerIds = await this.ledgerIds();
     const key = await bundleKey(req);
-    return this.db.begin(async (tx) => {
+    const imported = await this.db.begin(async (tx) => {
       const claim = await tx.query<{key: string}>(
         `INSERT INTO import_log (key, result) VALUES ($1, '{}'::jsonb)
          ON CONFLICT (key) DO NOTHING RETURNING key`,
@@ -844,6 +1089,9 @@ export class PageStore {
         req.mode === 'overwrite'
           ? await this.importOverwriteTx(tx, pages, databases)
           : await this.importCopyTx(tx, pages, databases);
+      if (req.assets) {
+        await this.restoreAssetsTx(tx, req.assets, pages, result.idMap, opts.assetBudgetBytes, 'backup v3');
+      }
       // LGR-15: the bundle's ledger durability section (audit stream, settings,
       // evidence assets). Deliberately narrow: overwrite mode only (copy re-ids
       // every page, severing the audit stream's entity references), and ONLY
@@ -864,6 +1112,10 @@ export class PageStore {
               });
         result = {...result, ledger: outcome};
       }
+      // Apply page access LAST: ledger restore defensively re-asserts its host
+      // pages restricted, then the complete v3 source state is installed over it.
+      if (req.pageAccess) await this.restorePageAccessTx(tx, req.pageAccess, result.idMap);
+      if (diagnostics.length > 0) result = {...result, diagnostics};
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
       // transaction so a crash can't leave the claimed key committed without its
@@ -872,6 +1124,8 @@ export class PageStore {
       await tx.query('UPDATE import_log SET result = $2::jsonb WHERE key = $1', [key, JSON.stringify(result)]);
       return result;
     });
+    if (!imported.deduped && req.pageAccess && req.pageAccess.length > 0) this.bumpAccess();
+    return imported;
   }
 
   /** Credit the carried verified author of each imported page (OB-170), on the
@@ -999,6 +1253,99 @@ export class PageStore {
       keptDatabases.push(d);
     }
     return {pages: kept, databases: keptDatabases};
+  }
+
+  /** Restore a verified asset corpus and rebuild reachability from its manifest. */
+  private async restoreAssetsTx(
+    tx: Db,
+    assets: BackupAsset[],
+    pages: StoredPage[],
+    idMap: Record<string, string>,
+    budget: number | undefined,
+    context: string,
+  ): Promise<void> {
+    const bundlePageIds = new Set(pages.map((page) => page.id));
+    for (const asset of assets) {
+      if (typeof asset.id !== 'string' || !ASSET_ID_RE.test(asset.id) || typeof asset.bytesBase64 !== 'string') {
+        throw new BackupFormatError(`invalid ${context}: malformed asset entry`);
+      }
+      const bytes = decodeBackupBase64(asset.bytesBase64, asset.id);
+      if (bytes.byteLength > DEFAULT_MAX_ASSET_BYTES) {
+        throw new BackupFormatError(
+          `invalid ${context}: asset ${asset.id} is ${bytes.byteLength} bytes — over the ${DEFAULT_MAX_ASSET_BYTES}-byte asset cap`,
+        );
+      }
+      if (Number(asset.size) !== bytes.byteLength) {
+        throw new BackupFormatError(
+          `invalid ${context}: asset ${asset.id} declares ${String(asset.size)} bytes but contains ${bytes.byteLength}`,
+        );
+      }
+      const actual = await assetHash(bytes);
+      if (actual !== asset.id) {
+        throw new BackupFormatError(`invalid ${context}: asset ${asset.id} bytes hash to ${actual}`);
+      }
+      const mime = safeBackupMime(asset.mime, asset.id);
+      if (budget != null && budget >= 0) {
+        const inserted = await tx.query<{id: string}>(
+          `INSERT INTO assets (id, bytes, mime, size)
+           SELECT $1, $2, $3, $4
+           WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
+              OR COALESCE((SELECT SUM(size) FROM assets), 0) + $5::bigint <= $6::bigint
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength, bytes.byteLength, budget],
+        );
+        if (inserted.length === 0) {
+          const exists = await tx.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [asset.id]);
+          if (exists.length === 0) {
+            throw new BackupFormatError(
+              `invalid ${context} restore: storing asset ${asset.id} (${bytes.byteLength} bytes) would exceed the ${budget}-byte asset storage budget`,
+            );
+          }
+        }
+      } else {
+        await tx.query(
+          `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength],
+        );
+      }
+      for (const sourcePageId of asset.refs ?? []) {
+        if (typeof sourcePageId !== 'string' || !bundlePageIds.has(sourcePageId)) continue;
+        const targetPageId = idMap[sourcePageId];
+        if (!targetPageId) continue;
+        await tx.query(
+          `INSERT INTO asset_refs (asset_id, page_id)
+           SELECT $1, id FROM pages WHERE id = $2
+           ON CONFLICT (asset_id, page_id) DO NOTHING`,
+          [asset.id, targetPageId],
+        );
+      }
+    }
+  }
+
+  /** Replace the imported pages' stored visibility, policy, and ACL rows exactly. */
+  private async restorePageAccessTx(
+    tx: Db,
+    manifest: BackupPageAccess[],
+    idMap: Record<string, string>,
+  ): Promise<void> {
+    for (const access of manifest) {
+      const targetPageId = idMap[access.pageId];
+      if (!targetPageId) continue; // a managed target stripped by the import guard
+      await tx.query(
+        'UPDATE pages SET visibility = $2, agent_edits = $3 WHERE id = $1',
+        [targetPageId, access.visibility, access.agentEdits],
+      );
+      await tx.query('DELETE FROM page_acl WHERE page_id = $1', [targetPageId]);
+      for (const acl of access.acl) {
+        await tx.query(
+          `INSERT INTO page_acl (page_id, subject, email, issuer, level, invited_by, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [targetPageId, acl.subject, acl.email, acl.issuer, acl.level, acl.invitedBy, acl.createdAt],
+        );
+      }
+    }
   }
 
   /**
