@@ -32,7 +32,7 @@ function makeIsland(): IslandPageJson {
 }
 
 describe('viewer', () => {
-  it('renders an island from its base64 Y update, locked but interactive', () => {
+  it('renders an island from its base64 Y update, locked but interactive', async () => {
     const island = makeIsland();
     const sourceBefore = JSON.stringify(island);
     const {container} = render(<ViewerApp source={island} />);
@@ -41,13 +41,20 @@ describe('viewer', () => {
     expect(screen.getByRole('heading', {level: 1, name: /Island page/})).toBeTruthy();
     expect(container.textContent).toContain('Bundle test');
 
-    // The slider is live (interactive exemption) and drives the formula.
+    // The slider is live (interactive exemption) and drives the formula. The
+    // formula's value now resolves through the async eval cache (SBX-1), so
+    // it starts pending ("—") for a tick before settling — wait for it rather
+    // than asserting synchronously right after render.
     const slider = container.querySelector<HTMLInputElement>('input[type="range"]');
     expect(slider).toBeTruthy();
     expect(slider!.disabled).toBe(false);
-    expect(container.querySelector('.obe-formula-out')?.textContent).toBe('20');
+    await waitFor(() => {
+      expect(container.querySelector('.obe-formula-out')?.textContent).toBe('20');
+    });
     fireEvent.change(slider!, {target: {value: '25'}});
-    expect(container.querySelector('.obe-formula-out')?.textContent).toBe('50');
+    await waitFor(() => {
+      expect(container.querySelector('.obe-formula-out')?.textContent).toBe('50');
+    });
 
     // Locked semantics: no editable text, no inline-label inputs, and the
     // source object the host handed over is byte-identical afterwards.

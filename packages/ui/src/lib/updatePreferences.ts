@@ -172,10 +172,10 @@ export function getUpdateAdvisorySnooze(): UpdateAdvisorySnooze | null {
       typeof parsed.launchId === 'string' &&
       parsed.launchId.length > 0
       ? {
-          advisoryId: parsed.advisoryId,
-          snoozedAt: parsed.snoozedAt,
-          launchId: parsed.launchId,
-        }
+        advisoryId: parsed.advisoryId,
+        snoozedAt: parsed.snoozedAt,
+        launchId: parsed.launchId,
+      }
       : null;
   } catch {
     return null;
