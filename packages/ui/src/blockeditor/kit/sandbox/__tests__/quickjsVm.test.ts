@@ -68,10 +68,10 @@ describe('resident QuickJS sandbox', () => {
   it('enforces the runtime memory cap and recovers for the next evaluation', async () => {
     const exhausted = await vm.evaluate({
       kind: 'code',
-      source: 'const values = []; while (true) values.push("x".repeat(4096));',
+      source: 'return new ArrayBuffer(32 * 1024 * 1024).byteLength;',
       scope: {},
     });
-    expect(exhausted.error).toMatch(/memory limit|timed out/i);
+    expect(exhausted.error).toMatch(/memory limit/i);
     await expect(vm.evaluate({kind: 'expression', source: '20 + 22', scope: {}}))
       .resolves.toEqual({value: 42});
   });
