@@ -1361,7 +1361,7 @@ function recompute(){
   for (const p of (D.progress||[])){ const el=document.querySelector('[data-progress="'+p.cell+'"]'); if(el){ const r=progressOf(get(p.cell), p.max, p.format); const fill=el.querySelector("[data-fill]"); if(fill) fill.style.width = r.pct+"%"; const val=el.querySelector("[data-val]"); if(val) val.textContent = r.readout; } }
   for (const c of D.charts){
     const fig = document.querySelector('[data-chart="'+c.id+'"]'); if(!fig) continue;
-    if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[]); continue; }
+    if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[], KIT_PALETTE); continue; }
     const series=[]; for(const cell of c.cells) series.push(...normalize(get(cell), cell));
     const long=[]; series.forEach(s=>s.data.forEach((y,i)=>long.push({i,y,series:s.name})));
     fig.innerHTML="";
