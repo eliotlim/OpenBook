@@ -6,14 +6,14 @@
  * tool's `run` closure, so the agent run-loop is untouched.
  *
  * Security posture (design §4, resolved decisions Q1/Q3/Q4/Q5):
- *  - Registration is admin-only (the route gates `requireInstanceAdmin`); OFF and
- *    empty by default — nothing connects until an admin adds + enables a server
+ *  - Registration is owner-only (the route gates `requireInstanceOwner`); OFF and
+ *    empty by default — nothing connects until the owner adds + enables a server
  *    AND flips the global switch.
  *  - The `stdio` transport is host **command execution** (and can reach loopback
  *    services the identity layer trusts as the machine owner), so it is permitted
- *    ONLY on a desktop / UNCLAIMED instance ({@link stdioAllowed}). A claimed
- *    multi-user instance may register HTTP servers only — {@link setConfig}
- *    rejects a stdio config there and the UI hides the option.
+ *    ONLY when the current operation carries an explicit trusted-local-owner
+ *    capability ({@link stdioAllowed}). Config, discovery, dispatch, and dry-run
+ *    checks all default closed when no capability is supplied.
  *  - Credentials are WRITE-ONLY over the wire (the redacted config never carries a
  *    token); the token rides the `Authorization: Bearer` header (http) or an env
  *    var (stdio) — never argv, never logged.
@@ -83,6 +83,11 @@ export interface ExternalAgentTool {
   /** True once the agent invokes this tool — used by the runner's taint rule. */
   external: true;
   run: (args: Record<string, unknown>) => Promise<string>;
+}
+
+/** Per-operation host capability. Omission is deliberately fail-closed. */
+export interface McpCallerAccess {
+  readonly allowStdio: boolean;
 }
 
 /** A live pooled connection to one server. */
@@ -168,12 +173,11 @@ export class McpClientManager {
 
   constructor(private readonly store: PageStore) {}
 
-  /** Whether the stdio transport is permitted on THIS instance's trust level:
-   *  desktop / unclaimed (no `ownerSubject`) → yes; a claimed multi-user instance
-   *  → NO (HTTP transport only). This is the central AGENT-3 security control. */
-  async stdioAllowed(): Promise<boolean> {
-    const {ownerSubject} = await this.store.getInstanceConfig();
-    return ownerSubject === undefined;
+  /** Whether THIS operation may cross the host process boundary. Instance claim
+   *  state is intentionally irrelevant: only an explicit trusted-local-owner
+   *  capability allows stdio, and omitted access always denies it. */
+  stdioAllowed(access?: McpCallerAccess): boolean {
+    return access?.allowStdio === true;
   }
 
   private async loadConfig(): Promise<void> {
@@ -214,13 +218,13 @@ export class McpClientManager {
    * (dispose every pooled connection + clear the caches so the next run
    * reconnects against the new config). Throws a clear error on an invalid slug,
    * a duplicate id, a missing endpoint, or — the security gate — a `stdio` server
-   * on a claimed instance.
+   * without trusted local-owner authorization.
    */
-  async setConfig(next: McpClientConfig): Promise<McpClientConfig> {
+  async setConfig(next: McpClientConfig, access?: McpCallerAccess): Promise<McpClientConfig> {
     await this.loadConfig();
     const prev = this.config;
     const prevById = new Map(prev.servers.map((s) => [s.id, s]));
-    const stdioOk = await this.stdioAllowed();
+    const stdioOk = this.stdioAllowed(access);
     const seen = new Set<string>();
     const servers: McpServerConfig[] = [];
     for (const raw of next.servers ?? []) {
@@ -231,12 +235,12 @@ export class McpClientManager {
       if (seen.has(id)) throw new McpConfigError(`Duplicate server id "${id}".`);
       seen.add(id);
       const transport = raw.transport === 'stdio' ? 'stdio' : 'http';
-      // ── The trust-level gate (Q1). A claimed multi-user instance may register
-      //    HTTP servers ONLY — a stdio server would be host command execution as
-      //    the server user, reachable by any writer. Reject it outright.
+      // ── The host-capability gate. A stdio server is host command execution as
+      //    the server user, so an operation without trusted local-owner proof may
+      //    register HTTP servers only.
       if (transport === 'stdio' && !stdioOk) {
         throw new McpConfigError(
-          `The stdio transport is not allowed on a claimed multi-user instance (server "${id}"). Use an HTTP MCP endpoint instead.`,
+          `The stdio transport requires a trusted local-owner request (server "${id}"). Use an HTTP MCP endpoint instead.`,
         );
       }
       if (transport === 'stdio' && !String(raw.command ?? '').trim()) {
@@ -290,16 +294,14 @@ export class McpClientManager {
    * next turn. Disabled globally (or by env) ⇒ no tools. The set is capped
    * ({@link MAX_EXTERNAL_TOOLS}) and names deduped across servers.
    */
-  async toolsForRun(deadlineMs = 3_000): Promise<ExternalAgentTool[]> {
+  async toolsForRun(deadlineMs = 3_000, access?: McpCallerAccess): Promise<ExternalAgentTool[]> {
     if (HARD_DISABLED) return [];
     await this.loadConfig();
     if (!this.config.enabled) return [];
     let enabled = this.config.servers.filter((s) => s.enabled);
-    // Defence in depth for the trust-level gate: if the instance was CLAIMED after
-    // a stdio server was registered (on a then-desktop/unclaimed instance), refuse
-    // those stale stdio servers at RUN time too — not just at registration. A
-    // claimed multi-user instance never spawns a local child.
-    if (enabled.some((s) => s.transport === 'stdio') && !(await this.stdioAllowed())) {
+    // Defence in depth for the host-capability gate: a stored stdio entry is
+    // invisible to any run that lacks trusted local-owner proof.
+    if (enabled.some((s) => s.transport === 'stdio') && !this.stdioAllowed(access)) {
       enabled = enabled.filter((s) => s.transport !== 'stdio');
     }
     if (enabled.length === 0) return [];
@@ -313,7 +315,7 @@ export class McpClientManager {
         const until = this.backoff.get(server.id);
         if (until && now < until) return Promise.resolve<ExternalAgentTool[]>([]);
         const budget = Math.max(0, deadline - Date.now());
-        return withTimeout(this.discover(server), budget, `discovery for "${server.id}" timed out`);
+        return withTimeout(this.discover(server, access), budget, `discovery for "${server.id}" timed out`);
       }),
     );
     const out: ExternalAgentTool[] = [];
@@ -332,7 +334,7 @@ export class McpClientManager {
 
   /** Connect (pooled) + list one server's tools, building the namespaced
    *  {@link ExternalAgentTool}s. Records a failure into the backoff map. */
-  private async discover(server: McpServerConfig): Promise<ExternalAgentTool[]> {
+  private async discover(server: McpServerConfig, access?: McpCallerAccess): Promise<ExternalAgentTool[]> {
     try {
       const client = await this.connection(server);
       const listed = await client.listTools({}, {timeout: DISCOVERY_TIMEOUT_MS});
@@ -354,7 +356,7 @@ export class McpClientManager {
           description,
           schema,
           external: true,
-          run: (args) => this.callTool(server.id, toolName, args),
+          run: (args) => this.callTool(server.id, toolName, args, access),
         });
       }
       this.cache.set(server.id, {tools, at: Date.now()});
@@ -383,11 +385,14 @@ export class McpClientManager {
    * `isError` result all THROW — the agent run-loop's tool catch converts a throw
    * into a recoverable `tool_result` and the run continues (AGENT-4).
    */
-  async callTool(serverId: string, toolName: string, args: Record<string, unknown>): Promise<string> {
+  async callTool(serverId: string, toolName: string, args: Record<string, unknown>, access?: McpCallerAccess): Promise<string> {
     await this.loadConfig();
     const server = this.config.servers.find((s) => s.id === serverId);
     if (!server || !server.enabled || !this.config.enabled || HARD_DISABLED) {
       throw new Error(`external tool server "${serverId}" is not available`);
+    }
+    if (server.transport === 'stdio' && !this.stdioAllowed(access)) {
+      throw new Error(`external tool server "${serverId}" requires a trusted local-owner request`);
     }
     const timeout = resolveTimeout(server.timeoutMs);
     let result: {content?: unknown; isError?: boolean};
@@ -472,21 +477,21 @@ export class McpClientManager {
     await conn.client.close().catch(() => undefined);
   }
 
-  // ── Test (admin dry-run) ──────────────────────────────────────────────────────
+  // ── Test (owner dry-run) ──────────────────────────────────────────────────────
 
   /**
    * Connect to ONE server config and list its tools, without touching the pool or
-   * stored config — the admin "Test" affordance. Never returns secrets. Applies
-   * the same trust-level gate as {@link setConfig}: a stdio test on a claimed
-   * instance is refused.
+   * stored config — the owner "Test" affordance. Never returns secrets. Applies
+   * the same host-capability gate as {@link setConfig}: a stdio test without
+   * trusted local-owner proof is refused.
    */
-  async test(input: McpServerConfig): Promise<McpTestResult> {
+  async test(input: McpServerConfig, access?: McpCallerAccess): Promise<McpTestResult> {
     if (HARD_DISABLED) return {ok: false, error: 'External tools are disabled on this deployment (OPENBOOK_MCP_CLIENTS=0).'};
     const transport = input.transport === 'stdio' ? 'stdio' : 'http';
-    if (transport === 'stdio' && !(await this.stdioAllowed())) {
-      return {ok: false, error: 'The stdio transport is not allowed on a claimed multi-user instance. Use an HTTP MCP endpoint.'};
+    if (transport === 'stdio' && !this.stdioAllowed(access)) {
+      return {ok: false, error: 'The stdio transport requires a trusted local-owner request. Use an HTTP MCP endpoint.'};
     }
-    // For a token the admin didn't re-enter, fall back to the stored one (the Test
+    // For a token the owner didn't re-enter, fall back to the stored one (the Test
     // affordance shows a "key set" state, so an unchanged token must still connect).
     const stored = (await this.getConfig()).servers.find((s) => s.id === input.id);
     const token = resolveToken(stored?.authToken, input.authToken);

@@ -4,9 +4,9 @@
  *  - Config merge preserves write-only auth tokens (omit/blank preserve, a value
  *    replaces, `null` clears) — the same contract as the provider apiKey.
  *  - Redaction strips the token and flags `authTokenSet` (never leaks a secret).
- *  - The trust-level stdio gate: a `stdio` server is allowed on an UNCLAIMED
- *    (desktop) instance but REJECTED once the instance is claimed (multi-user) —
- *    the central AGENT-3 security control.
+ *  - The host-capability stdio gate: every operation defaults closed and only an
+ *    explicit trusted-local-owner capability can configure, discover, or invoke
+ *    a `stdio` server, independent of instance claim state.
  *  - Discovery over an in-process MCP server (InMemoryTransport) namespaces and
  *    sanitizes tool names `mcp__<id>__<tool>`; a call wraps the untrusted result
  *    and an `isError` result throws; a broken server contributes 0 tools and
@@ -29,6 +29,7 @@ let store: PageStore;
 let db: PgliteDb;
 let dir: string;
 let seq = 0;
+const LOCAL_OWNER_ACCESS = {allowStdio: true};
 
 beforeEach(async () => {
   seq += 1;
@@ -95,30 +96,30 @@ describe('secret-preserving config merge (write-only auth token)', () => {
   });
 });
 
-describe('trust-level stdio gate (Q1 — the central security control)', () => {
+describe('trusted-local-owner stdio gate (Q1 — the central security control)', () => {
   const stdio = httpServer({transport: 'stdio', url: undefined, command: 'echo'}) as McpServerConfig;
 
-  it('allows stdio on an UNCLAIMED (desktop) instance', async () => {
+  it('defaults closed on an unclaimed instance instead of treating missing ownerSubject as authority', async () => {
     const mcp = new McpClientManager(store);
-    expect(await mcp.stdioAllowed()).toBe(true);
-    await expect(mcp.setConfig({enabled: true, servers: [stdio]})).resolves.toBeTruthy();
+    expect(mcp.stdioAllowed()).toBe(false);
+    await expect(mcp.setConfig({enabled: true, servers: [stdio]})).rejects.toBeInstanceOf(McpConfigError);
   });
 
-  it('REJECTS stdio once the instance is claimed (multi-user); HTTP stays allowed', async () => {
+  it('allows stdio only with explicit local-owner proof, independent of claim state; HTTP needs no host capability', async () => {
     await store.updateInstanceConfig({ownerSubject: 'https://account.book.pub#owner'});
     const mcp = new McpClientManager(store);
-    expect(await mcp.stdioAllowed()).toBe(false);
+    expect(mcp.stdioAllowed()).toBe(false);
+    expect(mcp.stdioAllowed(LOCAL_OWNER_ACCESS)).toBe(true);
     await expect(mcp.setConfig({enabled: true, servers: [stdio]})).rejects.toBeInstanceOf(McpConfigError);
-    // HTTP is still fine on a claimed instance.
+    await expect(mcp.setConfig({enabled: true, servers: [stdio]}, LOCAL_OWNER_ACCESS)).resolves.toBeTruthy();
     await expect(mcp.setConfig({enabled: true, servers: [httpServer()]})).resolves.toBeTruthy();
   });
 
-  it('test() refuses a stdio dry-run on a claimed instance', async () => {
-    await store.updateInstanceConfig({ownerSubject: 'https://account.book.pub#owner'});
+  it('test() refuses a stdio dry-run without local-owner proof', async () => {
     const mcp = new McpClientManager(store);
     const res = await mcp.test(stdio);
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/not allowed/i);
+    expect(res.error).toMatch(/trusted local-owner/i);
   });
 });
 
@@ -182,13 +183,21 @@ describe('discovery + tool dispatch (in-process MCP server)', () => {
     await mcp.dispose();
   });
 
-  it('refuses a stale stdio server at RUN time once the instance is claimed (defence in depth)', async () => {
+  it('cannot discover or dispatch a stored stdio server without the per-operation local-owner capability', async () => {
     const mcp = new LinkedManager(store, await inProcessServer());
-    // Register stdio while UNCLAIMED (allowed), enable it, then claim the instance.
-    await mcp.setConfig({enabled: true, servers: [httpServer({transport: 'stdio', url: undefined, command: 'echo', enabled: true})]});
-    await store.updateInstanceConfig({ownerSubject: 'https://account.book.pub#owner'});
-    // The stored stdio server is now skipped at run time — no local child spawns.
+    const stdio = httpServer({transport: 'stdio', url: undefined, command: 'echo', enabled: true});
+    await mcp.setConfig({enabled: true, servers: [stdio]}, LOCAL_OWNER_ACCESS);
+
+    // A non-owner run never reaches transport construction, and direct dispatch
+    // is independently fenced before it can connect/spawn.
     expect(await mcp.toolsForRun(3000)).toEqual([]);
+    await expect(mcp.callTool('srv', 'echo', {})).rejects.toThrow(/trusted local-owner/i);
+
+    // The same stored entry remains usable by the authenticated machine owner.
+    const tools = await mcp.toolsForRun(3000, LOCAL_OWNER_ACCESS);
+    expect(tools.map((tool) => tool.name)).toContain('mcp__srv__echo');
+    await expect(tools.find((tool) => tool.name === 'mcp__srv__echo')!.run({})).resolves.toContain('hello from mcp');
+    await mcp.dispose();
   });
 
   it('a broken server contributes 0 tools (the run proceeds) and backs off', async () => {

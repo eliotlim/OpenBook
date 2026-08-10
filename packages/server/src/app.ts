@@ -291,10 +291,11 @@ export interface AppOptions {
   aiUsage?: AiUsageLog;
   /**
    * The external-tools (MCP client) manager (AGENT-3). When provided, the AI
-   * routes expose the admin-only `/api/ai/mcp` surface and the agent run merges
-   * its namespaced `mcp__*` tools (for writer-gated principals only). Owned by
-   * the caller (`startServer`); omitted in tests / the in-webview store, where
-   * external tools are simply unavailable.
+   * routes expose the owner-only `/api/ai/mcp` surface and the agent run merges
+   * its namespaced `mcp__*` tools (for writer-gated principals, with stdio further
+   * restricted to trusted local-owner requests). Owned by the caller
+   * (`startServer`); omitted in tests / the in-webview store, where external tools
+   * are simply unavailable.
    */
   mcp?: McpClientManager;
   /**

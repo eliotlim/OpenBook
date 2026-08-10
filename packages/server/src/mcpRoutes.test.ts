@@ -1,19 +1,19 @@
 /**
- * Route-level gating for the external-tools (MCP client) admin surface
+ * Route-level gating for the external-tools (MCP client) owner surface
  * (`/api/ai/mcp`). The manager's own logic is unit-tested in
  * `ai/mcpClients.test.ts`; here we assert the HTTP contract:
- *  - GET/PUT/test require `requireInstanceAdmin` (a claimed-instance non-admin 403s);
+ *  - GET/PUT/test require `requireInstanceOwner` (including while unclaimed);
  *  - GET redacts (no token, `authTokenSet` flag) and reports `stdioAllowed`;
- *  - PUT validates (bad slug → 400) and enforces the trust-level stdio gate
- *    (stdio on a claimed instance → 400);
- *  - the test route refuses a stdio dry-run on a claimed instance without a network hop.
+ *  - stdio additionally requires the trusted local-owner transport capability;
+ *  - the test route refuses a remote-owner stdio dry-run without a network hop.
  */
 
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {mintIdentityKeypair, signIdentity, type IdentityKeypair, type Jwks, type McpConfigResponse} from '@book.dev/sdk';
+import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
+import {LOCAL_OWNER_HEADER, mintIdentityKeypair, signIdentity, type IdentityKeypair, type Jwks, type McpConfigResponse} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -24,6 +24,8 @@ import {IdentityService} from './instanceConfig';
 import {IDENTITY_HEADER} from './principal';
 
 const ISS = 'https://account.book.pub';
+const LOCAL_OWNER_SECRET = 'mcp-routes-local-owner-secret';
+const LOCAL_OWNER_HEADERS = {[LOCAL_OWNER_HEADER]: LOCAL_OWNER_SECRET};
 let store: PageStore;
 let db: PgliteDb;
 let dir: string;
@@ -38,18 +40,43 @@ const ownerJws = (): Promise<string> =>
     kp.publicJwk.kid,
   );
 
-const appWith = (mcp: McpClientManager) =>
-  createApp(store, new AiService(db, join(dir, 'models')), new PageHub(), {identity: new IdentityService(store), mcp});
+const appWith = (mcp: McpClientManager, localOwnerSecret?: string) =>
+  createApp(store, new AiService(db, join(dir, 'models')), new PageHub(), {
+    identity: new IdentityService(store),
+    mcp,
+    localOwnerSecret,
+  });
 
-const req = (app: ReturnType<typeof appWith>, method: string, path: string, body?: unknown, jws?: string) =>
+const req = (
+  app: ReturnType<typeof appWith>,
+  method: string,
+  path: string,
+  body?: unknown,
+  jws?: string,
+  extraHeaders: Record<string, string> = {},
+) =>
   app.request(path, {
     method,
-    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {
+      'Content-Type': 'application/json',
+      'X-OpenBook-Client': '1',
+      ...(jws ? {[IDENTITY_HEADER]: jws} : {}),
+      ...extraHeaders,
+    },
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   });
 
-/** Claim the instance under `${ISS}#owner` (⇒ multi-user; stdio not allowed). */
+/** Claim the instance under `${ISS}#owner` (remote JWS owner still cannot use stdio). */
 const claim = () => store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], ownerSubject: `${ISS}#owner`});
+
+/** Spawn-boundary probe: any attempted connection increments `builds`. */
+class SpawnProbeManager extends McpClientManager {
+  builds = 0;
+  protected buildTransport(): Transport {
+    this.builds += 1;
+    throw new Error('transport construction should not be reached');
+  }
+}
 
 beforeEach(async () => {
   seq += 1;
@@ -75,7 +102,7 @@ describe('GET /api/ai/mcp', () => {
     expect([401, 403]).toContain(res.status);
   });
 
-  it('the owner reads a redacted config + stdioAllowed (false once claimed)', async () => {
+  it('a remote JWS owner reads a redacted config but is not granted stdio capability', async () => {
     await claim();
     const mcp = new McpClientManager(store);
     await mcp.setConfig({enabled: true, servers: [{id: 'srv', transport: 'http', url: 'http://127.0.0.1:9/mcp', enabled: false, authToken: 'secret'}]});
@@ -89,7 +116,23 @@ describe('GET /api/ai/mcp', () => {
   });
 });
 
-describe('PUT /api/ai/mcp (admin, validated)', () => {
+describe('PUT /api/ai/mcp (owner, validated)', () => {
+  it('rejects an unclaimed anonymous guest but preserves local-owner stdio configuration', async () => {
+    const mcp = new McpClientManager(store);
+    const app = appWith(mcp, LOCAL_OWNER_SECRET);
+    const config = {enabled: true, servers: [{id: 'srv', transport: 'stdio' as const, command: 'echo', enabled: false}]};
+
+    const guest = await req(app, 'PUT', '/api/ai/mcp', config);
+    expect(guest.status).toBe(403);
+    expect((await mcp.getConfig()).servers).toEqual([]);
+
+    const localOwner = await req(app, 'PUT', '/api/ai/mcp', config, undefined, LOCAL_OWNER_HEADERS);
+    expect(localOwner.status).toBe(200);
+    const body = (await localOwner.json()) as McpConfigResponse;
+    expect(body.stdioAllowed).toBe(true);
+    expect(body.config.servers[0]).toMatchObject({id: 'srv', transport: 'stdio', command: 'echo'});
+  });
+
   it('saves a valid HTTP server (redacted echo)', async () => {
     await claim();
     const app = appWith(new McpClientManager(store));
@@ -107,7 +150,7 @@ describe('PUT /api/ai/mcp (admin, validated)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rejects a stdio server on a claimed instance with a 400 (trust-level gate)', async () => {
+  it('rejects stdio from a claimed JWS owner without the local-owner transport capability', async () => {
     await claim();
     const app = appWith(new McpClientManager(store));
     const res = await req(app, 'PUT', '/api/ai/mcp', {enabled: true, servers: [{id: 'srv', transport: 'stdio', command: 'echo', enabled: false}]}, await ownerJws());
@@ -123,13 +166,29 @@ describe('PUT /api/ai/mcp (admin, validated)', () => {
 });
 
 describe('POST /api/ai/mcp/test', () => {
-  it('refuses a stdio dry-run on a claimed instance (no network hop)', async () => {
+  it('refuses a remote-owner stdio dry-run without a network hop', async () => {
     await claim();
     const app = appWith(new McpClientManager(store));
     const res = await req(app, 'POST', '/api/ai/mcp/test', {id: 'srv', transport: 'stdio', command: 'echo', enabled: false}, await ownerJws());
     expect(res.status).toBe(200);
     const body = (await res.json()) as {ok: boolean; error?: string};
     expect(body.ok).toBe(false);
-    expect(body.error).toMatch(/not allowed/i);
+    expect(body.error).toMatch(/trusted local-owner/i);
+  });
+});
+
+describe('POST /api/agent/chat stdio spawn authorization', () => {
+  it('an unclaimed guest run cannot reach transport construction for an owner-stored stdio server', async () => {
+    const mcp = new SpawnProbeManager(store);
+    await mcp.setConfig(
+      {enabled: true, servers: [{id: 'srv', transport: 'stdio', command: 'echo', enabled: true}]},
+      {allowStdio: true},
+    );
+    const app = appWith(mcp);
+
+    const res = await req(app, 'POST', '/api/agent/chat', {messages: [{role: 'user', content: 'hello'}]});
+    expect(res.status).toBe(200);
+    expect(mcp.builds).toBe(0);
+    await res.text();
   });
 });
