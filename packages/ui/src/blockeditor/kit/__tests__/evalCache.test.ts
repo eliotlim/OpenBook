@@ -14,7 +14,7 @@ function controlledBackend(): {
   backend: EvalBackend;
   requests: EvalRequest[];
   resolveNext(result: EvalResult): void;
-} {
+  } {
   const requests: EvalRequest[] = [];
   const resolvers: Array<(result: EvalResult) => void> = [];
   return {

@@ -58,6 +58,7 @@ export class ReactiveEvalCache {
   private requestedVersion = -1;
   private generation = 0;
   private disposed = false;
+  private disposePending = false;
 
   constructor(
     private readonly doc: Y.Doc,
@@ -75,8 +76,14 @@ export class ReactiveEvalCache {
 
   getCellSnapshot = (cellId: string): CachedEvalSnapshot => this.cellSnapshots.get(cellId) ?? INITIAL_CELL;
 
-  /** React StrictMode replays effect setup after cleanup on the same instance. */
+  /** React StrictMode replays effect setup after cleanup on the same instance —
+   * but child effects run before parent effects on BOTH the simulated
+   * teardown and the remount, so a consumer's remount-effect (e.g.
+   * `useCachedCell`'s `requestVersion`) can fire before this controller's own
+   * `activate()` clears `disposed`. Cancels a pending `dispose()` so that
+   * request isn't silently dropped — see `dispose()`. */
   activate(): void {
+    this.disposePending = false;
     this.disposed = false;
   }
 
@@ -117,10 +124,30 @@ export class ReactiveEvalCache {
     if (current?.version === version && current.source === source && current.kind === kind) this.cellRequests.delete(cellId);
   }
 
+  /**
+   * Deferred by one microtask, not synchronous. On initial mount React 18
+   * StrictMode simulates an immediate unmount + remount of this same
+   * instance (`useBlockEditor`'s owning effect calls `dispose()` then
+   * `activate()`), and effects fire child-before-parent on *both* passes.
+   * That means a formula/live-code consumer's remount-effect can call
+   * `requestVersion`/`requestCell` before this controller's own remount
+   * effect reaches `activate()` — if `dispose()` set `disposed` synchronously,
+   * that request would see the cache as disposed and silently no-op, with
+   * nothing left to retry it: a freshly loaded, never-edited page never fires
+   * another document update to trigger a second attempt (its formula stayed
+   * "—" forever — the SBX-1 regression this method fixes). Deferring lets
+   * `activate()` cancel a StrictMode-only teardown before it ever takes
+   * effect; a genuine unmount (no matching `activate()`) still disposes, one
+   * microtask later, same as before.
+   */
   dispose(): void {
-    this.disposed = true;
-    this.requestedVersion = -1;
-    this.generation += 1;
+    this.disposePending = true;
+    queueMicrotask(() => {
+      if (!this.disposePending) return;
+      this.disposed = true;
+      this.requestedVersion = -1;
+      this.generation += 1;
+    });
   }
 
   private startVersion(version: number): void {
