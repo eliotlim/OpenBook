@@ -5,13 +5,14 @@ import type {BlockEditorController} from '../../useBlockEditor';
 import {INPUT2_BLOCKS} from '../inputs2';
 import {PROGRESS_BLOCKS} from '../progress';
 import {hasKitConfig} from '../kitConfig';
+import {computeScope} from '../scope';
 
 function renderBlock(blocks: typeof INPUT2_BLOCKS | typeof PROGRESS_BLOCKS, type: string, props: Record<string, unknown>) {
   const doc = createDoc([{id: 'x', type, props}]);
   const block: BlockMap = rootBlocks(doc).get(0);
   const def = blocks.find((d) => d.type === type)!;
   const Comp = def.render;
-  const editor = {doc, readOnly: false} as unknown as BlockEditorController;
+  const editor = {doc, readOnly: false, computedScope: () => computeScope(doc)} as unknown as BlockEditorController;
   return {...render(<Comp block={block} editor={editor} pageReadOnly={false} />), doc, block};
 }
 

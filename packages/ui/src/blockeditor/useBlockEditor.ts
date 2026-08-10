@@ -19,6 +19,7 @@ import {
   type BlockType,
   type NewBlock,
 } from './model';
+import {computeScope, type ComputedScope} from './kit/scope';
 
 /**
  * The editor's working state around a Y.Doc: one version counter that bumps
@@ -38,6 +39,8 @@ export interface CaretRequest {
 export interface BlockEditorController {
   doc: Y.Doc;
   version: number;
+  /** Lazily computed once for this doc version and shared by every reactive block. */
+  computedScope(): ComputedScope;
   /** Undo/redo over local edits (a live wrapper — see useBlockEditor).
    *  `stopCapturing` forces the next tracked change to start a fresh undo item
    *  even inside the capture window — the "[[" wikilink accept uses it so a
@@ -75,6 +78,7 @@ export interface BlockEditorController {
 export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorController {
   const [, force] = useState(0);
   const versionRef = useRef(0);
+  const computedScopeRef = useRef<{doc: Y.Doc; version: number; value: ComputedScope} | null>(null);
 
   const subscribe = useMemo(() => {
     return (cb: () => void) => {
@@ -122,6 +126,14 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
   return useMemo<BlockEditorController>(() => {
+    const getComputedScope = (): ComputedScope => {
+      const cached = computedScopeRef.current;
+      if (cached?.doc === doc && cached.version === version) return cached.value;
+      const value = computeScope(doc);
+      computedScopeRef.current = {doc, version, value};
+      return value;
+    };
+
     const requestCaret = (req: CaretRequest): void => {
       pendingCaret.current = req;
       force((n) => n + 1); // ensure a render even if the doc didn't change
@@ -146,6 +158,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     return {
       doc,
       version,
+      computedScope: getComputedScope,
       undo,
       readOnly,
       pendingCaret,

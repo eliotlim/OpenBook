@@ -2,7 +2,7 @@ import React, {useReducer, useState} from 'react';
 import {Check, Copy, Eye, EyeOff, Play} from 'lucide-react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
 import {TextBlockView} from './TextBlockView';
-import {computeScope, formatValue} from './kit/scope';
+import {formatValue} from './kit/scope';
 import {KitSettings} from './kit/KitSettings';
 import {ConfigField, ConfigInput, ConfigToggle} from './kit/KitFrame';
 import {copyText} from '@/lib/pageActions';
@@ -34,7 +34,7 @@ export const CodeBlockView: React.FC<{
   const [, forceRun] = useReducer((x: number) => x + 1, 0);
   const [copied, setCopied] = useState(false);
 
-  const result = live ? computeScope(editor.doc).results.get(id) : undefined;
+  const result = live ? editor.computedScope().results.get(id) : undefined;
   // Large outputs (a 60-element series, a big object) must not blow out the
   // page — clamp the preview; the full value still flows to consumers.
   const shownValue = (() => {

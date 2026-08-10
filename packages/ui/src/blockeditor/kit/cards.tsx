@@ -2,7 +2,7 @@ import React from 'react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
-import {computeScope, evalExpr, formatValue, statusOf} from './scope';
+import {evalExpr, formatValue, statusOf} from './scope';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
@@ -27,7 +27,7 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
   const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
-  const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
+  const {value, error} = evalExpr(source, editor.computedScope().scope);
   const status = statusOf(value, error, okAt, warnAt);
 
   return (

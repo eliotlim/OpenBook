@@ -27,7 +27,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import {aggregateDbSeries, readDbBinding, DB_AGG_TYPES, NUMERIC_PROP_TYPES, type ChartDbBinding, type ChartSeriesData} from './chartData';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockDef, CustomBlockProps} from '../registry';
-import {computeScope, evalExpr, inputScope} from './scope';
+import {evalExpr, inputScope} from './scope';
 import {useKitLock, useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
@@ -1484,7 +1484,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     value = dbSeries?.value;
     effectiveLabels = dbSeries?.labels ?? [];
   } else {
-    const evaluated = evalExpr(source, computeScope(editor.doc).scope);
+    const evaluated = evalExpr(source, editor.computedScope().scope);
     value = evaluated.value;
     error = evaluated.error;
   }

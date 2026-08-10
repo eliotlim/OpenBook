@@ -1,6 +1,6 @@
 import React from 'react';
 import {blockProp, setBlockProp} from './model';
-import {computeScope, formatValue} from './kit/scope';
+import {formatValue} from './kit/scope';
 import {ConfigField, ConfigInput, KitFrame, kitSet} from './kit/KitFrame';
 import {varNameFromLabel} from './kit/options';
 import {registerCustomBlock, type CustomBlockProps} from './registry';
@@ -67,7 +67,7 @@ const SliderBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 const FormulaBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   // Evaluated centrally (in document order, so named live-code outputs chain).
-  const evaluated = computeScope(editor.doc).results.get(String(block.get('id')));
+  const evaluated = editor.computedScope().results.get(String(block.get('id')));
   const result = evaluated?.error ? `⚠ ${evaluated.error}` : formatValue(evaluated?.value);
 
   return (

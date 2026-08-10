@@ -2,7 +2,7 @@ import React from 'react';
 import {Select} from '@/components/ui/select';
 import {blockId, blockProp} from '../model';
 import type {CustomBlockProps} from '../registry';
-import {computeScope, evalExpr} from './scope';
+import {evalExpr} from './scope';
 import {appendVar, ConfigField, ConfigInput, kitSet, KitInlineText, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
@@ -23,7 +23,7 @@ const ProgressBarBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   const max = Number(blockProp<number>(block, 'max') ?? 100) || 100;
   const format = blockProp<string>(block, 'format') ?? 'percent';
-  const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
+  const {value, error} = evalExpr(source, editor.computedScope().scope);
 
   // Coerce the result to a number: a boolean completion → 0/1, a fraction in
   // [0,1] is taken as-is when max is 1, otherwise the raw value over max.
