@@ -132,6 +132,11 @@ dist
 .idea/
 .gstack/
 
+# Local analysis artifacts
+.crystal/
+docs/audits/
+ledger-spec.md
+
 # OpenBook server dev data (embedded PGlite database)
 .dev-data*/
 packages/server/.dev-data*/
