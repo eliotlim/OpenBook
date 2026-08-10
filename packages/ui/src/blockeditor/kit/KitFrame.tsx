@@ -4,7 +4,7 @@ import type {BlockEditorController} from '../useBlockEditor';
 import {KitSettings} from './KitSettings';
 import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
-import {inputScope} from './scope';
+import {useCachedInputScope} from './useCachedEval';
 
 /**
  * The shared chrome for every artifact-kit input: a quiet header (display name
@@ -56,7 +56,11 @@ export const ScopeHints: React.FC<{editor: BlockEditorController; onPick: (name:
   editor,
   onPick,
 }) => {
-  const names = Object.keys(inputScope(editor.doc)).sort();
+  const cached = useCachedInputScope(editor);
+  const names = Object.keys(cached.value ?? {}).sort();
+  if (cached.pending && !cached.value) {
+    return <span className="text-[0.7rem] text-muted-foreground">Loading variables…</span>;
+  }
   if (names.length === 0) {
     return <span className="text-[0.7rem] text-muted-foreground">No named inputs on this page yet — add a slider, number, or other input block.</span>;
   }

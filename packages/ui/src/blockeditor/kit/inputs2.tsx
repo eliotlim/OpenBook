@@ -6,7 +6,7 @@ import {blockId, blockProp, type BlockMap, type TextRun} from '../model';
 import {domToRuns, runsToHtml} from '../RichTextEditor';
 import {isColorToken} from '../colors';
 import type {CustomBlockProps} from '../registry';
-import {evalExpr} from './scope';
+import {useCachedEval} from './useCachedEval';
 import {ConfigField, ConfigInput, ConfigToggle, KitFrame, kitSet} from './KitFrame';
 import {labelOf, resolveOptions, type KitOption} from './options';
 import {OptionsEditor} from './OptionsEditor';
@@ -231,10 +231,10 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 /** Options for a search/tag block: the static `opts` list, OR — when a
  *  `dynamic` expression is set — a comma-expression evaluated over the page's
  *  input scope (a string list, an array, or another input's value). */
-function dynamicOptions(block: BlockMap, editor: CustomBlockProps['editor']): KitOption[] {
+function useDynamicOptions(block: BlockMap, editor: CustomBlockProps['editor']): KitOption[] {
   const source = (blockProp<string>(block, 'dynamic') ?? '').trim();
+  const {value} = useCachedEval(editor, blockId(block), source, 'expression', Boolean(source));
   if (!source) return resolveOptions(block);
-  const {value} = evalExpr(source, editor.computedScope().scope);
   const list = Array.isArray(value)
     ? value
     : typeof value === 'string'
@@ -246,7 +246,7 @@ function dynamicOptions(block: BlockMap, editor: CustomBlockProps['editor']): Ki
 const SearchSelectBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'pick';
   const multi = Boolean(blockProp<boolean>(block, 'multi'));
-  const options = dynamicOptions(block, editor);
+  const options = useDynamicOptions(block, editor);
   const value = blockProp<string>(block, 'value') ?? '';
   const selectedRaw = blockProp<string[]>(block, 'selected');
   const selected = multi ? (Array.isArray(selectedRaw) ? selectedRaw : []) : value ? [value] : [];
@@ -306,7 +306,7 @@ const SearchSelectBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 const TagFieldBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'tags';
   const freeEntry = blockProp<boolean>(block, 'freeEntry') !== false; // default ON
-  const options = dynamicOptions(block, editor);
+  const options = useDynamicOptions(block, editor);
   const selectedRaw = blockProp<string[]>(block, 'selected');
   const selected = Array.isArray(selectedRaw) ? selectedRaw : [];
   const [draft, setDraft] = useState('');

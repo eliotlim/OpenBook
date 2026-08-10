@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {createDoc} from '../../model';
 import {dataflowGraph, layeredLayout, referencedNames} from '../dataflow';
+import {computeScopeAuthoritative} from '../scope';
 
 const reactiveDoc = () =>
   createDoc([
@@ -14,6 +15,8 @@ const reactiveDoc = () =>
     {id: 'dead', type: 'code', text: '1 + 1', props: {live: false, name: 'file.ts'}},
   ]);
 
+const graphOf = (doc: ReturnType<typeof reactiveDoc>) => dataflowGraph(doc, computeScopeAuthoritative(doc));
+
 describe('referencedNames', () => {
   it('finds published identifiers only, deduped', () => {
     expect(referencedNames('rate * rate + years - unknown', new Set(['rate', 'years']))).toEqual(['rate', 'years']);
@@ -23,7 +26,7 @@ describe('referencedNames', () => {
 
 describe('dataflowGraph', () => {
   it('maps publishers, consumers, and edges; prose and non-live code stay out', () => {
-    const graph = dataflowGraph(reactiveDoc());
+    const graph = graphOf(reactiveDoc());
     expect(graph.nodes.map((n) => [n.id, n.kind])).toEqual([
       ['sld', 'input'],
       ['num', 'input'],
@@ -43,16 +46,17 @@ describe('dataflowGraph', () => {
   });
 
   it('carries live values and errors', () => {
-    const graph = dataflowGraph(reactiveDoc());
+    const graph = graphOf(reactiveDoc());
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     expect(byId.get('sld')?.value).toBe('5');
     expect(byId.get('lc')?.value).toBe('15');
-    const bad = dataflowGraph(createDoc([{id: 'x', type: 'code', text: 'nope(', props: {live: true, name: 'x'}}]));
+    const badDoc = createDoc([{id: 'x', type: 'code', text: 'nope(', props: {live: true, name: 'x'}}]);
+    const bad = graphOf(badDoc);
     expect(bad.nodes[0].error).toBeTruthy();
   });
 
   it('lays out by dependency depth', () => {
-    const graph = dataflowGraph(reactiveDoc());
+    const graph = graphOf(reactiveDoc());
     const pos = layeredLayout(graph);
     // inputs at column 0, live code one column right, its consumers further right
     expect(pos.get('sld')!.x).toBe(0);
@@ -63,7 +67,8 @@ describe('dataflowGraph', () => {
 
 describe('composition outlets', () => {
   it('adds outlet nodes for parent expr columns that read published names', () => {
-    const graph = dataflowGraph(reactiveDoc(), [
+    const doc = reactiveDoc();
+    const graph = dataflowGraph(doc, computeScopeAuthoritative(doc), [
       {id: 'outlet:p1', label: 'Total', sub: 'Projects', name: 'total'},
       {id: 'outlet:p2', label: 'Untracked', sub: 'Projects', name: 'nope'},
     ]);

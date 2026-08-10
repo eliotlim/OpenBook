@@ -11,7 +11,7 @@ import {
   type BlockDocSnapshot,
 } from '@/blockeditor/model';
 import {projectSnapshotForExport} from '@/blockeditor/exportBlocks';
-import {computeScope} from '@/blockeditor/kit/scope';
+import {projectBlockPageSnapshot} from '@/blockeditor/saveProjection';
 import {resolveDbChartSeries} from '@/blockeditor/kit/chartData';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
@@ -218,15 +218,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     // EXPORTS (a parent database's expr columns read them via projectExports), so they
     // must track the live document, and a named live-code output must publish its
     // computed value too — the projection only carries its runtime expression.
-    const projected = projectSnapshotForExport({...base, editor: 'blocks', blockdoc: encodeSnapshot(doc)});
-    const values = new Map(projected.values);
-    const {results} = computeScope(doc);
-    for (const [, cellId] of projected.names) {
-      if (values.has(cellId)) continue;
-      const result = results.get(cellId);
-      if (result && !result.error) values.set(cellId, result.value);
-    }
-    const snapshot: PageSnapshot = {...projected, values: [...values]};
+    const snapshot = projectBlockPageSnapshot(doc, base);
     // Skip a no-op save: a Y.Doc change that nets to no difference in what the page
     // persists (an undo/redo round-trip, an edit to an unprojected prop, or a recompute
     // yielding identical values) shouldn't write — re-saving identical content only

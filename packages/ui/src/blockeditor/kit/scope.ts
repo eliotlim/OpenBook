@@ -8,8 +8,8 @@ import type {DbChartSeriesMap} from './chartData';
  * The artifact kit's reactive backbone. Every *input* block publishes a named
  * value; formulas, charts, and status lights evaluate expressions over the
  * whole scope. Values are ordinary CRDT block props, so a stepper click or a
- * radio pick syncs to every collaborator — and the editor's version counter
- * re-renders every consumer on any change. No subscription plumbing needed.
+ * radio pick syncs to every collaborator. The evaluation cache snapshots each
+ * document version and notifies subscribed render consumers asynchronously.
  */
 
 /** A legal reactive identifier. */
@@ -223,12 +223,33 @@ export function setNamedNumber(doc: Y.Doc, name: string, next: (current: number)
   }, 'local');
 }
 
+/** One evaluation result. Evaluators surface document errors; they never throw
+ * them through the render tree. */
+export interface EvalResult {
+  value?: unknown;
+  error?: string;
+}
+
+/** A serializable request at the evaluator boundary. SBX-2 can post this exact
+ * shape to a Worker without changing any render consumer. */
+export interface EvalRequest {
+  kind: 'expression' | 'code';
+  source: string;
+  scope: Record<string, unknown>;
+}
+
+/** Async evaluator seam. The current implementation still uses `new Function`;
+ * SBX-2 replaces this backend with a Worker-hosted implementation. */
+export interface EvalBackend {
+  evaluate(request: EvalRequest): Promise<EvalResult>;
+}
+
 /**
- * Evaluate an expression over the input scope. Same trust model as the app's
- * expr blocks: the document's own code runs client-side with the inputs in
- * scope. Returns `{value}` or `{error}` — callers render, never throw.
+ * Legacy synchronous backend implementation. It is deliberately module-local:
+ * live render consumers use the async cache, while save/export call the named
+ * authoritative document path below.
  */
-export function evalExpr(source: string, scope: Record<string, unknown>): {value?: unknown; error?: string} {
+function evalExprSync(source: string, scope: Record<string, unknown>): EvalResult {
   if (!source.trim()) return {value: undefined};
   try {
     // eslint-disable-next-line no-new-func -- Legacy evaluator pending the OB-146 QuickJS sandbox.
@@ -244,7 +265,7 @@ export function evalExpr(source: string, scope: Record<string, unknown>): {value
  * function body (multi-line code with its own `return`). Lets a live code
  * block hold real programs, not just one-liners.
  */
-export function evalCode(source: string, scope: Record<string, unknown>): {value?: unknown; error?: string} {
+function evalCodeSync(source: string, scope: Record<string, unknown>): EvalResult {
   if (!source.trim()) return {value: undefined};
   const keys = Object.keys(scope);
   const values = Object.values(scope);
@@ -264,11 +285,72 @@ export function evalCode(source: string, scope: Record<string, unknown>): {value
   }
 }
 
+/** The backend retained for SBX-1. Calling it is asynchronous even though its
+ * implementation is the existing trusted-document `new Function` evaluator. */
+export const newFunctionEvalBackend: EvalBackend = {
+  evaluate(request) {
+    return Promise.resolve().then(() => request.kind === 'code'
+      ? evalCodeSync(request.source, request.scope)
+      : evalExprSync(request.source, request.scope));
+  },
+};
+
+/** Non-render async helpers. UI components should use `useCachedEval` so they
+ * also get versioning, subscriptions, and last-known snapshots. */
+export function evalExpr(source: string, scope: Record<string, unknown>): Promise<EvalResult> {
+  return newFunctionEvalBackend.evaluate({kind: 'expression', source, scope});
+}
+
+export function evalCode(source: string, scope: Record<string, unknown>): Promise<EvalResult> {
+  return newFunctionEvalBackend.evaluate({kind: 'code', source, scope});
+}
+
 export interface ComputedScope {
   /** Every name a consumer can reference: inputs + named live-code outputs. */
   scope: Record<string, unknown>;
   /** Per-block evaluation results (live code + legacy formulas), by block id. */
-  results: Map<string, {value?: unknown; error?: string}>;
+  results: Map<string, EvalResult>;
+}
+
+/** An immutable document-order program captured for asynchronous evaluation. */
+export interface ScopeProgram {
+  input: Record<string, unknown>;
+  cells: Array<{id: string; name?: string; request: Omit<EvalRequest, 'scope'>}>;
+}
+
+/** Capture mutable CRDT state before the first async hop. */
+export function captureScopeProgram(doc: Y.Doc): ScopeProgram {
+  const cells: ScopeProgram['cells'] = [];
+  for (const {block} of walkBlocks(rootBlocks(doc))) {
+    const type = blockType(block) as string;
+    const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
+    if (!isLiveCode && type !== 'formula') continue;
+    cells.push({
+      id: String(block.get('id')),
+      name: blockProp<string>(block, 'name'),
+      request: {
+        kind: isLiveCode ? 'code' : 'expression',
+        source: isLiveCode ? (blockTextString(block) ?? '') : (blockProp<string>(block, 'source') ?? ''),
+      },
+    });
+  }
+  return {input: inputScope(doc), cells};
+}
+
+/** Evaluate a captured program through the async backend, preserving ordered
+ * chaining (each named cell is visible to the cells below it). */
+export async function evaluateScopeProgram(
+  program: ScopeProgram,
+  backend: EvalBackend = newFunctionEvalBackend,
+): Promise<ComputedScope> {
+  const scope = {...program.input};
+  const results = new Map<string, EvalResult>();
+  for (const cell of program.cells) {
+    const result = await backend.evaluate({...cell.request, scope});
+    results.set(cell.id, result);
+    if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
+  }
+  return {scope, results};
 }
 
 /**
@@ -278,18 +360,16 @@ export interface ComputedScope {
  * A single ordered pass: forward references read `undefined`, cycles can't
  * happen.
  */
-export function computeScope(doc: Y.Doc): ComputedScope {
-  const scope = inputScope(doc);
-  const results = new Map<string, {value?: unknown; error?: string}>();
-  for (const {block} of walkBlocks(rootBlocks(doc))) {
-    const type = blockType(block) as string;
-    const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
-    if (!isLiveCode && type !== 'formula') continue;
-    const source = isLiveCode ? (blockTextString(block) ?? '') : (blockProp<string>(block, 'source') ?? '');
-    const result = isLiveCode ? evalCode(source, scope) : evalExpr(source, scope);
-    results.set(String(block.get('id')), result);
-    const name = blockProp<string>(block, 'name');
-    if (name && NAME_RE.test(name) && !result.error) scope[name] = result.value;
+export function computeScopeAuthoritative(doc: Y.Doc): ComputedScope {
+  const program = captureScopeProgram(doc);
+  const scope = {...program.input};
+  const results = new Map<string, EvalResult>();
+  for (const cell of program.cells) {
+    const result = cell.request.kind === 'code'
+      ? evalCodeSync(cell.request.source, scope)
+      : evalExprSync(cell.request.source, scope);
+    results.set(cell.id, result);
+    if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
   }
   return {scope, results};
 }
@@ -345,12 +425,15 @@ export interface ExportCell {
  * Resolve every reactive block's CURRENT value the way the editor does, keyed by
  * block id — so static exports (PDF / Markdown) and the pre-hydration HTML show
  * the same numbers, charts, lights and bars as the live window. Inputs publish
- * their value; live code / formulas come from {@link computeScope}; charts,
+ * their value; live code / formulas come from
+ * {@link computeScopeAuthoritative}; charts,
  * status lights, and progress bars evaluate their expression over the same
  * scope (mirroring their block components).
  */
 export function computeExportCells(doc: Y.Doc, dbSeries?: DbChartSeriesMap): Map<string, ExportCell> {
-  const {scope, results} = computeScope(doc);
+  // Export is an explicit non-render checkpoint and must reflect this exact
+  // document synchronously, rather than a last-known cached UI snapshot.
+  const {scope, results} = computeScopeAuthoritative(doc);
   const cells = new Map<string, ExportCell>();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const id = blockId(block);
@@ -367,9 +450,9 @@ export function computeExportCells(doc: Y.Doc, dbSeries?: DbChartSeriesMap): Map
       // snapshot, so viewing/presenting the chart never writes anything.
       cells.set(id, {value: dbSeries?.get(id)?.value});
     } else if (type === 'kitchart' || type === 'progressbar') {
-      cells.set(id, {value: evalExpr(blockProp<string>(block, 'source') ?? '', scope).value});
+      cells.set(id, {value: evalExprSync(blockProp<string>(block, 'source') ?? '', scope).value});
     } else if (type === 'statuslight') {
-      const {value, error} = evalExpr(blockProp<string>(block, 'source') ?? '', scope);
+      const {value, error} = evalExprSync(blockProp<string>(block, 'source') ?? '', scope);
       const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
       const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
       cells.set(id, {value, status: statusOf(value, error, okAt, warnAt)});

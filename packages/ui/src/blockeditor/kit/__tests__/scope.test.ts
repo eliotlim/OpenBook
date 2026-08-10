@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {createDoc, rootBlocks} from '../../model';
-import {computeScope, evalCode, evalExpr, formatValue, inputScope, publishedName, setNamedNumber} from '../scope';
+import {computeScopeAuthoritative, evalCode, evalExpr, formatValue, inputScope, publishedName, setNamedNumber} from '../scope';
 import {varNameFromLabel} from '../options';
 
 const artifactDoc = () =>
@@ -85,7 +85,7 @@ describe('publishedName', () => {
 });
 
 describe('grouped inputs (namespaced exports)', () => {
-  it('namespaces a group’s inputs as group.field.value, leaving outsiders flat', () => {
+  it('namespaces a group’s inputs as group.field.value, leaving outsiders flat', async () => {
     const doc = createDoc([
       {type: 'slider', props: {name: 'rate', value: 5}},
       {
@@ -101,7 +101,7 @@ describe('grouped inputs (namespaced exports)', () => {
     expect(scope.rate).toBe(5);
     expect(scope.survey).toEqual({agree: {value: true}, score: {value: 9}});
     // A formula can read into the group.
-    expect(evalExpr('survey.score.value * 2 + rate', scope).value).toBe(23);
+    expect((await evalExpr('survey.score.value * 2 + rate', scope)).value).toBe(23);
   });
 
   it('keeps each group’s namespace separate and unnamed groups flat', () => {
@@ -118,13 +118,13 @@ describe('grouped inputs (namespaced exports)', () => {
 });
 
 describe('evalExpr', () => {
-  it('computes over the scope and surfaces errors instead of throwing', () => {
+  it('computes over the scope and surfaces errors instead of throwing', async () => {
     const scope = inputScope(artifactDoc());
-    expect(evalExpr('x + n', scope).value).toBe(34);
-    expect(evalExpr('tags.length', scope).value).toBe(2);
-    expect(evalExpr('on ? who : "off"', scope).value).toBe('Ada');
-    expect(evalExpr('nope +', scope).error).toBeTruthy();
-    expect(evalExpr('', scope)).toEqual({value: undefined});
+    expect((await evalExpr('x + n', scope)).value).toBe(34);
+    expect((await evalExpr('tags.length', scope)).value).toBe(2);
+    expect((await evalExpr('on ? who : "off"', scope)).value).toBe('Ada');
+    expect((await evalExpr('nope +', scope)).error).toBeTruthy();
+    expect(await evalExpr('', scope)).toEqual({value: undefined});
   });
 });
 
@@ -156,7 +156,7 @@ describe('formatValue', () => {
   });
 });
 
-describe('computeScope (live code chaining)', () => {
+describe('computeScopeAuthoritative (live code chaining)', () => {
   it('evaluates live code in document order, names chaining forward', () => {
     const doc = createDoc([
       {id: 'b1', type: 'number', props: {name: 'n', value: 3}},
@@ -164,7 +164,7 @@ describe('computeScope (live code chaining)', () => {
       {id: 'b3', type: 'code', text: 'double + 1', props: {live: true, name: 'plus'}},
       {id: 'b4', type: 'formula', props: {source: 'plus * 10'}},
     ]);
-    const {scope, results} = computeScope(doc);
+    const {scope, results} = computeScopeAuthoritative(doc);
     expect(scope).toMatchObject({n: 3, double: 6, plus: 7});
     expect(results.get('b2')).toEqual({value: 6});
     expect(results.get('b4')).toEqual({value: 70});
@@ -175,7 +175,7 @@ describe('computeScope (live code chaining)', () => {
       {id: 'b1', type: 'code', text: 'typeof later', props: {live: true, name: 'early'}},
       {id: 'b2', type: 'code', text: '5', props: {live: true, name: 'later'}},
     ]);
-    expect(computeScope(doc).scope.early).toBe('undefined');
+    expect(computeScopeAuthoritative(doc).scope.early).toBe('undefined');
   });
 
   it('supports multi-line function bodies and isolates errors', () => {
@@ -185,7 +185,7 @@ describe('computeScope (live code chaining)', () => {
       {id: 'b3', type: 'code', text: 'nope(', props: {live: true, name: 'broken'}},
       {id: 'b4', type: 'formula', props: {source: 'squares.length'}},
     ]);
-    const {scope, results} = computeScope(doc);
+    const {scope, results} = computeScopeAuthoritative(doc);
     expect(scope.squares).toEqual([0, 1, 4, 9]);
     expect(results.get('b3')?.error).toBeTruthy();
     expect('broken' in scope).toBe(false); // errors never publish
@@ -194,16 +194,16 @@ describe('computeScope (live code chaining)', () => {
 
   it('non-live code blocks stay inert', () => {
     const doc = createDoc([{id: 'b1', type: 'code', text: '1 + 1', props: {name: 'x'}}]);
-    const {scope, results} = computeScope(doc);
+    const {scope, results} = computeScopeAuthoritative(doc);
     expect('x' in scope).toBe(false);
     expect(results.size).toBe(0);
   });
 });
 
 describe('evalCode', () => {
-  it('takes expressions, falls back to function bodies', () => {
-    expect(evalCode('2 + 2', {}).value).toBe(4);
-    expect(evalCode('const x = 2; return x * 3;', {}).value).toBe(6);
-    expect(evalCode('throw new Error("boom")', {}).error).toContain('boom');
+  it('takes expressions, falls back to function bodies', async () => {
+    expect((await evalCode('2 + 2', {})).value).toBe(4);
+    expect((await evalCode('const x = 2; return x * 3;', {})).value).toBe(6);
+    expect((await evalCode('throw new Error("boom")', {})).error).toContain('boom');
   });
 });

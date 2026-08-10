@@ -43,9 +43,9 @@ const READONLY_UI: EditorUI = {
  * It reuses the editor's {@link BlockRow} (every block type, widgets, reactivity)
  * inside a locked {@link KitLockContext}: `BlockBody` makes text and structure
  * read-only while widgets carrying `interactive` (the default) stay live.
- * Reactivity is doc-global (`computeScope` reads the doc), so charts and formulas
- * track widget changes across the whole deck. Editing chrome (gutters, the kit
- * gear, slash) is hidden by `.ob-present` CSS.
+ * Reactivity is doc-global (the evaluation cache snapshots the whole doc), so
+ * charts and formulas track widget changes across the whole deck. Editing
+ * chrome (gutters, the kit gear, slash) is hidden by `.ob-present` CSS.
  */
 export const PresentBlocks: React.FC<{doc: Y.Doc; blocks: BlockMap[]; className?: string}> = ({
   doc,
