@@ -43,6 +43,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@heroicons/react": "^2.1.5",
     "@observablehq/plot": "^0.6.17",
     "@book.dev/sdk": "workspace:*",
@@ -69,6 +70,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "node-emoji": "^2.2.0",
+    "quickjs-emscripten": "0.32.0",
     "react-leaflet": "^5.0.0",
     "sucrase": "^3.35.1",
     "svg2pdf.js": "^2.7.0",
