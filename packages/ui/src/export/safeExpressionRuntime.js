@@ -336,6 +336,8 @@ const safeKey = (value) => {
 
 function interpret(tree, get, bindings) {
   let remaining = STEP_LIMIT;
+  const lambdas = new WeakSet();
+  const isLambda = (value) => value !== null && typeof value === 'object' && lambdas.has(value);
   const tick = (amount = 1) => { remaining -= amount; if (remaining < 0) stop(); };
   const bounded = (value) => {
     if (typeof value === 'string' && value.length > STRING_LIMIT) stop();
@@ -358,7 +360,7 @@ function interpret(tree, get, bindings) {
     stop();
   };
   const lambda = (fn, args) => {
-    if (!fn || fn.kind !== 'lambda') stop();
+    if (!isLambda(fn)) stop();
     const locals = Object.create(fn.locals);
     fn.params.forEach((name, index) => { locals[name] = args[index]; });
     return visit(fn.body, locals);
@@ -411,7 +413,7 @@ function interpret(tree, get, bindings) {
       return bounded(result);
     }
     if (name === 'sort') {
-      if (!args[0] || args[0].kind !== 'lambda') stop();
+      if (!isLambda(args[0])) stop();
       return input.slice().sort((a, b) => Number(lambda(args[0], [a, b])) || 0);
     }
     stop();
@@ -444,7 +446,7 @@ function interpret(tree, get, bindings) {
       if (callee.name === 'String') return bounded(String(args[0]));
       if (callee.name === 'Boolean') return Boolean(args[0]);
       const fn = visit(callee, locals);
-      if (fn && fn.kind === 'lambda') return lambda(fn, args);
+      if (isLambda(fn)) return lambda(fn, args);
       stop();
     }
     if (callee.type !== 'member') stop();
@@ -473,7 +475,7 @@ function interpret(tree, get, bindings) {
     }
     if (marker(object, 'Object')) {
       if (!['keys', 'values', 'entries'].includes(name) || args.length !== 1 || args[0] === null || typeof args[0] !== 'object') stop();
-      const keys = Object.keys(args[0]).filter((key) => !BAD_KEYS.has(key));
+      const keys = Object.keys(args[0]).filter((key) => !BAD_KEYS.has(key) && typeof args[0][key] !== 'function');
       if (keys.length > COLLECTION_LIMIT) stop();
       if (name === 'keys') return bounded(keys);
       if (name === 'values') return bounded(keys.map((key) => args[0][key]));
@@ -511,7 +513,11 @@ function interpret(tree, get, bindings) {
       node.entries.forEach(([key, item]) => { value[key] = visit(item, locals); });
       return value;
     }
-    if (node.type === 'lambda') return {kind: 'lambda', params: node.params, body: node.body, locals};
+    if (node.type === 'lambda') {
+      const value = {params: node.params, body: node.body, locals};
+      lambdas.add(value);
+      return value;
+    }
     if (node.type === 'member') return member(visit(node.object, locals), visit(node.key, locals));
     if (node.type === 'call') return invoke(node.callee, node.args, locals);
     if (node.type === 'unary') {

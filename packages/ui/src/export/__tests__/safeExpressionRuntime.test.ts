@@ -56,6 +56,37 @@ describe('standalone safe-expression grammar', () => {
     expect(projection).toEqual({ok: true, value: {Invested: [2_000, 5_600, 9_200], Projected: [2_000, 5_936, 10_108]}});
   });
 
+  it('rejects forged lambda markers before attacker-controlled locals are entered', () => {
+    let attackerLocalsRead = false;
+    const locals = Object.create(null);
+    Object.defineProperty(locals, 'constructor', {
+      get: () => {
+        attackerLocalsRead = true;
+        return Function;
+      },
+    });
+    const forged = {
+      kind: 'lambda',
+      params: ['a'],
+      locals,
+      body: {type: 'identifier', name: 'constructor'},
+    };
+    const hostileGet = (id: string): unknown => id === 'forged' ? forged : get(id);
+
+    expect(readSafeExpression('[1].map(get("forged"))', hostileGet)).toEqual({ok: false});
+    expect(attackerLocalsRead).toBe(false);
+  });
+
+  it('omits function-valued own properties from Object enumeration helpers', () => {
+    const method = vi.fn();
+    const hostObj = {visible: 1, method};
+
+    expect(readSafeExpression('Object.keys(hostObj)', get, {hostObj})).toEqual({ok: true, value: ['visible']});
+    expect(readSafeExpression('Object.values(hostObj)', get, {hostObj})).toEqual({ok: true, value: [1]});
+    expect(readSafeExpression('Object.entries(hostObj)', get, {hostObj})).toEqual({ok: true, value: [['visible', 1]]});
+    expect(method).not.toHaveBeenCalled();
+  });
+
   it('fails closed on statements, ambient globals, constructors and prototype access', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
