@@ -2,7 +2,7 @@ import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
-import type {PluginPackage} from '@book.dev/sdk';
+import {LOCAL_OWNER_HEADER, type PluginPackage} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore, PluginDowngradeError} from './store';
 import {createApp} from './app';
@@ -98,11 +98,16 @@ describe('store.upsertPlugin upgrade semantics', () => {
 describe('POST /api/plugins downgrade mapping', () => {
   it('409s a downgrade; ?allowDowngrade=1 forces it through', async () => {
     const store = await freshStore();
-    const app = createApp(store);
+    const localOwnerSecret = 'plugin-upgrade-local-owner-secret';
+    const app = createApp(store, undefined, undefined, {localOwnerSecret});
     const post = (path: string, body: unknown) =>
       app.request(path, {
         method: 'POST',
-        headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'},
+        headers: {
+          'content-type': 'application/json',
+          'X-OpenBook-Client': '1',
+          [LOCAL_OWNER_HEADER]: localOwnerSecret,
+        },
         body: JSON.stringify(body),
       });
 

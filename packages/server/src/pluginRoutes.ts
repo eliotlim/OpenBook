@@ -2,7 +2,7 @@ import {Hono} from 'hono';
 import {API, validateManifest, type PluginPackage} from '@book.dev/sdk';
 import {PluginDowngradeError, type PageStore} from './store';
 import type {AppEnv} from './appEnv';
-import {requireCreate} from './access';
+import {requireCreate, requireInstanceOwner} from './access';
 
 /** Max total source size per plugin (sources are stored inline as JSONB). */
 const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
@@ -13,15 +13,11 @@ const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
  * — signature verification happens client-side against the user's trusted
  * registry keys (the server never decides what the user trusts).
  *
- * Access: the WHOLE surface — the LIST and the mutations (install / enable /
- * disable / remove) — is instance-writer only (`requireCreate` — a writer at the
- * instance default scope: local-owner / owner / admin), since an installed plugin
- * is executable code that runs in EVERY connected client. The LIST is gated too
- * (GATE-7): each package carries its inline TS `files`, so an ungated list would
- * hand the library's plugin source to any anonymous reader a claimed,
- * internet-exposable (`published`-scope) instance exposes. On the legacy single-user
- * (unclaimed) instance the guest keeps write, so `PluginBoot` → `syncPlugins` still
- * loads the enabled set; a claimed instance's viewers simply don't run plugins.
+ * Access: the source-bearing LIST is instance-writer-only (`requireCreate`,
+ * GATE-7). Mutations are stricter: only the real instance owner may install,
+ * enable, disable, or remove code that every connected client executes. The
+ * owner gate never treats an unclaimed anonymous webview caller as trusted; the
+ * desktop owner retains access through the local-owner transport signal.
  */
 export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
   app.get(API.plugins, async (c) => {
@@ -30,7 +26,7 @@ export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
   });
 
   app.post(API.plugins, async (c) => {
-    await requireCreate(c, store);
+    await requireInstanceOwner(c, store);
     const pkg = (await c.req.json().catch(() => null)) as PluginPackage | null;
     const problem = validateManifest(pkg?.manifest);
     if (problem) return c.json({error: problem}, 400);
@@ -58,7 +54,7 @@ export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
   });
 
   app.patch(`${API.plugins}/:id`, async (c) => {
-    await requireCreate(c, store);
+    await requireInstanceOwner(c, store);
     const {enabled} = (await c.req.json()) as {enabled?: boolean};
     if (typeof enabled !== 'boolean') return c.json({error: 'enabled (boolean) is required'}, 400);
     const plugin = await store.setPluginEnabled(c.req.param('id'), enabled);
@@ -66,7 +62,7 @@ export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
   });
 
   app.delete(`${API.plugins}/:id`, async (c) => {
-    await requireCreate(c, store);
+    await requireInstanceOwner(c, store);
     const removed = await store.removePlugin(c.req.param('id'));
     return removed ? c.body(null, 204) : c.json({error: 'plugin not found'}, 404);
   });

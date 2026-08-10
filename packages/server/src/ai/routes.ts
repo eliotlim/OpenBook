@@ -4,7 +4,7 @@ import {streamSSE} from 'hono/streaming';
 import {API, isPaidProvider, providerSettings, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiPricingTable, type AiProvider, type AiSkill, type McpClientConfig, type McpServerConfig, type PluginAgentTool, type Principal} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import type {AppEnv} from '../appEnv';
-import {requireAuthenticatedRead, requireCreate, requireInstanceAdmin} from '../access';
+import {requireAuthenticatedRead, requireCreate, requireInstanceAdmin, requireInstanceOwner} from '../access';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
 import {McpConfigError, type ExternalAgentTool, type McpClientManager} from './mcpClients';
@@ -54,8 +54,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
 
   app.put(API.aiConfig, async (c) => {
     // Instance-wide engine config (provider, API keys, model choice) — an
-    // instance-writer action, not something a viewer/guest may flip.
-    await requireCreate(c, store);
+    // owner action: it controls credentials and server-side execution. The strict
+    // owner gate also keeps an unclaimed anonymous webview caller out.
+    await requireInstanceOwner(c, store);
     const body = (await c.req.json()) as AiConfig;
     if (!['off', 'mock', 'llama', 'mlx', 'openai', 'claude'].includes(body.provider)) {
       return c.json({error: `Unknown provider: ${String(body.provider)}`}, 400);
@@ -161,8 +162,8 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
 
   app.post(API.aiModelDownload, async (c) => {
     // Fetches a caller-supplied URL onto the server's disk (SSRF + disk-fill
-    // surface) — instance-writer only.
-    await requireCreate(c, store);
+    // surface) — only the trusted instance owner may supply it.
+    await requireInstanceOwner(c, store);
     const {url} = (await c.req.json().catch(() => ({}))) as {url?: string};
     return c.json(await ai.startDownload(url));
   });
@@ -256,8 +257,8 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
 
   app.put(API.aiSkills, async (c) => {
     // Skills are library-shared prompt/recipe definitions injected into every
-    // user's agent runs — mutations are instance-writer only.
-    await requireCreate(c, store);
+    // user's agent runs — mutations are owner-only.
+    await requireInstanceOwner(c, store);
     const {skill} = (await c.req.json().catch(() => ({}))) as {skill?: AiSkill};
     if (!skill?.name?.trim()) return c.json({error: 'skill.name is required'}, 400);
     try {
@@ -271,7 +272,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   // — that helper percent-encodes the colon, which registers the literal path
   // `/api/ai/skills/%3Aname` and never matches a real skill name.
   app.delete(`${API.aiSkills}/:name`, async (c) => {
-    await requireCreate(c, store);
+    await requireInstanceOwner(c, store);
     const removed = await ai.skills.remove(c.req.param('name') ?? '');
     return c.json({removed});
   });
