@@ -2,8 +2,8 @@ import {spawn} from 'node:child_process';
 import {rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {takeSnapshot as chromaticTakeSnapshot, test as chromaticTest} from '@chromatic-com/playwright';
-import {expect, test as playwrightTest} from '@playwright/test';
-import type {Locator, Page} from '@playwright/test';
+import {expect, request as playwrightRequest, test as playwrightTest} from '@playwright/test';
+import type {APIRequestContext, Locator, Page} from '@playwright/test';
 
 /**
  * Decouple Chromatic visual archiving from functional e2e (OB-222).
@@ -57,10 +57,13 @@ export const WORKER_BASE_PORT = 4400;
  * which is `/var/folders/…` on macOS) so the path matches across both files.
  */
 export const WORKER_DATA_DIR_PREFIX = '/tmp/openbook-web-e2e-data-w';
+const LOCAL_OWNER_SECRET = 'openbook-web-e2e-local-owner';
 
 type WorkerFixtures = {
   /** This worker's data-server URL; starting it is the fixture's job. */
   dataServer: string;
+  /** API context authenticated as the machine owner for host-sensitive setup. */
+  ownerRequest: APIRequestContext;
 };
 
 type TestFixtures = {
@@ -74,8 +77,12 @@ type TestFixtures = {
    * unaffected.
    */
   freshWorkspace: boolean;
+  /** Stamp local-owner auth only on host-sensitive API requests made by the browser. */
+  ownerGatedRequests: boolean;
   /** Auto fixture that performs the reset; never requested directly. */
   _workspaceReset: void;
+  /** Auto fixture that installs the opt-in owner-gated fetch transport. */
+  _ownerGateAuth: void;
 };
 
 /**
@@ -118,6 +125,41 @@ async function ensureAnyPage(serverUrl: string): Promise<void> {
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   freshWorkspace: [false, {option: true}],
+  ownerGatedRequests: [false, {option: true}],
+
+  // UI specs that exercise Settings mutations opt into the desktop host's
+  // local-owner transport. Only the owner-gated routes receive the secret;
+  // ordinary page/content requests retain their original principal so access
+  // control assertions (including read-only ledger pages) remain meaningful.
+  _ownerGateAuth: [
+    async ({context, ownerGatedRequests}, use) => {
+      if (ownerGatedRequests) {
+        await context.addInitScript((secret: string) => {
+          const nativeFetch = globalThis.fetch.bind(globalThis);
+          globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const request = new Request(input, init);
+            const method = request.method.toUpperCase();
+            const path = new URL(request.url).pathname;
+            const ownerGated =
+              (path === '/api/plugins' && method === 'POST') ||
+              (path.startsWith('/api/plugins/') && (method === 'PATCH' || method === 'DELETE')) ||
+              (path === '/api/ai/config' && method === 'PUT') ||
+              (path === '/api/ai/models/download' && method === 'POST') ||
+              (path === '/api/ai/skills' && method === 'PUT') ||
+              (path.startsWith('/api/ai/skills/') && method === 'DELETE') ||
+              (path === '/api/ai/mcp' && (method === 'GET' || method === 'PUT')) ||
+              (path === '/api/ai/mcp/test' && method === 'POST');
+            if (!ownerGated) return nativeFetch(input, init);
+            const headers = new Headers(request.headers);
+            headers.set('X-OpenBook-Local', secret);
+            return nativeFetch(new Request(request, {headers}));
+          };
+        }, LOCAL_OWNER_SECRET);
+      }
+      await use();
+    },
+    {auto: true},
+  ],
 
   // Auto: when the spec opted in, start every test from an empty workspace;
   // otherwise make sure at least one page exists (see {@link ensureAnyPage}).
@@ -162,7 +204,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const child = spawn(
         process.execPath,
         ['--import', 'tsx', 'src/bin.ts', '--data-dir', dataDir, '--port', String(port)],
-        {cwd: serverPkg, stdio: ['ignore', 'ignore', 'pipe']},
+        {
+          cwd: serverPkg,
+          env: {...process.env, OPENBOOK_LOCAL_OWNER_SECRET: LOCAL_OWNER_SECRET},
+          stdio: ['ignore', 'ignore', 'pipe'],
+        },
       );
 
       // Capture the child's stderr into a small bounded tail so a boot/import
@@ -208,6 +254,25 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       rmSync(dataDir, {recursive: true, force: true});
     },
     {scope: 'worker', auto: true, timeout: 120_000},
+  ],
+
+  // Host-sensitive setup must not run as the unclaimed guest used by ordinary
+  // content assertions. This context presents the same per-run local-owner
+  // credential as the desktop host's IPC bridge; it is never added to `request`
+  // or browser traffic implicitly.
+  ownerRequest: [
+    async ({dataServer}, use) => {
+      const owner = await playwrightRequest.newContext({
+        baseURL: dataServer,
+        extraHTTPHeaders: {
+          'X-OpenBook-Client': '1',
+          'X-OpenBook-Local': LOCAL_OWNER_SECRET,
+        },
+      });
+      await use(owner);
+      await owner.dispose();
+    },
+    {scope: 'worker'},
   ],
 
   // Point every context's app at this worker's server before any page loads.

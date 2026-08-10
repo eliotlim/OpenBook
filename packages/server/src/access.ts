@@ -25,6 +25,12 @@ type Ctx = Context<AppEnv>;
 /** What a route needs of a page: read access, or read+write. */
 export type AccessNeed = 'read' | 'write';
 
+/** True only for the machine owner over the trusted local transport. */
+export function isLocalInstanceOwner(c: Ctx): boolean {
+  if (c.get('localOwner')) return true;
+  return c.get('principal').verifiedVia === 'local';
+}
+
 /**
  * True only for a REAL instance owner: the machine owner over the trusted local
  * transport (the loopback hatch), the in-process `local` principal, or a
@@ -39,12 +45,25 @@ export type AccessNeed = 'read' | 'write';
  * wield owner authority).
  */
 export function isRealInstanceOwner(c: Ctx, config: Pick<InstanceConfig, 'ownerSubject'>): boolean {
-  if (c.get('localOwner')) return true; // trusted local transport = machine owner
+  if (isLocalInstanceOwner(c)) return true;
   const principal = c.get('principal');
-  if (principal.verifiedVia === 'local') return true; // in-process loopback owner
   return Boolean(
     config.ownerSubject && principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject,
   );
+}
+
+/**
+ * Gate a host-sensitive mutation to the REAL instance owner. Unlike
+ * {@link requireInstanceAdmin}, this never falls through to the legacy guest
+ * create policy while the instance is unclaimed: an unclaimed caller must prove
+ * it is the machine owner through the trusted local-owner transport (or the
+ * in-process `local` principal). On a claimed instance, the pinned JWS owner also
+ * passes; roster admins and owner-minted PATs do not.
+ */
+export async function requireInstanceOwner(c: Ctx, store: PageStore): Promise<void> {
+  const config = await store.getInstanceConfig();
+  if (isRealInstanceOwner(c, config)) return;
+  throw new HTTPException(403, {message: 'only the instance owner can change host-sensitive configuration'});
 }
 
 /**

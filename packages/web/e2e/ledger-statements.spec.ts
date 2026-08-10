@@ -3,6 +3,8 @@ import {ensureLedgerPlugin} from './ledgerPlugin';
 import {createDraft, draftCount, ensureAccount, pageWithBlock, postEntry, serveTransactions, wirePosted as posted, wirePosting as posting} from './ledgerApi';
 import type {Page} from '@playwright/test';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-9: the balance sheet and the income statement, end to end — the REAL
  * first-party plugin from examples/plugins/ledger (zipped from disk, installed

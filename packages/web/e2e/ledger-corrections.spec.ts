@@ -3,6 +3,8 @@ import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
 import {closeAccount, draftCount, ensureAccount, getTransaction, pageWithBlock, postEntry, type ApiTransaction} from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-6: immutability and the escape hatch, end to end — the REAL first-party
  * plugin from examples/plugins/ledger, driving the REAL ledger server.

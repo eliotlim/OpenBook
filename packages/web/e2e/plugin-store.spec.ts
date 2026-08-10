@@ -16,6 +16,8 @@ import {SERVER} from './seed';
 
 const STORE_URL = 'https://store.e2e';
 
+test.use({ownerGatedRequests: true});
+
 // ── Node-side crypto: the same scheme the SDK verifies (PROTOCOL.md §7) ─────
 
 interface SigningKey {
@@ -306,10 +308,10 @@ async function makeStarsPage(request: import('@playwright/test').APIRequestConte
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-test('pin a store, install with verify-then-consent, then upgrade without force-enabling', {tag: ['@plugins']}, async ({page, context, request}) => {
+test('pin a store, install with verify-then-consent, then upgrade without force-enabling', {tag: ['@plugins']}, async ({page, context, request, ownerRequest}) => {
   const store = makeStore();
   await mountStore(context, store);
-  await removeStars(request);
+  await removeStars(ownerRequest);
 
   await openExtensions(page);
   await pinStore(page);
@@ -362,10 +364,10 @@ test('pin a store, install with verify-then-consent, then upgrade without force-
   expect(await starsActivated(page)).toBeUndefined(); // still disabled → still never ran
 });
 
-test('an unknown third-party block resolves to an install prompt with publisher + trust', {tag: ['@plugins']}, async ({page, context, request}) => {
+test('an unknown third-party block resolves to an install prompt with publisher + trust', {tag: ['@plugins']}, async ({page, context, request, ownerRequest}) => {
   const store = makeStore();
   await mountStore(context, store);
-  await removeStars(request);
+  await removeStars(ownerRequest);
   const pageId = await makeStarsPage(request, `Stars missing ${Date.now()}`);
 
   // WITHOUT a pinned store: a graceful dead-end, not a broken editor.
@@ -394,10 +396,10 @@ test('an unknown third-party block resolves to an install prompt with publisher 
   expect(await starsActivated(page)).toBe('1.0.0');
 });
 
-test('an unreviewed store install warns and waits for consent; a revoked version never installs', {tag: ['@plugins']}, async ({page, context, request}) => {
+test('an unreviewed store install warns and waits for consent; a revoked version never installs', {tag: ['@plugins']}, async ({page, context, ownerRequest}) => {
   const store = makeStore({withNotary: false}); // no notary → nothing is notarised
   await mountStore(context, store);
-  await removeStars(request);
+  await removeStars(ownerRequest);
 
   await openExtensions(page);
   await pinStore(page);

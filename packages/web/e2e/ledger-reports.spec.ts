@@ -13,6 +13,8 @@ import {
   type ApiTransaction,
 } from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-8: the read-only ledger reports, end to end — the REAL first-party plugin
  * from examples/plugins/ledger (zipped from disk, installed through Settings →

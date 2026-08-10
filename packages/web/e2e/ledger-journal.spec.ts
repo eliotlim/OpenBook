@@ -3,6 +3,8 @@ import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
 import {ensureAccount, pageWithBlock, runPaletteCommand} from './ledgerApi';
 
+test.use({ownerGatedRequests: true});
+
 /**
  * LGR-5: the journal entry block, end to end — the REAL first-party plugin
  * from examples/plugins/ledger (read from disk, zipped, installed through
