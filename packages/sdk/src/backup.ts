@@ -9,18 +9,17 @@
  *  - `overwrite`: restore in place by id, replacing existing pages/databases. The
  *    UI double-confirms, quoting how many existing pages will be replaced.
  */
-import type {StoredPage} from './types';
+import type {AclLevel, AgentEditsPolicy, PageVisibility, StoredPage} from './types';
 import type {StoredDatabase} from './database';
 import type {LedgerAuditEvent} from './ledger';
 
 /**
- * Version 2 (LGR-15): the bundle MAY carry a {@link LedgerBackupSection} — the
- * ledger's durability surface (audit stream, settings rows, evidence assets)
- * that pages/databases alone cannot express. Additive: a v1 bundle (no
- * `ledger` key) still imports; a v2 bundle read by an old server imports its
- * pages/databases and ignores the extra key.
+ * Version 3 (OB-699) is the first lossless whole-library contract: every asset
+ * referenced by a live page is carried once by content hash, and every page's
+ * stored visibility / ACL / agent-edit policy is explicit. Readers still accept
+ * v1/v2, but must report their known omissions as a partial restore.
  */
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 
 /**
  * One content-addressed asset carried by a backup (LGR-15): the evidence bytes
@@ -28,7 +27,7 @@ export const BACKUP_VERSION = 2;
  * the importer re-derives it and refuses a mismatch, so a bundle can never
  * plant bytes under a hash they do not answer to.
  */
-export interface LedgerBackupAsset {
+export interface BackupAsset {
   /** Asset-store id: 64 lowercase hex chars, the SHA-256 of the bytes. */
   id: string;
   mime: string;
@@ -38,6 +37,31 @@ export interface LedgerBackupAsset {
   bytesBase64: string;
   /** Page ids holding an `asset_refs` edge to this asset (restored where the page exists). */
   refs: string[];
+}
+
+/** v2 compatibility name: v2 stored the same entry shape under `ledger.assets`. */
+export type LedgerBackupAsset = BackupAsset;
+
+/** One ACL row in a v3 page-access manifest (the page id lives on its parent). */
+export interface BackupPageAcl {
+  subject: string | null;
+  email: string | null;
+  issuer: string | null;
+  level: AclLevel;
+  invitedBy: string | null;
+  createdAt: string;
+}
+
+/**
+ * The complete stored access posture of one live page in a v3 bundle. This is
+ * deliberately separate from {@link StoredPage}: older content imports can keep
+ * using that stable record without accidentally claiming backup completeness.
+ */
+export interface BackupPageAccess {
+  pageId: string;
+  visibility: PageVisibility;
+  agentEdits: AgentEditsPolicy;
+  acl: BackupPageAcl[];
 }
 
 /**
@@ -65,25 +89,45 @@ export interface LedgerBackupSection {
   settings: Record<string, unknown>;
   /** The full audit stream, ascending `seq`, verbatim (hashes included). */
   audit: LedgerAuditEvent[];
-  /** Evidence assets referenced by ledger transaction manifests. */
-  assets: LedgerBackupAsset[];
+  /**
+   * v2 evidence assets referenced by ledger transaction manifests. v3 carries
+   * the deduplicated, complete asset corpus at `LibraryBackup.assets` instead.
+   */
+  assets?: LedgerBackupAsset[];
 }
 
 export interface LibraryBackup {
   version: number;
   exportedAt: string;
+  /** STAB-5 origin binding: the instance that authored this backup. */
+  instanceId?: string;
+  /** Informational provenance for claimed instances; `instanceId` is the binding key. */
+  ownerSubject?: string;
   pages: StoredPage[];
   databases: StoredDatabase[];
   /** pageId → emoji icon (added client-side; ignored by the server). */
   icons?: Record<string, string>;
   /** LGR-15: the ledger durability surface; absent when no ledger is seeded. */
   ledger?: LedgerBackupSection;
+  /** v3: every asset referenced by `pages`, once by content hash. */
+  assets?: BackupAsset[];
+  /** v3: exactly one access-state record for every page in `pages`. */
+  pageAccess?: BackupPageAccess[];
 }
 
 export type ImportMode = 'copy' | 'overwrite';
 
 /** What the client sends to restore: the (already-selected) pages/databases + mode. */
 export interface ImportRequest {
+  /**
+   * Present when restoring a backup file. Omitted by ordinary content imports.
+   * Explicit v1/v2 values are accepted with a partial-restore diagnostic;
+   * unknown future versions are refused before any writes.
+   */
+  version?: number;
+  /** Origin fields copied from the backup envelope. */
+  instanceId?: string;
+  ownerSubject?: string;
   pages: StoredPage[];
   databases: StoredDatabase[];
   mode: ImportMode;
@@ -93,6 +137,15 @@ export interface ImportRequest {
    * the ledger's own pages/databases; otherwise skipped and reported.
    */
   ledger?: LedgerBackupSection;
+  /** v3 selected-page asset manifest. */
+  assets?: BackupAsset[];
+  /** v3 selected-page access-state manifest. */
+  pageAccess?: BackupPageAccess[];
+  /**
+   * Explicitly install v3 access state whose `instanceId` is absent or differs
+   * from the target. Omitted/false restores those pages restricted instead.
+   */
+  installForeignPageAccess?: boolean;
 }
 
 /**
@@ -107,6 +160,20 @@ export interface ImportRequest {
  */
 export type LedgerRestoreOutcome = 'restored' | 'skipped-existing-ledger' | 'skipped-copy-mode' | 'skipped-incomplete';
 
+/** A known durability surface that a legacy backup format did not carry. */
+export type PartialRestoreMissing =
+  | 'complete-asset-manifest'
+  | 'page-access-state'
+  | 'ledger-durability-section';
+
+/** Loud, machine-readable warning for an intentionally partial restore. */
+export interface BackupRestoreDiagnostic {
+  code: 'partial-restore';
+  version: 1 | 2 | 3;
+  missing: PartialRestoreMissing[];
+  message: string;
+}
+
 export interface ImportResult {
   /** New pages created (copy mode, or overwrite of a not-yet-existing id). */
   created: number;
@@ -118,6 +185,8 @@ export interface ImportResult {
   idMap: Record<string, string>;
   /** LGR-15: outcome of the bundle's ledger section; absent when none was sent. */
   ledger?: LedgerRestoreOutcome;
+  /** Compatibility/security warnings; partial legacy and skipped foreign access restores are never silent. */
+  diagnostics?: BackupRestoreDiagnostic[];
   /**
    * True when this apply was a **replay** of an already-imported bundle (ER-6):
    * the bundle's content hash matched a prior import, so nothing was written and

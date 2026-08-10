@@ -1,6 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
-  BACKUP_VERSION,
   getServerUrlOverride,
   parseBookFolder,
   libraryToBookFiles,
@@ -27,7 +26,7 @@ import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
 import {exportBookFolderInBrowser, importBookFolderInBrowser} from '@/lib/bookFolderTransfer';
-import {bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';
+import {backupAccessDelta, bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';
 import {t as bareT} from '@/i18n';
 
 const displayName = (name: string | null): string => (name && name.trim() ? name : bareT('common.untitled'));
@@ -86,12 +85,22 @@ export default function BackupSettings() {
   // shared line reads cleanly and there's no second export action to feed.
   const [status, setStatus] = useState<string | null>(null);
   const [bundle, setBundle] = useState<LibraryBackup | null>(null);
+  const [targetInstanceId, setTargetInstanceId] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    setTargetInstanceId(undefined);
+    client.getInstanceInfo()
+      .then((info) => setTargetInstanceId(info.instanceId ?? null))
+      .catch(() => setTargetInstanceId(null));
+  }, [client]);
 
   const doExport = useCallback(async () => {
     setBusy('export');
     setStatus(null);
     try {
-      const {pages, databases, ledger} = await client.exportLibrary();
+      const serverBundle = await client.exportLibrary();
+      setTargetInstanceId(serverBundle.instanceId ?? null);
+      const {pages} = serverBundle;
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
       // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
@@ -99,10 +108,9 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      // LGR-15: the ledger durability section (audit stream, settings, evidence
-      // assets) rides in the same file — dropping it here would export a book
-      // whose restore could never verify.
-      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons, ...(ledger ? {ledger} : {})};
+      // Preserve the server-authored v3 envelope intact: reconstructing only the
+      // old pages/databases/ledger fields here would silently drop assets/access.
+      const backup: LibraryBackup = {...serverBundle, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
       setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
@@ -160,7 +168,9 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      setBundle({version: BACKUP_VERSION, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
+      // A readable-folder import is intentionally a content import, not a
+      // lossless v3 backup (the folder format does not carry assets/access).
+      setBundle({version: 1, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
     } catch (e) {
       setStatus(t('backup.readFailed', {error: (e as Error).message}));
     }
@@ -292,6 +302,7 @@ export default function BackupSettings() {
           existingIds={async () => new Set((await client.exportLibrary()).pages.map((p) => p.id))}
           confirm={confirm}
           setBusy={setBusy}
+          targetInstanceId={targetInstanceId}
         />
       )}
     </div>
@@ -489,6 +500,7 @@ function RestoreDialog({
   existingIds,
   confirm,
   setBusy,
+  targetInstanceId,
 }: {
   bundle: LibraryBackup;
   onClose: () => void;
@@ -497,11 +509,26 @@ function RestoreDialog({
   existingIds: () => Promise<Set<string>>;
   confirm: ReturnType<typeof useConfirm>;
   setBusy: (b: null | 'import') => void;
+  targetInstanceId: string | null | undefined;
 }) {
   const {t} = useTranslation();
   const roots = useMemo(() => bundleRoots(bundle), [bundle]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(roots.map((r) => r.id)));
   const [mode, setMode] = useState<'copy' | 'overwrite'>('copy');
+  const [installForeignPageAccess, setInstallForeignPageAccess] = useState(false);
+
+  const selectedPageIds = useMemo(
+    () => new Set(closure(bundle, checked).pages.map((page) => page.id)),
+    [bundle, checked],
+  );
+  const accessDelta = useMemo(
+    () => backupAccessDelta(bundle.pageAccess, selectedPageIds),
+    [bundle.pageAccess, selectedPageIds],
+  );
+  const foreignPageAccess =
+    bundle.version === 3 &&
+    targetInstanceId !== undefined &&
+    (!bundle.instanceId || !targetInstanceId || bundle.instanceId !== targetInstanceId);
 
   const toggle = (id: string) =>
     setChecked((prev) => {
@@ -533,7 +560,23 @@ function RestoreDialog({
       // an OVERWRITE restore — the server applies it only into a library with no
       // seeded ledger (and only when the selection carried the ledger's own
       // pages), so this is safe to send unconditionally in that mode.
-      const result = await run({pages: sel.pages, databases: sel.databases, mode, ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {})});
+      const selectedPageIds = new Set(sel.pages.map((page) => page.id));
+      const assets = bundle.assets?.flatMap((asset) => {
+        const refs = asset.refs.filter((pageId) => selectedPageIds.has(pageId));
+        return refs.length > 0 ? [{...asset, refs}] : [];
+      });
+      const pageAccess = bundle.pageAccess?.filter((access) => selectedPageIds.has(access.pageId));
+      const result = await run({
+        version: bundle.version,
+        pages: sel.pages,
+        databases: sel.databases,
+        mode,
+        ...(bundle.version === 3 ? {assets: assets ?? [], pageAccess: pageAccess ?? []} : {}),
+        ...(bundle.version === 3 && bundle.instanceId ? {instanceId: bundle.instanceId} : {}),
+        ...(bundle.version === 3 && bundle.ownerSubject ? {ownerSubject: bundle.ownerSubject} : {}),
+        ...(foreignPageAccess && installForeignPageAccess ? {installForeignPageAccess: true} : {}),
+        ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {}),
+      });
       const bits = [
         result.created ? t('backup.added', {count: result.created}) : '',
         result.overwritten ? t('backup.overwrittenCount', {count: result.overwritten}) : '',
@@ -559,7 +602,7 @@ function RestoreDialog({
     } finally {
       setBusy(null);
     }
-  }, [bundle, checked, mode, confirm, existingIds, run, onDone, setBusy, t]);
+  }, [bundle, checked, mode, confirm, existingIds, run, onDone, setBusy, t, foreignPageAccess, installForeignPageAccess]);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -597,6 +640,33 @@ function RestoreDialog({
           ))}
         </ul>
 
+        {bundle.version === 3 && (
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            {t('backup.dialog.accessDelta', {
+              publicPages: accessDelta.publicPages,
+              subjectGrants: accessDelta.subjectGrants,
+              agentEditRelaxations: accessDelta.agentEditRelaxations,
+            })}
+          </p>
+        )}
+
+        {foreignPageAccess && (
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 cursor-pointer"
+              checked={installForeignPageAccess}
+              onChange={(e) => setInstallForeignPageAccess(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">{t('backup.dialog.installForeignAccess')}</span>
+              <span className="block text-xs text-muted-foreground">
+                {t('backup.dialog.installForeignAccessHint')}
+              </span>
+            </span>
+          </label>
+        )}
+
         <label className="flex cursor-pointer items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -616,7 +686,7 @@ function RestoreDialog({
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={() => void onRestore()} disabled={checked.size === 0}>
+          <Button onClick={() => void onRestore()} disabled={checked.size === 0 || (bundle.version === 3 && targetInstanceId === undefined)}>
             {t('backup.dialog.restoreN', {count: checked.size})}
           </Button>
         </DialogFooter>

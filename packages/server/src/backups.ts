@@ -3,11 +3,9 @@ import {join} from 'node:path';
 import {
   BACKUP_CADENCES,
   BACKUP_CADENCE_MS,
-  BACKUP_VERSION,
   type BackupCadence,
   type BackupConfig,
   type BackupStatus,
-  type LibraryBackup,
 } from '@book.dev/sdk';
 import type {PageStore} from './store';
 
@@ -128,10 +126,9 @@ export class BackupScheduler implements BackupController {
   }
 
   private async writeBackup(cadence: BackupCadence, dir: string): Promise<string> {
-    const {pages, databases, ledger} = await this.store.exportAll();
-    // LGR-15: scheduled snapshots carry the ledger durability section too —
-    // the scheduled path and `GET /api/export` write the same bundle.
-    const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: this.nowIso(), pages, databases, ...(ledger ? {ledger} : {})};
+    // One writer for scheduled and ad-hoc exports: v3 assets/access cannot drift
+    // between the two paths. Inject the scheduler clock for deterministic names.
+    const backup = await this.store.exportAll(this.nowIso());
     const cadenceDir = join(dir, cadence);
     await mkdir(cadenceDir, {recursive: true});
     const name = `openbook-backup-${fileStamp(this.nowIso())}.openbook.json`;

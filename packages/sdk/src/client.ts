@@ -21,7 +21,7 @@ import type {
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
-import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LedgerBackupSection} from './backup';
+import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
 import type {
   DatabaseInput,
@@ -228,7 +228,7 @@ export interface DataClient {
   deletePage(id: string): Promise<boolean>;
   /** Export the whole space: every live page (full data) + every database —
    *  plus the ledger durability section when a ledger is seeded (LGR-15). */
-  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}>;
+  exportLibrary(): Promise<LibraryBackup>;
   /** Restore a (client-selected) set of pages/databases; see {@link ImportRequest}. */
   importLibrary(req: ImportRequest): Promise<ImportResult>;
   /** List the trash (most-recently-deleted first). */
@@ -1228,8 +1228,8 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
-  async exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
-    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}>('GET', API.exportLibrary);
+  async exportLibrary(): Promise<LibraryBackup> {
+    return this.request<LibraryBackup>('GET', API.exportLibrary);
   }
 
   async importLibrary(req: ImportRequest): Promise<ImportResult> {

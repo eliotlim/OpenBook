@@ -28,22 +28,48 @@ retention counts, output dir) lives in Settings → Backup and
 `GET/PUT /api/backups`. The in-webview (browser-storage) home has no
 filesystem, so only the ad-hoc export applies there.
 
-### What a bundle contains (`BACKUP_VERSION = 2`)
+**Protect the backup directory permissions.** Version 3 bundles — including
+scheduled on-disk snapshots — contain page ACLs and member email addresses in
+addition to private page and ledger content. Only the service account and the
+operators responsible for recovery should be able to read that directory.
+
+### What a bundle contains (`BACKUP_VERSION = 3`)
 
 ```jsonc
 {
-  "version": 2,
+  "version": 3,
   "exportedAt": "…",
+  "instanceId": "…", // stable origin binding (ownerSubject is included when claimed)
   "pages": [ /* every live page: data, nesting, properties, position, created_at */ ],
   "databases": [ /* every database: schema, host page */ ],
   "icons": { /* pageId → emoji, added client-side */ },
+  "assets": [ /* every referenced asset once: {id, mime, size, bytesBase64, refs[]} */ ],
+  "pageAccess": [
+    /* one per page: {pageId, visibility, agentEdits, acl:[{subject|email, issuer, level, invitedBy, createdAt}]} */
+  ],
   "ledger": { // present iff a ledger is seeded — the DURABILITY SECTION (LGR-15)
     "settings": { "ledgerDb": {}, "ledgerPeriods": [], "ledgerEntrySeq": 0 },
-    "audit":    [ /* the FULL append-only audit stream, seq order, hashes verbatim */ ],
-    "assets":   [ /* evidence bytes named by transaction manifests, base64, content-addressed */ ]
+    "audit":    [ /* the FULL append-only audit stream, seq order, hashes verbatim */ ]
   }
 }
 ```
+
+`assets` is the complete live-page asset corpus, including ordinary images,
+HTML artifacts, property assets, and ledger evidence. Entries are deduplicated
+by SHA-256 `id`; `refs` is derived from page documents/properties rather than
+the potentially stale reachability table. Export fails if any referenced bytes
+are missing or their stored hash/size is inconsistent. Restore verifies the
+whole manifest (shape, coverage, refs, base64 size, SHA-256, mime/caps/budget)
+before writing anything.
+
+`pageAccess` preserves the stored access posture exactly: visibility scope,
+agent-edits policy, and subject/email ACL grants with issuer, level, inviter,
+and creation time. It contains exactly one record for every exported page.
+The restore door installs it automatically only when the envelope's
+`instanceId` matches the target. Foreign or older origin-less v3 bundles restore
+pages as `restricted` with no ACLs and safe agent-edit settings, and return a
+`partial-restore` diagnostic, unless the operator explicitly opts in with
+`installForeignPageAccess: true` after reviewing the access delta.
 
 The ledger's *entities* (accounts, transactions, postings, reconciliations and
 their host pages) travel as ordinary pages/databases. The `ledger` section
@@ -54,17 +80,15 @@ carries what those rows cannot express:
 - **`audit`** — the tamper-evidence chain, **verbatim** (every `seq`, payload,
   `before/after/prev` hash). A restore re-inserts it as-is — the chain
   *survives* the round trip; it is never re-minted;
-- **`assets`** — the receipt bytes behind each evidence manifest (drafts
-  included, so a restored draft can still post). Each asset's id **is** the
-  SHA-256 of its bytes; the importer re-hashes on the way in and refuses a
-  mismatch.
+- evidence bytes now travel in the top-level `assets` manifest with every other
+  referenced asset (drafts included, so a restored draft can still post).
 
-**Version compatibility:** a v1 bundle (no `ledger` key) still restores its
-pages/databases; a v2 bundle read by an older server restores pages/databases
-and ignores the extra key. A v1 restore of a ledger library yields dead ledger
-rows with no history — which the verifier reports loudly (see below). Re-export
-from a current server to get a v2 bundle. Two deliberate refusals to know
-about:
+**Version compatibility:** v1 and v2 still restore, but the response includes a
+structured `diagnostics[]` entry with `code: "partial-restore"` and an explicit
+`missing` list. v2 lacks the complete asset manifest and page access state; v1
+also lacks the ledger durability section. Unknown future versions are refused
+before writes with a clear unsupported-version error. Re-export from a current
+server to obtain a complete v3 bundle. Two other deliberate refusals to know about:
 
 - a restored library's audit stream ends with a **`ledger.restore`** event
   (see *Trust model* below). Builds that predate that action **refuse to read
@@ -76,13 +100,17 @@ about:
   `0021`, i.e. carries mid-stream `prevHash: null`) is refused at the door as
   unverifiable — the door will not install a stream the tamper check rejects.
 
-**Known limitations:** non-evidence assets (e.g. images embedded in ordinary
-pages) are not yet carried by the bundle — unchanged from v1. Page **ACL
-grants are not carried** either: the restore re-asserts the ledger host pages
-`restricted` (owner/admin only), so re-grant ledger access to members
-explicitly after a restore. The bundle is one JSON document and the import
-materializes it in memory (bounded by the route's 512 MiB body cap) — a
-streaming bundle format is future work.
+**Known limitation:** the bundle remains one JSON document and import
+materializes it in memory (bounded by the route's 512 MiB body cap). A streaming
+bundle format is future work.
+
+**Scope boundary:** this is a lossless restore of the documented *live library*
+surface, not a raw instance clone. Trash, page-version history, review
+comments/suggestions, general edit provenance, roster/instance configuration,
+installed plugins, and agent credentials/settings remain operational state and
+are not serialized. Orphaned assets with no live-page reference are likewise
+excluded. Back up/deploy that control-plane state separately if it matters to
+the recovery objective.
 
 ## Trust model — what restoring a bundle means
 
@@ -129,15 +157,21 @@ mode, and reports why.)
    keep it for forensics.
 3. **Restore the newest good snapshot**, either way:
    - UI: Settings → Backup → Restore → choose the `.openbook.json` file, keep
-     **everything** selected, mode **Overwrite**.
-   - API: `POST /api/import` with the bundle's `pages`, `databases`, `ledger`
-     and `"mode": "overwrite"` (instance-admin gated).
+     **everything** selected, mode **Overwrite**. A fresh recovery target has a
+     different instance id, so review the displayed access delta and explicitly
+     enable installing the backup's access settings if that is intended.
+   - API: `POST /api/import` with the bundle's `version`, `pages`, `databases`,
+     `assets`, `pageAccess`, `ledger`, `instanceId`, optional `ownerSubject`, and
+     `"mode": "overwrite"` (instance-admin gated). Add
+     `"installForeignPageAccess": true` only after reviewing the ACL/public/
+     agent-edit delta; otherwise the fresh target restores those pages restricted.
 4. **Check the outcome field.** The response's `ledger` field must read
    `"restored"`. Anything else names the reason it was skipped:
    `skipped-existing-ledger` (the target already has a ledger — LGR-3
    protections stand; use a genuinely fresh library),
    `skipped-copy-mode`, or `skipped-incomplete` (the selection didn't include
-   the ledger's own pages — restore with everything selected).
+   the ledger's own pages — restore with everything selected). For a complete
+   v3 restore, `diagnostics` must be absent; v1/v2 return `partial-restore`.
 5. **Verify — mandatory.** Run `GET /api/ledger/verify` (or the in-app
    *Export & verify* action / the CLI verify). The report must show
    `findings: []` with nonzero `checked*` counts and `auditChain.ok: true`.
@@ -151,11 +185,11 @@ mode, and reports why.)
    audit chain and entry numbering (the restore advances the audit sequence
    past the restored tail).
 
-A restore is **transactional**: if any part of the ledger section is invalid
-(non-ascending audit seqs, unknown audit action, a broken hash chain, asset
+A restore is **transactional**: if any part of the bundle is invalid
+(incomplete access/asset manifest, non-ascending audit seqs, unknown audit action, a broken hash chain, asset
 bytes that don't hash to their id, an over-cap or over-budget asset), the
 entire import — pages included — rolls back with a descriptive error. There is
-no half-restored state to clean up. Restored evidence assets pass the same
+no half-restored state to clean up. Restored assets pass the same
 door controls as uploads: mime sanitized against the image allowlist (nothing
 executable is ever stored), the 10 MiB per-asset cap, and the instance's
 storage budget; asset references attach only to pages the bundle itself
@@ -218,8 +252,9 @@ rewrites every row through the fixed driver.
    ledger-section apply over an existing ledger, in copy mode, or without the
    ledger's own pages IN the bundle (an existing database cannot be
    conscripted into "being the ledger"); a forged hash-chain link or forged
-   asset bytes reject the whole import; a member is denied the restored host
-   page, row pages, and evidence bytes over HTTP; restore races (against a
+   asset bytes reject the whole import; ordinary image bytes plus page
+   visibility/ACL/policy state are asserted after destructive restore; a member
+   is denied the restored host page, row pages, and evidence bytes over HTTP; restore races (against a
    second restore, and against ledger setup) end in typed outcomes; and the
    `ledger.restore` provenance event plus the chain finding are
    mutation-verified (doctor the row, watch the verifier fire).

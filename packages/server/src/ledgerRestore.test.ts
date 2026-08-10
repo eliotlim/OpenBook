@@ -33,7 +33,7 @@
  */
 
 import {afterAll, describe, expect, it} from 'vitest';
-import {canonicalLedgerJson, type LedgerAuditEvent, type LedgerVerifyReport} from '@book.dev/sdk';
+import {canonicalLedgerJson, type BackupAsset, type LedgerAuditEvent, type LedgerBackupSection, type LedgerVerifyReport, type LibraryBackup} from '@book.dev/sdk';
 import {
   buildBeancountMiniBook,
   buildBeancountParityBook,
@@ -167,12 +167,42 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     for (const cleanup of cleanups.reverse()) await cleanup();
   });
 
-  it(`round-trips the ${FIXTURE} book with byte + semantic equality (audit chain included)`, async () => {
+  it(`round-trips the ${FIXTURE} book plus ordinary assets and ACL state with byte + semantic equality`, async () => {
     // ── Seed a real library from the fixture book.
     const source = await provision();
     const sourceStore = new PageStore(source.db);
     await seedLedgerFromFixture(sourceStore, buildBook());
     await seedReconciliations(sourceStore);
+
+    // OB-699's non-ledger loss repro: two ordinary pages share one stored image
+    // (dedup), and one carries non-default visibility, ACLs, and agent policy.
+    const imageBytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 3, 1, 4, 1, 5]);
+    const {id: imageId} = await sourceStore.putAsset(imageBytes, 'image/png');
+    const imageSnapshot = {
+      editorjs: {blocks: []},
+      values: [] as Array<[string, unknown]>,
+      names: [] as Array<[string, string]>,
+      blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId: imageId}}]},
+    };
+    const imagePage = await sourceStore.upsertPage({name: 'ordinary image', data: imageSnapshot});
+    const sharedPage = await sourceStore.upsertPage({name: 'same image, second page', data: imageSnapshot});
+    await sourceStore.refAsset(imageId, imagePage.id);
+    // Deliberately leave the second ref edge absent: page documents are the
+    // canonical reference source and v3 must repair this stale-edge shape.
+    await sourceStore.setPageVisibility(imagePage.id, 'authenticated');
+    await sourceStore.setPageAgentEdits(imagePage.id, 'direct');
+    await sourceStore.setPageAcl(imagePage.id, {
+      subject: 'https://issuer.example#reader',
+      level: 'read',
+      invitedBy: 'https://issuer.example#owner',
+    });
+    await sourceStore.setPageAcl(imagePage.id, {
+      email: 'Writer@Example.com',
+      issuer: 'https://issuer.example',
+      level: 'write',
+      invitedBy: 'https://issuer.example#owner',
+    });
+    const sourceAcl = await sourceStore.getPageAcl(imagePage.id);
 
     // ── Capture the pre-destroy truth. The source must be clean to begin with —
     // a dirty source would make every downstream equality vacuous.
@@ -191,7 +221,19 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     const bundle = await sourceStore.exportAll();
     expect(bundle.ledger, 'a seeded ledger must export its durability section').toBeDefined();
     expect(bundle.ledger?.audit.length).toBe(before.verify.checkedAuditEvents);
-    expect(bundle.ledger?.assets.length).toBeGreaterThan(0);
+    expect(bundle.version).toBe(3);
+    expect(bundle.assets?.length).toBeGreaterThan(1); // ledger evidence + ordinary image
+    expect(bundle.assets?.filter((asset) => asset.id === imageId)).toEqual([
+      expect.objectContaining({size: imageBytes.byteLength, refs: [imagePage.id, sharedPage.id].sort()}),
+    ]);
+    expect(bundle.pageAccess?.find((access) => access.pageId === imagePage.id)).toMatchObject({
+      visibility: 'authenticated',
+      agentEdits: 'direct',
+      acl: expect.arrayContaining([
+        expect.objectContaining({subject: 'https://issuer.example#reader', level: 'read'}),
+        expect.objectContaining({email: 'writer@example.com', issuer: 'https://issuer.example', level: 'write'}),
+      ]),
+    });
 
     // ── Destroy. Nothing of the source survives past this line.
     await source.destroy();
@@ -201,10 +243,18 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     cleanups.push(target.destroy);
     const targetStore = new PageStore(target.db);
     const result = await targetStore.importBundle(
-      {pages: bundle.pages, databases: bundle.databases, ledger: bundle.ledger, mode: 'overwrite'},
+      {...bundle, mode: 'overwrite', installForeignPageAccess: true},
       {actor: SEED_ACTOR},
     );
     expect(result.ledger).toBe('restored');
+    expect(result.diagnostics).toBeUndefined();
+    const restoredImage = await targetStore.getAsset(imageId);
+    expect(restoredImage?.mime).toBe('image/png');
+    expect(Array.from(restoredImage?.bytes ?? [])).toEqual(Array.from(imageBytes));
+    expect((await targetStore.pagesReferencingAsset(imageId)).sort()).toEqual([imagePage.id, sharedPage.id].sort());
+    expect(await targetStore.getPageVisibility(imagePage.id)).toBe('authenticated');
+    expect(await targetStore.getPageAgentEdits(imagePage.id)).toBe('direct');
+    expect(await targetStore.getPageAcl(imagePage.id)).toEqual(sourceAcl);
 
     // ── Diff: semantic equality via the LGR-7 verifier + the audit chain.
     // The restored history carries ONE more event than the source's: the
@@ -228,6 +278,7 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     const provPayload = provenance.payload as {bundleSha?: unknown; auditEvents?: unknown; assets?: unknown};
     expect(provPayload.bundleSha).toMatch(/^[0-9a-f]{64}$/);
     expect(provPayload.auditEvents).toBe(before.verify.checkedAuditEvents);
+    expect(provPayload.assets).toBe(bundle.assets?.length);
 
     // ── The restored ledger is ALIVE, not a diorama: the writer path still
     // works and extends the restored chain (the BIGSERIAL was advanced past
@@ -256,14 +307,21 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
 
   // ── The restore DOOR. One mini-book source bundle is seeded once and shared
   // (door tests mutate clones); each test gets its own fresh target.
-  type Bundle = Awaited<ReturnType<PageStore['exportAll']>>;
+  type Bundle = LibraryBackup & {ledger: LedgerBackupSection & {assets: BackupAsset[]}};
   let cachedBundle: Bundle | null = null;
   const sourceBundle = async (): Promise<Bundle> => {
     if (cachedBundle) return cachedBundle;
     const source = await provision();
     const s = new PageStore(source.db);
     await seedLedgerFromFixture(s, buildBeancountMiniBook());
-    cachedBundle = await s.exportAll();
+    const v3 = await s.exportAll();
+    const {assets = [], ...legacy} = v3;
+    delete legacy.pageAccess;
+    cachedBundle = {
+      ...legacy,
+      version: 2,
+      ledger: {...v3.ledger!, assets},
+    };
     await source.destroy();
     return cachedBundle;
   };
