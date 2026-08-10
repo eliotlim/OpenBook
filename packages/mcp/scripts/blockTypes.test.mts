@@ -25,10 +25,17 @@ import {readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
 import {join, relative, resolve} from 'node:path';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
-import {BLOCK_TYPE_CATALOGUE, CHILD_ONLY_PARENT, HttpDataClient, type PluginManifest} from '@book.dev/sdk';
+import {
+  BLOCK_TYPE_CATALOGUE,
+  CHILD_ONLY_PARENT,
+  HttpDataClient,
+  LOCAL_OWNER_HEADER,
+  type PluginManifest,
+} from '@book.dev/sdk';
 import {startServer} from '@book.dev/server';
 
 const DATA_DIR = '/tmp/openbook-mcp-blocktypes-test';
+const LOCAL_OWNER_SECRET = 'mcp-blocktypes-local-owner';
 
 let passed = 0;
 function check(label: string, cond: boolean): void {
@@ -88,9 +95,21 @@ function ledgerPackage(): {manifest: PluginManifest; files: Record<string, strin
 
 async function main(): Promise<void> {
   rmSync(DATA_DIR, {recursive: true, force: true});
-  const server = await startServer({dataDir: DATA_DIR, host: '127.0.0.1', port: 4414});
+  const server = await startServer({
+    dataDir: DATA_DIR,
+    host: '127.0.0.1',
+    port: 4414,
+    localOwnerSecret: LOCAL_OWNER_SECRET,
+  });
   console.log(`\nOpenBook server up at ${server.url}`);
   const seed = new HttpDataClient(server.url);
+  const ownerSeed = new HttpDataClient(server.url, undefined, {
+    fetchImpl: (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set(LOCAL_OWNER_HEADER, LOCAL_OWNER_SECRET);
+      return fetch(input, {...init, headers});
+    },
+  });
   const mcp = await connect(server.url);
 
   console.log('\nAPI-2: the tool catalogue exposes list_block_types');
@@ -154,7 +173,7 @@ async function main(): Promise<void> {
   console.log('  ✓ list_block_types lists every catalogued core + kit type');
   check('with no plugins installed, the plugin section says none', /Installed plugin blocks: none\./.test(before));
 
-  await seed.installPlugin(ledgerPackage());
+  await ownerSeed.installPlugin(ledgerPackage());
   const after = resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}}));
   check('after installing the bundled ledger plugin, its declared blocks are listed',
     after.includes('openbook.ledger/journal-entry') && after.includes('openbook.ledger/beancount-export'));

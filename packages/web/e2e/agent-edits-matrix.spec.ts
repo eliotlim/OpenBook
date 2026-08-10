@@ -123,11 +123,11 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
   // WITHOUT the privileged `GET /api/instance` read the AGENT-6 scope-gate denies to a
   // PAT. The whole matrix is exercised here; the `inherit`-under-instance-`direct`
   // cell has its own focused assertion below.
-  test('every cell applies directly or queues a suggestion per the resolved mode', async ({request}) => {
+  test('every cell applies directly or queues a suggestion per the resolved mode', async ({request, ownerRequest}) => {
     const {pat} = await enableAgentApiAndMint(request);
 
     for (const cell of CELLS) {
-      await setInstanceMode(request, cell.instance);
+      await setInstanceMode(ownerRequest, cell.instance);
       const id = await makePage(request, `MCP ${cell.instance}/${cell.page}`);
       await setPagePolicy(request, id, cell.page);
 
@@ -151,9 +151,9 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
   // so it no longer needs the privileged `GET /api/instance` read the AGENT-6 scope-gate
   // denies — and the setting governs remote PATs on `inherit` pages, backstopped by the
   // AGED-2 server write-gate.
-  test('an inherit page honours the instance direct default over remote MCP', async ({request}) => {
+  test('an inherit page honours the instance direct default over remote MCP', async ({request, ownerRequest}) => {
     const {pat} = await enableAgentApiAndMint(request);
-    await setInstanceMode(request, 'direct');
+    await setInstanceMode(ownerRequest, 'direct');
     const id = await makePage(request, 'MCP direct/inherit');
     await setPagePolicy(request, id, 'inherit');
 
@@ -163,9 +163,9 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
     expect(readBack).toContain(MCP_MARKER);
   });
 
-  test('provenance: a direct MCP write records the agent token as the author in the edit log', async ({request}) => {
+  test('provenance: a direct MCP write records the agent token as the author in the edit log', async ({request, ownerRequest}) => {
     const {pat, tokenId} = await enableAgentApiAndMint(request);
-    await setInstanceMode(request, 'direct');
+    await setInstanceMode(ownerRequest, 'direct');
     const id = await makePage(request, 'MCP provenance');
     // Pin the page to `direct` so the write applies directly over remote MCP (an
     // inherit page under this instance=direct default would resolve direct too since
@@ -206,18 +206,18 @@ async function openAssistant(page: Page): Promise<ReturnType<Page['locator']>> {
 test.describe('AGED-6 policy matrix — built-in AI writes', () => {
   test.use({freshWorkspace: true});
 
-  test.beforeEach(async ({request}) => {
-    const res = await request.put(`${SERVER}/api/ai/config`, {data: {provider: 'mock'}});
+  test.beforeEach(async ({ownerRequest}) => {
+    const res = await ownerRequest.put(`${SERVER}/api/ai/config`, {data: {provider: 'mock'}});
     expect(res.ok()).toBeTruthy();
   });
 
-  test.afterAll(async ({request}) => {
-    await request.put(`${SERVER}/api/ai/config`, {data: {provider: 'off'}});
+  test.afterAll(async ({ownerRequest}) => {
+    await ownerRequest.put(`${SERVER}/api/ai/config`, {data: {provider: 'off'}});
   });
 
   for (const cell of CELLS) {
-    test(`instance=${cell.instance}, page=${cell.page} → ${cell.effective}`, async ({page, request}) => {
-      await setInstanceMode(request, cell.instance);
+    test(`instance=${cell.instance}, page=${cell.page} → ${cell.effective}`, async ({page, request, ownerRequest}) => {
+      await setInstanceMode(ownerRequest, cell.instance);
       const id = await makePage(request, `AI ${cell.instance}/${cell.page}`);
       await setPagePolicy(request, id, cell.page);
 
