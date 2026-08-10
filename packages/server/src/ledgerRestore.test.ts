@@ -275,6 +275,7 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     const provPayload = provenance.payload as {bundleSha?: unknown; auditEvents?: unknown; assets?: unknown};
     expect(provPayload.bundleSha).toMatch(/^[0-9a-f]{64}$/);
     expect(provPayload.auditEvents).toBe(before.verify.checkedAuditEvents);
+    expect(provPayload.assets).toBe(bundle.assets?.length);
 
     // ── The restored ledger is ALIVE, not a diorama: the writer path still
     // works and extends the restored chain (the BIGSERIAL was advanced past

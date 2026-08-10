@@ -481,7 +481,12 @@ function partialRestoreDiagnostic(version: 1 | 2): BackupRestoreDiagnostic {
  * restored library whose broken images are discovered later.
  */
 async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnostic[]> {
-  if (req.version == null) return []; // ordinary content import, not a backup reader
+  if (req.version == null) {
+    if (req.assets != null || req.pageAccess != null) {
+      throw new BackupFormatError('invalid import: v3 assets/pageAccess require an explicit backup format version');
+    }
+    return []; // ordinary content import, not a backup reader
+  }
   if (!Number.isSafeInteger(req.version) || req.version < 1) {
     throw new BackupFormatError(`invalid backup format version ${String(req.version)}`);
   }
@@ -490,7 +495,12 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
       `unsupported backup format version ${req.version}; this build reads through v${BACKUP_VERSION}`,
     );
   }
-  if (req.version === 1 || req.version === 2) return [partialRestoreDiagnostic(req.version)];
+  if (req.version === 1 || req.version === 2) {
+    if (req.assets != null || req.pageAccess != null) {
+      throw new BackupFormatError(`invalid backup v${req.version}: v3 assets/pageAccess fields are not allowed`);
+    }
+    return [partialRestoreDiagnostic(req.version)];
+  }
   if (!Array.isArray(req.assets) || !Array.isArray(req.pageAccess)) {
     throw new BackupFormatError('invalid backup v3: assets and pageAccess manifests are required');
   }
@@ -551,7 +561,7 @@ async function preflightBackup(req: ImportRequest): Promise<BackupRestoreDiagnos
       throw new BackupFormatError(`invalid backup v3: duplicate or malformed asset id ${JSON.stringify(asset?.id)}`);
     }
     manifestIds.add(asset.id);
-    if (typeof asset.bytesBase64 !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0) {
+    if (typeof asset.mime !== 'string' || typeof asset.bytesBase64 !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0) {
       throw new BackupFormatError(`invalid backup v3: asset ${asset.id} has malformed bytes metadata`);
     }
     const bytes = decodeBackupBase64(asset.bytesBase64, asset.id);
@@ -1109,6 +1119,7 @@ export class PageStore {
                 actor: opts.actor,
                 assetBudgetBytes: opts.assetBudgetBytes,
                 bundleSha: key,
+                assetCount: req.assets?.length ?? req.ledger.assets?.length ?? 0,
               });
         result = {...result, ledger: outcome};
       }
@@ -1402,7 +1413,7 @@ export class PageStore {
     section: LedgerBackupSection,
     pages: StoredPage[],
     databases: StoredDatabase[],
-    opts: {actor?: Principal; assetBudgetBytes?: number; bundleSha: string},
+    opts: {actor?: Principal; assetBudgetBytes?: number; bundleSha: string; assetCount: number},
   ): Promise<LedgerRestoreOutcome> {
     // 1. Shape + MEMBERSHIP (against this request's post-strip bundle arrays).
     const rawIds = section.settings?.[LEDGER_DB_SETTING_KEY] as Partial<LedgerIds> | undefined;
@@ -1573,7 +1584,7 @@ export class PageStore {
     const restorePayload = {
       bundleSha: opts.bundleSha,
       auditEvents: events.length,
-      assets: (section.assets ?? []).length,
+      assets: opts.assetCount,
     };
     const afterHash = await assetHash(new TextEncoder().encode(canonicalLedgerJson(ledgerRestorePayloadContent(restorePayload))));
     const prevHash = await ledgerAuditEventHash(events[events.length - 1]);

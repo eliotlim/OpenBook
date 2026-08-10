@@ -226,6 +226,26 @@ describe('BackupScheduler', () => {
     expect(await store.getPage(page.id)).toBeNull();
   });
 
+  it('rejects v3 asset bytes that do not answer to their manifest hash', async () => {
+    const bytes = Uint8Array.from([1, 2, 3, 4]);
+    const {id} = await store.putAsset(bytes, 'image/png');
+    await store.upsertPage({
+      name: `forged-asset-${seq}`,
+      data: {
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+        blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId: id}}]},
+      },
+    });
+    const bundle = await store.exportAll();
+    const forged = structuredClone(bundle);
+    forged.assets![0].bytesBase64 = Buffer.from([4, 3, 2, 1]).toString('base64');
+    const before = (await store.exportAll()).pages.length;
+    await expect(store.importBundle({...forged, mode: 'copy'})).rejects.toThrow(/bytes hash to/);
+    expect((await store.exportAll()).pages).toHaveLength(before);
+  });
+
   it('reports per-cadence status (last/next run + count)', async () => {
     await store.updateBackupConfig({enabled: true});
     const s = scheduler();
