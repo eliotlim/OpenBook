@@ -3,11 +3,19 @@ import {
   DEFAULT_UPDATE_PREFERENCES,
   UPDATE_PREFERENCE_KEYS,
   getUpdateCadence,
+  getDismissedUpdateAdvisoryIds,
+  getLastSeenUpdateAdvisory,
   getUpdateLastCheckAt,
   getUpdateLastCheckSuccessAt,
   getUpdateSecurityOnly,
+  getUpdateAdvisorySnooze,
+  isUpdateAdvisoryDismissed,
+  isUpdateAdvisorySnoozed,
   readUpdatePreferences,
+  dismissUpdateAdvisory,
   setUpdateCadence,
+  setUpdateAdvisorySnooze,
+  setLastSeenUpdateAdvisory,
   setUpdateLastCheckAt,
   setUpdateLastCheckSuccessAt,
   setUpdateSecurityOnly,
@@ -71,11 +79,67 @@ describe('update preferences accessor', () => {
     setUpdateSecurityOnly(true);
     setUpdateLastCheckAt(1234);
     setUpdateLastCheckSuccessAt(1200);
+    setUpdateAdvisorySnooze('advisory-a', 1100, 'launch-a');
+    dismissUpdateAdvisory('advisory-old');
+    setLastSeenUpdateAdvisory({
+      id: 'advisory-a',
+      severity: 'vulnerable',
+      message: 'Update now.',
+      affectedRange: '<1.72.3',
+    });
     expect(readUpdatePreferences()).toEqual({
       cadence: 'weekly',
       securityOnly: true,
       lastCheckAt: 1234,
       lastCheckSuccessAt: 1200,
+      advisorySnooze: {advisoryId: 'advisory-a', snoozedAt: 1100, launchId: 'launch-a'},
+      dismissedAdvisoryIds: ['advisory-old'],
+      lastSeenAdvisory: {
+        id: 'advisory-a',
+        severity: 'vulnerable',
+        message: 'Update now.',
+        affectedRange: '<1.72.3',
+      },
     });
+  });
+
+  it('snoozes only the same advisory for 24 hours in the current launch', () => {
+    const now = new Date('2026-08-10T00:00:00Z').getTime();
+    setUpdateAdvisorySnooze('advisory-a', now, 'launch-a');
+
+    expect(isUpdateAdvisorySnoozed('advisory-a', now + 1, 'launch-a')).toBe(true);
+    expect(isUpdateAdvisorySnoozed('advisory-b', now + 1, 'launch-a')).toBe(false);
+    expect(isUpdateAdvisorySnoozed('advisory-a', now + 1, 'launch-b')).toBe(false);
+    expect(isUpdateAdvisorySnoozed('advisory-a', now + 24 * 60 * 60 * 1000, 'launch-a')).toBe(false);
+  });
+
+  it('persists dismissal per id and a new id is not dismissed', () => {
+    dismissUpdateAdvisory('advisory-a');
+    dismissUpdateAdvisory('advisory-a');
+
+    expect(getDismissedUpdateAdvisoryIds()).toEqual(['advisory-a']);
+    expect(isUpdateAdvisoryDismissed('advisory-a')).toBe(true);
+    expect(isUpdateAdvisoryDismissed('advisory-b')).toBe(false);
+  });
+
+  it('rejects corrupt persisted advisory state', () => {
+    localStorage.setItem(UPDATE_PREFERENCE_KEYS.advisorySnooze, '{bad json');
+    localStorage.setItem(UPDATE_PREFERENCE_KEYS.dismissedAdvisoryIds, JSON.stringify([null, '', 42]));
+    expect(getUpdateAdvisorySnooze()).toBeNull();
+    expect(getDismissedUpdateAdvisoryIds()).toEqual([]);
+  });
+
+  it('round-trips and clears the last advisory snapshot', () => {
+    const advisory = {
+      id: 'advisory-a',
+      severity: 'major-bug' as const,
+      message: 'Files may fail to open.',
+      affectedRange: '>=1.70.0 <1.72.3',
+      minSafeVersion: '1.72.3',
+    };
+    setLastSeenUpdateAdvisory(advisory);
+    expect(getLastSeenUpdateAdvisory()).toEqual(advisory);
+    setLastSeenUpdateAdvisory(null);
+    expect(getLastSeenUpdateAdvisory()).toBeNull();
   });
 });

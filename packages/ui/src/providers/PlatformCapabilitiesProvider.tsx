@@ -131,6 +131,19 @@ export interface UpdateSecurityInfo {
   fixedIn?: string;
 }
 
+/** An active server-authored warning for the running build. */
+export interface UpdateAdvisory {
+  /** Stable acknowledgement key. A different id must be shown again. */
+  id: string;
+  severity: 'vulnerable' | 'major-bug';
+  /** Trusted only as plain text; consumers must never interpret markup. */
+  message: string;
+  /** Informational only. `affectedRange` is the server's matching authority. */
+  minSafeVersion?: string;
+  /** The authoritative node-semver range matched by the account service. */
+  affectedRange: string;
+}
+
 /**
  * The normalized outcome of an update check. `checkForUpdate` never rejects —
  * transport / server failures resolve as `{status: 'error'}` so the UI can show
@@ -149,6 +162,8 @@ export interface UpdateCheckResult {
   latestForCurrentMajor?: string;
   /** Security-relevant update detail, when the check surfaced any. */
   security?: UpdateSecurityInfo;
+  /** Active warning for the running build, when the server returned one. */
+  advisory?: UpdateAdvisory;
   /** Human-readable failure detail when `status === 'error'`. */
   error?: string;
 }

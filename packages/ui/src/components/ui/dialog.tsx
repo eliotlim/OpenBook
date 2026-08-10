@@ -20,6 +20,8 @@ const dialogContentSizes = {
 export interface DialogContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   size?: keyof typeof dialogContentSizes
+  /** Hide the corner close action when the dialog requires an explicit choice. */
+  showClose?: boolean
 }
 
 const DialogOverlay = React.forwardRef<
@@ -43,7 +45,7 @@ export const DIALOG_EXIT_MS = 200; // must move together with the duration-200 e
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, size = "md", ...props }, ref) => (
+>(({ className, children, size = "md", showClose = true, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     {/* Center via flexbox, not `left/top-1/2 + translate`. Tailwind v4 centers
@@ -63,10 +65,12 @@ const DialogContent = React.forwardRef<
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 -m-1 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none data-[state=open]:bg-hover data-[state=open]:text-muted-foreground">
-          <Cross2Icon className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {showClose && (
+          <DialogPrimitive.Close className="absolute right-4 top-4 -m-1 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none data-[state=open]:bg-hover data-[state=open]:text-muted-foreground">
+            <Cross2Icon className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </div>
   </DialogPortal>

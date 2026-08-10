@@ -19,6 +19,15 @@ import {setLatestMajorSeen} from './updateScheduler';
 
 let checkInFlight: Promise<UpdateCheckResult> | null = null;
 let installInFlight: Promise<boolean> | null = null;
+let lastCheckResult: UpdateCheckResult | null = null;
+const checkResultListeners = new Set<(result: UpdateCheckResult) => void>();
+
+/** Observe completed shared checks (manual and background) from one app host. */
+export function subscribeUpdateCheckResults(listener: (result: UpdateCheckResult) => void): () => void {
+  checkResultListeners.add(listener);
+  if (lastCheckResult) listener(lastCheckResult);
+  return () => checkResultListeners.delete(listener);
+}
 
 /**
  * Run (or join) the update check. Never rejects — `checkForUpdate` promises
@@ -43,6 +52,16 @@ export function runUpdateCheck(updates: UpdatesPlatform): Promise<UpdateCheckRes
       // Updates section can surface "N.x is available" durably between
       // checks — the once-per-major toast alone is missable.
       setLatestMajorSeen(result.latestMajor ?? null);
+    }
+    // Notify after durable check bookkeeping, before joined callers resume.
+    // One faulty UI observer must not alter the never-reject check contract.
+    lastCheckResult = result;
+    for (const listener of checkResultListeners) {
+      try {
+        listener(result);
+      } catch (e) {
+        console.error('OpenBook: update result listener failed:', e);
+      }
     }
     return result;
   })().finally(() => {
@@ -73,4 +92,6 @@ export function runDownloadAndInstall(updates: UpdatesPlatform): Promise<boolean
 export function resetUpdateRunnerForTests(): void {
   checkInFlight = null;
   installInFlight = null;
+  lastCheckResult = null;
+  checkResultListeners.clear();
 }

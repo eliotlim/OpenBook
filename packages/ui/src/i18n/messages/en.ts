@@ -1397,6 +1397,20 @@ export const en = {
     // save — "haven't been saved yet" is true of either (L2).
     restartConfirmBody: 'Some changes haven’t been saved yet. Restarting now may lose them.',
     restartConfirmAction: 'Restart',
+    advisory: {
+      vulnerableTitle: 'Security warning',
+      majorBugTitle: 'Critical update warning',
+      currentVersionLabel: 'Current version',
+      affectedRangeLabel: 'Affected range',
+      minSafeVersionLabel: 'Minimum safe version',
+      unknownVersion: 'Unknown',
+      updateNowAction: 'Update now',
+      snoozeAction: 'Snooze',
+      dismissAction: 'Dismiss',
+      ackLabel: 'Acknowledgement',
+      ackPrompt: 'Type “{phrase}” to dismiss this warning.',
+      acknowledgement: 'i understand',
+    },
   },
   profile: {
     title: 'Profile',
