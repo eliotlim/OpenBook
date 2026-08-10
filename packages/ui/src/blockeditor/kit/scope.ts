@@ -4,6 +4,7 @@ import {varNameFromLabel} from './options';
 import {containerCompletions} from './completion';
 import type {DbChartSeriesMap} from './chartData';
 import {quickJSEvalBackend} from './sandbox/quickjsBackend';
+import {quickJSSyncEvalBackend} from './sandbox/quickjsSyncBackend';
 
 /**
  * The artifact kit's reactive backbone. Every *input* block publishes a named
@@ -243,6 +244,11 @@ export interface EvalBackend {
   evaluate(request: EvalRequest): Promise<EvalResult>;
 }
 
+/** Synchronous evaluator seam for authoritative save/export checkpoints. */
+export interface SyncEvalBackend {
+  evaluate(request: EvalRequest): EvalResult;
+}
+
 /** Non-render async helpers. UI components should use `useCachedEval` so they
  * also get versioning, subscriptions, and last-known snapshots. */
 export function evalExpr(
@@ -318,9 +324,17 @@ export async function evaluateScopeProgram(
  */
 export function computeScopeAuthoritative(
   doc: Y.Doc,
-  backend: EvalBackend = quickJSEvalBackend,
-): Promise<ComputedScope> {
-  return evaluateScopeProgram(captureScopeProgram(doc), backend);
+  backend: SyncEvalBackend = quickJSSyncEvalBackend,
+): ComputedScope {
+  const program = captureScopeProgram(doc);
+  const scope = {...program.input};
+  const results = new Map<string, EvalResult>();
+  for (const cell of program.cells) {
+    const result = backend.evaluate({...cell.request, scope});
+    results.set(cell.id, result);
+    if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
+  }
+  return {scope, results};
 }
 
 /** The plain text of a text-carrying block (code blocks store Y.Text). */
@@ -379,14 +393,15 @@ export interface ExportCell {
  * status lights, and progress bars evaluate their expression over the same
  * scope (mirroring their block components).
  */
-export async function computeExportCells(
+export function computeExportCells(
   doc: Y.Doc,
   dbSeries?: DbChartSeriesMap,
-  backend: EvalBackend = quickJSEvalBackend,
-): Promise<Map<string, ExportCell>> {
+  backend: SyncEvalBackend = quickJSSyncEvalBackend,
+): Map<string, ExportCell> {
   // Export is an explicit non-render checkpoint and reflects this exact
-  // document through the same sandbox backend as the render cache.
-  const {scope, results} = await computeScopeAuthoritative(doc, backend);
+  // document through an in-process QuickJS sandbox. It must not depend on an
+  // async render Worker or execute document formulas in the host realm.
+  const {scope, results} = computeScopeAuthoritative(doc, backend);
   const cells = new Map<string, ExportCell>();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const id = blockId(block);
@@ -403,10 +418,18 @@ export async function computeExportCells(
       // snapshot, so viewing/presenting the chart never writes anything.
       cells.set(id, {value: dbSeries?.get(id)?.value});
     } else if (type === 'kitchart' || type === 'progressbar') {
-      const {value} = await evalExpr(blockProp<string>(block, 'source') ?? '', scope, backend);
+      const {value} = backend.evaluate({
+        kind: 'expression',
+        source: blockProp<string>(block, 'source') ?? '',
+        scope,
+      });
       cells.set(id, {value});
     } else if (type === 'statuslight') {
-      const {value, error} = await evalExpr(blockProp<string>(block, 'source') ?? '', scope, backend);
+      const {value, error} = backend.evaluate({
+        kind: 'expression',
+        source: blockProp<string>(block, 'source') ?? '',
+        scope,
+      });
       const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
       const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
       cells.set(id, {value, status: statusOf(value, error, okAt, warnAt)});

@@ -34,9 +34,10 @@ export class QuickJSWorkerEvalBackend implements EvalBackend {
     const request = prepareEvalRequest(rawRequest);
     if (isEvalResult(request)) return Promise.resolve(request);
     if (this.useHeadlessTestBackend) {
-      // Keep the direct Vitest harness out of production's module graph. The
-      // shipped backend has exactly one QuickJS copy: the inline Worker.
-      this.localTestBackend ??= import(/* @vite-ignore */ './quickjsVm').then(async ({QuickJSEvaluator}) => {
+      // Vite resolves this import to an emitted chunk when retained, while the
+      // compile-time-false production branch is tree-shaken. Never suppress
+      // bundler resolution here: a bare relative specifier breaks consumers.
+      this.localTestBackend ??= import('./quickjsVm').then(async ({QuickJSEvaluator}) => {
         const evaluator = await QuickJSEvaluator.create();
         return {evaluate: (next: EvalRequest) => evaluator.evaluate(next)};
       });

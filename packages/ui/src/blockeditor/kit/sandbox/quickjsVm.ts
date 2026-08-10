@@ -103,7 +103,16 @@ export class QuickJSEvaluator {
     return this.state.cache.size;
   }
 
-  async evaluate(rawRequest: EvalRequest): Promise<EvalResult> {
+  evaluate(rawRequest: EvalRequest): Promise<EvalResult> {
+    return Promise.resolve(this.evaluateSync(rawRequest));
+  }
+
+  /**
+   * Evaluate inside the already-initialized release-SYNC VM without yielding
+   * to the host event loop. Authoritative save/export checkpoints use this
+   * entry point; render evaluation stays on the asynchronous Worker backend.
+   */
+  evaluateSync(rawRequest: EvalRequest): EvalResult {
     if (!rawRequest.source.trim()) return {value: undefined};
     const prepared = prepareEvalRequest(rawRequest);
     if (isEvalResult(prepared)) return prepared;

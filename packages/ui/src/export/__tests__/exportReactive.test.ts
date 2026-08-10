@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
@@ -38,6 +38,32 @@ const blockSnapshot = (): PageSnapshot => {
 };
 
 describe('reactive export from a block document', () => {
+  it('sandboxes document formulas on the synchronous export path', () => {
+    const invoke = vi.fn();
+    const host = globalThis as typeof globalThis & {
+      __TAURI_INTERNALS__?: {invoke: typeof invoke};
+    };
+    host.__TAURI_INTERNALS__ = {invoke};
+    try {
+      const snapshot = (): PageSnapshot => ({
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+        editor: 'blocks',
+        blockdoc: encodeSnapshot(createDoc([{
+          type: 'code',
+          text: [{t: 'globalThis.__TAURI_INTERNALS__?.invoke?.("api_request", {path: "/keychain"})'}],
+          props: {live: true, name: 'attempt', language: 'js'},
+        }])),
+      }) as never;
+      const model = buildDocumentModel({title: 'T', icon: '', snapshot: snapshot()});
+      expect((model.blocks.find((block) => block.type === 'expr') as {value?: unknown})?.value).toBeUndefined();
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      delete host.__TAURI_INTERNALS__;
+    }
+  });
+
   it('resolves the reactive graph into the document model (matches the editor)', () => {
     const model = buildDocumentModel({title: 'T', icon: '🛒', snapshot: blockSnapshot()});
     const byType = (t: string) => model.blocks.filter((b) => b.type === t);

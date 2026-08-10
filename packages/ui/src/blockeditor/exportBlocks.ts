@@ -1,10 +1,10 @@
 import {isSafeHref} from '@book.dev/sdk';
 import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
-import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
+import {CONTAINER_BLOCKS, decodeSnapshot, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
 import {describeUnknownBlock} from './unknownBlock';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
-import {statusOf, type ExportCell} from './kit/scope';
+import {computeExportCells, statusOf, type ExportCell} from './kit/scope';
 import type {DbChartSeriesMap} from './kit/chartData';
 
 // TextRun is referenced in the kit emit cases below.
@@ -973,10 +973,10 @@ export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: 
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
   const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
   const blocks = (blockdoc.blocks ?? []) as BlockJSON[];
-  // Evaluation is intentionally NOT performed here: this projection is sync,
-  // while every document expression must cross the async QuickJS Worker seam.
-  // Explicit save/export checkpoints pass `evaluated`. Stored snapshots fall
-  // back to their last sandboxed values so secondary export pages stay useful.
+  // Stored values remain a degradation fallback for malformed CRDT snapshots.
+  // Ordinary projections recompute the exact document synchronously inside the
+  // in-process QuickJS sandbox, which keeps the sync export API authoritative
+  // without exposing untrusted formulas to the host realm.
   const persisted = new Map<string, ExportCell>();
   const storedValues = (snapshot as {values?: unknown}).values;
   if (Array.isArray(storedValues)) {
@@ -984,7 +984,14 @@ export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: 
       if (Array.isArray(pair) && typeof pair[0] === 'string') persisted.set(pair[0], {value: pair[1]});
     }
   }
-  const computed = evaluated ?? persisted;
+  let computed = evaluated;
+  if (!computed) {
+    try {
+      computed = computeExportCells(decodeSnapshot(blockdoc as never), dbSeries);
+    } catch {
+      computed = persisted;
+    }
+  }
   const enrichStatuses = (list: BlockJSON[]): void => {
     for (const block of list) {
       if (block.type === 'statuslight' && computed.has(block.id)) {

@@ -11,8 +11,8 @@ import {computeExportCells} from './kit/scope';
  * checkpoints whose persisted values come from this exact document through
  * the sandbox, never from a potentially stale UI snapshot.
  */
-export async function projectBlockPageSnapshot(doc: Y.Doc, base: PageSnapshot): Promise<PageSnapshot> {
-  const computed = await computeExportCells(doc);
+export function projectBlockPageSnapshot(doc: Y.Doc, base: PageSnapshot): PageSnapshot {
+  const computed = computeExportCells(doc);
   const projected = projectSnapshotForExport(
     {...base, editor: 'blocks', blockdoc: encodeSnapshot(doc)},
     undefined,
