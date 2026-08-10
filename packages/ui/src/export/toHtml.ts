@@ -107,9 +107,14 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
 }
 
-/** Make JS safe to inline inside a `<script>` element. */
+/** Make serialized data safe to inline inside a `<script>` element. */
 function escapeScript(js: string): string {
   return js.replace(/<\//g, '<\\/');
+}
+
+/** Neutralize real script end tags without rewriting JavaScript token boundaries. */
+function escapeExecutableScript(js: string): string {
+  return js.replace(/<\/script(?=[\t\n\f\r />])/gi, '<\\/script');
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -848,7 +853,7 @@ function document_(
   const scriptHashes: string[] = [];
   const inlineScript = (source: string, type?: 'module'): string => {
     // Hash the exact bytes the HTML parser sees, after closing-tag escaping.
-    const escaped = escapeScript(source);
+    const escaped = escapeExecutableScript(source);
     scriptHashes.push(inlineScriptHash(escaped));
     return `<script${type ? ` type="${type}"` : ''}>${escaped}</script>`;
   };
