@@ -1,8 +1,9 @@
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
-import {render, cleanup, act} from '@testing-library/react';
+import {render, cleanup, act, screen} from '@testing-library/react';
 import type {UpdateCheckResult, UpdatesPlatform, PlatformCapabilities} from '../../providers/PlatformCapabilitiesProvider';
 import {PlatformCapabilitiesProvider} from '../../providers/PlatformCapabilitiesProvider';
 import {ConfirmProvider} from '../../providers/ConfirmProvider';
+import {I18nProvider} from '../../providers/I18nProvider';
 import {UPDATE_PREFERENCE_KEYS} from '../../lib/updatePreferences';
 import {LATEST_MAJOR_SEEN_KEY, MAJOR_ANNOUNCED_KEY} from '../../lib/updateScheduler';
 import {resetUpdateRunnerForTests} from '../../lib/updateRunner';
@@ -32,6 +33,16 @@ const NEW_MAJOR: UpdateCheckResult = {
   latestForCurrentMajor: '1.69.1',
   latestMajor: '2.3.0',
 };
+const ADVISORY_UPDATE: UpdateCheckResult = {
+  ...SECURITY_UPDATE,
+  advisory: {
+    id: 'cm4advisory01',
+    severity: 'vulnerable',
+    message: 'This version has a security flaw. Update now.',
+    minSafeVersion: '1.72.0',
+    affectedRange: '<1.72.0',
+  },
+};
 
 function makePlatform(result: UpdateCheckResult): UpdatesPlatform & {
   check: ReturnType<typeof vi.fn>;
@@ -55,11 +66,13 @@ function makePlatform(result: UpdateCheckResult): UpdatesPlatform & {
 function mount(updates: UpdatesPlatform | undefined) {
   const platform: PlatformCapabilities = updates ? {updates} : {};
   return render(
-    <PlatformCapabilitiesProvider value={platform}>
-      <ConfirmProvider>
-        <UpdateScheduler />
-      </ConfirmProvider>
-    </PlatformCapabilitiesProvider>,
+    <I18nProvider>
+      <PlatformCapabilitiesProvider value={platform}>
+        <ConfirmProvider>
+          <UpdateScheduler />
+        </ConfirmProvider>
+      </PlatformCapabilitiesProvider>
+    </I18nProvider>,
   );
 }
 
@@ -111,6 +124,15 @@ describe('UpdateScheduler host', () => {
     });
     await flush();
     expect(platform.relaunched).toHaveBeenCalledTimes(1);
+  });
+
+  it('an active advisory opens the warning instead of racing an automatic install', async () => {
+    const platform = makePlatform(ADVISORY_UPDATE);
+    mount(platform);
+    await flush();
+    expect(screen.getByRole('alertdialog', {name: 'Security warning'})).toBeTruthy();
+    expect(platform.install).not.toHaveBeenCalled();
+    expect(showToastMock).not.toHaveBeenCalled();
   });
 
   it('security-only ON: a non-security update is checked but NOT acted on', async () => {

@@ -23,6 +23,8 @@
  * server-rendered code paths.
  */
 
+import type {UpdateAdvisory} from '../providers/PlatformCapabilitiesProvider';
+
 /** How often the app checks for updates on its own. `never` = don't contact the
  *  update server at all (a manual "Check for updates" still works). */
 export type UpdateCadence = 'daily' | 'weekly' | 'never';
@@ -49,6 +51,8 @@ export interface UpdatePreferences {
   advisorySnooze: UpdateAdvisorySnooze | null;
   /** Advisory ids whose typed acknowledgement was completed on this device. */
   dismissedAdvisoryIds: string[];
+  /** Last active advisory returned by a completed check, for relaunch display. */
+  lastSeenAdvisory: UpdateAdvisory | null;
 }
 
 export const UPDATE_PREFERENCE_KEYS = {
@@ -58,6 +62,7 @@ export const UPDATE_PREFERENCE_KEYS = {
   lastCheckSuccessAt: 'updates.lastCheckSuccessAt',
   advisorySnooze: 'updates.advisorySnooze',
   dismissedAdvisoryIds: 'updates.dismissedAdvisoryIds',
+  lastSeenAdvisory: 'updates.lastSeenAdvisory',
 } as const;
 
 export const DEFAULT_UPDATE_PREFERENCES: UpdatePreferences = {
@@ -67,6 +72,7 @@ export const DEFAULT_UPDATE_PREFERENCES: UpdatePreferences = {
   lastCheckSuccessAt: null,
   advisorySnooze: null,
   dismissedAdvisoryIds: [],
+  lastSeenAdvisory: null,
 };
 
 export const UPDATE_ADVISORY_SNOOZE_MS = 24 * 60 * 60 * 1000;
@@ -92,6 +98,15 @@ function writeRaw(key: string, value: string): void {
     localStorage.setItem(key, value);
   } catch {
     // ignore (private mode / quota)
+  }
+}
+
+function removeRaw(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore (private mode)
   }
 }
 
@@ -214,6 +229,50 @@ export function dismissUpdateAdvisory(advisoryId: string): void {
   writeRaw(UPDATE_PREFERENCE_KEYS.dismissedAdvisoryIds, JSON.stringify(ids));
 }
 
+/** Read the last validated advisory snapshot used to restore a snooze on launch. */
+export function getLastSeenUpdateAdvisory(): UpdateAdvisory | null {
+  const value = readRaw(UPDATE_PREFERENCE_KEYS.lastSeenAdvisory);
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<UpdateAdvisory>;
+    if (
+      typeof parsed.id !== 'string' ||
+      parsed.id.length === 0 ||
+      (parsed.severity !== 'vulnerable' && parsed.severity !== 'major-bug') ||
+      typeof parsed.message !== 'string' ||
+      parsed.message.length === 0 ||
+      Array.from(parsed.message).length > 500 ||
+      typeof parsed.affectedRange !== 'string' ||
+      parsed.affectedRange.length === 0 ||
+      Array.from(parsed.affectedRange).length > 200 ||
+      (parsed.minSafeVersion !== undefined &&
+        (typeof parsed.minSafeVersion !== 'string' ||
+          parsed.minSafeVersion.length === 0 ||
+          Array.from(parsed.minSafeVersion).length > 64))
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      severity: parsed.severity,
+      message: parsed.message,
+      affectedRange: parsed.affectedRange,
+      minSafeVersion: parsed.minSafeVersion,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Replace (or clear) the advisory snapshot after a completed update check. */
+export function setLastSeenUpdateAdvisory(advisory: UpdateAdvisory | null): void {
+  if (advisory === null) {
+    removeRaw(UPDATE_PREFERENCE_KEYS.lastSeenAdvisory);
+    return;
+  }
+  writeRaw(UPDATE_PREFERENCE_KEYS.lastSeenAdvisory, JSON.stringify(advisory));
+}
+
 /** Read all preferences at once (the shape the scheduler wants). */
 export function readUpdatePreferences(): UpdatePreferences {
   return {
@@ -223,5 +282,6 @@ export function readUpdatePreferences(): UpdatePreferences {
     lastCheckSuccessAt: getUpdateLastCheckSuccessAt(),
     advisorySnooze: getUpdateAdvisorySnooze(),
     dismissedAdvisoryIds: getDismissedUpdateAdvisoryIds(),
+    lastSeenAdvisory: getLastSeenUpdateAdvisory(),
   };
 }

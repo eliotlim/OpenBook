@@ -1,8 +1,13 @@
 import {useEffect, useRef} from 'react';
+import {UpdateAdvisoryHost} from '@/components/UpdateAdvisoryWarning';
 import {showToast} from '@/components/ui/toast';
 import {t} from '@/i18n';
 import {anyPageSavePending} from '@/lib/pageSaveStatus';
-import {readUpdatePreferences} from '@/lib/updatePreferences';
+import {
+  isUpdateAdvisoryDismissed,
+  isUpdateAdvisorySnoozed,
+  readUpdatePreferences,
+} from '@/lib/updatePreferences';
 import {runDownloadAndInstall, runUpdateCheck} from '@/lib/updateRunner';
 import {
   SCHEDULER_TICK_MS,
@@ -27,12 +32,11 @@ import {usePlatformCapabilities} from '@/providers/PlatformCapabilitiesProvider'
  * `lib/updateRunner`, the single-flight pipeline shared with the Settings
  * "Check for updates" button, so background and manual can never double-run.
  *
- * Everything here is deliberately quiet: a failed background check or download
- * is a `console.debug` and a retry on a later tick — never an error toast, and
- * never a modal. The only dialog is the restart guard, and only when the user
- * explicitly clicks "Restart to update" while a page save is still in flight
- * (or failed): normally edits are already flushed by the autosave loop, so the
- * restart proceeds without ceremony.
+ * Routine outcomes stay quiet: a failed background check or download is a
+ * `console.debug` and a retry on a later tick. An active advisory is the one
+ * exception: the returned host renders the modal-grade warning shared with
+ * manual checks. Restart confirmation appears only when a page save is still
+ * in flight (or failed); normally edits are already flushed by autosave.
  */
 export default function UpdateScheduler() {
   const {updates} = usePlatformCapabilities();
@@ -98,6 +102,18 @@ export default function UpdateScheduler() {
           return;
         }
 
+        // An unacknowledged advisory owns the foreground decision. Do not race
+        // its Update now / Snooze / Dismiss choices with a background install.
+        // Once snoozed or dismissed, the user's existing auto-update preference
+        // resumes on later checks.
+        if (
+          result.advisory &&
+          !isUpdateAdvisoryDismissed(result.advisory.id) &&
+          !isUpdateAdvisorySnoozed(result.advisory.id)
+        ) {
+          return;
+        }
+
         const currentVersion = await updates.getAppVersion();
         const action = decideUpdateAction(result, {
           currentVersion,
@@ -147,5 +163,5 @@ export default function UpdateScheduler() {
     return () => clearInterval(interval);
   }, [updates]);
 
-  return null;
+  return updates ? <UpdateAdvisoryHost updates={updates} /> : null;
 }

@@ -4,6 +4,7 @@ import {
   UPDATE_PREFERENCE_KEYS,
   getUpdateCadence,
   getDismissedUpdateAdvisoryIds,
+  getLastSeenUpdateAdvisory,
   getUpdateLastCheckAt,
   getUpdateLastCheckSuccessAt,
   getUpdateSecurityOnly,
@@ -14,6 +15,7 @@ import {
   dismissUpdateAdvisory,
   setUpdateCadence,
   setUpdateAdvisorySnooze,
+  setLastSeenUpdateAdvisory,
   setUpdateLastCheckAt,
   setUpdateLastCheckSuccessAt,
   setUpdateSecurityOnly,
@@ -79,6 +81,12 @@ describe('update preferences accessor', () => {
     setUpdateLastCheckSuccessAt(1200);
     setUpdateAdvisorySnooze('advisory-a', 1100, 'launch-a');
     dismissUpdateAdvisory('advisory-old');
+    setLastSeenUpdateAdvisory({
+      id: 'advisory-a',
+      severity: 'vulnerable',
+      message: 'Update now.',
+      affectedRange: '<1.72.3',
+    });
     expect(readUpdatePreferences()).toEqual({
       cadence: 'weekly',
       securityOnly: true,
@@ -86,6 +94,12 @@ describe('update preferences accessor', () => {
       lastCheckSuccessAt: 1200,
       advisorySnooze: {advisoryId: 'advisory-a', snoozedAt: 1100, launchId: 'launch-a'},
       dismissedAdvisoryIds: ['advisory-old'],
+      lastSeenAdvisory: {
+        id: 'advisory-a',
+        severity: 'vulnerable',
+        message: 'Update now.',
+        affectedRange: '<1.72.3',
+      },
     });
   });
 
@@ -113,5 +127,19 @@ describe('update preferences accessor', () => {
     localStorage.setItem(UPDATE_PREFERENCE_KEYS.dismissedAdvisoryIds, JSON.stringify([null, '', 42]));
     expect(getUpdateAdvisorySnooze()).toBeNull();
     expect(getDismissedUpdateAdvisoryIds()).toEqual([]);
+  });
+
+  it('round-trips and clears the last advisory snapshot', () => {
+    const advisory = {
+      id: 'advisory-a',
+      severity: 'major-bug' as const,
+      message: 'Files may fail to open.',
+      affectedRange: '>=1.70.0 <1.72.3',
+      minSafeVersion: '1.72.3',
+    };
+    setLastSeenUpdateAdvisory(advisory);
+    expect(getLastSeenUpdateAdvisory()).toEqual(advisory);
+    setLastSeenUpdateAdvisory(null);
+    expect(getLastSeenUpdateAdvisory()).toBeNull();
   });
 });
