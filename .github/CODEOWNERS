@@ -4,3 +4,14 @@
 /packages/sdk/src/plugins.ts @eliotlim
 /scripts/test-registry-key.json @eliotlim
 /scripts/check-no-private-keys.sh @eliotlim
+
+# Security trust boundaries (SECPOL-1): evaluator and exported runtime,
+# desktop IPC/capabilities, server authorization and plugin surfaces, and the
+# release/signing pipeline all require owner review.
+/packages/ui/src/blockeditor/kit/scope.ts @eliotlim
+/packages/ui/src/export/toHtml.ts @eliotlim
+/packages/app/src-tauri/ @eliotlim
+/packages/server/src/access.ts @eliotlim
+/packages/server/src/ai/ @eliotlim
+/packages/server/src/pluginRoutes.ts @eliotlim
+/.github/workflows/release.yml @eliotlim
