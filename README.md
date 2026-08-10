@@ -112,6 +112,10 @@ OPENBOOK_DATABASE_URL=postgres://user:pass@host:5432/openbook \
 `pnpm dev` runs the SDK, server (with embedded Postgres), UI, web, and desktop
 together.
 
+## Contributing
+
+**Security:** Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md); do not open a public issue.
+
 ## License
 
 OpenBook is released under the [MIT License](LICENSE).
