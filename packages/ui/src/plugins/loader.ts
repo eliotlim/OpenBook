@@ -111,6 +111,7 @@ export function executePlugin(pkg: PluginPackage, hostModules: Record<string, un
       throw new Error(`cannot resolve "${request}" from ${path}`);
     };
 
+    // eslint-disable-next-line no-new-func -- Plugin execution moves into the OB-146 sandbox.
     const fn = new Function('exports', 'require', 'module', `"use strict";${js}`);
     fn(moduleExports, require, {exports: moduleExports});
     return moduleExports;

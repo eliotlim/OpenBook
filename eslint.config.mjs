@@ -42,6 +42,14 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Dynamic code execution is limited to the explicitly annotated legacy
+    // evaluator sites pending the OB-146 sandbox migration.
+    rules: {
+      'no-eval': 'error',
+      'no-new-func': 'error',
+    },
+  },
+  {
     // Plain Node scripts (build helpers, etc.).
     files: ['**/*.{js,cjs,mjs}'],
     languageOptions: {globals: {...globals.node}},

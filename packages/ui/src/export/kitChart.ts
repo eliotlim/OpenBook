@@ -153,6 +153,7 @@ export function kitChartSvg(
 ): string {
   let draw = drawByScheme.get(scheme);
   if (!draw) {
+    // eslint-disable-next-line no-new-func -- Static export shares the legacy runtime pending OB-146.
     draw = new Function(`${kitChartRuntime(scheme)}\nreturn drawKit;`)() as DrawFn;
     drawByScheme.set(scheme, draw);
   }
