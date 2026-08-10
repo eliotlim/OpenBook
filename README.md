@@ -41,6 +41,8 @@ Issues and contributions are welcome. Code quality is the bar. AI-generated PRs
 are accepted, but must meet the house standard. A CLA is required. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+Found a security issue? Report it privately — see [SECURITY.md](SECURITY.md).
+
 ## License
 
 OpenBook is released under the [MIT License](LICENSE).
