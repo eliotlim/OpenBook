@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import {remapBundle, type LibraryBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
-import {bundleRoots, closure, overwriteCount, parseBackup} from '../backupBundle';
+import {backupAccessDelta, bundleRoots, closure, overwriteCount, parseBackup} from '../backupBundle';
 
 const page = (id: string, over: Partial<StoredPage> = {}): StoredPage => ({
   id,
@@ -49,14 +49,42 @@ describe('parseBackup', () => {
   it('carries the v3 asset and page-access manifests through unchanged (OB-699)', () => {
     const assets = [{id: 'a'.repeat(64), mime: 'image/png', size: 1, bytesBase64: 'AA==', refs: ['p']}];
     const pageAccess = [{pageId: 'p', visibility: 'restricted', agentEdits: 'suggest', acl: []}];
-    const parsed = parseBackup(JSON.stringify({version: 3, pages: [page('p')], databases: [], assets, pageAccess}));
+    const parsed = parseBackup(JSON.stringify({
+      version: 3,
+      instanceId: 'instance-a',
+      ownerSubject: 'account#owner',
+      pages: [page('p')],
+      databases: [],
+      assets,
+      pageAccess,
+    }));
     expect(parsed.assets).toEqual(assets);
     expect(parsed.pageAccess).toEqual(pageAccess);
+    expect(parsed.instanceId).toBe('instance-a');
+    expect(parsed.ownerSubject).toBe('account#owner');
   });
 
   it('rejects invalid and future format versions', () => {
     expect(() => parseBackup(JSON.stringify({version: 0, pages: [], databases: []}))).toThrow();
     expect(() => parseBackup(JSON.stringify({version: 4, pages: [], databases: []}))).toThrow();
+  });
+});
+
+describe('backupAccessDelta', () => {
+  it('counts only selected public pages, subject grants, and direct-agent relaxations', () => {
+    const acl = (subject: string | null, email: string | null) => ({
+      subject,
+      email,
+      issuer: email ? 'https://account.example' : null,
+      level: 'write' as const,
+      invitedBy: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(backupAccessDelta([
+      {pageId: 'a', visibility: 'public', agentEdits: 'direct', acl: [acl('acct#a', null), acl(null, 'a@example.com')]},
+      {pageId: 'b', visibility: 'restricted', agentEdits: 'direct', acl: [acl('acct#b', null)]},
+      {pageId: 'c', visibility: 'public', agentEdits: 'suggest', acl: [acl('acct#c', null)]},
+    ], new Set(['a', 'b']))).toEqual({publicPages: 1, subjectGrants: 2, agentEditRelaxations: 2});
   });
 });
 
