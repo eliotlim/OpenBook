@@ -328,7 +328,7 @@ importers:
       node-emoji:
         specifier: ^2.2.0
         version: 2.2.0
-      quickjs-emscripten:
+      quickjs-emscripten-core:
         specifier: 0.32.0
         version: 0.32.0
       react-leaflet:

@@ -1,12 +1,12 @@
 import {
-  newQuickJSWASMModule,
+  newQuickJSWASMModuleFromVariant,
   newVariant,
-  RELEASE_SYNC,
   type QuickJSContext,
   type QuickJSHandle,
   type QuickJSRuntime,
   type QuickJSWASMModule,
-} from 'quickjs-emscripten';
+} from 'quickjs-emscripten-core';
+import RELEASE_SYNC from '@jitl/quickjs-wasmfile-release-sync';
 import quickJSWasmUrl from '@jitl/quickjs-wasmfile-release-sync/wasm?url&inline';
 import type {EvalRequest, EvalResult} from '../scope';
 import {isEvalResult, prepareEvalRequest} from './scopeMarshal';
@@ -53,8 +53,11 @@ const isCapacityError = (message: string): boolean => /out of memory|interrupted
 let quickJSModule: Promise<QuickJSWASMModule> | undefined;
 
 const loadQuickJSModule = (): Promise<QuickJSWASMModule> => {
-  quickJSModule ??= newQuickJSWASMModule(
+  quickJSModule ??= newQuickJSWASMModuleFromVariant(
     newVariant(RELEASE_SYNC, {
+      // Vite's inline Worker is an IIFE in the viewer build, so Emscripten
+      // cannot rely on import.meta.url to locate its sibling WASM file.
+      locateFile: () => quickJSWasmUrl,
       wasmBinary: async () => {
         const response = await fetch(quickJSWasmUrl);
         if (!response.ok) throw new Error(`Unable to load QuickJS WASM (${response.status})`);
