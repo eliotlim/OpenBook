@@ -4,6 +4,9 @@ declare module '*?raw' {
   export default content;
 }
 
+/** True only while building the CSP-safe, read-only standalone viewer. */
+declare const __OB_SAFE_EXPORT_VIEWER__: boolean;
+
 // Vite's build-time `import.meta.glob`. Declared narrowly for the one form this
 // package uses — eager + `?raw`, i.e. "every matching module's source, as a map
 // keyed by path" — rather than pulling in all of `vite/client`, whose own

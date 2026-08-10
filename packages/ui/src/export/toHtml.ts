@@ -36,6 +36,7 @@ import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAsse
 // module doc) — viewer-hydrated exports carry their own chart renderer.
 import d3Umd from './vendor/d3.min.js?raw';
 import plotUmd from './vendor/plot.umd.min.js?raw';
+import SAFE_EXPRESSION_JS from './safeExpressionRuntime.js?raw';
 // The self-contained viewer bundle (IIFE exposing `OpenBookViewer`), generated
 // into vendor/ by `pnpm --filter @book.dev/ui run build:viewer` (which runs
 // FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
@@ -54,9 +55,30 @@ import {
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
+import {inlineScriptHash, pageCsp} from './exportCsp';
 import {pageIconToText} from '@/lib/iconValue';
 import {cellValue, formatCellValue} from '@/components/database/databaseCells';
 import type {SiteBundle, SiteDatabase} from './exportSite';
+
+// The legacy runtime is an inline module and can consume the raw file's named
+// export directly. The hydrated viewer remains a classic IIFE, so its preceding
+// interpreter copy drops that one module keyword and publishes a private hook.
+const SAFE_EXPRESSION_CLASSIC =
+  SAFE_EXPRESSION_JS.replace('export function readSafeExpression', 'function readSafeExpression') +
+  '\nglobalThis.__OB_SAFE_EXPRESSION__=readSafeExpression;';
+
+// D3's DSV helper generates a record-mapper with the Function constructor.
+// Plot charts do not need code generation, but the helper still ships in the
+// UMD. Replace that exact factory with the same mapping expressed as a closure
+// before D3 becomes part of a recipient's file. The split literal ensures this
+// source module does not itself advertise a dynamic-compiler call site.
+const D3_DYNAMIC_RECORD_FACTORY =
+  'function Wu(t){return new ' +
+  'Function("d","return {"+t.map((function(t,n){return JSON.stringify(t)+": d["+n+\'] || ""\'})).join(",")+"}")}';
+const D3_SAFE_RECORD_FACTORY =
+  'function Wu(t){return function(n){return Object.fromEntries(t.map((function(t,e){return[t,n[e]||""]})))}}';
+const SAFE_D3_UMD = d3Umd.replace(D3_DYNAMIC_RECORD_FACTORY, D3_SAFE_RECORD_FACTORY);
+if (SAFE_D3_UMD === d3Umd) throw new Error('Vendored D3 record factory changed; safe export patch needs review');
 
 // ── Canonical data-colour values, inlined at export (self-contained: no live
 // CSS vars). The exporting user's chosen scheme (OB-379) is threaded through the
@@ -85,9 +107,14 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
 }
 
-/** Make JS safe to inline inside a `<script>` element. */
+/** Make serialized data safe to inline inside a `<script>` element. */
 function escapeScript(js: string): string {
-  return js.replace(/<\/script>/gi, '<\\/script>');
+  return js.replace(/<\//g, '<\\/');
+}
+
+/** Neutralize real script end tags without rewriting JavaScript token boundaries. */
+function escapeExecutableScript(js: string): string {
+  return js.replace(/<\/script(?=[\t\n\f\r />])/gi, '<\\/script');
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -823,33 +850,43 @@ function document_(
     lights: ctx.lights,
     progress: ctx.progress,
   };
+  const scriptHashes: string[] = [];
+  const inlineScript = (source: string, type?: 'module'): string => {
+    // Hash the exact bytes the HTML parser sees, after closing-tag escaping.
+    const escaped = escapeExecutableScript(source);
+    scriptHashes.push(inlineScriptHash(escaped));
+    return `<script${type ? ` type="${type}"` : ''}>${escaped}</script>`;
+  };
   // Kit charts draw themselves (drawKit in the runtime) — only classic
   // cell-driven charts need the vendored d3 + Observable Plot bundles.
-  const libs = ctx.charts.some((c) => !c.kind) ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
+  const libs = ctx.charts.some((c) => !c.kind) ? `${inlineScript(SAFE_D3_UMD)}\n${inlineScript(plotUmd)}\n` : '';
   const reactive = !hydrate && live
-    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${runtimeFor(ctx.scheme)}</script>\n`
+    ? `${libs}<script type="application/json" id="ob-data">${escapeScript(JSON.stringify(data))}</script>\n${inlineScript(runtimeFor(ctx.scheme), 'module')}\n`
     : '';
-  const nav = !hydrate && rootId ? `<script>${NAV.replace('__ROOT__', JSON.stringify(rootId))}</script>` : '';
+  const nav = !hydrate && rootId ? inlineScript(NAV.replace('__ROOT__', JSON.stringify(rootId))) : '';
   // Hydrate path: the island must already be in the DOM when the boot runs, so
   // the order is island → viewer bundle → boot, at the end of <body>. The scheme
   // global is set FIRST so the viewer (provider-less) recolours its data surfaces
   // to the exporting user's scheme rather than the pastel default (OB-379).
   const viewer = hydrate
-    ? `\n<script>window.__OB_DATA_SCHEME=${JSON.stringify(ctx.scheme)}</script>\n<script>${escapeScript(viewerJs)}</script>\n<script>${VIEWER_BOOT}</script>`
+    ? `\n${inlineScript(SAFE_EXPRESSION_CLASSIC)}\n${inlineScript(`window.__OB_DATA_SCHEME=${JSON.stringify(ctx.scheme)}`)}\n${inlineScript(viewerJs)}\n${inlineScript(VIEWER_BOOT)}`
     : '';
+  const extraScript = extra?.script ? `\n${inlineScript(extra.script)}` : '';
   const legacyHeader = !hydrate && rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : '';
+  const csp = pageCsp(scriptHashes);
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escapeHtml(headTitle)}</title>
 <style>${stylesFor(ctx.scheme)}${hydrate ? SCHEME_LIGHT : SCHEME_DUAL}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
 </head>
 <body${!hydrate && rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${legacyHeader}${bodyHtml}
-${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}${assetsIsland ? `\n${assetsIsland}` : ''}${viewer}
+${reactive}${nav}${extraScript}${island ? `\n${island}` : ''}${assetsIsland ? `\n${assetsIsland}` : ''}${viewer}
 </body>
 </html>`;
 }
@@ -1336,8 +1373,12 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 .divider[data-style=labeled]::before, .divider[data-style=labeled]::after { content: ""; flex: 1; border-top: 1px solid rgba(127,127,127,.3); }
 `;
 
-// Inlined live runtime: recomputes expressions from slider values and redraws
-// charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
+// Inlined live runtime: safely interprets expressions from slider values and
+// redraws charts. Reuses the saved \`__C__{cellId}__\` reference tokens. The
+// interpreter accepts literals, arithmetic/comparison/logical/ternary operators,
+// arrays/plain objects, safe member reads, Math.*, allowlisted array/string
+// helpers, and the bounded local statement shell used by bundled pages;
+// unsupported sources retain their last export-time value. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline. The kit
 // palette prepended by `kitChartRuntime(scheme)` bakes the active scheme (OB-379)
 // so a redrawn kit chart keeps the exporting user's colours — and the kind-less
@@ -1349,19 +1390,18 @@ const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
 const get = (id) => store.get(id);
 const fmt = (v) => v === undefined ? "—" : typeof v === "number" ? (Number.isInteger(v) ? ""+v : ""+(Math.round(v*1000)/1000)) : Array.isArray(v) ? "["+v.slice(0,8).join(", ")+(v.length>8?", …":"")+"]" : JSON.stringify(v);
-function evalExpr(src){ const code = src.replace(/__C__\\{([^}]+)\\}__/g, (_,id)=>"get("+JSON.stringify(id)+")"); try { return new Function("get","return ("+code+");")(get); } catch(e){ if(!(e instanceof SyntaxError)) return undefined; } try { return new Function("get",code)(get); } catch(e){ return undefined; } }
 function normalize(v,name){ if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return [{name,data:v}]; if(v&&Array.isArray(v.series)) return v.series.map(s=>({name:String(s.name),data:(s.data||[]).filter(n=>typeof n==="number")})); return []; }
 
 function statusOf(v, okAt, warnAt){ if(v===undefined||v===null) return "off"; if(typeof v==="boolean") return v?"ok":"bad"; if(typeof v==="string") return (v==="ok"||v==="warn"||v==="bad")?v:"off"; if(typeof v==="number"){ if(v>=okAt) return "ok"; if(v>=warnAt) return "warn"; return "bad"; } return "off"; }
 function progressOf(v, max, format){ const raw = typeof v==="boolean"?(v?max:0):Number(v==null?0:v); const fr = isFinite(raw)?Math.max(0,Math.min(1, max===0?0:raw/max)):0; const pct=Math.round(fr*100); const trim=(n)=>Number.isInteger(n)?(""+n):(""+(Math.round(n*100)/100)); return {pct:pct, readout: format==="fraction"?(trim(raw)+" / "+trim(max)):(pct+"%")}; }
 function recompute(){
-  for (const e of D.exprs) store.set(e.cell, evalExpr(e.source));
+  for (const e of D.exprs){ const result=readSafeExpression(e.source,get); if(result.ok) store.set(e.cell,result.value); }
   for (const e of D.exprs){ const el=document.querySelector('[data-cell="'+e.cell+'"] [data-val]'); if(el) el.textContent = fmt(get(e.cell)); }
   for (const l of (D.lights||[])){ const el=document.querySelector('[data-light="'+l.cell+'"]'); if(el){ const v=get(l.cell); el.setAttribute("data-status", statusOf(v, l.okAt, l.warnAt)); const val=el.querySelector("[data-val]"); if(val) val.textContent = fmt(v); } }
   for (const p of (D.progress||[])){ const el=document.querySelector('[data-progress="'+p.cell+'"]'); if(el){ const r=progressOf(get(p.cell), p.max, p.format); const fill=el.querySelector("[data-fill]"); if(fill) fill.style.width = r.pct+"%"; const val=el.querySelector("[data-val]"); if(val) val.textContent = r.readout; } }
   for (const c of D.charts){
     const fig = document.querySelector('[data-chart="'+c.id+'"]'); if(!fig) continue;
-    if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[]); continue; }
+    if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[], KIT_PALETTE); continue; }
     const series=[]; for(const cell of c.cells) series.push(...normalize(get(cell), cell));
     const long=[]; series.forEach(s=>s.data.forEach((y,i)=>long.push({i,y,series:s.name})));
     fig.innerHTML="";
@@ -1425,7 +1465,7 @@ recompute();
 
 /** The full live runtime for a scheme: the kit palette (scheme-baked) + drawing
  *  source + the slider/expr/chart re-computation loop. */
-const runtimeFor = (scheme: DataColorScheme): string => kitChartRuntime(scheme) + RUNTIME_REST;
+const runtimeFor = (scheme: DataColorScheme): string => kitChartRuntime(scheme) + SAFE_EXPRESSION_JS + RUNTIME_REST;
 
 // Inlined navigation runtime: shows one page section at a time, swapping on clicks
 // of any in-bundle link (mentions, subpages, database rows) via the URL hash, so

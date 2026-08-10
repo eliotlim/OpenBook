@@ -244,6 +244,25 @@ export interface EvalBackend {
   evaluate(request: EvalRequest): Promise<EvalResult>;
 }
 
+interface ExportSafeResult {
+  ok: boolean;
+  value?: unknown;
+}
+
+type ExportSafeReader = (
+  source: string,
+  get: (cellId: string) => unknown,
+  bindings: Readonly<Record<string, unknown>>,
+) => ExportSafeResult;
+
+/** The standalone viewer injects the export interpreter before its bundle. */
+function readExportExpression(source: string, scope: Record<string, unknown>): EvalResult {
+  const reader = (globalThis as {__OB_SAFE_EXPRESSION__?: ExportSafeReader}).__OB_SAFE_EXPRESSION__;
+  if (!reader) return {error: 'Safe expression runtime is unavailable'};
+  const result = reader(source, () => undefined, scope);
+  return result.ok ? {value: result.value} : {error: 'Unsupported expression in standalone export'};
+}
+
 /**
  * Legacy synchronous backend implementation. It is deliberately module-local:
  * live render consumers use the async cache, while save/export call the named
@@ -251,6 +270,7 @@ export interface EvalBackend {
  */
 function evalExprSync(source: string, scope: Record<string, unknown>): EvalResult {
   if (!source.trim()) return {value: undefined};
+  if (__OB_SAFE_EXPORT_VIEWER__) return readExportExpression(source, scope);
   try {
     // eslint-disable-next-line no-new-func -- Legacy evaluator pending the OB-146 QuickJS sandbox.
     const fn = new Function(...Object.keys(scope), `"use strict"; return (${source});`);
@@ -267,6 +287,7 @@ function evalExprSync(source: string, scope: Record<string, unknown>): EvalResul
  */
 function evalCodeSync(source: string, scope: Record<string, unknown>): EvalResult {
   if (!source.trim()) return {value: undefined};
+  if (__OB_SAFE_EXPORT_VIEWER__) return readExportExpression(source, scope);
   const keys = Object.keys(scope);
   const values = Object.values(scope);
   try {
