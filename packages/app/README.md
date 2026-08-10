@@ -1,7 +1,5 @@
-# Tauri + React + Typescript
+# OpenBook desktop app
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+`@book.dev/app` is the Tauri desktop shell for the OpenBook React UI.
+From the workspace root, run it with `pnpm tauri dev`.
+Create a desktop build with `pnpm build:desktop`.
