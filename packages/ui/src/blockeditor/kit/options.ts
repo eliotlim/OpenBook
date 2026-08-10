@@ -37,26 +37,16 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-// Reserved words can't be used as a binding name in `new Function(name, …)`
-// (the reactive engine), so a label that camelCases to one gets a trailing `_`.
-const RESERVED_WORDS = new Set([
-  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
-  'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof',
-  'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void',
-  'while', 'with', 'let', 'static', 'yield', 'await', 'async', 'implements', 'interface', 'package',
-  'private', 'protected', 'public', 'arguments', 'eval',
-]);
-
 /**
  * Turn ANY free-text display label into a valid TypeScript identifier, so a
  * reader-facing name like "Tax rate (2024) 💰" still publishes a usable symbol
  * (`taxRate2024`) with the author never touching the config. The rules, in
  * order: fold accents to ASCII ("Café" → "Cafe"); split on every run of
  * non-identifier characters and camelCase the words; prefix a leading digit
- * with `_`; suffix a reserved word with `_`. Returns '' only when nothing
- * usable remains (the caller falls back to the block's default symbol). The
- * reactive engine references these via `new Function(name, …)`, so the result
- * is always legal.
+ * with `_`. Returns '' only when nothing usable remains (the caller falls back
+ * to the block's default symbol). The sandbox receives one scope object, so a
+ * reserved word no longer poisons the evaluator's positional parameters; such
+ * a name can be read explicitly as `scope.class` in a formula.
  */
 export const varNameFromLabel = (label: string): string => {
   const folded = label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
@@ -65,9 +55,7 @@ export const varNameFromLabel = (label: string): string => {
   const camel = words
     .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
     .join('');
-  let name = /^[0-9]/.test(camel) ? `_${camel}` : camel;
-  if (RESERVED_WORDS.has(name)) name = `${name}_`;
-  return name;
+  return /^[0-9]/.test(camel) ? `_${camel}` : camel;
 };
 
 /** The value an option actually publishes (explicit value, else slug of label). */

@@ -2,12 +2,12 @@ import type * as Y from 'yjs';
 import {
   captureScopeProgram,
   evaluateScopeProgram,
-  newFunctionEvalBackend,
   type ComputedScope,
   type EvalBackend,
   type EvalRequest,
   type EvalResult,
 } from './scope';
+import {quickJSEvalBackend} from './sandbox/quickjsBackend';
 
 /** A synchronously readable external-store snapshot. While `pending`, `value`
  * is the last completed document scope (when one exists). */
@@ -62,7 +62,7 @@ export class ReactiveEvalCache {
 
   constructor(
     private readonly doc: Y.Doc,
-    private readonly backend: EvalBackend = newFunctionEvalBackend,
+    private readonly backend: EvalBackend = quickJSEvalBackend,
   ) {}
 
   readonly subscribe = (listener: () => void): (() => void) => {

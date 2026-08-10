@@ -13,6 +13,7 @@ import {
 import {projectSnapshotForExport} from '@/blockeditor/exportBlocks';
 import {projectBlockPageSnapshot} from '@/blockeditor/saveProjection';
 import {resolveDbChartSeries} from '@/blockeditor/kit/chartData';
+import {computeExportCells} from '@/blockeditor/kit/scope';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
 import {resolveExportAssets} from '@/export/exportAssets';
@@ -218,7 +219,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     // EXPORTS (a parent database's expr columns read them via projectExports), so they
     // must track the live document, and a named live-code output must publish its
     // computed value too — the projection only carries its runtime expression.
-    const snapshot = projectBlockPageSnapshot(doc, base);
+    const snapshot = await projectBlockPageSnapshot(doc, base);
     // Skip a no-op save: a Y.Doc change that nets to no difference in what the page
     // persists (an undo/redo round-trip, an edit to an unprojected prop, or a recompute
     // yielding identical values) shouldn't write — re-saving identical content only
@@ -424,13 +425,14 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     // doc — a DB chart persists no snapshot, so viewing/presenting is write-free.
     const encoded = encodeSnapshot(doc);
     const dbSeries = await resolveDbChartSeries(client, encoded.blocks ?? []);
+    const computed = await computeExportCells(doc, dbSeries);
     const snapshot = projectSnapshotForExport({
       editorjs: {blocks: []},
       values: [],
       names: [],
       editor: 'blocks',
       blockdoc: encoded,
-    }, dbSeries);
+    }, dbSeries, computed);
     const base = safeFilename(title);
     // Identity stamped into a single-page/deck export's source island (so a saved
     // page re-imports onto its own id). Unsaved pages leave it blank — the island

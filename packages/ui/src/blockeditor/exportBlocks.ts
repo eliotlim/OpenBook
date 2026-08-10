@@ -1,10 +1,10 @@
 import {isSafeHref} from '@book.dev/sdk';
 import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
-import {CONTAINER_BLOCKS, decodeSnapshot, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
+import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
 import {describeUnknownBlock} from './unknownBlock';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
-import {computeExportCells, type ExportCell} from './kit/scope';
+import {statusOf, type ExportCell} from './kit/scope';
 import type {DbChartSeriesMap} from './kit/chartData';
 
 // TextRun is referenced in the kit emit cases below.
@@ -965,21 +965,41 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
  *  into the export-projection shape; everything else passes through untouched.
  *  Export entry points call this so mixed trees (a legacy stored page linking
  *  block subpages, or vice versa) export every page faithfully. */
-export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T, dbSeries?: DbChartSeriesMap): T {
+export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: unknown}>(
+  snapshot: T,
+  dbSeries?: DbChartSeriesMap,
+  evaluated?: Map<string, ExportCell>,
+): T {
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
   const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
   const blocks = (blockdoc.blocks ?? []) as BlockJSON[];
-  // Resolve the reactive graph the way the editor does, so the export carries the
-  // same computed values (numbers, chart series, light/progress states) the
-  // window shows — not empty cells. Falls back to an empty map if the CRDT update
-  // can't be decoded (the projection still works, just without precomputed
-  // values; the interactive HTML recomputes them anyway).
-  let computed: Map<string, ExportCell> | undefined;
-  try {
-    computed = computeExportCells(decodeSnapshot(blockdoc as never), dbSeries);
-  } catch {
-    computed = undefined;
+  // Evaluation is intentionally NOT performed here: this projection is sync,
+  // while every document expression must cross the async QuickJS Worker seam.
+  // Explicit save/export checkpoints pass `evaluated`. Stored snapshots fall
+  // back to their last sandboxed values so secondary export pages stay useful.
+  const persisted = new Map<string, ExportCell>();
+  const storedValues = (snapshot as {values?: unknown}).values;
+  if (Array.isArray(storedValues)) {
+    for (const pair of storedValues) {
+      if (Array.isArray(pair) && typeof pair[0] === 'string') persisted.set(pair[0], {value: pair[1]});
+    }
   }
+  const computed = evaluated ?? persisted;
+  const enrichStatuses = (list: BlockJSON[]): void => {
+    for (const block of list) {
+      if (block.type === 'statuslight' && computed.has(block.id)) {
+        const cell = computed.get(block.id)!;
+        cell.status = statusOf(
+          cell.value,
+          undefined,
+          Number(block.props?.okAt ?? 1),
+          Number(block.props?.warnAt ?? 0),
+        );
+      }
+      if (block.children) enrichStatuses(block.children);
+    }
+  };
+  enrichStatuses(blocks);
   const projected = projectBlocksForExport(blocks, computed, dbSeries);
   // `editorjs` is the RETAINED on-disk storage key for the export projection
   // (back-compat alias — see PageSnapshot in sdk/types.ts). Every consumer reads

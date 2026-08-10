@@ -4,6 +4,7 @@ import {BlockEditor} from '../BlockEditor';
 import {createDoc, findBlock, setBlockProp} from '../model';
 import {registerReactiveBlocks} from '../reactiveBlocks';
 import {registerArtifactKit} from '../kit';
+import {quickJSEvalBackend} from '../kit/sandbox/quickjsBackend';
 import {useBlockEditor, type BlockEditorController} from '../useBlockEditor';
 
 registerReactiveBlocks();
@@ -30,11 +31,8 @@ describe('reactive scope memo', () => {
     expect(controller?.evalCache.getScopeSnapshot()).toEqual({pending: true, version: -1});
   });
 
-  it('compiles N formulas once per document version across N reactive renders', async () => {
-    const NativeFunction = globalThis.Function;
-    const compile = vi.spyOn(globalThis, 'Function').mockImplementation(function (...args: string[]) {
-      return NativeFunction(...args);
-    });
+  it('evaluates N formulas once per document version across N reactive renders', async () => {
+    const evaluate = vi.spyOn(quickJSEvalBackend, 'evaluate');
     const doc = createDoc([
       {id: 'input', type: 'slider', props: {name: 'x', value: 2}},
       {id: 'f1', type: 'formula', props: {name: 'a', source: 'x + 1'}},
@@ -46,18 +44,18 @@ describe('reactive scope memo', () => {
     // First paint is explicitly pending; evaluation completes after render.
     expect([...view.container.querySelectorAll('.obe-formula-out')].map((node) => node.textContent)).toEqual(['—', '—', '—']);
     await waitFor(() => expect([...view.container.querySelectorAll('.obe-formula-out')].map((node) => node.textContent)).toEqual(['3', '6', '7']));
-    expect(compile).toHaveBeenCalledTimes(3);
+    expect(evaluate).toHaveBeenCalledTimes(3);
 
     // A parent render with an unchanged doc reuses the same version-keyed value.
     view.rerender(<BlockEditor doc={doc} />);
-    expect(compile).toHaveBeenCalledTimes(3);
+    expect(evaluate).toHaveBeenCalledTimes(3);
 
-    // A doc update bumps the editor version: one new scope pass recompiles the
+    // A doc update bumps the editor version: one new scope pass evaluates the
     // three formulas, even though all three FormulaBlock components render.
     const formula = findBlock(doc, 'f3')!.block;
     act(() => doc.transact(() => setBlockProp(formula, 'source', 'b + 2'), 'local'));
     await waitFor(() => expect([...view.container.querySelectorAll('.obe-formula-out')].map((node) => node.textContent)).toEqual(['3', '6', '8']));
-    expect(compile).toHaveBeenCalledTimes(6);
+    expect(evaluate).toHaveBeenCalledTimes(6);
   });
 
   it('keeps a chart reactive to slider updates through the shared scope', async () => {
