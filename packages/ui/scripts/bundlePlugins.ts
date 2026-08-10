@@ -29,6 +29,7 @@ import {mkdirSync, readFileSync, readdirSync, writeFileSync, statSync} from 'fs'
 import {join, relative, resolve} from 'path';
 import ts from 'typescript';
 import {OPENBOOK_REGISTRY_KEYS} from '@book.dev/sdk';
+import {relativePluginPath} from './bundlePluginPaths';
 import {resolveSigningKey, signBundledPackage} from './bundleSigning';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..');
@@ -83,7 +84,7 @@ function walk(dir: string, base: string): string[] {
     if (statSync(full).isDirectory()) {
       results.push(...walk(full, base));
     } else {
-      results.push(relative(base, full));
+      results.push(relativePluginPath(base, full));
     }
   }
   return results;
