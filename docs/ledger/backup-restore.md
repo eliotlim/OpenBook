@@ -93,6 +93,14 @@ server to obtain a complete v3 bundle. Two other deliberate refusals to know abo
 materializes it in memory (bounded by the route's 512 MiB body cap). A streaming
 bundle format is future work.
 
+**Scope boundary:** this is a lossless restore of the documented *live library*
+surface, not a raw instance clone. Trash, page-version history, review
+comments/suggestions, general edit provenance, roster/instance configuration,
+installed plugins, and agent credentials/settings remain operational state and
+are not serialized. Orphaned assets with no live-page reference are likewise
+excluded. Back up/deploy that control-plane state separately if it matters to
+the recovery objective.
+
 ## Trust model — what restoring a bundle means
 
 **Restoring a bundle is trusting its author.** The restore door proves the
