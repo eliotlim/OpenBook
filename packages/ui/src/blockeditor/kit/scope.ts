@@ -231,6 +231,7 @@ export function setNamedNumber(doc: Y.Doc, name: string, next: (current: number)
 export function evalExpr(source: string, scope: Record<string, unknown>): {value?: unknown; error?: string} {
   if (!source.trim()) return {value: undefined};
   try {
+    // eslint-disable-next-line no-new-func -- Legacy evaluator pending the OB-146 QuickJS sandbox.
     const fn = new Function(...Object.keys(scope), `"use strict"; return (${source});`);
     return {value: fn(...Object.values(scope)) as unknown};
   } catch (err) {
@@ -248,12 +249,14 @@ export function evalCode(source: string, scope: Record<string, unknown>): {value
   const keys = Object.keys(scope);
   const values = Object.values(scope);
   try {
+    // eslint-disable-next-line no-new-func -- Legacy evaluator pending the OB-146 QuickJS sandbox.
     const fn = new Function(...keys, `"use strict"; return (${source});`);
     return {value: fn(...values) as unknown};
   } catch (err) {
     if (!(err instanceof SyntaxError)) return {error: err instanceof Error ? err.message : String(err)};
   }
   try {
+    // eslint-disable-next-line no-new-func -- Legacy evaluator pending the OB-146 QuickJS sandbox.
     const fn = new Function(...keys, `"use strict"; ${source}`);
     return {value: fn(...values) as unknown};
   } catch (err) {

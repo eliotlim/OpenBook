@@ -6,7 +6,7 @@ import {blockId, blockProp, type BlockMap, type TextRun} from '../model';
 import {domToRuns, runsToHtml} from '../RichTextEditor';
 import {isColorToken} from '../colors';
 import type {CustomBlockProps} from '../registry';
-import {computeScope, evalExpr} from './scope';
+import {evalExpr} from './scope';
 import {ConfigField, ConfigInput, ConfigToggle, KitFrame, kitSet} from './KitFrame';
 import {labelOf, resolveOptions, type KitOption} from './options';
 import {OptionsEditor} from './OptionsEditor';
@@ -234,7 +234,7 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 function dynamicOptions(block: BlockMap, editor: CustomBlockProps['editor']): KitOption[] {
   const source = (blockProp<string>(block, 'dynamic') ?? '').trim();
   if (!source) return resolveOptions(block);
-  const {value} = evalExpr(source, computeScope(editor.doc).scope);
+  const {value} = evalExpr(source, editor.computedScope().scope);
   const list = Array.isArray(value)
     ? value
     : typeof value === 'string'

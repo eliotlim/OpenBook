@@ -4,6 +4,7 @@ import {createDoc, rootBlocks, type BlockMap} from '../../model';
 import type {BlockEditorController} from '../../useBlockEditor';
 import {CHART_BLOCKS, getChartKind, fmtChartValue, type ChartRenderArgs} from '../charts';
 import {PALETTE} from '../chartMath';
+import {computeScope} from '../scope';
 
 // The chart block that renders any kind (derived from the registry — one entry).
 const ChartBlock = CHART_BLOCKS[0].render;
@@ -32,7 +33,7 @@ afterEach(() => cleanup());
 function renderChart(props: Record<string, unknown>, opts: {readOnly?: boolean} = {}) {
   const doc = createDoc([{id: 'c', type: 'kitchart', props}]);
   const block: BlockMap = rootBlocks(doc).get(0);
-  const editor = {doc, readOnly: opts.readOnly ?? false} as unknown as BlockEditorController;
+  const editor = {doc, readOnly: opts.readOnly ?? false, computedScope: () => computeScope(doc)} as unknown as BlockEditorController;
   const utils = render(<ChartBlock block={block} editor={editor} pageReadOnly={opts.readOnly ?? false} />);
   return {...utils, doc, block};
 }

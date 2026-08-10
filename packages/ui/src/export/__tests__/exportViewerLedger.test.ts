@@ -79,6 +79,7 @@ function hydrate(html: string): void {
   expect(boot).toContain('ob-viewer-host'); // sliced the right script
   (window as {OpenBookViewer?: unknown}).OpenBookViewer = {mount};
   act(() => {
+    // eslint-disable-next-line no-new-func -- Execute the generated viewer boot script in the test DOM.
     new Function(boot)();
   });
 }
@@ -209,6 +210,7 @@ describe('LX-5 — the static markup carries what the boot needs', () => {
     const boot = html.slice(html.lastIndexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'));
     (window as {OpenBookViewer?: unknown}).OpenBookViewer = {mount};
     act(() => {
+      // eslint-disable-next-line no-new-func -- Execute the generated viewer boot script in the test DOM.
       new Function(boot)();
     });
     expect(document.querySelector('main')).toBeTruthy();
