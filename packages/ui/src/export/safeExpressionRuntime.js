@@ -357,7 +357,7 @@ function interpret(tree, get, bindings) {
       if (typeof value === 'function') stop();
       return value;
     }
-    stop();
+    return undefined;
   };
   const lambda = (fn, args) => {
     if (!isLambda(fn)) stop();

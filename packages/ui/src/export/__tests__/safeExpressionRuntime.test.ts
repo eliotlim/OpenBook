@@ -25,6 +25,15 @@ describe('standalone safe-expression grammar', () => {
     expect(readSafeExpression('group.count.value + offset', get, {group: {count: {value: 4}}, offset: 2})).toEqual({ok: true, value: 6});
   });
 
+  it('matches JavaScript for absent own properties and out-of-bounds indexes', () => {
+    const config: {color?: string} = {};
+    const items = [1, 2];
+
+    expect(readSafeExpression('config.color || "blue"', get, {config})).toEqual({ok: true, value: config.color || 'blue'});
+    expect(readSafeExpression('config.color ?? "blue"', get, {config})).toEqual({ok: true, value: config.color ?? 'blue'});
+    expect(readSafeExpression('items[99]', get, {items})).toEqual({ok: true, value: items[99]});
+  });
+
   it('supports the expression-only compound-series form used by exported sample charts', () => {
     const result = readSafeExpression(
       'return {low: Array.from({length: quantity}, (_, i) => Math.pow(1.03, i / 12)), high: Array.from({length: quantity}, (_, i) => Math.pow(1.10, i / 12))};'

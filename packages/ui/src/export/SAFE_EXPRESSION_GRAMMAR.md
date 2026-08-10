@@ -12,8 +12,9 @@ Standalone HTML files do not run page-authored JavaScript. Both the legacy
   additionally resolve their already-built input scope by identifier.
 - Parentheses; unary `!`, `+`, `-`; arithmetic `+ - * / % **`; comparisons and
   equality; `&&`, `||`, `??`; and `condition ? yes : no`.
-- Own-property reads and array/string `.length`. `__proto__`, `prototype`, and
-  `constructor` are always rejected.
+- Own-property reads and array/string `.length`. An absent own property yields
+  `undefined` without walking the prototype chain; own function-valued
+  properties, `__proto__`, `prototype`, and `constructor` are always rejected.
 - Expression-bodied arrow callbacks and these bounded helpers:
   - deterministic `Math` constants and numeric functions (including the real
     export uses `min`, `max`, `round`, and `pow`; `random` is excluded);
@@ -21,7 +22,8 @@ Standalone HTML files do not run page-authored JavaScript. Both the legacy
   - `Object.keys`, `Object.values`, `Object.entries`;
   - non-mutating array operations `slice`, `concat`, `includes`, `indexOf`,
     `lastIndexOf`, `join`, `at`, `reverse`, `map`, `filter`, `some`, `every`,
-    `find`, `findIndex`, `flatMap`, `reduce`, and `sort` (sort/reverse clone);
+    `find`, `findIndex`, `flatMap`, `reduce`, and comparator-required `sort`
+    (sort/reverse clone rather than mutating the source array);
   - bounded string search/case/slice/split helpers and numeric formatting.
 - A narrow statement shell used by the bundled Grocery and Savings pages:
   local `const`/`let`, assignment to a declared `let`, a counted
@@ -43,7 +45,8 @@ classes, function-body arrows, `var`, `if`/`switch`/`while`/`try`/`throw`, async
 code, imports, generators, assignments to cells/properties, mutating array
 methods other than local-array `push`, computed prototype access, regular
 expressions, template literals, destructuring/spread, bitwise/comma operators,
-and non-allowlisted host APIs are unsupported. These are author-written exotic
+optional chaining (`?.`), bare `.sort()` without a comparator, and
+non-allowlisted host APIs are unsupported. These are author-written exotic
 live-code constructs; no current bundled page needs them.
 
 An unsupported or over-budget source returns no result. Recompute keeps that
