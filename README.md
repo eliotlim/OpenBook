@@ -1,27 +1,22 @@
 # OpenBook
 
-**A free, open-source, local-first app for notes, databases, and documents that
-compute.**
+**A safe space for your notes — free, open source, and yours offline.**
 
 ![OpenBook with a slider driving a live chart](docs/media/hero-reactive-kit.png)
 
 Your work lives on your machine. OpenBook works offline. Sync and self-hosting
-are optional.
+are optional. OpenBook backs itself up automatically, out of the box.
 
 ## Features
 
-- Build calculators, charts, and dashboards from reactive blocks. Inspect their
-  live dataflow.
-- Put typed databases inside pages. Filter, sort, and switch views.
-- Nest pages. Open them in tabs, windows, or a split view.
-- Recover deleted pages from Trash.
+- Build calculators, charts and dashboards that update as you type — and see how they're wired.
+- Put spreadsheets inside your pages. Filter, sort, and switch between table, board, calendar, timeline, map and more.
+- Keep pages inside pages. Open them in tabs, windows, or side by side.
+- Deleted something? Get it back from the Trash.
 - Export self-contained HTML that stays interactive offline.
-- Add custom blocks, commands, and integrations with signed plugins.
+- Add custom blocks, commands, and integrations with plugins.
 
-<p align="center">
-  <img src="docs/media/feature-reactive-kit.png" alt="A slider updating a compound-growth chart" width="49%">
-  <img src="docs/media/feature-database-views.png" alt="A project database shown as a board" width="49%">
-</p>
+![A project database shown as a board](docs/media/feature-database-views.png)
 
 ![A coffee shop database shown on a map](docs/media/feature-coffee-shops.png)
 
@@ -33,7 +28,7 @@ Get the [latest release](https://github.com/eliotlim/OpenBook/releases/latest).
 
 - macOS: Apple Silicon and Intel
 - Linux: `.deb`, `.rpm`, and `.AppImage`
-- Windows: `.msi` and `.exe`
+- Windows: coming shortly
 
 ## Sharing and sync
 

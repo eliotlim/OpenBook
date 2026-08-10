@@ -13,7 +13,7 @@ Issues and contributions are welcome.
 
 - Keep each change focused.
 - Use conventional commits.
-- Run `pnpm verify`. It must pass.
+- Run `pnpm verify`. It must pass. For UI changes also run `pnpm test:e2e:web` (first time: `pnpm --filter @book.dev/web exec playwright install chromium`).
 - Add before-and-after evidence for visual changes.
 - Update tests and docs when behavior changes.
 
@@ -26,4 +26,4 @@ The author is accountable for correctness.
 
 ## CLA
 
-A Contributor License Agreement is required. Signing instructions will be added.
+A Contributor License Agreement is required before your first pull request is merged. We'll comment on your PR with the link.
