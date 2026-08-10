@@ -21,7 +21,11 @@
  */
 
 import {resolveAccountUrl} from '@book.dev/sdk';
-import type {UpdateCheckResult, UpdateSecurityInfo} from '../providers/PlatformCapabilitiesProvider';
+import type {
+  UpdateAdvisory,
+  UpdateCheckResult,
+  UpdateSecurityInfo,
+} from '../providers/PlatformCapabilitiesProvider';
 
 /** What the caller knows about the running build. */
 export interface UpdateCheckParams {
@@ -71,6 +75,40 @@ export function semverMajor(v: string): number | null {
 const asVersionString = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
+/** JSON Schema string lengths count Unicode code points, not UTF-16 units. */
+const asContractString = (value: unknown, maxCodePoints?: number): string | undefined => {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  if (maxCodePoints !== undefined && Array.from(value).length > maxCodePoints) return undefined;
+  return value;
+};
+
+/**
+ * Parse the additive LNCH-8 advisory. An invalid advisory is ignored without
+ * poisoning the ordinary update result: older/newer servers can still answer
+ * the pre-advisory contract. Unknown advisory properties are intentionally not
+ * copied into the normalized result.
+ */
+function parseAdvisory(value: unknown): UpdateAdvisory | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const id = asContractString(raw.id);
+  const severity = raw.severity;
+  const message = asContractString(raw.message, 500);
+  const affectedRange = asContractString(raw.affected_range, 200);
+  const minSafeVersion =
+    raw.min_safe_version === undefined ? undefined : asContractString(raw.min_safe_version, 64);
+  if (
+    !id ||
+    (severity !== 'vulnerable' && severity !== 'major-bug') ||
+    !message ||
+    !affectedRange ||
+    (raw.min_safe_version !== undefined && minSafeVersion === undefined)
+  ) {
+    return undefined;
+  }
+  return {id, severity, message, minSafeVersion, affectedRange};
+}
+
 /**
  * Map the check endpoint's response body onto {@link UpdateCheckResult}.
  * Availability is decided by comparing the current version against
@@ -106,6 +144,7 @@ export function mapUpdateCheckResponse(currentVersion: string, body: unknown): U
     latestMajor,
     latestForCurrentMajor,
     security,
+    advisory: parseAdvisory(r.advisory),
   };
 }
 

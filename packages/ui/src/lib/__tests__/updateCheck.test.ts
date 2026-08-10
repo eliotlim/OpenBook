@@ -62,6 +62,58 @@ describe('mapUpdateCheckResponse', () => {
     expect(r.security).toEqual({updateAvailable: true, fixedIn: '1.70.0'});
   });
 
+  it('parses an advisory and ignores unknown fields', () => {
+    const r = mapUpdateCheckResponse('1.69.1', {
+      ...CHECK_OK,
+      advisory: {
+        id: 'cm4advisory01',
+        severity: 'vulnerable',
+        message: 'This version has a security flaw. Update now.',
+        min_safe_version: '1.72.3',
+        affected_range: '>=1.70.0 <1.72.3',
+        future_field: {ignored: true},
+      },
+      future_top_level_field: true,
+    });
+    expect(r.advisory).toEqual({
+      id: 'cm4advisory01',
+      severity: 'vulnerable',
+      message: 'This version has a security flaw. Update now.',
+      minSafeVersion: '1.72.3',
+      affectedRange: '>=1.70.0 <1.72.3',
+    });
+  });
+
+  it('ignores a malformed advisory without failing the update check', () => {
+    const malformed = [
+      null,
+      {id: '', severity: 'vulnerable', message: 'Warning', affected_range: '<2.0.0'},
+      {id: 'a', severity: 'unknown', message: 'Warning', affected_range: '<2.0.0'},
+      {id: 'a', severity: 'major-bug', message: '', affected_range: '<2.0.0'},
+      {id: 'a', severity: 'major-bug', message: 'x'.repeat(501), affected_range: '<2.0.0'},
+      {id: 'a', severity: 'major-bug', message: 'Warning', affected_range: ''},
+      {id: 'a', severity: 'major-bug', message: 'Warning', affected_range: '<2.0.0', min_safe_version: 2},
+    ];
+    for (const advisory of malformed) {
+      const r = mapUpdateCheckResponse('1.69.1', {...CHECK_OK, advisory});
+      expect(r.status).toBe('update-available');
+      expect(r.advisory).toBeUndefined();
+    }
+  });
+
+  it('counts advisory message length in Unicode code points', () => {
+    const r = mapUpdateCheckResponse('1.69.1', {
+      ...CHECK_OK,
+      advisory: {
+        id: 'emoji-warning',
+        severity: 'major-bug',
+        message: '🚨'.repeat(500),
+        affected_range: '<2.0.0',
+      },
+    });
+    expect(r.advisory?.message).toBe('🚨'.repeat(500));
+  });
+
   it('falls back to latestVersion when latestForCurrentMajor is missing', () => {
     const r = mapUpdateCheckResponse('1.69.1', {latestVersion: '1.70.0'});
     expect(r.status).toBe('update-available');
