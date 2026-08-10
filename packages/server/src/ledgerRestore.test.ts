@@ -312,7 +312,8 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     const s = new PageStore(source.db);
     await seedLedgerFromFixture(s, buildBeancountMiniBook());
     const v3 = await s.exportAll();
-    const {assets = [], pageAccess: _pageAccess, ...legacy} = v3;
+    const {assets = [], ...legacy} = v3;
+    delete legacy.pageAccess;
     cachedBundle = {
       ...legacy,
       version: 2,
