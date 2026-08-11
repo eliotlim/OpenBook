@@ -104,6 +104,10 @@ export const zh: PartialMessages = {
   tabs: {
     new: '新建标签页',
     close: '关闭标签页',
+    closeOthers: '关闭其他标签页',
+    closeRight: '关闭右侧标签页',
+    duplicate: '复制标签页',
+    moveToWindow: '将标签页移至新窗口',
   },
   trash: {
     movedToast: '已将"{page}"移至回收站',

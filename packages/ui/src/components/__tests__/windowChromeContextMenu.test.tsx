@@ -35,6 +35,7 @@ vi.mock('../LibrarySelectMenu', () => ({default: () => <button type="button">Lib
 vi.mock('../SideNavToggle', () => ({default: () => <button type="button">Sidebar</button>}));
 vi.mock('../BackForwardCluster', () => ({default: () => <button type="button">History</button>}));
 vi.mock('../PageIcon', () => ({PageIcon: () => null}));
+vi.mock('../PageContextMenu', () => ({PageMenuItems: () => null}));
 vi.mock('@/lib/pageIcon', () => ({readPageIcon: () => '', subscribePageIcon: () => () => {}}));
 
 function expectContextMenuSuppressed(element: Element): void {

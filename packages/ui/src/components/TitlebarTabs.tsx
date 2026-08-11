@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
-import {Plus, X} from 'lucide-react';
-import {useNavigation, useTranslation} from '@/providers';
+import {AppWindow, CopyPlus, Plus, X} from 'lucide-react';
+import {useNavigation, usePlatformCapabilities, useTranslation} from '@/providers';
 import {HOME_PAGE_ID} from '@/lib/homePage';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
@@ -9,6 +9,22 @@ import LibrarySelectMenu from '@/components/LibrarySelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
 import {suppressContextMenu} from '@/lib/suppressContextMenu';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {MENU_COMPONENTS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {PageMenuItems} from '@/components/PageContextMenu';
+
+type TabRef = Readonly<{id: string}>;
+
+/** Ordered tab ids to close while keeping `tabId`. */
+export function tabIdsToCloseOthers(tabs: readonly TabRef[], tabId: string): string[] {
+  return tabs.filter((tab) => tab.id !== tabId).map((tab) => tab.id);
+}
+
+/** Ordered tab ids strictly after `tabId`; an unknown id has no targets. */
+export function tabIdsToCloseRight(tabs: readonly TabRef[], tabId: string): string[] {
+  const index = tabs.findIndex((tab) => tab.id === tabId);
+  return index < 0 ? [] : tabs.slice(index + 1).map((tab) => tab.id);
+}
 
 /**
  * The in-window tab bar, drawn in the titlebar (Chrome/Arc style) on the
@@ -21,7 +37,9 @@ import {suppressContextMenu} from '@/lib/suppressContextMenu';
  */
 export default function TitlebarTabs() {
   const {inWindowTabs, tabs, activeTabId, selectTab, closeTab, openInNew, pageLabel} = useNavigation();
+  const {tabs: tabsPlatform} = usePlatformCapabilities();
   const {t} = useTranslation();
+  const C = MENU_COMPONENTS.context;
   // Icons live in localStorage; re-render when one changes so tab icons stay
   // in sync the moment the user picks a new page icon.
   const [, setIconVersion] = useState(0);
@@ -56,51 +74,92 @@ export default function TitlebarTabs() {
       <div className="flex min-w-0 items-end gap-1 overflow-x-auto scrollbar-none">
         {tabs.map((tab) => {
           const active = tab.id === activeTabId;
+          const closeOthers = tabIdsToCloseOthers(tabs, tab.id);
+          const closeRight = tabIdsToCloseRight(tabs, tab.id);
           return (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={active}
-              onMouseDown={() => selectTab(tab.id)}
-              title={pageLabel(tab.pageId)}
-              className={cn(
-                'group flex min-w-0 max-w-[200px] cursor-default items-center gap-1.5 px-2 text-sm transition-colors',
-                // The active tab drops the floating gap, takes the page's fill +
-                // a hairline border open at the bottom (rounded only on top) and
-                // sits flush on the titlebar's lower edge. `relative z-[1]` lifts
-                // it one layer above the desk so its fill paints over the page
-                // sheet's top border where they meet (the cover row is pulled up
-                // 1px — see `.ob-desk-row[data-titlebar]` in index.css): the
-                // sheet's border is thus interrupted only under this tab, so it
-                // reads as the page extruded up into a tab. Inactive tabs float
-                // above that line.
-                active
-                  ? // pb-1 mirrors the inactive tab's `mb-1`: both reserve 4px at
-                // the strip's lower edge so the label centers over the same
-                // region and doesn't drop when a tab becomes active.
-                  'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
-                  : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
-              )}
-            >
-              <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
-              <span className="truncate">{pageLabel(tab.pageId)}</span>
-              {multiple && (
-                <button
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                  aria-label={t('tabs.close')}
+            <ContextMenu key={tab.id}>
+              <ContextMenuTrigger asChild>
+                <div
+                  role="tab"
+                  aria-selected={active}
+                  onMouseDown={() => selectTab(tab.id)}
+                  title={pageLabel(tab.pageId)}
                   className={cn(
-                    'ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition',
-                    'opacity-0 hover:bg-hover hover:text-foreground group-hover:opacity-100',
-                    active && 'opacity-100',
+                    'group flex min-w-0 max-w-[200px] cursor-default items-center gap-1.5 px-2 text-sm transition-colors',
+                    // The active tab drops the floating gap, takes the page's fill +
+                    // a hairline border open at the bottom (rounded only on top) and
+                    // sits flush on the titlebar's lower edge. `relative z-[1]` lifts
+                    // it one layer above the desk so its fill paints over the page
+                    // sheet's top border where they meet (the cover row is pulled up
+                    // 1px — see `.ob-desk-row[data-titlebar]` in index.css): the
+                    // sheet's border is thus interrupted only under this tab, so it
+                    // reads as the page extruded up into a tab. Inactive tabs float
+                    // above that line.
+                    active
+                      ? // pb-1 mirrors the inactive tab's `mb-1`: both reserve 4px at
+                    // the strip's lower edge so the label centers over the same
+                    // region and doesn't drop when a tab becomes active.
+                      'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
+                      : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
                   )}
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
+                  <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
+                  <span className="truncate">{pageLabel(tab.pageId)}</span>
+                  {multiple && (
+                    <button
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        closeTab(tab.id);
+                      }}
+                      aria-label={t('tabs.close')}
+                      className={cn(
+                        'ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition',
+                        'opacity-0 hover:bg-hover hover:text-foreground group-hover:opacity-100',
+                        active && 'opacity-100',
+                      )}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className={MENU_WIDTH_MD}>
+                <C.Item disabled={!multiple} onSelect={() => closeTab(tab.id)}>
+                  <X className="mr-2 h-4 w-4" />
+                  {t('common.close')}
+                </C.Item>
+                <C.Item
+                  disabled={closeOthers.length === 0}
+                  onSelect={() => closeOthers.forEach((id) => closeTab(id))}
+                >
+                  {t('tabs.closeOthers')}
+                </C.Item>
+                <C.Item
+                  disabled={closeRight.length === 0}
+                  onSelect={() => closeRight.forEach((id) => closeTab(id))}
+                >
+                  {t('tabs.closeRight')}
+                </C.Item>
+                <C.Item onSelect={() => openInNew(tab.pageId, 'tab')}>
+                  <CopyPlus className="mr-2 h-4 w-4" />
+                  {t('tabs.duplicate')}
+                </C.Item>
+                {tabsPlatform && (
+                  <C.Item
+                    disabled={!multiple}
+                    onSelect={() => {
+                      openInNew(tab.pageId, 'window');
+                      closeTab(tab.id);
+                    }}
+                  >
+                    <AppWindow className="mr-2 h-4 w-4" />
+                    {t('tabs.moveToWindow')}
+                  </C.Item>
+                )}
+                <C.Separator />
+                <PageMenuItems pageId={tab.pageId} surface="row" menu="context" />
+              </ContextMenuContent>
+            </ContextMenu>
           );
         })}
         <button
