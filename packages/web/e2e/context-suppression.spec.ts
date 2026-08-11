@@ -49,7 +49,8 @@ test('sidebar actions and command-palette rows suppress native context menus', {
   for (const name of ['Home', 'Search', 'Settings', 'Trash']) {
     await expectSuppressed(sidebar.getByRole('button', {name, exact: true}));
   }
-  await expectSuppressed(sidebar.getByRole('button', {name: /My Library/}));
+  // The trigger's name is environment-derived ("My Library" only locally).
+  await expectSuppressed(sidebar.getByRole('button').first());
   await expectSuppressed(sidebar.locator('[data-profile-menu]'));
 
   await page.keyboard.press('ControlOrMeta+k');

@@ -14,8 +14,8 @@ describe('block gutter context menus', () => {
     // false means the cancelable contextmenu event was default-prevented.
     expect(fireEvent.contextMenu(grip)).toBe(false);
     expect(screen.getByRole('menuitem', {name: /Delete/})).toBeTruthy();
-    // The grip's click dropdown stayed closed: bubbling opened the row context
-    // menu directly, without a second synthetic event or propagation stop.
+    // The original event's bubbling is skipped via defaultPrevented; only the
+    // synthetic event opens the row context menu.
     expect(grip.getAttribute('aria-expanded')).toBe('false');
   });
 
