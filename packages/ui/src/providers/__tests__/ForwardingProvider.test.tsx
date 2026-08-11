@@ -336,3 +336,33 @@ describe('ForwardingProvider — stalled dial diagnostics (TUN-3)', () => {
     expect(result.current.error).toBeNull();
   });
 });
+
+describe('ForwardingProvider — claim refusal intent (TUN-4)', () => {
+  it('keeps persisted enable intent and auto-attaches when a boot-time refusal clears', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('openbook.forwarding.enabled', '1');
+    signIn();
+    h.claimSpy.mockResolvedValueOnce({
+      status: 'refused',
+      code: 'unverified',
+      reason: 'identity is not ready yet',
+    } as never);
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(h.claimSpy).toHaveBeenCalledTimes(1);
+    expect(h.clientCtor).not.toHaveBeenCalled();
+    expect(result.current.enabled).toBe(true);
+    expect(localStorage.getItem('openbook.forwarding.enabled')).toBe('1');
+    expect(result.current.claimRefusal).toBe('unverified');
+
+    // The account/instance becomes claim-ready before the scheduled retry; the
+    // mock's normal `claimed` result now succeeds without another user action.
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(h.claimSpy).toHaveBeenCalledTimes(2);
+    expect(h.clientCtor).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('online');
+    expect(result.current.claimRefusal).toBeNull();
+    expect(localStorage.getItem('openbook.forwarding.enabled')).toBe('1');
+  });
+});

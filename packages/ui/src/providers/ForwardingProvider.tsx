@@ -263,6 +263,16 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     startRetryTimerRef.current = null;
   }, []);
 
+  const scheduleStartRetry = useCallback(() => {
+    if (!enabledRef.current || startRetryTimerRef.current) return;
+    const delay = startRetryDelayRef.current;
+    startRetryDelayRef.current = Math.min(delay * 2, START_RETRY_MAX_MS);
+    startRetryTimerRef.current = setTimeout(() => {
+      startRetryTimerRef.current = null;
+      if (enabledRef.current) void startTunnelRef.current();
+    }, delay);
+  }, []);
+
   const handleTunnelStatus = useCallback((next: TunnelStatus) => {
     if (next === 'online') {
       outageFailureCountRef.current = 0;
@@ -297,10 +307,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       // localized, severity-aware notice (`claimRefusal`), not a raw `error` string.
       const claim = await ensureClaimedForForwarding(audienceDeps);
       if (claim.status === 'refused') {
-        setEnabled(false);
-        writeEnabled(false);
         setStatus('offline');
         setClaimRefusal(claim.code);
+        // A boot-time identity/claim race must not erase the user's durable
+        // publish intent. Keep retrying refusals that can heal; only a server
+        // that explicitly disables identity issuance is terminal for this account.
+        if (claim.code !== 'issuance-disabled') scheduleStartRetry();
         return;
       }
       const client = new ForwardingClient({
@@ -332,19 +344,22 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       const retryable = isRetryableStartError(e);
       terminalStartErrorRef.current = !retryable;
       setStatus(retryable && outageFailureCountRef.current >= 2 ? 'stalled' : 'offline');
-      if (retryable && enabledRef.current) {
-        const delay = startRetryDelayRef.current;
-        startRetryDelayRef.current = Math.min(delay * 2, START_RETRY_MAX_MS);
-        startRetryTimerRef.current = setTimeout(() => {
-          startRetryTimerRef.current = null;
-          if (enabledRef.current) void startTunnelRef.current();
-        }, delay);
-      }
+      if (retryable) scheduleStartRetry();
     } finally {
       setBusy(false);
       startingRef.current = false;
     }
-  }, [forwarding, token, accountUrl, bindAudience, audienceDeps, cancelStartRetry, handleTunnelStatus, handleDialError]);
+  }, [
+    forwarding,
+    token,
+    accountUrl,
+    bindAudience,
+    audienceDeps,
+    cancelStartRetry,
+    scheduleStartRetry,
+    handleTunnelStatus,
+    handleDialError,
+  ]);
   startTunnelRef.current = startTunnel;
 
   // Resume on launch / once the account connects, when forwarding is enabled. This
@@ -361,11 +376,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       !clientRef.current &&
       !startingRef.current &&
       !startRetryTimerRef.current &&
-      !terminalStartErrorRef.current
+      !terminalStartErrorRef.current &&
+      !claimRefusal
     ) {
       void startTunnel();
     }
-  }, [supported, enabled, connected, token, startTunnel]);
+  }, [supported, enabled, connected, token, claimRefusal, startTunnel]);
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(
