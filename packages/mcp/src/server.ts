@@ -11,6 +11,7 @@ import {
   findUnknownBlockType,
   FORM_FIELD_KINDS,
   invalidBlockProps,
+  isHttpUrl,
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
@@ -173,9 +174,12 @@ const FORM_FIELD_OP_SCHEMA = z.discriminatedUnion('type', [
 
 type FormFieldOp = z.infer<typeof FORM_FIELD_OP_SCHEMA>;
 
+const FORM_REDIRECT_URL_SCHEMA = z.string().url()
+  .refine(isHttpUrl, 'Redirect URL must use http:// or https://.');
+
 const FORM_CONFIRMATION_SCHEMA = z.union([
   z.object({message: z.string()}).strict(),
-  z.object({redirectUrl: z.string()}).strict(),
+  z.object({redirectUrl: FORM_REDIRECT_URL_SCHEMA}).strict(),
 ]);
 
 const FORM_SETTINGS_PATCH_SCHEMA = z.object({
@@ -247,12 +251,14 @@ function schemaFromForm(form: LocatedForm): {schema?: FormSchema; error?: string
   if (typeof submissionKey !== 'string') return {error: `Form "${form.formId}" has no submission capability.`};
   const enabled = typeof form.props.enabled === 'boolean' ? form.props.enabled : raw.enabled;
   if (typeof enabled !== 'boolean') return {error: `Form "${form.formId}" has no valid enabled setting.`};
-  const databaseId = typeof form.props.databaseId === 'string'
-    ? form.props.databaseId
-    : typeof raw.databaseId === 'string' ? raw.databaseId : undefined;
-  if (form.props.databaseId === undefined && raw.databaseId !== undefined && typeof raw.databaseId !== 'string') {
+  const storedDatabaseId = form.props.databaseId;
+  if (
+    storedDatabaseId !== undefined
+    && (typeof storedDatabaseId !== 'string' || storedDatabaseId.length === 0)
+  ) {
     return {error: `Form "${form.formId}" has an invalid database binding.`};
   }
+  const databaseId = typeof storedDatabaseId === 'string' ? storedDatabaseId : undefined;
   if (raw.submitLabel !== undefined && typeof raw.submitLabel !== 'string') {
     return {error: `Form "${form.formId}" has an invalid submit label.`};
   }
@@ -262,17 +268,17 @@ function schemaFromForm(form: LocatedForm): {schema?: FormSchema; error?: string
   ) {
     return {error: `Form "${form.formId}" has an invalid maxSubmissions setting.`};
   }
-  return {
-    schema: {
-      ...(raw as unknown as FormSchema),
-      formId: form.formId,
-      fields: fields.data as FormField[],
-      confirmation: confirmation.data,
-      submissionKey,
-      enabled,
-      ...(databaseId === undefined ? {} : {databaseId}),
-    },
+  const schema: FormSchema = {
+    ...(raw as unknown as FormSchema),
+    formId: form.formId,
+    fields: fields.data as FormField[],
+    confirmation: confirmation.data,
+    submissionKey,
+    enabled,
   };
+  if (databaseId === undefined) delete schema.databaseId;
+  else schema.databaseId = databaseId;
+  return {schema};
 }
 
 function transformFormFields(fields: FormField[], op: FormFieldOp): {fields?: FormField[]; error?: string} {
@@ -1187,8 +1193,16 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       inputSchema: {},
     },
     async () => {
+      // Cost: scans every readable page's snapshot.
       const metas = await client.listPages();
-      const pages = await Promise.all(metas.map(async (meta) => ({meta, page: await client.getPage(meta.id)})));
+      const pages: Array<{meta: (typeof metas)[number]; page: StoredPage | null}> = [];
+      for (let offset = 0; offset < metas.length; offset += 12) {
+        const batch = metas.slice(offset, offset + 12);
+        const batchPages = await Promise.all(
+          batch.map(async (meta) => ({meta, page: await client.getPage(meta.id)})),
+        );
+        pages.push(...batchPages);
+      }
       const forms = pages.flatMap(({meta, page}) => {
         if (!page) return [];
         return formsInSnapshot(page.data).map((form) => {

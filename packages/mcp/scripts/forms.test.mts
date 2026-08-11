@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     properties: {name: 'Grace', [MARKER]: {formId: 'contact', submittedAt: '2026-08-11T10:00:00.000Z'}},
   });
   await seed.createRow(suggestDb.id, {name: 'Other form', properties: {[MARKER]: {formId: 'other', submittedAt: '2026-08-12T10:00:00.000Z'}}});
-  await seed.createRow(suggestDb.id, {name: 'Manual row', properties: {name: 'Manual'}});
+  const manualRow = await seed.createRow(suggestDb.id, {name: 'Manual row', properties: {name: 'Manual'}});
 
   // Direct-mode host deliberately uses the 43-character generation to guard the
   // no-format-validation contract alongside the 22-character form above.
@@ -132,6 +132,14 @@ async function main(): Promise<void> {
   const directDb = await seed.createDatabase({pageId: directHost.id, name: 'Survey results', schema: defaultDatabaseSchema()});
   await seed.savePage({id: directHost.id, name: directHost.name, data: formSnapshot('survey', KEY_43, directDb.id, {blockId: 'survey-block'})});
   await seed.setPageAgentEdits(directHost.id, 'direct');
+
+  const crossPageHost = await seed.savePage({
+    name: 'Cross-page binding',
+    data: formSnapshot('cross-page', KEY_22, suggestDb.id),
+  });
+  const schemaOnlySnapshot = formSnapshot('schema-only', KEY_22, suggestDb.id);
+  delete findFormProps(schemaOnlySnapshot, 'block-schema-only').databaseId;
+  const schemaOnlyHost = await seed.savePage({name: 'Schema-only binding', data: schemaOnlySnapshot});
 
   const mcp = await connect(server.url);
 
@@ -163,8 +171,12 @@ async function main(): Promise<void> {
   const submissionIds = new Set([...firstPage.rows, ...secondPage.rows].map((row) => row.id));
   check('pagination returns exactly the two rows marked for this form', submissionIds.size === 2 && submissionIds.has(submissionA.id) && submissionIds.has(submissionB.id));
   check('the last submissions page omits nextCursor', secondPage.nextCursor === undefined);
-  const badCursor = await mcp.callTool({name: 'list_form_submissions', arguments: {pageId: suggestHost.id, formId: 'contact', cursor: 'not-a-submission'}});
+  const badCursor = await mcp.callTool({name: 'list_form_submissions', arguments: {pageId: suggestHost.id, formId: 'contact', cursor: manualRow.id}});
   check('a cursor from outside the filtered form is rejected', badCursor.isError === true);
+  const crossPage = await mcp.callTool({name: 'list_form_submissions', arguments: {pageId: crossPageHost.id, formId: 'cross-page'}});
+  check('a database hosted by another page is rejected', crossPage.isError === true && resultText(crossPage).includes('hosted by that page'));
+  const schemaOnly = await mcp.callTool({name: 'list_form_submissions', arguments: {pageId: schemaOnlyHost.id, formId: 'schema-only'}});
+  check('a schema-only database binding is not authoritative', schemaOnly.isError === true && resultText(schemaOnly).includes('not bound'));
 
   console.log('\nFORM-7 strict field-op schemas + suggest mode');
   const badKind = await mcp.callTool({
@@ -182,6 +194,11 @@ async function main(): Promise<void> {
     arguments: {pageId: suggestHost.id, formId: 'contact', op: {type: 'replace', fieldId: 'name'}},
   });
   check('zod rejects an unknown operation discriminator', badOp.isError === true);
+  const unsafeRedirect = await mcp.callTool({
+    name: 'set_form_settings',
+    arguments: {pageId: suggestHost.id, formId: 'contact', patch: {confirmation: {redirectUrl: 'javascript:alert(1)'}}},
+  });
+  check('zod rejects a non-http(s) confirmation redirect', unsafeRedirect.isError === true);
 
   const beforeSuggest = findFormProps((await seed.getPage(suggestHost.id))!.data, 'block-contact');
   const suggestedField = await mcp.callTool({
