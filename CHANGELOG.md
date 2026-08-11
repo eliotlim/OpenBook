@@ -1,3 +1,17 @@
+## 3.11.1 (2026-08-11)
+
+### 🩹 Fixes
+
+- **app:** sidecar supervision — bounded respawn + surfaced state (BOOT-4) ([#275](https://github.com/lab255/OpenBook/pull/275))
+- **server,app:** reclaim stale PGlite dir locks from dead processes (BOOT-7) ([#272](https://github.com/lab255/OpenBook/pull/272))
+- **server,sdk,ui:** backup boot-path, streaming, and skip+record hardening (BOOT-1/2/3) ([#273](https://github.com/lab255/OpenBook/pull/273))
+- **ui:** responsive collapse for page-header controls (UIX-1) ([#274](https://github.com/lab255/OpenBook/pull/274))
+- **ui,sdk:** forwarding self-healing — retries, stalled surfacing, intent preservation (TUN-1/2/3/4) ([#276](https://github.com/lab255/OpenBook/pull/276))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.11.0 (2026-08-11)
 
 ### 🚀 Features
