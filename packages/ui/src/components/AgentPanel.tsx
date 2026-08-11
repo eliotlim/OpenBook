@@ -644,7 +644,7 @@ export function AgentPanel() {
           }}
           placeholder={t('agent.placeholder')}
           aria-label={t('agent.placeholder')}
-          className={cn(inputVariants(), 'h-auto resize-none')}
+          className={cn(inputVariants(), '!h-auto min-h-control-md resize-none')}
         />
         <div className="flex items-center gap-2">
           {providerOptions.length > 0 && (
@@ -870,7 +870,7 @@ function InterviewCard({
           onChange={(e) => setTexts((prev) => ({...prev, [step.id]: e.target.value}))}
           placeholder={t('agent.interviewPlaceholder')}
           aria-label={step.question}
-          className={cn(inputVariants(), 'h-auto resize-none')}
+          className={cn(inputVariants(), '!h-auto min-h-control-md resize-none')}
         />
       )}
       <div className="flex items-center justify-between gap-2">

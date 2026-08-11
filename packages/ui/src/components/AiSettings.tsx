@@ -462,7 +462,7 @@ function SkillsEditor({
           </SettingsField>
           <SettingsField label={t('ai.skillInstructions')}>
             <textarea
-              className={cn(SETTINGS_CONTROL_CLASS, 'min-h-24 resize-y')}
+              className={cn(SETTINGS_CONTROL_CLASS, '!h-auto min-h-24 resize-y')}
               value={instructions}
               placeholder={t('ai.skillInstructionsPlaceholder')}
               onChange={(e) => setInstructions(e.target.value)}

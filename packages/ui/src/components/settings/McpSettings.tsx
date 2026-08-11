@@ -196,7 +196,7 @@ export default function McpSettings() {
                   </SettingsField>
                   <SettingsField label={t('ai.mcp.args')}>
                     <textarea
-                      className={cn(SETTINGS_CONTROL_CLASS, 'h-auto')}
+                      className={cn(SETTINGS_CONTROL_CLASS, '!h-auto min-h-control-sm')}
                       rows={2}
                       value={(s.args ?? []).join('\n')}
                       placeholder={t('ai.mcp.argsPlaceholder')}

@@ -119,7 +119,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
             onPick={(icon) => updateLibrary(library.id, {icon})}
             fallback="📓"
             ariaLabel={t('library.icon')}
-            className="flex h-9 w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
+            className="flex h-control-sm w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
           />
         </div>
         <div className="flex flex-1 flex-col gap-1.5">
@@ -260,7 +260,7 @@ function AddLibraryRow() {
             onPick={setIcon}
             fallback="📓"
             ariaLabel={t('library.icon')}
-            className="flex h-9 w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
+            className="flex h-control-sm w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
           />
         </div>
         <div className="flex flex-1 flex-col gap-1.5">

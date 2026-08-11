@@ -105,7 +105,7 @@ export default function ProfileSettings() {
             value={bio}
             rows={3}
             placeholder={t('profile.bioPlaceholder')}
-            className={cn(inputVariants({inputSize: 'sm'}), 'min-h-[72px] resize-y')}
+            className={cn(inputVariants({inputSize: 'sm'}), '!h-auto min-h-[72px] resize-y')}
             onChange={(e) => update({profile: {bio: e.target.value}})}
           />
         </SettingsField>
