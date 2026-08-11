@@ -78,6 +78,33 @@ describe('viewer', () => {
     expect(container.querySelectorAll('.ob-viewer-nav a').length).toBe(2);
   });
 
+  it('registers forms as frozen field previews in the standalone viewer', () => {
+    const schema = {
+      formId: 'survey',
+      submissionKey: 'abcdefghijklmnopqrstuv',
+      enabled: true,
+      fields: [{id: 'answer', kind: 'longtext' as const, label: 'Answer', required: true}],
+      confirmation: {message: 'Thanks'},
+    };
+    const doc = createDoc([{id: 'form', type: 'form', props: {
+      formId: schema.formId,
+      submissionKey: schema.submissionKey,
+      enabled: true,
+      schema,
+    }}]);
+    const island: IslandPageJson = {
+      id: 'form-page',
+      name: 'Survey',
+      data: {editor: 'blocks', blockdoc: encodeSnapshot(doc)},
+    };
+    const {container} = render(<ViewerApp source={island} />);
+    const preview = container.querySelector<HTMLElement>('[data-form-mode="readonly"]')!;
+    expect(preview).toBeTruthy();
+    expect(preview.querySelector('textarea')?.disabled).toBe(true);
+    expect(preview.querySelector('button')?.disabled).toBe(true);
+    expect(container.querySelector('[data-custom-type="form"]')).toBeTruthy();
+  });
+
   it('bounds + validates the asset payload: over-cap and unknown encodings degrade to placeholders', async () => {
     // Three artifacts: a valid utf8 document, one over the shared asset cap,
     // and one with an unrecognised encoding (never guessed — Quinn's nit).

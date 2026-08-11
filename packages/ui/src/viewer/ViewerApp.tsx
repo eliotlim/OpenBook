@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
+import {FormOriginContext, formOriginUrl} from '@/blockeditor/FormBlockView';
 import {decodeSnapshot, rootBlocks, type BlockDocSnapshot} from '@/blockeditor/model';
 import {KitPageLockContext} from '@/blockeditor/kit/lock';
 import {StaticKeepContext, type StaticKeepNodes} from '@/blockeditor/staticKeep';
@@ -67,7 +68,9 @@ const PageView: React.FC<{page: ViewerPage}> = ({page}) => {
         )}
         {title}
       </h1>
-      <PresentBlocks doc={doc} blocks={blocks} />
+      <FormOriginContext.Provider value={formOriginUrl(page.id)}>
+        <PresentBlocks doc={doc} blocks={blocks} />
+      </FormOriginContext.Provider>
     </article>
   );
 };

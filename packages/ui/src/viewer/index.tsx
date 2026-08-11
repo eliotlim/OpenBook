@@ -25,6 +25,7 @@
 import {createRoot} from 'react-dom/client';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
+import {registerFormBlock} from '@/blockeditor/FormBlockView';
 import {MAX_ASSET_BYTES} from '@/blockeditor/imageBlock';
 import {setAssetBridge} from '@/lib/assetBridge';
 import {applyDataColors} from '@/lib/dataColorVars';
@@ -51,6 +52,7 @@ export type {
 // cards). Registered once at load, same as the app's page host does.
 registerReactiveBlocks();
 registerArtifactKit();
+registerFormBlock();
 
 // The viewer is provider-less (no ThemeProvider), so nothing else writes the
 // data-colour CSS vars. Emit them once at load — for the scheme the export baked
