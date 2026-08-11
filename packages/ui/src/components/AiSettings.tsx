@@ -244,7 +244,7 @@ export default function AiSettings() {
                   />
                   {showKeySet && (
                     <Button
-                      size="sm"
+                      size="xs"
                       variant="outline"
                       className="shrink-0"
                       disabled={busy}

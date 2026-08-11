@@ -107,7 +107,7 @@ export default function LedgerAutoExportSettings() {
               className="w-[340px] max-w-full"
             />
             {enabled && dirty && (
-              <Button size="sm" disabled={busy || !isOwner || path.trim() === ''} onClick={() => void save(path.trim())}>
+              <Button size="xs" disabled={busy || !isOwner || path.trim() === ''} onClick={() => void save(path.trim())}>
                 {t('ledgerAutoExport.save')}
               </Button>
             )}

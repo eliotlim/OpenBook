@@ -354,7 +354,7 @@ const StoreSection: React.FC<{
           data-store-url
           className="min-w-64 flex-1 font-mono text-xs"
         />
-        <Button type="submit" size="sm" variant="outline" disabled={!url.trim()} data-store-connect>
+        <Button type="submit" size="xs" variant="outline" disabled={!url.trim()} data-store-connect>
           {t('extensions.storeConnect')}
         </Button>
       </form>
@@ -411,7 +411,7 @@ const StoreSection: React.FC<{
                 className="pl-8 text-sm"
               />
             </div>
-            <Button type="submit" size="sm" variant="outline" disabled={browsing} data-store-browse>
+            <Button type="submit" size="xs" variant="outline" disabled={browsing} data-store-browse>
               {t('extensions.storeBrowse')}
             </Button>
           </form>
@@ -676,7 +676,7 @@ const TrustedRegistries: React.FC = () => {
             </p>
           )}
         </div>
-        <Button type="submit" size="sm" variant="outline" disabled={!name.trim() || !publicKey.trim()} data-registry-add>
+        <Button type="submit" size="xs" variant="outline" disabled={!name.trim() || !publicKey.trim()} data-registry-add>
           {t('extensions.addRegistry')}
         </Button>
       </form>
