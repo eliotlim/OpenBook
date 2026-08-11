@@ -1929,12 +1929,14 @@ a.obe-mention {
   position: absolute;
   top: -1.7rem;
   right: 0;
-  display: none;
+  display: flex;
   gap: 4px;
   font-size: 11px;
   color: hsl(var(--muted-foreground));
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.obe-table-wrap:hover .obe-table-tools { display: flex; }
+.obe-table-wrap:hover .obe-table-tools { opacity: 1; }
 .obe-table-tools button {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
@@ -2676,7 +2678,7 @@ a.obe-mention {
   font-size: 0.82rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms, border-color 120ms;
 }
 .obe-kit-pill:hover:not(:disabled) { border-color: hsl(var(--ring)); color: hsl(var(--foreground)); }
 .obe-kit-pill-on {
@@ -3050,7 +3052,7 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   font-size: 0.82rem;
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, border-color 120ms;
 }
 .obe-kit-richtext-btn:hover { border-color: hsl(var(--ring)); color: hsl(var(--foreground)); }
 .obe-kit-richtext-b { font-weight: 700; }
@@ -3259,7 +3261,7 @@ a.obe-mention {
   font-size: 0.78rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms;
 }
 .obe-cnt-add:hover { color: hsl(var(--foreground)); background: var(--hover); }
 
@@ -3275,7 +3277,7 @@ a.obe-mention {
   font-size: 0.84rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms, border-color 120ms;
 }
 .obe-tab:hover:not(:disabled) { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-tab-on {
