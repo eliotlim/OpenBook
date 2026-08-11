@@ -532,6 +532,13 @@ export const zh: PartialMessages = {
     ledgerFailed: '账簿数据恢复失败：{error} 页面已照常导入。',
     ledgerAdminOnly: '此导出包含账簿数据，但只有资料库管理员才能恢复 — 页面仍会照常导入。',
   },
+  link: {
+    open: '打开链接',
+    copyAddress: '复制链接地址',
+    edit: '编辑链接…',
+    remove: '移除链接',
+    urlLabel: '链接地址',
+  },
   slash: {
     text: {label: '文本', hint: '普通段落'},
     h1: {label: '标题 1', hint: '大节标题'},

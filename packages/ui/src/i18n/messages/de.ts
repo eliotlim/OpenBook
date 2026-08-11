@@ -539,6 +539,13 @@ export const de: PartialMessages = {
     ledgerFailed: 'Die Wiederherstellung der Buchhaltungsdaten ist fehlgeschlagen: {error} Deine Seiten wurden trotzdem importiert.',
     ledgerAdminOnly: 'Dieser Export enthält Buchhaltungsdaten, aber nur Bibliotheks-Admins können sie wiederherstellen — die Seiten werden trotzdem importiert.',
   },
+  link: {
+    open: 'Link öffnen',
+    copyAddress: 'Linkadresse kopieren',
+    edit: 'Link bearbeiten…',
+    remove: 'Link entfernen',
+    urlLabel: 'Link-URL',
+  },
   slash: {
     text: {label: 'Text', hint: 'Einfacher Absatz'},
     h1: {label: 'Überschrift 1', hint: 'Große Abschnittsüberschrift'},

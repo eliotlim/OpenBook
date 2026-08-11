@@ -986,6 +986,11 @@ export const en = {
     },
   },
   link: {
+    open: 'Open link',
+    copyAddress: 'Copy link address',
+    edit: 'Edit link…',
+    remove: 'Remove link',
+    urlLabel: 'Link URL',
     pageTitle: 'Link to page',
     databaseTitle: 'Link to database',
     pagePlaceholder: 'Search pages…',

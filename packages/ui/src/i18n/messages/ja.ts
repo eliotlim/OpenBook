@@ -534,6 +534,13 @@ export const ja: PartialMessages = {
     ledgerFailed: '帳簿データの復元に失敗しました：{error} ページは通常どおり取り込まれました。',
     ledgerAdminOnly: 'このエクスポートには帳簿データが含まれていますが、復元できるのはライブラリ管理者のみです — ページは通常どおり取り込まれます。',
   },
+  link: {
+    open: 'リンクを開く',
+    copyAddress: 'リンクのアドレスをコピー',
+    edit: 'リンクを編集…',
+    remove: 'リンクを解除',
+    urlLabel: 'リンク URL',
+  },
   slash: {
     text: {label: 'テキスト', hint: 'プレーンな段落'},
     h1: {label: '見出し 1', hint: '大見出し'},
