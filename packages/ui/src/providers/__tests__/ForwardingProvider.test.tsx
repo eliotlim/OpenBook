@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
   bindSpy: vi.fn(async () => ({status: 'bound'}) as {status: 'bound'}),
   unbindSpy: vi.fn(async () => ({status: 'relaxed'}) as {status: 'relaxed'}),
   clientCtor: vi.fn(),
+  clientStart: vi.fn(),
+  clientStop: vi.fn(),
   showToastSpy: vi.fn(),
 }));
 
@@ -45,6 +47,24 @@ vi.mock('../forwardingAudience', () => ({
 }));
 vi.mock('@book.dev/sdk', () => ({
   setForwardingAudience: vi.fn(),
+  ForwardingApiError: class extends Error {
+    constructor(
+      public readonly path: string,
+      public readonly status: number,
+    ) {
+      super(`${path} → ${status}`);
+    }
+  },
+  SiteReattachError: class extends Error {
+    readonly retryable: boolean;
+    constructor(
+      public readonly code: string,
+      message: string,
+    ) {
+      super(message);
+      this.retryable = code === 'unreachable';
+    }
+  },
   ForwardingClient: class {
     onStatus?: (s: string) => void;
     constructor(opts: {onStatus?: (s: string) => void}) {
@@ -52,8 +72,7 @@ vi.mock('@book.dev/sdk', () => ({
       h.clientCtor();
     }
     async start() {
-      this.onStatus?.('online');
-      return {host: 'abc.book.cloud'};
+      return h.clientStart(this.onStatus);
     }
     async getSiteVisibility() {
       return 'restricted' as const; // account default; the load effect reads this once online
@@ -61,12 +80,15 @@ vi.mock('@book.dev/sdk', () => ({
     async setSiteVisibility(v: 'public' | 'restricted') {
       return v;
     }
-    stop() {}
+    stop() {
+      h.clientStop();
+    }
   },
 }));
 vi.mock('@/components/ui/toast', () => ({showToast: h.showToastSpy}));
 vi.mock('@/lib/pageActions', () => ({setShareLinkOrigin: vi.fn()}));
 
+import {ForwardingApiError, SiteReattachError} from '@book.dev/sdk';
 import {ForwardingProvider, useForwarding} from '../ForwardingProvider';
 
 const wrapper = ({children}: {children: React.ReactNode}) => <ForwardingProvider>{children}</ForwardingProvider>;
@@ -86,6 +108,12 @@ beforeEach(() => {
   h.account.signIn.mockClear();
   h.claimSpy.mockClear();
   h.clientCtor.mockClear();
+  h.clientStart.mockReset();
+  h.clientStart.mockImplementation(async (onStatus?: (s: string) => void) => {
+    onStatus?.('online');
+    return {host: 'abc.book.cloud'};
+  });
+  h.clientStop.mockClear();
   h.showToastSpy.mockClear();
 });
 
@@ -191,5 +219,75 @@ describe('ForwardingProvider — signed-out flip resume (P1-6)', () => {
     await waitFor(() => expect(h.claimSpy).toHaveBeenCalledTimes(1));
     expect(h.clientCtor).toHaveBeenCalledTimes(1);
     expect(result.current.signInPending).toBe(false);
+  });
+});
+
+describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
+  it('retries a retryable failure after 2s and reaches online without another enable', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart
+      .mockRejectedValueOnce(new SiteReattachError('unreachable', 'account temporarily unavailable'))
+      .mockImplementationOnce(async (onStatus?: (s: string) => void) => {
+        onStatus?.('online');
+        return {host: 'abc.book.cloud'};
+      });
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    expect(result.current.status).toBe('offline');
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_999));
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+
+    expect(h.clientStart).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('online');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('doubles launch backoff and caps every later delay at five minutes', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart.mockRejectedValue(new ForwardingApiError('/api/sites/attach-ticket', 503));
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    const delays = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000, 300_000];
+    for (const [index, delay] of delays.entries()) {
+      await act(async () => vi.advanceTimersByTimeAsync(delay - 1));
+      expect(h.clientStart).toHaveBeenCalledTimes(index + 1);
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(h.clientStart).toHaveBeenCalledTimes(index + 2);
+    }
+  });
+
+  it('leaves a non-retryable refusal terminal', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart.mockRejectedValue(new SiteReattachError('wrong-account', 'use the account that owns this address'));
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    await act(async () => vi.advanceTimersByTimeAsync(10 * 60 * 1000));
+
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('offline');
+    expect(result.current.error).toContain('owns this address');
+  });
+
+  it('disable cancels a pending launch retry', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart.mockRejectedValue(new TypeError('fetch failed'));
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    act(() => result.current.disable());
+    await act(async () => vi.advanceTimersByTimeAsync(10 * 60 * 1000));
+
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+    expect(result.current.enabled).toBe(false);
   });
 });
