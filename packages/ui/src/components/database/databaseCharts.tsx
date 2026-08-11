@@ -10,6 +10,7 @@ import {
   type DatabaseView as DbView,
 } from '@book.dev/sdk';
 import {cn} from '@/lib/utils';
+import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {KitChartPlot, type ChartDatum, type ChartMatrixInput} from '@/blockeditor/kit/charts';
@@ -84,7 +85,7 @@ const ChartReadout: React.FC<{view: DbView; properties: DatabaseProperty[]; hove
 }) => (
   <div className="flex items-baseline justify-between gap-2 text-xs">
     <span className="truncate font-medium text-foreground">{hover ? hover.label : measureLabel(view, properties)}</span>
-    <span className="shrink-0 tabular-nums text-muted-foreground">
+    <span className="min-w-[16ch] shrink-0 text-right tabular-nums text-muted-foreground">
       {hover ? `${fmt(hover.value)}${total > 0 ? ` · ${Math.round((hover.value / total) * 100)}%` : ''}` : `Total ${fmt(total)}`}
     </span>
   </div>
@@ -100,13 +101,14 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
           {drill.rows.length} {drill.rows.length === 1 ? 'row' : 'rows'}
         </span>
       </span>
-      <button
+      <IconButton
+        size="inline"
         onClick={onClose}
         aria-label="Close drill-down"
-        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+        className="cursor-pointer"
       >
         <X className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </div>
     <div className="max-h-56 overflow-y-auto">
       {drill.rows.length === 0 && <div className="px-3 py-3 text-center text-xs text-muted-foreground">No rows.</div>}

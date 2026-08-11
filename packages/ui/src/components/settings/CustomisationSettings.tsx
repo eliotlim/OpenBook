@@ -39,16 +39,16 @@ export default function CustomisationSettings() {
     {key: 'customisation.shortcut.closeOverlay', label: 'Esc'},
   ];
 
-  // Block-editor keys (they act on the selected block, so they live in the
-  // editor's key handler, not SHORTCUTS — listed here so the reference is
-  // complete rather than global-shortcuts-only).
+  // Block-editor keys act on the selected block in the editor's key handler;
+  // their display combos still come from SHORTCUTS so this reference and the
+  // block menu stay aligned.
   const blockShortcuts: Array<{key: TKey; label: string}> = [
-    {key: 'customisation.shortcut.duplicateBlock', label: fmt({key: 'd', mod: true})},
+    {key: 'customisation.shortcut.duplicateBlock', label: fmt(SHORTCUTS.duplicateBlock)},
     {
       key: 'customisation.shortcut.moveBlock',
-      label: `${fmt({key: 'arrowup', mod: true, shift: true})} / ${fmt({key: 'arrowdown', mod: true, shift: true})}`,
+      label: `${fmt(SHORTCUTS.moveBlockUp)} / ${fmt(SHORTCUTS.moveBlockDown)}`,
     },
-    {key: 'customisation.shortcut.deleteBlock', label: fmt({key: 'backspace'})},
+    {key: 'customisation.shortcut.deleteBlock', label: fmt(SHORTCUTS.deleteBlock)},
     {
       key: 'customisation.shortcut.extendSelection',
       label: `${fmt({key: 'arrowup', shift: true})} / ${fmt({key: 'arrowdown', shift: true})}`,

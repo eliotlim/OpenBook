@@ -69,6 +69,7 @@ export default function AgentEditsSettings() {
       <SettingsSection title={t('agentEdits.title')} description={t('agentEdits.description')}>
         <SettingsField label={t('agentEdits.modeLabel')} hint={t('agentEdits.modeHint')}>
           <Select
+            inputSize="sm"
             value={mode}
             wrapperClassName="w-[240px]"
             aria-label={t('agentEdits.modeLabel')}

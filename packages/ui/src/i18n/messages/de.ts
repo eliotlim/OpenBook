@@ -11,6 +11,7 @@ export const de: PartialMessages = {
     untitled: 'Unbenannt',
     undo: 'Rückgängig',
     settings: 'Einstellungen',
+    noOptions: 'Keine Optionen',
   },
   settings: {
     title: 'Einstellungen',
@@ -55,6 +56,10 @@ export const de: PartialMessages = {
     light: 'Hell',
     dark: 'Dunkel',
     system: 'System',
+    menuDensity: 'Menüdichte',
+    menuDensityHint: 'Wähle kompakte Menüs oder großzügigere Abstände für leichteres Erfassen.',
+    menuDensityCompact: 'Kompakt',
+    menuDensityComfortable: 'Komfortabel',
     colorScheme: 'Farbschema',
     colorTheme: 'Farbthema',
     colorThemeHint: 'Wähle die App-Akzentfarbe.',
@@ -1140,10 +1145,25 @@ export const de: PartialMessages = {
     emptyHint: 'Erwähne diese Seite von einer anderen mit @, sonst erscheint ihr Name hier als unverknüpfte Erwähnung.',
   },
   database: {
+    empty: {
+      noGroups: 'Noch keine Gruppen.',
+      noConditions: 'Noch keine Bedingungen.',
+      noSorts: 'Noch keine Sortierungen.',
+    },
     toolbar: {
       group: 'Gruppieren',
       fields: 'Felder',
       removeGrouping: 'Gruppierung entfernen',
+    },
+    viewMenu: {
+      rename: 'Ansicht umbenennen',
+      duplicate: 'Ansicht duplizieren',
+      changeType: 'Typ ändern',
+      delete: 'Ansicht löschen',
+    },
+    chipMenu: {
+      edit: 'Bearbeiten…',
+      remove: 'Entfernen',
     },
     rowMenu: {
       open: 'Öffnen',
