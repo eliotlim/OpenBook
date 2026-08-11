@@ -59,7 +59,6 @@ const ledgerAccounts = async (): Promise<Array<{id: string; name: string}>> => {
 
 test('install the plugin, import a bank CSV → drafts; re-importing the SAME file creates ZERO new drafts', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   await ensureLedgerPlugin(page);
-  await page.keyboard.press('Escape');
 
   await runPaletteCommand(page, 'Ledger: set up books');
   // The worker ledger is shared across specs, so unrelated accounts may exist.
