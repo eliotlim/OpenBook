@@ -11,6 +11,7 @@ export const de: PartialMessages = {
     untitled: 'Unbenannt',
     undo: 'Rückgängig',
     settings: 'Einstellungen',
+    noOptions: 'Keine Optionen',
   },
   settings: {
     title: 'Einstellungen',
@@ -1099,6 +1100,11 @@ export const de: PartialMessages = {
     emptyHint: 'Erwähne diese Seite von einer anderen mit @, sonst erscheint ihr Name hier als unverknüpfte Erwähnung.',
   },
   database: {
+    empty: {
+      noGroups: 'Noch keine Gruppen.',
+      noConditions: 'Noch keine Bedingungen.',
+      noSorts: 'Noch keine Sortierungen.',
+    },
     toolbar: {
       group: 'Gruppieren',
       fields: 'Felder',

@@ -70,6 +70,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {EmptyState} from '@/components/ui/empty-state';
 import {cn} from '@/lib/utils';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
 import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
@@ -1005,6 +1006,7 @@ const GroupEditor: React.FC<{
   onRemove?: () => void;
   depth: number;
 }> = ({database, group, onChange, onRemove, depth}) => {
+  const {t} = useTranslation();
   const choices = propertyChoices(database);
   const setChild = (i: number, node: FilterNode) => onChange({...group, filters: group.filters.map((f, idx) => (idx === i ? node : f))});
   const removeChild = (i: number) => onChange({...group, filters: group.filters.filter((_, idx) => idx !== i)});
@@ -1034,7 +1036,9 @@ const GroupEditor: React.FC<{
         )}
       </div>
       <div className="space-y-1.5">
-        {group.filters.length === 0 && <div className="text-xs text-muted-foreground">No conditions yet.</div>}
+        {group.filters.length === 0 && (
+          <EmptyState variant="overlay" className="text-muted-foreground" title={t('database.empty.noConditions')} />
+        )}
         {group.filters.map((node, i) =>
           isFilterGroup(node) ? (
             <GroupEditor key={node.id} database={database} group={node} onChange={(n) => setChild(i, n)} onRemove={() => removeChild(i)} depth={depth + 1} />
@@ -1085,6 +1089,7 @@ export const FilterMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
 
 /** Sort editor: ordered sort keys applied to the current view. */
 export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
+  const {t} = useTranslation();
   const choices = propertyChoices(database);
   const sorts = view.sorts ?? [];
 
@@ -1102,7 +1107,9 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
-        {sorts.length === 0 && <div className="text-xs text-muted-foreground">No sorts yet.</div>}
+        {sorts.length === 0 && (
+          <EmptyState variant="overlay" className="text-muted-foreground" title={t('database.empty.noSorts')} />
+        )}
         {sorts.map((sort, index) => (
           <div key={index} className="flex items-center gap-1">
             <Select unstyled value={sort.propertyId} onChange={(e) => setSort(index, {propertyId: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')}>

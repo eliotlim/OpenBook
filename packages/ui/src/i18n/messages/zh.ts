@@ -11,6 +11,7 @@ export const zh: PartialMessages = {
     untitled: '无标题',
     undo: '撤销',
     settings: '设置',
+    noOptions: '没有选项',
   },
   settings: {
     title: '设置',
@@ -1086,6 +1087,11 @@ export const zh: PartialMessages = {
     emptyHint: '用 @ 从其他页面提及此页面，否则它的名称会作为未链接的提及显示在这里。',
   },
   database: {
+    empty: {
+      noGroups: '还没有分组。',
+      noConditions: '还没有筛选条件。',
+      noSorts: '还没有排序。',
+    },
     toolbar: {
       group: '分组',
       fields: '字段',

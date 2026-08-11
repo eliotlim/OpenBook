@@ -15,6 +15,7 @@ export const en = {
     untitled: 'Untitled',
     undo: 'Undo',
     settings: 'Settings',
+    noOptions: 'No options',
   },
   errorBoundary: {
     title: 'Something went wrong',
@@ -1923,6 +1924,11 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    empty: {
+      noGroups: 'No groups yet.',
+      noConditions: 'No conditions yet.',
+      noSorts: 'No sorts yet.',
+    },
     autoExpiry: {
       saveError: 'Couldn’t save auto-expiry settings. Try again.',
     },
