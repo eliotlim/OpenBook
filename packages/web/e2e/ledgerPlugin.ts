@@ -69,10 +69,9 @@ export async function ensureLedgerPlugin(page: Page): Promise<void> {
     await upload.setInputFiles({name: 'ledger.zip', mimeType: 'application/zip', buffer: ledgerPluginZip()});
   }
   await expect(extension).toHaveAttribute('data-extension-state', 'active');
-  // Close the owning Settings dialog explicitly. Escape can be consumed by a
-  // transient control inside Extensions, leaving the modal over the command
-  // palette and making the next real click look globally broken.
-  const settings = page.getByRole('dialog', {name: 'Settings'});
-  await settings.getByRole('button', {name: 'Close settings'}).click();
-  await expect(settings).toHaveCount(0);
+  // Return through a full navigation once activation is persisted. A first-time
+  // install still has late Settings state in flight; either Escape or the close
+  // button can be overwritten and leave that modal over the next palette click.
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 }
