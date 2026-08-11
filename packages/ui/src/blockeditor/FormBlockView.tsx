@@ -8,8 +8,10 @@ import {ConfigField, KitFrame, NameDescriptionFields} from './kit/KitFrame';
 import {useKitLock} from './kit/lock';
 import {formSchemaFromProps, makeFormBlock} from './formBlock';
 import {FormClosedView, FormSubmissionView} from './FormSubmissionView';
+import {FormEditView, FormSettings} from './FormBuilder';
 
 export {formOriginUrl} from './formBlock';
+export {FormEditView} from './FormBuilder';
 
 /** The live-page destination used by frozen form previews, when one is known. */
 export const FormOriginContext = createContext<string | null>(null);
@@ -100,25 +102,6 @@ const EmptyFields: React.FC = () => (
   <div className="obe-form-empty">{t('formBlock.noFields')}</div>
 );
 
-/** Authoring shell: definition summary only; FORM-4 owns the real builder. */
-export const FormEditView: React.FC<{schema: FormSchema}> = ({schema}) => (
-  <div className="obe-form-edit" data-form-mode="edit">
-    {schema.fields.length === 0 ? <EmptyFields /> : (
-      <ul className="obe-form-field-list">
-        {schema.fields.map((field) => (
-          <li key={field.id || `${field.kind}-${field.label}`}>
-            <span>{field.label || t('formBlock.untitledField')}</span>
-            <span className="obe-form-kind">{field.kind}</span>
-          </li>
-        ))}
-      </ul>
-    )}
-    <button type="button" className="obe-form-builder" data-form-open-builder disabled>
-      {t('formBlock.openBuilder')}
-    </button>
-  </div>
-);
-
 /** Reader/presenter/viewer shell: all controls are deliberately frozen. */
 export const FormReadonlyView: React.FC<{schema: FormSchema; originUrl?: string | null}> = ({schema, originUrl}) => {
   const liveUrl = originUrl && isSafeHref(originUrl) ? originUrl : null;
@@ -187,10 +170,11 @@ export const FormBlockView: React.FC<CustomBlockProps> = ({block, editor, pageRe
       <ConfigField label={t('formBlock.destination')}>
         <BoundDatabaseSummary databaseId={schema.databaseId} />
       </ConfigField>
+      {!readonly && <FormSettings schema={schema} block={block} editor={editor} />}
     </>
   );
   let control: React.ReactNode;
-  if (!readonly) control = <FormEditView schema={schema} />;
+  if (!readonly) control = <FormEditView schema={schema} block={block} editor={editor} />;
   else if (live && (!schema.enabled || schema.maxSubmissions === 0)) control = <FormClosedView />;
   else if (live) control = <FormSubmissionView schema={schema} pageId={pageId} client={submissionClient} />;
   else control = <FormReadonlyView schema={schema} originUrl={originUrl} />;
