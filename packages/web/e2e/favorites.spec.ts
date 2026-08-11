@@ -9,8 +9,8 @@ test('favorites: pin from the page menu, see it in the sidebar + palette, then u
   await expect(page.getByText('Favorites', {exact: true})).toHaveCount(0); // none yet
 
   // The title is an editable textarea, so CTX-5 deliberately leaves its native
-  // spelling/editing menu intact. Non-editable page chrome still owns this menu.
-  await page.getByRole('button', {name: 'Change page icon'}).click({button: 'right'});
+  // spelling/editing menu intact. Non-editable header chrome still owns this menu.
+  await page.locator('[data-page-header-controls]').click({button: 'right'});
   await page.getByRole('menuitem', {name: 'Add to favorites'}).click();
 
   // Sidebar Favourites section now exists.
@@ -23,7 +23,7 @@ test('favorites: pin from the page menu, see it in the sidebar + palette, then u
   await page.keyboard.press('Escape');
 
   // Unpin via the menu (now labelled "Remove from favorites").
-  await page.getByRole('button', {name: 'Change page icon'}).click({button: 'right'});
+  await page.locator('[data-page-header-controls]').click({button: 'right'});
   await page.getByRole('menuitem', {name: 'Remove from favorites'}).click();
   await expect(page.getByText('Favorites', {exact: true})).toHaveCount(0);
 });

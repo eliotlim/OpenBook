@@ -74,8 +74,8 @@ test('page menu: rename, duplicate, split — and rename focuses the title', {ta
   await expect(page.getByRole('button', {name: 'Copy link'})).toBeVisible();
 
   // The editable title keeps its native menu (CTX-5); adjacent non-editable
-  // page chrome still opens the page menu, while blocks open their own menu.
-  await page.getByRole('button', {name: 'Change page icon'}).click({button: 'right'});
+  // header chrome still opens the page menu, while blocks open their own menu.
+  await page.locator('[data-page-header-controls]').click({button: 'right'});
 
   const menu = page.getByRole('menu');
   await expect(menu.getByText('Rename')).toBeVisible();
