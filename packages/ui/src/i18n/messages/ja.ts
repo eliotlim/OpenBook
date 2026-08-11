@@ -154,6 +154,7 @@ export const ja: PartialMessages = {
     favorite: 'お気に入りに追加',
     unfavorite: 'お気に入りから削除',
     openSplit: '分割ビューで開く',
+    diffAgainstCurrent: '現在のバージョンとの差分',
     rename: '名前を変更',
     copyLink: 'リンクをコピー',
     copyLinkLocalOnly: 'このリンクはこのデバイスでのみ機能します。共有できるリンクを取得するには、このライブラリを公開してください。',

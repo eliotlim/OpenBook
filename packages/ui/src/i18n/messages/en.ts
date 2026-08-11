@@ -283,6 +283,7 @@ export const en = {
     openTab: 'Open in new tab',
     openWindow: 'Open in new window',
     openSplit: 'Open in split view',
+    diffAgainstCurrent: 'Diff against current',
     favorite: 'Add to favorites',
     unfavorite: 'Remove from favorites',
     rename: 'Rename',

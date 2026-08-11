@@ -155,6 +155,7 @@ export const de: PartialMessages = {
     favorite: 'Zu Favoriten hinzufügen',
     unfavorite: 'Aus Favoriten entfernen',
     openSplit: 'In geteilter Ansicht öffnen',
+    diffAgainstCurrent: 'Mit aktueller Version vergleichen',
     rename: 'Umbenennen',
     copyLink: 'Link kopieren',
     copyLinkLocalOnly: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diese Bibliothek, um einen teilbaren Link zu erhalten.',

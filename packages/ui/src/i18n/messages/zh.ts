@@ -154,6 +154,7 @@ export const zh: PartialMessages = {
     favorite: '添加到收藏',
     unfavorite: '从收藏中移除',
     openSplit: '在拆分视图中打开',
+    diffAgainstCurrent: '与当前版本比较',
     rename: '重命名',
     copyLink: '复制链接',
     copyLinkLocalOnly: '此链接仅在本设备上有效。发布此资料库即可获得可分享的链接。',
