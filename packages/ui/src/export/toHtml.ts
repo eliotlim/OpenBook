@@ -1346,7 +1346,7 @@ figure.ob-artifact { margin: 1.2em 0; }
    the viewer's install card (LX-5) — and mismatched padding/tint made their
    left text edges disagree by a couple of pixels down the page. Same padding,
    same untinted ground, same 0.8rem body. */
-.ob-plugin-block { margin: 1.2em 0; padding: 0.6rem 0.75rem; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; break-inside: avoid; page-break-inside: avoid; }
+.ob-plugin-block { margin: 1.2em 0; padding: 0.5rem 0.75rem; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; break-inside: avoid; page-break-inside: avoid; }
 .ob-plugin-block > p { margin: 0; font-size: .8rem; line-height: 1.3; }
 .ob-plugin-block > p.ob-plugin-block-label { font-weight: 600; }
 .ob-plugin-block > p.ob-plugin-block-hint { opacity: .65; margin-top: 2px; }
@@ -1378,13 +1378,13 @@ table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }
 .ob-ledger-note { font-size: .85rem; opacity: .8; margin: 4px 0 0; }
 .ob-ledger-note.is-alarm { color: #b91c1c; font-weight: 600; opacity: 1; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
-table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
-table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 4px 8px; text-align: left; vertical-align: top; }
+table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; padding-block: 6px; }
 table.db-table a.db-row { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; font-weight: 600; cursor: pointer; }
 table.db-table a.db-row:hover { text-decoration: underline; }
 .db-empty { opacity: .6; font-size: .9em; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .82em; margin: 1px 2px 1px 0; }
-.callout { display: flex; gap: 10px; margin: 1em 0; padding: 12px 14px; border-radius: 8px; border: 1px solid; }
+.callout { display: flex; gap: 8px; margin: 8px 0; padding: 12px; border-radius: 8px; border: 1px solid; }
 .callout::before { content: "💡"; }
 .callout[data-variant=warning]::before { content: "⚠️"; }
 .callout[data-variant=success]::before { content: "✅"; }
@@ -1394,17 +1394,17 @@ table.db-table a.db-row:hover { text-decoration: underline; }
 .callout[data-variant=success] { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.4); }
 .callout[data-variant=danger] { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.4); }
 .callout__body { flex: 1; }
-.accordion { margin: 1em 0; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; padding: 4px 14px; }
-.accordion summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
-.accordion__content { padding: 2px 0 8px; }
+.accordion { margin: 8px 0; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; padding: 4px 12px; }
+.accordion summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.accordion__content { padding: 0 0 8px 24px; }
 ul.checklist { list-style: none; padding-left: .2em; }
 ul.checklist li { margin: .25em 0; }
 ul.checklist input { margin-right: .5em; }
-nav.toc { margin: 1em 0; padding: 10px 14px; border-left: 3px solid rgba(127,127,127,.3); }
+nav.toc { margin: 8px 0; padding: 8px 12px; border-left: 3px solid rgba(127,127,127,.3); }
 nav.toc ul { list-style: none; padding-left: 0; margin: 0; }
 nav.toc a { text-decoration: none; opacity: .85; }
 nav.toc a:hover { opacity: 1; text-decoration: underline; }
-a.button { display: inline-block; background: #4f46e5; color: #fff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; }
+a.button { display: inline-block; background: #4f46e5; color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: 600; text-decoration: none; }
 a.button:hover { filter: brightness(1.08); }
 .button.is-empty { background: rgba(127,127,127,.3); }
 hr.divider[data-style=dashed] { border-top-style: dashed; }

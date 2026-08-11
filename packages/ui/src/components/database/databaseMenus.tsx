@@ -1793,10 +1793,14 @@ export const ViewOptionsMenu: React.FC<{
         </button>
       </PopoverTrigger>
       {/* The panel can outgrow short windows (layout grid + grouping + colour
-          rules + metrics) — scroll inside rather than cutting off the tail. */}
+          rules + metrics) — scroll inside rather than cutting off the tail.
+          Cap to the collision-measured available height (like the base
+          PopoverContent, which this class would otherwise override away):
+          a plain vh cap ignores the anchor offset, so the panel's tail could
+          land below the viewport with no way to scroll it into reach. */}
       <PopoverContent
         align="end"
-        className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3"
+        className="max-h-[min(34rem,var(--radix-popover-content-available-height))] w-72 space-y-2.5 overflow-y-auto p-3"
       >
         <input
           defaultValue={view.name}
