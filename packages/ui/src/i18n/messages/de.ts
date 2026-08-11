@@ -895,6 +895,8 @@ export const de: PartialMessages = {
     signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
     signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Veröffentlichung wird danach automatisch eingeschaltet.',
     resumedToast: 'Veröffentlichung ist aktiv — deine Adresse ist {host}.',
+    stalledToast: 'Die Veröffentlichung stockt nach wiederholten Verbindungsfehlern: {error}',
+    offlineToast: 'Die Veröffentlichung ist offline: {error}',
     signIn: 'Anmelden',
     registering: 'Verbinden…',
     address: 'Deine Adresse',
@@ -919,6 +921,7 @@ export const de: PartialMessages = {
     status: {
       live: 'Live',
       connecting: 'Verbinden',
+      stalled: 'Verbindung stockt',
       offline: 'Offline',
     },
     visibility: {

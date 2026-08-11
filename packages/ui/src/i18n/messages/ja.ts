@@ -895,6 +895,8 @@ export const ja: PartialMessages = {
     signInHint: 'アドレスを取得するには、まずアカウントにサインインしてください。',
     signInPending: 'アカウントへのサインインを完了してください — サインインが済むと公開は自動的にオンになります。',
     resumedToast: '公開が有効になりました — あなたのアドレスは {host} です。',
+    stalledToast: '接続エラーが繰り返されたため、公開が停止しています: {error}',
+    offlineToast: '公開がオフラインになりました: {error}',
     signIn: 'サインイン',
     registering: '接続中…',
     address: 'あなたのアドレス',
@@ -913,6 +915,7 @@ export const ja: PartialMessages = {
     status: {
       live: '稼働中',
       connecting: '接続中',
+      stalled: '接続停止',
       offline: 'オフライン',
     },
     visibility: {

@@ -260,9 +260,11 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
                     ? t('diagnostics.forwardingOff')
                     : forwarding.status === 'online'
                       ? t('forwarding.status.live')
-                      : forwarding.status === 'connecting' || forwarding.status === 'reconnecting'
-                        ? t('forwarding.status.connecting')
-                        : t('forwarding.status.offline')
+                      : forwarding.status === 'stalled'
+                        ? t('forwarding.status.stalled')
+                        : forwarding.status === 'connecting' || forwarding.status === 'reconnecting'
+                          ? t('forwarding.status.connecting')
+                          : t('forwarding.status.offline')
                 }
                 tone={forwarding.enabled ? (forwarding.status === 'online' ? 'ok' : 'warn') : 'muted'}
                 detail={forwarding.host ? `https://${forwarding.host}` : undefined}

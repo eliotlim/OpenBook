@@ -35,6 +35,9 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
   if (status === 'connecting' || status === 'reconnecting') {
     return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">○ {t('forwarding.status.connecting')}</span>;
   }
+  if (status === 'stalled') {
+    return <span className="text-xs font-medium text-destructive">● {t('forwarding.status.stalled')}</span>;
+  }
   return <span className="text-xs text-muted-foreground">○ {t('forwarding.status.offline')}</span>;
 }
 

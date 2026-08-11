@@ -232,3 +232,37 @@ describe('TunnelClient request forwarding — identity + forwarded marker', () =
     expect(captured!.headers.get('X-OpenBook-Forwarded')).toBe('1');
   });
 });
+
+describe('TunnelClient stalled attach diagnostics (TUN-3)', () => {
+  it('emits the original 403 error and enters stalled only after two consecutive failures', async () => {
+    vi.useFakeTimers();
+    const forbidden = Object.assign(new Error('/api/sites/attach-ticket → 403 (forbidden)'), {status: 403});
+    const ticketProvider = vi.fn().mockRejectedValue(forbidden);
+    const errors: unknown[] = [];
+    const statuses: string[] = [];
+    const client = new TunnelClient({
+      ticketProvider,
+      privateKey: 'unused',
+      localOrigin: '',
+      webSocketImpl: FakeWS as unknown as typeof WebSocket,
+      onDialError: (error) => errors.push(error),
+      onStatus: (status) => statuses.push(status),
+    });
+
+    try {
+      client.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ticketProvider).toHaveBeenCalledTimes(1);
+      expect(statuses).not.toContain('stalled');
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(ticketProvider).toHaveBeenCalledTimes(2);
+      expect(statuses[statuses.length - 1]).toBe('stalled');
+      expect(errors).toEqual([forbidden, forbidden]);
+      expect((errors[errors.length - 1] as {status?: number}).status).toBe(403);
+    } finally {
+      client.stop();
+      vi.useRealTimers();
+    }
+  });
+});

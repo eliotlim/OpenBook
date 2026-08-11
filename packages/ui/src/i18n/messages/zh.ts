@@ -891,6 +891,8 @@ export const zh: PartialMessages = {
     signInHint: '请先登录你的账户以获取地址。',
     signInPending: '请完成账户登录 —— 登录后发布将自动开启。',
     resumedToast: '发布已开启 —— 你的地址是 {host}。',
+    stalledToast: '多次连接失败，发布已停滞：{error}',
+    offlineToast: '发布已离线：{error}',
     signIn: '登录',
     registering: '连接中…',
     address: '你的地址',
@@ -908,6 +910,7 @@ export const zh: PartialMessages = {
     status: {
       live: '在线',
       connecting: '连接中',
+      stalled: '连接停滞',
       offline: '离线',
     },
     visibility: {

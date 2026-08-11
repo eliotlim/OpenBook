@@ -1544,6 +1544,8 @@ export const en = {
     signInHint: 'Sign in to your account first to claim an address.',
     signInPending: 'Finish signing in — publishing will turn on automatically.',
     resumedToast: 'Publishing is on — your address is {host}.',
+    stalledToast: 'Publishing is stalled after repeated connection failures: {error}',
+    offlineToast: 'Publishing went offline: {error}',
     signIn: 'Sign in',
     registering: 'Connecting…',
     address: 'Your address',
@@ -1567,6 +1569,7 @@ export const en = {
     status: {
       live: 'Live',
       connecting: 'Connecting',
+      stalled: 'Connection stalled',
       offline: 'Offline',
     },
     // Address-level audience scope (SHR-8): the published *.book.cloud address is

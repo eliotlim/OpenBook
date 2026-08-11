@@ -133,6 +133,7 @@ export interface ForwardingClientOptions {
   /** The cell to attach in (nearest region). Defaults to the platform home cell. */
   region?: string;
   onStatus?: (status: TunnelStatus) => void;
+  onDialError?: (error: unknown) => void;
   /** Reports the canonical host returned by the first successful attach mint,
    *  and again only if a later mint reports a different host. */
   onHost?: (host: string) => void;
@@ -451,6 +452,7 @@ export class ForwardingClient {
       privateKey: id.privateKey,
       localOrigin: this.opts.localOrigin,
       onStatus: this.opts.onStatus,
+      onDialError: this.opts.onDialError,
       // The tunnel forwards to the LOCAL server; the desktop routes that over IPC
       // (no port), separate from the account API's global fetch.
       fetchImpl: this.opts.localFetchImpl ?? this.opts.fetchImpl,

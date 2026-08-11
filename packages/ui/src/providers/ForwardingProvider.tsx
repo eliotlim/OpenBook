@@ -17,6 +17,7 @@ import {
   type AudienceNoticeCode,
 } from './forwardingAudience';
 import {useData} from '@/data/DataProvider';
+import {push as pushError} from '@/lib/errorLog';
 import {setShareLinkOrigin} from '@/lib/pageActions';
 import {showToast} from '@/components/ui/toast';
 import {t} from '@/i18n';
@@ -50,6 +51,22 @@ const isRetryableStartError = (error: unknown): boolean =>
   (error instanceof ForwardingApiError && error.status >= 500) ||
   error instanceof TypeError ||
   (error instanceof DOMException && (error.name === 'NetworkError' || error.name === 'TimeoutError'));
+
+const describeForwardingError = (error: unknown): {code?: string; message: string; detail?: string} => {
+  const fields = error && typeof error === 'object' ? (error as {code?: unknown; status?: unknown; detail?: unknown}) : {};
+  const rawCode = error instanceof ForwardingApiError ? error.status : (fields.code ?? fields.status);
+  const code = typeof rawCode === 'string' || typeof rawCode === 'number' ? String(rawCode) : undefined;
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = code && !rawMessage.includes(code) ? `${rawMessage} (${code})` : rawMessage;
+  const detail = typeof fields.detail === 'string' ? fields.detail : undefined;
+  return {code, message, detail};
+};
+
+const recordForwardingError = (error: unknown): ReturnType<typeof describeForwardingError> => {
+  const info = describeForwardingError(error);
+  pushError({subsystem: 'forwarding', ...info});
+  return info;
+};
 
 /** Combined provisioning/tunnel status. `idle` = never started this session. */
 export type ForwardingStatus = TunnelStatus | 'idle';
@@ -189,6 +206,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // The auto-resume (P1-6) can complete with Settings closed / off-screen, so flag
   // the resume so we can announce it with a toast once the address is live.
   const resumedRef = useRef(false);
+  const outageFailureCountRef = useRef(0);
+  const outageToastShownRef = useRef(false);
 
   // The latest issuance verdict, read at claim time through a ref so the memoized
   // `audienceDeps` below stays stable across issuance state changes.
@@ -244,12 +263,28 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     startRetryTimerRef.current = null;
   }, []);
 
+  const handleTunnelStatus = useCallback((next: TunnelStatus) => {
+    if (next === 'online') {
+      outageFailureCountRef.current = 0;
+      outageToastShownRef.current = false;
+      terminalStartErrorRef.current = false;
+      setError(null);
+    }
+    setStatus(next);
+  }, []);
+
+  const handleDialError = useCallback((dialError: unknown) => {
+    const info = recordForwardingError(dialError);
+    outageFailureCountRef.current += 1;
+    if (outageFailureCountRef.current >= 2) setError(info.message);
+  }, []);
+
   const startTunnel = useCallback(async () => {
     if (!forwarding || !token || clientRef.current || startingRef.current) return;
     cancelStartRetry();
     startingRef.current = true; // latch BEFORE the first await (see startingRef)
     setBusy(true);
-    setError(null);
+    if (outageFailureCountRef.current === 0) setError(null);
     setAudienceNotice(null);
     setClaimRefusal(null);
     try {
@@ -274,7 +309,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
         keyStore: forwarding.keyStore,
         localOrigin: '',
         localFetchImpl: forwarding.localFetch,
-        onStatus: setStatus,
+        onStatus: handleTunnelStatus,
+        onDialError: handleDialError,
         onHost: (canonicalHost) => {
           setHost(canonicalHost);
           void bindAudience(canonicalHost).catch((bindError: unknown) => {
@@ -290,10 +326,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     } catch (e) {
       clientRef.current?.stop();
       clientRef.current = null;
-      setStatus('offline');
-      setError(e instanceof Error ? e.message : String(e));
+      const info = recordForwardingError(e);
+      outageFailureCountRef.current += 1;
+      setError(info.message);
       const retryable = isRetryableStartError(e);
       terminalStartErrorRef.current = !retryable;
+      setStatus(retryable && outageFailureCountRef.current >= 2 ? 'stalled' : 'offline');
       if (retryable && enabledRef.current) {
         const delay = startRetryDelayRef.current;
         startRetryDelayRef.current = Math.min(delay * 2, START_RETRY_MAX_MS);
@@ -306,7 +344,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       setBusy(false);
       startingRef.current = false;
     }
-  }, [forwarding, token, accountUrl, bindAudience, audienceDeps, cancelStartRetry]);
+  }, [forwarding, token, accountUrl, bindAudience, audienceDeps, cancelStartRetry, handleTunnelStatus, handleDialError]);
   startTunnelRef.current = startTunnel;
 
   // Resume on launch / once the account connects, when forwarding is enabled. This
@@ -457,12 +495,25 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     }
   }, [status, host]);
 
+  // Announce a real outage once per incident. A retryable one must fail at least
+  // twice before it is considered stalled; terminal launch errors are actionable
+  // immediately. Recovery re-arms the toast in `handleTunnelStatus`.
+  useEffect(() => {
+    if (!enabled || outageToastShownRef.current || (status !== 'offline' && status !== 'stalled')) return;
+    if (!terminalStartErrorRef.current && outageFailureCountRef.current < 2) return;
+    outageToastShownRef.current = true;
+    const key = status === 'stalled' ? 'forwarding.stalledToast' : 'forwarding.offlineToast';
+    showToast({message: t(key, {error: error ?? t('forwarding.status.offline')})});
+  }, [enabled, status, error]);
+
   const disable = useCallback(() => {
     cancelStartRetry();
     clientRef.current?.stop();
     clientRef.current = null;
     setStatus('offline');
     terminalStartErrorRef.current = false;
+    outageFailureCountRef.current = 0;
+    outageToastShownRef.current = false;
     enabledRef.current = false;
     setEnabled(false);
     writeEnabled(false);

@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   clientCtor: vi.fn(),
   clientStart: vi.fn(),
   clientStop: vi.fn(),
+  clientCallbacks: {} as {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void},
   showToastSpy: vi.fn(),
 }));
 
@@ -67,8 +68,9 @@ vi.mock('@book.dev/sdk', () => ({
   },
   ForwardingClient: class {
     onStatus?: (s: string) => void;
-    constructor(opts: {onStatus?: (s: string) => void}) {
+    constructor(opts: {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void}) {
       this.onStatus = opts.onStatus;
+      h.clientCallbacks = opts;
       h.clientCtor();
     }
     async start() {
@@ -89,6 +91,7 @@ vi.mock('@/components/ui/toast', () => ({showToast: h.showToastSpy}));
 vi.mock('@/lib/pageActions', () => ({setShareLinkOrigin: vi.fn()}));
 
 import {ForwardingApiError, SiteReattachError} from '@book.dev/sdk';
+import {list as listErrors} from '@/lib/errorLog';
 import {ForwardingProvider, useForwarding} from '../ForwardingProvider';
 
 const wrapper = ({children}: {children: React.ReactNode}) => <ForwardingProvider>{children}</ForwardingProvider>;
@@ -114,6 +117,7 @@ beforeEach(() => {
     return {host: 'abc.book.cloud'};
   });
   h.clientStop.mockClear();
+  h.clientCallbacks = {};
   h.showToastSpy.mockClear();
 });
 
@@ -210,8 +214,8 @@ describe('ForwardingProvider — signed-out flip resume (P1-6)', () => {
     signIn(); // already connected before the flip
     const {result} = renderHook(() => useForwarding(), {wrapper});
 
-    // enable() dials directly AND sets `enabled`, which also arms the launch effect —
-    // the startingRef guard must collapse that into a single claim.
+    // enable() records intent and the launch effect owns the sole dial, while the
+    // startingRef guard still protects effect re-entry during the async claim.
     await act(async () => {
       await result.current.enable();
     });
@@ -245,6 +249,7 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
     expect(h.clientStart).toHaveBeenCalledTimes(2);
     expect(result.current.status).toBe('online');
     expect(result.current.error).toBeNull();
+    expect(listErrors()[0]).toMatchObject({subsystem: 'forwarding', code: 'unreachable'});
   });
 
   it('doubles launch backoff and caps every later delay at five minutes', async () => {
@@ -289,5 +294,45 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
 
     expect(h.clientStart).toHaveBeenCalledTimes(1);
     expect(result.current.enabled).toBe(false);
+  });
+});
+
+describe('ForwardingProvider — stalled dial diagnostics (TUN-3)', () => {
+  it('debounces a 403 stall toast, exposes its code, logs it, and clears the error on recovery', async () => {
+    signIn();
+    h.clientStart.mockImplementationOnce(async (onStatus?: (s: string) => void) => {
+      onStatus?.('connecting');
+      return {host: 'abc.book.cloud'};
+    });
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+    await act(async () => result.current.enable());
+    const forbidden = new ForwardingApiError('/api/sites/attach-ticket', 403);
+
+    act(() => {
+      h.clientCallbacks.onDialError?.(forbidden);
+      h.clientCallbacks.onStatus?.('reconnecting');
+    });
+    expect(result.current.error).toBeNull();
+    expect(h.showToastSpy).not.toHaveBeenCalled(); // one transient blip stays quiet
+
+    act(() => {
+      h.clientCallbacks.onDialError?.(forbidden);
+      h.clientCallbacks.onStatus?.('stalled');
+    });
+    expect(result.current.status).toBe('stalled');
+    expect(result.current.error).toContain('403');
+    expect(h.showToastSpy).toHaveBeenCalledTimes(1);
+    expect(h.showToastSpy).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('403')}));
+    expect(listErrors()[0]).toMatchObject({subsystem: 'forwarding', code: '403'});
+
+    act(() => {
+      h.clientCallbacks.onDialError?.(forbidden);
+      h.clientCallbacks.onStatus?.('stalled');
+    });
+    expect(h.showToastSpy).toHaveBeenCalledTimes(1); // no toast storm within one outage
+
+    act(() => h.clientCallbacks.onStatus?.('online'));
+    expect(result.current.status).toBe('online');
+    expect(result.current.error).toBeNull();
   });
 });
