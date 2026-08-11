@@ -18,6 +18,8 @@ pub(crate) enum SidecarLifecycle {
 /// Stable webview contract for both the `sidecar-state` event and the
 /// `sidecar_state` command. BOOT-5/BOOT-8 consume these exact camelCase fields;
 /// add fields compatibly, but do not rename them or change their value types.
+/// `running` means "process spawned", not "socket accepting"; consumers must not
+/// gate IPC readiness on it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SidecarStatePayload {
@@ -163,7 +165,7 @@ impl SidecarSupervisor {
 
     /// Invalidate the live receiver and all retry/healthy timers before the
     /// graceful BOOT-7 stop path signals the child.
-    pub(crate) fn begin_shutdown(&mut self) {
+    pub(crate) fn invalidate_for_shutdown(&mut self) {
         self.shutting_down = true;
         self.running_since = None;
         self.generation = self.generation.wrapping_add(1);
@@ -278,7 +280,7 @@ mod tests {
             .failed(generation, now, Some(1), Vec::new())
             .unwrap();
 
-        supervisor.begin_shutdown();
+        supervisor.invalidate_for_shutdown();
         assert!(supervisor.begin_retry(generation).is_none());
         assert!(supervisor
             .failed(generation, now, Some(0), Vec::new())

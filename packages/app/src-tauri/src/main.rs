@@ -1146,7 +1146,7 @@ fn stop_managed_server(app_handle: &AppHandle) {
         .supervision
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .begin_shutdown();
+        .invalidate_for_shutdown();
     // Take the child and DROP the lock guard before the (blocking, up to
     // SHUTDOWN_GRACE_MS) stop — holding it across the wait would block a
     // concurrent publish_server/respawn IPC on the same mutex.
