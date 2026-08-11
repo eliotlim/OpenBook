@@ -37,7 +37,9 @@ export function shouldUseNativePageContextMenu(target: EventTarget | null): bool
   const selection = document.getSelection();
   if (!targetEl || selection?.isCollapsed !== false || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
-  return targetEl.contains(range.commonAncestorContainer) || range.intersectsNode(targetEl);
+  const common = range.commonAncestorContainer;
+  const commonEl = common instanceof Element ? common : common.parentElement;
+  return commonEl != null && commonEl.contains(targetEl) && range.intersectsNode(targetEl);
 }
 
 /**

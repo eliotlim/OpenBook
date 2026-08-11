@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {BlockEditor} from '../BlockEditor';
 import {createDoc, rootBlocks} from '../model';
-import {passEditableContextMenuToBrowser} from '../nativeContextMenu';
+import {passEditableContextMenuToBrowser, passPageContextMenuToBrowser} from '../nativeContextMenu';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {
   ContextMenu,
@@ -122,6 +122,30 @@ describe('native editable context-menu passthrough', () => {
     const event = contextMenu(text);
 
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('opens the page menu when right-clicking the background outside a read-only text selection', () => {
+    const doc = createDoc([{id: 'p', type: 'paragraph', text: [{t: 'read-only selection'}]}]);
+    const {container} = render(
+      <ContextMenu>
+        <ContextMenuTrigger asChild onContextMenuCapture={passPageContextMenuToBrowser}>
+          <div data-page-background>
+            <BlockEditor doc={doc} readOnly />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem>Page action</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+    const text = container.querySelector('[data-block-text="p"]') as HTMLElement;
+    const background = container.querySelector('[data-page-background]') as HTMLElement;
+    selectText(text, false);
+
+    const event = contextMenu(background);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.getByText('Page action')).toBeTruthy();
   });
 });
 
