@@ -22,11 +22,22 @@ change (LGR-15 / OB-603).
 All three write the **same bundle format**, so anything below applies to every
 snapshot regardless of how it was made. Snapshots are written atomically
 (temp-file + rename): a crash mid-write never leaves a truncated backup.
+The scheduled writer serializes directly into that temp file, awaiting every
+append and fetching/encoding one asset at a time. Its asset-specific high-water
+mark is one 10 MiB raw asset plus its base64 value and serialized JSON (about
+37 MiB, plus database/VM overhead), independent of the library's total asset
+corpus; page/database metadata and an optional ledger section remain snapshot
+arrays.
 
 Scheduled backups default **on**, to `<dataDir>/backups`; policy (cadences,
 retention counts, output dir) lives in Settings → Backup and
 `GET/PUT /api/backups`. The in-webview (browser-storage) home has no
 filesystem, so only the ad-hoc export applies there.
+Each cadence reports its latest skipped-item count and active error through
+`GET /api/backups`. A failure that cannot be reduced to a skipped item persists
+`failedAt`, `message`, `attempts`, and `retryAt`; retries back off exponentially
+from one hour to a 24-hour cap, so the ordinary 30-minute scheduler tick cannot
+repeat the same full scan immediately.
 
 **Protect the backup directory permissions.** Version 3 bundles — including
 scheduled on-disk snapshots — contain page ACLs and member email addresses in
@@ -47,6 +58,9 @@ operators responsible for recovery should be able to read that directory.
   "pageAccess": [
     /* one per page: {pageId, visibility, agentEdits, acl:[{subject|email, issuer, level, invitedBy, createdAt}]} */
   ],
+  "skipped": [
+    /* optional, scheduled only: {id, refs:[pageId], reason} or {id:"page-access", pages:[pageId], reason} */
+  ],
   "ledger": { // present iff a ledger is seeded — the DURABILITY SECTION (LGR-15)
     "settings": { "ledgerDb": {}, "ledgerPeriods": [], "ledgerEntrySeq": 0 },
     "audit":    [ /* the FULL append-only audit stream, seq order, hashes verbatim */ ]
@@ -57,14 +71,21 @@ operators responsible for recovery should be able to read that directory.
 `assets` is the complete live-page asset corpus, including ordinary images,
 HTML artifacts, property assets, and ledger evidence. Entries are deduplicated
 by SHA-256 `id`; `refs` is derived from page documents/properties rather than
-the potentially stale reachability table. Export fails if any referenced bytes
-are missing or their stored hash/size is inconsistent. Restore verifies the
-whole manifest (shape, coverage, refs, base64 size, SHA-256, mime/caps/budget)
-before writing anything.
+the potentially stale reachability table. Explicit/ad-hoc export remains strict:
+it fails if referenced bytes are missing or their stored hash/size is
+inconsistent. Scheduled backup instead omits that asset and records one
+`skipped` entry with reason `missing-bytes`, `hash-mismatch`, or `size-mismatch`,
+so every readable part of the library still lands on disk. Restore verifies the
+carried bytes and requires every omitted reference to be accounted for by that
+manifest before writing anything.
 
 `pageAccess` preserves the stored access posture exactly: visibility scope,
 agent-edits policy, and subject/email ACL grants with issuer, level, inviter,
-and creation time. It contains exactly one record for every exported page.
+and creation time. It normally contains exactly one record for every exported
+page. The scheduled writer retries a page-set race once, then records a
+`page-access` / `page-set-changed` skip for the affected ids and keeps the
+intersection; restore accepts those omissions but forces the affected pages to
+`restricted` / `suggest` with no ACLs.
 The restore door installs it automatically only when the envelope's
 `instanceId` matches the target. Foreign or older origin-less v3 bundles restore
 pages as `restricted` with no ACLs and safe agent-edit settings, and return a
@@ -83,6 +104,11 @@ carries what those rows cannot express:
 - evidence bytes now travel in the top-level `assets` manifest with every other
   referenced asset (drafts included, so a restored draft can still post).
 
+`skipped` is an additive optional v3 field, so the format version remains 3. A
+restore that consumes it returns a `partial-restore` diagnostic with
+`missing:["scheduled-backup-skips"]`; a forged omission without a matching,
+validated skip entry is still refused.
+
 **Version compatibility:** v1 and v2 still restore, but the response includes a
 structured `diagnostics[]` entry with `code: "partial-restore"` and an explicit
 `missing` list. v2 lacks the complete asset manifest and page access state; v1
@@ -100,9 +126,10 @@ server to obtain a complete v3 bundle. Two other deliberate refusals to know abo
   `0021`, i.e. carries mid-stream `prevHash: null`) is refused at the door as
   unverifiable — the door will not install a stream the tamper check rejects.
 
-**Known limitation:** the bundle remains one JSON document and import
-materializes it in memory (bounded by the route's 512 MiB body cap). A streaming
-bundle format is future work.
+**Known limitation:** the bundle remains one JSON document. Ad-hoc HTTP export
+and import still materialize it in memory (import is bounded by the route's 512
+MiB body cap); only the scheduled on-disk writer streams today. A streaming
+transport/parser for those HTTP paths is future work.
 
 **Scope boundary:** this is a lossless restore of the documented *live library*
 surface, not a raw instance clone. Trash, page-version history, review

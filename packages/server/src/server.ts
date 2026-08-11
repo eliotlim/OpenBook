@@ -101,6 +101,11 @@ export interface StartOptions {
    */
   assetGcGraceMs?: number;
   /**
+   * Idle delay before the scheduled-backup catch-up check. Defaults to 15s.
+   * Exposed for startup integration tests; production callers normally omit it.
+   */
+  backupCatchUpDelayMs?: number;
+  /**
    * When set, mirror the library to a folder of HTML book files at this path
    * (one folder per book) in near-realtime, watch it for external edits, and
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
@@ -443,8 +448,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const defaultBackupDir = opts.dataDir
     ? path.join(opts.dataDir, 'backups')
     : path.join(os.homedir(), '.openbook', 'backups');
-  const backups = new BackupScheduler(store, {defaultDir: defaultBackupDir});
-  backups.start();
+  const backups = new BackupScheduler(store, {
+    defaultDir: defaultBackupDir,
+    catchUpDelayMs: opts.backupCatchUpDelayMs,
+  });
 
   // Ledger auto-export (LGR-7 insurance): when the owner sets
   // `ledgerAutoExportPath` in instance policy, every ledger mutation schedules
@@ -568,6 +575,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     url = `http://${clientHost}:${info.port}`;
     address = `${host}:${info.port}`;
   }
+
+  // BOOT-1: only arm the overdue catch-up after every requested listener has
+  // completed its bind callback. `start()` merely schedules an unawaited idle
+  // callback, so export work is never part of the boot-critical path.
+  backups.start();
 
   // Advertise the bound TCP address (+ this process) for discovery and stale-lock
   // detection. Written under the data dir (embedded mode only) and removed on a

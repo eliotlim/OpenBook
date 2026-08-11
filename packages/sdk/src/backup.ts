@@ -65,6 +65,23 @@ export interface BackupPageAccess {
 }
 
 /**
+ * An inconsistency a scheduled v3 backup skipped so the rest of the library
+ * could still be captured. Asset entries carry `refs`; a page-access snapshot
+ * race carries the affected `pages`. Explicit exports remain strict and omit
+ * this field entirely when complete.
+ */
+export interface BackupSkippedItem {
+  /** Asset hash, or the stable section id `page-access`. */
+  id: string;
+  /** Pages that referenced a skipped/mismatched asset. */
+  refs?: string[];
+  /** Pages involved in a page-access snapshot race. */
+  pages?: string[];
+  /** Stable machine-readable reason. */
+  reason: 'missing-bytes' | 'hash-mismatch' | 'size-mismatch' | 'page-set-changed';
+}
+
+/**
  * The ledger durability surface of a backup (LGR-15). The ledger's ENTITIES
  * (accounts/transactions/postings/reconciliations and their host pages) travel
  * as ordinary pages/databases in the bundle; this section carries what those
@@ -113,6 +130,8 @@ export interface LibraryBackup {
   assets?: BackupAsset[];
   /** v3: exactly one access-state record for every page in `pages`. */
   pageAccess?: BackupPageAccess[];
+  /** v3 additive: inconsistencies skipped by the scheduled writer. */
+  skipped?: BackupSkippedItem[];
 }
 
 export type ImportMode = 'copy' | 'overwrite';
@@ -141,6 +160,8 @@ export interface ImportRequest {
   assets?: BackupAsset[];
   /** v3 selected-page access-state manifest. */
   pageAccess?: BackupPageAccess[];
+  /** v3 additive: skipped items carried from a scheduled backup. */
+  skipped?: BackupSkippedItem[];
   /**
    * Explicitly install v3 access state whose `instanceId` is absent or differs
    * from the target. Omitted/false restores those pages restricted instead.
@@ -164,7 +185,8 @@ export type LedgerRestoreOutcome = 'restored' | 'skipped-existing-ledger' | 'ski
 export type PartialRestoreMissing =
   | 'complete-asset-manifest'
   | 'page-access-state'
-  | 'ledger-durability-section';
+  | 'ledger-durability-section'
+  | 'scheduled-backup-skips';
 
 /** Loud, machine-readable warning for an intentionally partial restore. */
 export interface BackupRestoreDiagnostic {
@@ -206,6 +228,14 @@ export interface ImportResult {
  */
 export type BackupCadence = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
+/** A persisted scheduler failure and the exponential-backoff gate it armed. */
+export interface BackupFailure {
+  failedAt: string;
+  retryAt: string;
+  attempts: number;
+  message: string;
+}
+
 export const BACKUP_CADENCES: readonly BackupCadence[] = ['daily', 'weekly', 'monthly', 'yearly'] as const;
 
 /** Interval of each cadence, in milliseconds. */
@@ -235,6 +265,10 @@ export interface BackupConfig {
   keep: Record<BackupCadence, number>;
   /** Last successful run per cadence (ISO), so a reboot catches up overdue ones. */
   lastRun: Partial<Record<BackupCadence, string>>;
+  /** Skipped-item count recorded by the latest successful run per cadence. */
+  lastSkippedCount: Partial<Record<BackupCadence, number>>;
+  /** Active failure/backoff state per cadence; cleared by the next success. */
+  failures: Partial<Record<BackupCadence, BackupFailure>>;
 }
 
 export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
@@ -243,6 +277,8 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
   cadences: {daily: true, weekly: true, monthly: true, yearly: true},
   keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
   lastRun: {},
+  lastSkippedCount: {},
+  failures: {},
 };
 
 /** A derived, per-cadence view for the UI (last/next run + how many are on disk). */
@@ -252,6 +288,10 @@ export interface BackupCadenceStatus {
   lastRun: string | null;
   nextDue: string | null;
   count: number;
+  /** Skipped items in the latest successful snapshot. */
+  lastSkippedCount: number | null;
+  /** Persisted failure/backoff state, when the latest scheduled attempt failed. */
+  lastError: BackupFailure | null;
 }
 
 /** What `GET /api/backups` returns: the policy + resolved dir + derived status. */

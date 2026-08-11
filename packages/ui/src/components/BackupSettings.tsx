@@ -416,8 +416,12 @@ function ScheduledBackupsSection() {
     setBusy(true);
     setMsg(null);
     try {
-      const {file} = await client.runBackup('daily');
-      setMsg(t('backup.schedule.ranNow', {file}));
+      const {file, skippedCount} = await client.runBackup('daily');
+      setMsg(
+        skippedCount > 0
+          ? t('backup.schedule.ranNowSkipped', {file, count: skippedCount})
+          : t('backup.schedule.ranNow', {file}),
+      );
       refresh();
     } catch (e) {
       setMsg((e as Error).message);
@@ -435,6 +439,25 @@ function ScheduledBackupsSection() {
           : c === 'monthly'
             ? t('backup.schedule.cadenceMonthly')
             : t('backup.schedule.cadenceYearly'),
+    [t],
+  );
+
+  const cadenceHint = useCallback(
+    (cadence: BackupStatus['cadences'][number]): string =>
+      [
+        cadence.lastRun
+          ? t('backup.schedule.keptLast', {
+            when: new Date(cadence.lastRun).toLocaleString(),
+            count: cadence.count,
+          })
+          : t('backup.schedule.never'),
+        cadence.lastSkippedCount && cadence.lastSkippedCount > 0
+          ? t('backup.schedule.lastSkipped', {count: cadence.lastSkippedCount})
+          : '',
+        cadence.lastError ? t('backup.schedule.lastError', {error: cadence.lastError.message}) : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
     [t],
   );
 
@@ -461,11 +484,7 @@ function ScheduledBackupsSection() {
                 <SettingsToggle
                   key={c.cadence}
                   label={cadenceLabel(c.cadence)}
-                  hint={
-                    c.lastRun
-                      ? t('backup.schedule.keptLast', {when: new Date(c.lastRun).toLocaleString(), count: c.count})
-                      : t('backup.schedule.never')
-                  }
+                  hint={cadenceHint(c)}
                   checked={c.enabled}
                   disabled={busy}
                   onCheckedChange={(v) => void patch({cadences: {...status.config.cadences, [c.cadence]: v}})}
@@ -566,6 +585,11 @@ function RestoreDialog({
         return refs.length > 0 ? [{...asset, refs}] : [];
       });
       const pageAccess = bundle.pageAccess?.filter((access) => selectedPageIds.has(access.pageId));
+      const skipped = bundle.skipped?.flatMap((item) => {
+        const ids = (item.pages ?? item.refs)!.filter((id) => selectedPageIds.has(id));
+        if (ids.length === 0) return [];
+        return [item.pages ? {...item, pages: ids} : {...item, refs: ids}];
+      });
       const result = await run({
         version: bundle.version,
         pages: sel.pages,
@@ -574,6 +598,7 @@ function RestoreDialog({
         ...(bundle.version === 3 ? {assets: assets ?? [], pageAccess: pageAccess ?? []} : {}),
         ...(bundle.version === 3 && bundle.instanceId ? {instanceId: bundle.instanceId} : {}),
         ...(bundle.version === 3 && bundle.ownerSubject ? {ownerSubject: bundle.ownerSubject} : {}),
+        ...(bundle.version === 3 && skipped?.length ? {skipped} : {}),
         ...(foreignPageAccess && installForeignPageAccess ? {installForeignPageAccess: true} : {}),
         ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {}),
       });
@@ -596,7 +621,13 @@ function RestoreDialog({
               : result.ledger === 'skipped-incomplete'
                 ? ` ${t('backup.ledgerSkippedIncomplete')}`
                 : '';
-      onDone(`${t('backup.restored', {count: sel.pages.length, detail})}${ledgerLine}`);
+      const diagnosticLine = (result.diagnostics ?? [])
+        .filter((diagnostic) => diagnostic.code === 'partial-restore')
+        .map((diagnostic) => t('backup.partialRestoreWarning', {message: diagnostic.message}))
+        .join(' ');
+      onDone(
+        `${t('backup.restored', {count: sel.pages.length, detail})}${ledgerLine}${diagnosticLine ? ` ${diagnosticLine}` : ''}`,
+      );
     } catch (e) {
       onDone(t('backup.restoreFailed', {error: (e as Error).message}));
     } finally {

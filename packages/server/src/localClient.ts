@@ -840,6 +840,8 @@ export class LocalDataClient implements DataClient {
           lastRun: last,
           nextDue: last ? new Date(Date.parse(last) + BACKUP_CADENCE_MS[cadence]).toISOString() : null,
           count: 0,
+          lastSkippedCount: config.lastSkippedCount[cadence] ?? null,
+          lastError: config.failures[cadence] ?? null,
         };
       }),
     };
@@ -850,7 +852,7 @@ export class LocalDataClient implements DataClient {
     return this.getBackupStatus();
   }
 
-  runBackup(): Promise<{file: string; dir: string}> {
+  runBackup(): Promise<{file: string; dir: string; skippedCount: number}> {
     return Promise.reject(
       new Error('Scheduled backups run on the desktop app or a connected server — not in the browser. Use Export instead.'),
     );
