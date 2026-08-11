@@ -373,7 +373,7 @@ export default function AgentTokensSettings() {
                   <span className="text-sm font-medium">{t('agents.revealTitle')}</span>
                   <span className="text-xs text-muted-foreground">{t('agents.revealHint')}</span>
                   <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-background px-2 py-1.5 font-mono text-xs">
+                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-background px-2.5 py-1.5 font-mono text-xs">
                       {created.token}
                     </code>
                     <Button variant="secondary" size="sm" onClick={() => void copy()}>

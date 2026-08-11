@@ -309,7 +309,7 @@ const StoreSection: React.FC<{
       {stores.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {stores.map((store) => (
-            <div key={store.baseUrl} data-store={store.baseUrl} className="flex items-center gap-3 rounded-md border border-border px-2.5 py-1.5">
+            <div key={store.baseUrl} data-store={store.baseUrl} className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
               <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <span className="text-sm font-medium">{store.name}</span>
@@ -427,7 +427,7 @@ const StoreSection: React.FC<{
               const update = updates.get(row.entry.id);
               const claimsFirstParty = !!row.store.registryPublicKey && registryEntryPinnedKeys(row.entry).includes(row.store.registryPublicKey);
               return (
-                <div key={`${row.store.baseUrl}:${row.entry.id}`} data-store-result={row.entry.id} className="flex items-start gap-3 rounded-md border border-border px-2.5 py-1.5">
+                <div key={`${row.store.baseUrl}:${row.entry.id}`} data-store-result={row.entry.id} className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/50 text-lg" aria-hidden>
                     {row.entry.icon || '🧩'}
                   </span>
@@ -612,7 +612,7 @@ const TrustedRegistries: React.FC = () => {
             <div
               key={registry.publicKey}
               data-registry={registry.name}
-              className="flex items-center gap-3 rounded-md border border-border px-2.5 py-1.5"
+              className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
             >
               <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">

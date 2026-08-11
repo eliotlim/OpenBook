@@ -1,8 +1,10 @@
 import {useState} from 'react';
 import {Button} from '@/components/ui/button';
+import {inputVariants} from '@/components/ui/input';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import AccountSwitcher from '@/components/settings/AccountSwitcher';
 import {useAccount, useTranslation} from '@/providers';
+import {cn} from '@/lib/utils';
 
 /**
  * Account & sync: connect this device to account.book.pub (the deep-link OAuth
@@ -101,7 +103,7 @@ function ManualCodeEntry({onSubmit}: {onSubmit: (raw: string) => void}) {
         rows={2}
         spellCheck={false}
         placeholder={t('account.signin.manualPlaceholder')}
-        className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs outline-hidden placeholder:text-placeholder-foreground focus-visible:border-ring focus-visible:shadow-[var(--ring-field)]"
+        className={cn(inputVariants({inputSize: 'sm'}), '!h-auto min-h-control-sm resize-none bg-background font-mono text-xs')}
       />
       <div className="flex gap-2">
         <Button size="sm" onClick={submit} disabled={!code.trim()}>
