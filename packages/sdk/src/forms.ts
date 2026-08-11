@@ -3,6 +3,7 @@ import type {FormValidationError} from './formSchema';
 /** Public form-upload limits, shared by the browser runtime and server. */
 export const FORM_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const FORM_UPLOAD_MAX_FILES = 5;
+export const FORM_UPLOAD_MAX_FORM_STAGED_BYTES = 10 * 1024 * 1024;
 export const FORM_UPLOAD_MAX_FORM_BYTES = 50 * 1024 * 1024;
 export const FORM_UPLOAD_ORPHAN_TTL_MS = 30 * 60 * 1000;
 

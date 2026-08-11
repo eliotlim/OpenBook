@@ -112,15 +112,18 @@ describe('FormSubmissionView fields and validation', () => {
     );
 
     const name = screen.getByRole('textbox', {name: /Name/});
+    expect(name.getAttribute('aria-required')).toBe('true');
     fireEvent.blur(name);
     expect(name.getAttribute('aria-invalid')).toBe('true');
     expect(name.getAttribute('aria-describedby')).toBeTruthy();
     expect(screen.getByText('This field is required.')).toBeTruthy();
 
     fireEvent.change(name, {target: {value: 'Ada'}});
-    fireEvent.change(screen.getByRole('textbox', {name: /Email/}), {target: {value: 'not-an-email'}});
+    const email = screen.getByRole('textbox', {name: /Email/});
+    fireEvent.change(email, {target: {value: 'not-an-email'}});
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
     expect(await screen.findByText('Enter a valid email address.')).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(email));
     expect(submitForm).not.toHaveBeenCalled();
   });
 
@@ -249,17 +252,51 @@ describe('FormSubmissionView submission states', () => {
     expect(container.querySelector('script')).toBeNull();
   });
 
-  it.each([
-    [404, 'unavailable', 'This form is unavailable.'],
-    [413, 'too-large', 'This response is too large to submit.'],
-  ] as const)('maps status %i to the %s terminal state', async (status, state, message) => {
-    const submitForm = vi.fn<SubmitForm>().mockRejectedValue(new FormSubmissionError(status));
+  it('maps status 404 to the unavailable terminal state', async () => {
+    const submitForm = vi.fn<SubmitForm>().mockRejectedValue(new FormSubmissionError(404));
     const {container} = render(
       <FormSubmissionView schema={schemaWith([])} pageId="page-1" client={submitClient(submitForm)} />,
     );
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
-    expect(await screen.findByText(message)).toBeTruthy();
-    expect(container.querySelector(`[data-form-state="${state}"]`)).toBeTruthy();
+    expect(await screen.findByText('This form is unavailable.')).toBeTruthy();
+    expect(container.querySelector('[data-form-state="unavailable"]')).toBeTruthy();
+  });
+
+  it('keeps values editable and allows resubmission after a 413', async () => {
+    const submitForm = vi.fn<SubmitForm>()
+      .mockRejectedValueOnce(new FormSubmissionError(413))
+      .mockResolvedValueOnce({rowId: 'row-1', submittedAt: '2026-08-12T00:00:00.000Z'});
+    const {container} = render(
+      <FormSubmissionView
+        schema={schemaWith([makeField('text', {id: 'name', label: 'Name'})])}
+        pageId="page-1"
+        client={submitClient(submitForm)}
+      />,
+    );
+    const name = screen.getByRole('textbox', {name: 'Name'}) as HTMLInputElement;
+    fireEvent.change(name, {target: {value: 'Ada'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+
+    expect(await screen.findByText('This response is too large to submit.')).toBeTruthy();
+    expect(container.querySelector('[data-form-mode="live"]')).toBeTruthy();
+    expect(name.value).toBe('Ada');
+
+    fireEvent.change(name, {target: {value: 'Grace'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+    await waitFor(() => expect(submitForm).toHaveBeenCalledTimes(2));
+    expect(submitForm.mock.calls[1][2].values).toEqual({name: 'Grace'});
+    expect(await screen.findByText('Received')).toBeTruthy();
+  });
+
+  it('returns a rate-limited submission to idle with a localized toast and no retry action', async () => {
+    const submitForm = vi.fn<SubmitForm>().mockRejectedValue(new FormSubmissionError(429));
+    render(<FormSubmissionView schema={schemaWith([])} pageId="page-1" client={submitClient(submitForm)} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith({
+      message: 'Too many upload attempts. Wait a minute and try again.',
+    }));
+    expect(screen.getByRole('button', {name: 'Submit'}).hasAttribute('disabled')).toBe(false);
   });
 
   it('offers a toast retry after a network failure and reuses the per-render idempotency key', async () => {

@@ -132,6 +132,7 @@ export interface StagedFormUpload {
   fieldId: string;
   name: string;
   size: number;
+  consumedBy: string | null;
 }
 
 class FormUploadClaimError extends Error {}
@@ -4449,7 +4450,7 @@ export class PageStore {
     bytes: Uint8Array,
     mime: string,
     input: {token: string; pageId: string; formId: string; fieldId: string; name: string},
-    budgets: {maxFormBytes: number; maxTotalBytes?: number},
+    budgets: {maxFormBytes: number; maxFormStagedBytes: number; maxTotalBytes?: number},
   ): Promise<StagedFormUpload> {
     const assetId = await assetHash(bytes);
     const buf = Buffer.from(bytes);
@@ -4514,12 +4515,52 @@ export class PageStore {
                )
              ), 0) + candidate.size <= $8::bigint
            )
+           AND (
+             EXISTS (
+               SELECT 1 FROM form_uploads existing
+               WHERE existing.page_id = $3
+                 AND existing.form_id = $4
+                 AND existing.asset_id = $2
+                 AND existing.consumed_by IS NULL
+             )
+             OR COALESCE((
+               SELECT SUM(accounted.size) FROM assets accounted
+               WHERE EXISTS (
+                 SELECT 1 FROM form_uploads existing
+                 WHERE existing.page_id = $3
+                   AND existing.form_id = $4
+                   AND existing.asset_id = accounted.id
+                   AND existing.consumed_by IS NULL
+               )
+             ), 0) + candidate.size <= $9::bigint
+           )
          RETURNING token`,
-        [input.token, assetId, input.pageId, input.formId, input.fieldId, input.name, ownsAsset, budgets.maxFormBytes],
+        [
+          input.token,
+          assetId,
+          input.pageId,
+          input.formId,
+          input.fieldId,
+          input.name,
+          ownsAsset,
+          budgets.maxFormBytes,
+          budgets.maxFormStagedBytes,
+        ],
       );
       if (staged.length === 0) {
-        const [{total}] = await tx.query<{total: string | number}>(
-          `SELECT COALESCE(SUM(accounted.size), 0) AS total
+        const [{durable_total: durableTotal, staged_total: stagedTotal}] = await tx.query<{
+          durable_total: string | number;
+          staged_total: string | number;
+        }>(
+          `SELECT
+             COALESCE(SUM(accounted.size), 0) AS durable_total,
+             COALESCE(SUM(accounted.size) FILTER (WHERE EXISTS (
+               SELECT 1 FROM form_uploads staged
+               WHERE staged.page_id = $1
+                 AND staged.form_id = $2
+                 AND staged.asset_id = accounted.id
+                 AND staged.consumed_by IS NULL
+             )), 0) AS staged_total
            FROM assets accounted
            WHERE EXISTS (
              SELECT 1 FROM form_uploads existing
@@ -4529,9 +4570,20 @@ export class PageStore {
            )`,
           [input.pageId, input.formId],
         );
-        throw new FormAssetBudgetError(Number(total), bytes.byteLength, budgets.maxFormBytes);
+        const stagedBytes = Number(stagedTotal);
+        if (stagedBytes + bytes.byteLength > budgets.maxFormStagedBytes) {
+          throw new FormAssetBudgetError(stagedBytes, bytes.byteLength, budgets.maxFormStagedBytes);
+        }
+        throw new FormAssetBudgetError(Number(durableTotal), bytes.byteLength, budgets.maxFormBytes);
       }
-      return {token: input.token, assetId, fieldId: input.fieldId, name: input.name, size: bytes.byteLength};
+      return {
+        token: input.token,
+        assetId,
+        fieldId: input.fieldId,
+        name: input.name,
+        size: bytes.byteLength,
+        consumedBy: null,
+      };
     });
   }
 
@@ -4564,6 +4616,7 @@ export class PageStore {
           field_id: string;
           file_name: string;
           size: number | string;
+          consumed_by: string | null;
         }>(
           `UPDATE form_uploads uploads
            SET claimed_by = COALESCE(uploads.claimed_by, $4)
@@ -4577,7 +4630,8 @@ export class PageStore {
                uploads.consumed_by IS NOT NULL
                OR uploads.created_at > now() - ($5::bigint * interval '1 millisecond')
              )
-           RETURNING uploads.token, uploads.asset_id, uploads.field_id, uploads.file_name, assets.size`,
+           RETURNING uploads.token, uploads.asset_id, uploads.field_id, uploads.file_name,
+             uploads.consumed_by, assets.size`,
           [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs))],
         );
         if (
@@ -4592,6 +4646,7 @@ export class PageStore {
           fieldId: row.field_id,
           name: row.file_name,
           size: Number(row.size),
+          consumedBy: row.consumed_by,
         }));
       });
     } catch (err) {
@@ -4613,7 +4668,13 @@ export class PageStore {
          RETURNING asset_id`,
         [tokens, idempotencyKey, rowId],
       );
-      if (consumed.length !== tokens.length) throw new Error('form upload claim changed before consumption');
+      if (consumed.length !== tokens.length) {
+        console.warn('OpenBook form upload claim changed before consumption:', {
+          expected: tokens.length,
+          consumed: consumed.length,
+          rowId,
+        });
+      }
       await tx.query(
         `INSERT INTO asset_refs (asset_id, page_id)
          SELECT DISTINCT asset_id, $2::uuid FROM form_uploads WHERE token = ANY($1)
@@ -4641,14 +4702,15 @@ export class PageStore {
   /** Activity-triggered 30-minute orphan sweep used by both public form routes. */
   async gcExpiredFormUploads(ttlMs: number): Promise<{reaped: number; bytes: number}> {
     return this.db.begin(async (tx) => {
-      const removed = await tx.query<{asset_id: string}>(
+      const removed = await tx.query<{asset_id: string; owns_asset: boolean}>(
         `DELETE FROM form_uploads
          WHERE consumed_by IS NULL
            AND created_at <= now() - ($1::bigint * interval '1 millisecond')
-         RETURNING asset_id`,
+           AND (claimed_by IS NULL OR created_at <= now() - ((2 * $1)::bigint * interval '1 millisecond'))
+         RETURNING asset_id, owns_asset`,
         [Math.max(0, Math.trunc(ttlMs))],
       );
-      const ids = [...new Set(removed.map((row) => row.asset_id))];
+      const ids = [...new Set(removed.filter((row) => row.owns_asset).map((row) => row.asset_id))];
       const reaped = await this.deleteUnreferencedAssetIds(tx, ids);
       return {
         reaped: reaped.length,
@@ -4657,7 +4719,7 @@ export class PageStore {
     });
   }
 
-  /** Delete only assets with no form mapping, reachability ref, or page-document use. */
+  /** Delete only assets with no authoritative form-stage or reachability edge. */
   private async deleteUnreferencedAssetIds(db: Db, ids: string[]): Promise<Array<{id: string; size: number | string}>> {
     if (ids.length === 0) return [];
     return db.query<{id: string; size: number | string}>(
@@ -4665,11 +4727,6 @@ export class PageStore {
        WHERE asset.id = ANY($1)
          AND NOT EXISTS (SELECT 1 FROM form_uploads upload WHERE upload.asset_id = asset.id)
          AND NOT EXISTS (SELECT 1 FROM asset_refs ref WHERE ref.asset_id = asset.id)
-         AND NOT EXISTS (
-           SELECT 1 FROM pages page
-           WHERE position(asset.id IN page.data::text) > 0
-              OR position(asset.id IN page.properties::text) > 0
-         )
        RETURNING asset.id, asset.size`,
       [ids],
     );
@@ -4702,7 +4759,12 @@ export class PageStore {
    * generous soft budget; the periodic GC reclaims any slack. Absent/negative budget
    * ⇒ unbudgeted (legacy behavior).
    */
-  async putAsset(bytes: Uint8Array, mime: string, opts: {maxTotalBytes?: number} = {}): Promise<{id: string}> {
+  private async putAssetUsing(
+    db: Db,
+    bytes: Uint8Array,
+    mime: string,
+    opts: {maxTotalBytes?: number},
+  ): Promise<{id: string}> {
     const id = await assetHash(bytes);
     // Bind a Buffer. PGlite accepts a bare Uint8Array or a Buffer; the remote
     // postgres.js (porsager) driver serializes a Buffer to BYTEA. Buffer is the
@@ -4719,7 +4781,7 @@ export class PageStore {
       // `$5`/`$6` are a separate bigint copy of the size + the budget so the size
       // parameter ($4, the int4 `size` column) isn't deduced into the bigint SUM
       // arithmetic too (PGlite rejects a parameter with two inferred types).
-      const inserted = await this.db.query<{id: string}>(
+      const inserted = await db.query<{id: string}>(
         `INSERT INTO assets (id, bytes, mime, size)
          SELECT $1, $2, $3, $4
          WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
@@ -4731,11 +4793,11 @@ export class PageStore {
       if (inserted.length > 0) return {id}; // freshly stored within budget
       // No fresh insert: either the content was already present (dedup — fine) or
       // it's new and over budget. A present row ⇒ dedup; an absent one ⇒ reject.
-      const exists = await this.db.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [id]);
+      const exists = await db.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [id]);
       if (exists.length > 0) return {id};
-      throw new AssetBudgetError(await this.assetStorageBytes(), bytes.byteLength, budget);
+      throw new AssetBudgetError(await this.assetStorageBytesUsing(db), bytes.byteLength, budget);
     }
-    await this.db.query(
+    await db.query(
       `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
        ON CONFLICT (id) DO NOTHING`,
       [id, buf, mime, bytes.byteLength],
@@ -4743,13 +4805,39 @@ export class PageStore {
     return {id};
   }
 
-  /** Total bytes currently held in the asset store (`SUM(size)`, 0 when empty) —
-   *  the figure the A6 storage budget is measured against. */
-  async assetStorageBytes(): Promise<number> {
-    const rows = await this.db.query<{total: string | number | null}>(
+  async putAsset(bytes: Uint8Array, mime: string, opts: {maxTotalBytes?: number} = {}): Promise<{id: string}> {
+    return this.putAssetUsing(this.db, bytes, mime, opts);
+  }
+
+  /** Store an authenticated upload and create its reachability edge atomically. */
+  async putAssetAndRef(
+    bytes: Uint8Array,
+    mime: string,
+    pageId: string,
+    opts: {maxTotalBytes?: number} = {},
+  ): Promise<{id: string}> {
+    return this.db.begin(async (tx) => {
+      const stored = await this.putAssetUsing(tx, bytes, mime, opts);
+      await tx.query(
+        `INSERT INTO asset_refs (asset_id, page_id) VALUES ($1, $2)
+         ON CONFLICT (asset_id, page_id) DO NOTHING`,
+        [stored.id, pageId],
+      );
+      return stored;
+    });
+  }
+
+  private async assetStorageBytesUsing(db: Db): Promise<number> {
+    const rows = await db.query<{total: string | number | null}>(
       'SELECT COALESCE(SUM(size), 0) AS total FROM assets',
     );
     return Number(rows[0]?.total ?? 0);
+  }
+
+  /** Total bytes currently held in the asset store (`SUM(size)`, 0 when empty) —
+   *  the figure the A6 storage budget is measured against. */
+  async assetStorageBytes(): Promise<number> {
+    return this.assetStorageBytesUsing(this.db);
   }
 
   /** Fetch an asset's bytes + mime + size by content-hash id, or `null` if absent.

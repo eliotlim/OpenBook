@@ -6,6 +6,8 @@ import {
   FORM_SUBMISSION_PROPERTY_ID,
   FORM_UPLOAD_MAX_FILE_BYTES,
   FORM_UPLOAD_MAX_FORM_BYTES,
+  FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
+  FORM_UPLOAD_ORPHAN_TTL_MS,
   FORWARDED_HEADER,
   generateSubmissionKey,
   mintIdentityKeypair,
@@ -144,7 +146,7 @@ function submit(
   pageId: string,
   formId: string,
   body: string,
-  opts: {jws?: string; clientHeader?: boolean; forwarded?: boolean} = {},
+  opts: {jws?: string; clientHeader?: boolean; forwarded?: boolean; remoteAddress?: string} = {},
 ) {
   return a.request(`/api/pages/${pageId}/forms/${formId}/submissions`, {
     method: 'POST',
@@ -155,7 +157,7 @@ function submit(
       ...(opts.forwarded ? {[FORWARDED_HEADER]: '1'} : {}),
     },
     body,
-  });
+  }, opts.remoteAddress ? {incoming: {socket: {remoteAddress: opts.remoteAddress}}} : undefined);
 }
 
 function upload(
@@ -165,11 +167,15 @@ function upload(
   key: string,
   fieldId: string,
   bytes: Uint8Array,
-  over: {name?: string; mime?: string} = {},
+  over: {name?: string; mime?: string; forwarded?: boolean; remoteAddress?: string} = {},
 ) {
   return a.request(`/api/pages/${pageId}/forms/${formId}/uploads`, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+    headers: {
+      'Content-Type': 'application/json',
+      'X-OpenBook-Client': '1',
+      ...(over.forwarded ? {[FORWARDED_HEADER]: '1'} : {}),
+    },
     body: JSON.stringify({
       key,
       fieldId,
@@ -177,7 +183,7 @@ function upload(
       mime: over.mime ?? 'application/octet-stream',
       data: Buffer.from(bytes).toString('base64'),
     }),
-  });
+  }, over.remoteAddress ? {incoming: {socket: {remoteAddress: over.remoteAddress}}} : undefined);
 }
 
 describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
@@ -266,6 +272,56 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].properties.email).toBe('ada@example.com');
     expect(rows[0].properties).not.toHaveProperty('contactEmail');
+  });
+
+  it('logs discarded projection warnings without changing the success response', async () => {
+    const seeded = await seedForm({
+      fields: [
+        {id: 'unbound', kind: 'text', label: 'Unbound', required: false},
+        {id: 'missing', kind: 'text', label: 'Missing', required: false, columnId: 'missing'},
+        {id: 'mismatch', kind: 'text', label: 'Mismatch', required: false, columnId: 'email'},
+      ],
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `warnings-${seq}`, {
+        unbound: 'one',
+        missing: 'two',
+        mismatch: 'three',
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const result = await response.json() as Record<string, unknown>;
+    expect(Object.keys(result).sort()).toEqual(['rowId', 'submittedAt']);
+    expect(warn).toHaveBeenCalledWith('OpenBook form submission projection discarded fields:', {
+      pageId: seeded.pageId,
+      formId: seeded.formId,
+      warnings: [
+        {fieldId: 'unbound', code: 'unbound_field'},
+        {fieldId: 'missing', code: 'column_not_found'},
+        {fieldId: 'mismatch', code: 'column_type_mismatch'},
+      ],
+    });
+  });
+
+  it.each([
+    ['non-object schema', null],
+    ['non-array fields', {fields: {}}],
+  ] as const)('uniformly denies a persisted %s', async (_name, schema) => {
+    const seeded = await seedForm();
+    await store.upsertPage({
+      id: seeded.pageId,
+      name: `form-host-${seq}`,
+      data: formSnapshot({...seeded.props, schema}),
+    });
+
+    const response = await submit(app(), seeded.pageId, seeded.formId, submissionBody(seeded.submissionKey));
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
   });
 
   it('returns byte-identical denials for every existence/capability/read failure', async () => {
@@ -505,6 +561,254 @@ describe('FORM-6 staged uploads and abuse controls', () => {
     expect(served.headers.get('content-disposition')).toBe('attachment');
   });
 
+  it('keeps an unconsumed stage unreadable through the public asset route', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const stagedResponse = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([11, 12, 13]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    const [{asset_id: assetId}] = await db.query<{asset_id: string}>(
+      'SELECT asset_id FROM form_uploads WHERE token = $1',
+      [token],
+    );
+
+    const response = await a.request(`/api/assets/${assetId}`);
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"asset not found"}');
+  });
+
+  it('does not let submission key B spend a token already claimed by key A', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const stagedResponse = await upload(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([21, 22, 23]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    expect(await store.claimFormUploads(
+      seeded.pageId,
+      seeded.formId,
+      [{fieldId: filesField.id, tokens: [token]}],
+      'submission-key-A',
+      FORM_UPLOAD_ORPHAN_TTL_MS,
+    )).toHaveLength(1);
+
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, 'submission-key-B', {documents: [token]}),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({error: 'invalid or expired form upload'});
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
+  });
+
+  it('does not redeem a token staged for a different page and form', async () => {
+    const source = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const target = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const stagedResponse = await upload(
+      app(),
+      source.pageId,
+      source.formId,
+      source.submissionKey,
+      filesField.id,
+      new Uint8Array([31, 32, 33]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+
+    const response = await submit(
+      app(),
+      target.pageId,
+      target.formId,
+      submissionBody(target.submissionKey, `cross-form-${seq}`, {documents: [token]}),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({error: 'invalid or expired form upload'});
+    expect(await store.listRows(target.databaseId)).toHaveLength(0);
+  });
+
+  it('keeps a consumed stage and its asset through orphan GC', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const stagedResponse = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([41, 42, 43]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    const submitted = await submit(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `consumed-gc-${seq}`, {documents: [token]}),
+    );
+    expect(submitted.status).toBe(201);
+    const [{asset_id: assetId, consumed_by: consumedBy}] = await db.query<{
+      asset_id: string;
+      consumed_by: string;
+    }>('SELECT asset_id, consumed_by FROM form_uploads WHERE token = $1', [token]);
+    await db.query(
+      'UPDATE form_uploads SET created_at = now() - interval \'2 hours\' WHERE token = $1',
+      [token],
+    );
+
+    await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+    expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [token])).toHaveLength(1);
+    expect(await store.getAsset(assetId)).not.toBeNull();
+    expect((await store.listRows(seeded.databaseId))[0].id).toBe(consumedBy);
+  });
+
+  it('gives a claimed stage a second TTL grace window before orphan GC', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const stagedResponse = await upload(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([51, 52, 53]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    await store.claimFormUploads(
+      seeded.pageId,
+      seeded.formId,
+      [{fieldId: filesField.id, tokens: [token]}],
+      `claim-grace-${seq}`,
+      FORM_UPLOAD_ORPHAN_TTL_MS,
+    );
+    await db.query(
+      'UPDATE form_uploads SET created_at = now() - interval \'31 minutes\' WHERE token = $1',
+      [token],
+    );
+    await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+    expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [token])).toHaveLength(1);
+
+    await db.query(
+      'UPDATE form_uploads SET created_at = now() - interval \'61 minutes\' WHERE token = $1',
+      [token],
+    );
+    await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+    expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [token])).toHaveLength(0);
+  });
+
+  it('warns without failing when a claimed stage vanishes before consumption', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const stagedResponse = await upload(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([56, 57, 58]),
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    const claimKey = `vanished-claim-${seq}`;
+    await store.claimFormUploads(
+      seeded.pageId,
+      seeded.formId,
+      [{fieldId: filesField.id, tokens: [token]}],
+      claimKey,
+      FORM_UPLOAD_ORPHAN_TTL_MS,
+    );
+    await db.query('DELETE FROM form_uploads WHERE token = $1', [token]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(store.consumeFormUploads([token], claimKey, seeded.pageId)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('OpenBook form upload claim changed before consumption:', {
+      expected: 1,
+      consumed: 0,
+      rowId: seeded.pageId,
+    });
+  });
+
+  it('does not reap a pre-existing asset when an expired stage did not create it', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const bytes = new Uint8Array([61, 62, 63]);
+    const {id: assetId} = await store.putAsset(bytes, 'application/octet-stream');
+    const stagedResponse = await upload(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      bytes,
+    );
+    const {token} = (await stagedResponse.json()) as {token: string};
+    expect(await db.query<{owns_asset: boolean}>(
+      'SELECT owns_asset FROM form_uploads WHERE token = $1',
+      [token],
+    )).toEqual([{owns_asset: false}]);
+    await db.query(
+      'UPDATE form_uploads SET created_at = now() - interval \'31 minutes\' WHERE token = $1',
+      [token],
+    );
+
+    await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+    expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [token])).toHaveLength(0);
+    expect(await store.getAsset(assetId)).not.toBeNull();
+  });
+
+  it('discards fresh upload tokens on a mutated idempotency replay without changing the row', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const firstUpload = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([71, 72, 73]),
+    );
+    const {token: firstToken} = (await firstUpload.json()) as {token: string};
+    const replayKey = `mutated-replay-${seq}`;
+    const first = await submit(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, replayKey, {documents: [firstToken]}),
+    );
+    const firstResult = await first.json() as {rowId: string; submittedAt: string};
+    const originalRow = (await store.listRows(seeded.databaseId))[0];
+
+    const secondUpload = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([81, 82, 83]),
+    );
+    const {token: secondToken} = (await secondUpload.json()) as {token: string};
+    const [{asset_id: secondAssetId}] = await db.query<{asset_id: string}>(
+      'SELECT asset_id FROM form_uploads WHERE token = $1',
+      [secondToken],
+    );
+    const replay = await submit(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, replayKey, {documents: [secondToken]}),
+    );
+
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toEqual(firstResult);
+    expect(await store.listRows(seeded.databaseId)).toEqual([originalRow]);
+    expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [secondToken])).toHaveLength(0);
+    expect(await store.getAsset(secondAssetId)).toBeNull();
+  });
+
   it('rejects a decoded file over 5 MiB with 413', async () => {
     const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
     const response = await upload(
@@ -564,50 +868,76 @@ describe('FORM-6 staged uploads and abuse controls', () => {
     expect(`${carveOutDenied.status}\n${await carveOutDenied.text()}`).toBe('404\n{"error":"form not found"}');
   });
 
-  it('returns 429 plus Retry-After when either public form route floods its window', async () => {
-    const submitSeed = await seedForm();
-    const submitApp = app();
-    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
-      const response = await submit(
-        submitApp,
-        submitSeed.pageId,
-        submitSeed.formId,
-        submissionBody(submitSeed.submissionKey, `flood-submit-${seq}-${i}`),
-      );
-      expect(response.status).toBe(201);
-    }
-    const submitLimited = await submit(
-      submitApp,
-      submitSeed.pageId,
-      submitSeed.formId,
-      submissionBody(submitSeed.submissionKey, `flood-submit-${seq}-limited`),
-    );
-    expect(submitLimited.status).toBe(429);
-    expect(submitLimited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
-
-    const uploadSeed = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
-    const uploadApp = app();
-    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
-      const response = await upload(
-        uploadApp,
-        uploadSeed.pageId,
-        uploadSeed.formId,
-        uploadSeed.submissionKey,
-        filesField.id,
-        new Uint8Array([1]),
-      );
-      expect(response.status).toBe(201);
-    }
-    const uploadLimited = await upload(
-      uploadApp,
-      uploadSeed.pageId,
-      uploadSeed.formId,
-      uploadSeed.submissionKey,
+  it('shares one per-peer bucket across uploads and submissions without trusting the forwarded marker', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const remoteAddress = '10.0.0.1';
+    const staged = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
       filesField.id,
       new Uint8Array([1]),
+      {forwarded: true, remoteAddress},
     );
-    expect(uploadLimited.status).toBe(429);
-    expect(uploadLimited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
+    expect(staged.status).toBe(201);
+
+    for (let i = 1; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+      const response = await submit(
+        a,
+        seeded.pageId,
+        seeded.formId,
+        submissionBody(seeded.submissionKey, `shared-flood-${seq}-${i}`, {}),
+        {forwarded: i % 2 === 0, remoteAddress},
+      );
+      expect(response.status).toBe(201);
+    }
+    const limited = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([2]),
+      {remoteAddress},
+    );
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
+
+    const preGateShed = await upload(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      'wrong-key',
+      filesField.id,
+      new Uint8Array([3]),
+      {forwarded: true, remoteAddress},
+    );
+    expect(`${preGateShed.status}\n${await preGateShed.text()}`).toBe('404\n{"error":"form not found"}');
+  });
+
+  it('isolates the public form request budget by socket peer', async () => {
+    const seeded = await seedForm();
+    const a = app();
+    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+      const response = await submit(
+        a,
+        seeded.pageId,
+        seeded.formId,
+        submissionBody(seeded.submissionKey, `peer-one-${seq}-${i}`),
+        {remoteAddress: '10.0.0.1'},
+      );
+      expect(response.status).toBe(201);
+    }
+    const otherPeer = await submit(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `peer-two-${seq}`),
+      {remoteAddress: '10.0.0.2'},
+    );
+    expect(otherPeer.status).toBe(201);
   });
 
   it('sweeps a staged orphan after 30 minutes on the next submission', async () => {
@@ -677,10 +1007,42 @@ describe('FORM-6 staged uploads and abuse controls', () => {
     expect(await db.query('SELECT token FROM form_uploads WHERE token = $1', [token])).toHaveLength(0);
   });
 
-  it('returns 507 when the per-form 50 MiB asset budget is exhausted', async () => {
+  it('returns 507 when the per-form 10 MiB unconsumed-stage budget is exhausted', async () => {
     const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
     const first = await upload(
       app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([31]),
+    );
+    expect(first.status).toBe(201);
+    const {token} = (await first.json()) as {token: string};
+    const [{asset_id: assetId}] = await db.query<{asset_id: string}>(
+      'SELECT asset_id FROM form_uploads WHERE token = $1',
+      [token],
+    );
+    await db.query('UPDATE assets SET size = $2 WHERE id = $1', [assetId, FORM_UPLOAD_MAX_FORM_STAGED_BYTES]);
+
+    const overBudget = await upload(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      seeded.submissionKey,
+      filesField.id,
+      new Uint8Array([32]),
+    );
+    expect(overBudget.status).toBe(507);
+    expect(await overBudget.json()).toEqual({error: 'asset storage is full'});
+    expect(await db.query('SELECT id FROM assets')).toHaveLength(1);
+  });
+
+  it('returns 507 when the per-form durable 50 MiB asset budget is exhausted', async () => {
+    const seeded = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const first = await upload(
+      a,
       seeded.pageId,
       seeded.formId,
       seeded.submissionKey,
@@ -693,10 +1055,17 @@ describe('FORM-6 staged uploads and abuse controls', () => {
       'SELECT asset_id FROM form_uploads WHERE token = $1',
       [token],
     );
+    const submitted = await submit(
+      a,
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `durable-budget-${seq}`, {documents: [token]}),
+    );
+    expect(submitted.status).toBe(201);
     await db.query('UPDATE assets SET size = $2 WHERE id = $1', [assetId, FORM_UPLOAD_MAX_FORM_BYTES]);
 
     const overBudget = await upload(
-      app(),
+      a,
       seeded.pageId,
       seeded.formId,
       seeded.submissionKey,
@@ -706,5 +1075,51 @@ describe('FORM-6 staged uploads and abuse controls', () => {
     expect(overBudget.status).toBe(507);
     expect(await overBudget.json()).toEqual({error: 'asset storage is full'});
     expect(await db.query('SELECT id FROM assets')).toHaveLength(1);
+  });
+
+  it('accounts upload budgets independently for forms on different pages', async () => {
+    const firstForm = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const secondForm = await seedForm({fields: [filesField], databaseSchema: filesDatabase});
+    const a = app();
+    const first = await upload(
+      a,
+      firstForm.pageId,
+      firstForm.formId,
+      firstForm.submissionKey,
+      filesField.id,
+      new Uint8Array([91]),
+    );
+    const {token} = (await first.json()) as {token: string};
+    const [{asset_id: assetId}] = await db.query<{asset_id: string}>(
+      'SELECT asset_id FROM form_uploads WHERE token = $1',
+      [token],
+    );
+    const consumed = await submit(
+      a,
+      firstForm.pageId,
+      firstForm.formId,
+      submissionBody(firstForm.submissionKey, `first-form-budget-${seq}`, {documents: [token]}),
+    );
+    expect(consumed.status).toBe(201);
+    await db.query('UPDATE assets SET size = $2 WHERE id = $1', [assetId, FORM_UPLOAD_MAX_FORM_BYTES]);
+
+    const firstFormFull = await upload(
+      a,
+      firstForm.pageId,
+      firstForm.formId,
+      firstForm.submissionKey,
+      filesField.id,
+      new Uint8Array([92]),
+    );
+    expect(firstFormFull.status).toBe(507);
+    const secondFormAvailable = await upload(
+      a,
+      secondForm.pageId,
+      secondForm.formId,
+      secondForm.submissionKey,
+      filesField.id,
+      new Uint8Array([93]),
+    );
+    expect(secondFormAvailable.status).toBe(201);
   });
 });

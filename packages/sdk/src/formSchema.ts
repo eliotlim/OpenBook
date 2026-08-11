@@ -523,6 +523,7 @@ export function submissionToRowInput(
       warnings.push({fieldId: field.id, code: 'column_not_found'});
       continue;
     }
+    if (property.id.startsWith('sys_')) continue;
     if (property.type !== FORM_FIELD_PROPERTY_TYPES[field.kind]) {
       warnings.push({fieldId: field.id, code: 'column_type_mismatch'});
       continue;

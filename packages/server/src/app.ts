@@ -15,6 +15,7 @@ import {
   FORM_UPLOAD_MAX_FILE_BYTES,
   FORM_UPLOAD_MAX_FILES,
   FORM_UPLOAD_MAX_FORM_BYTES,
+  FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
   submissionToRowInput,
   validateSubmission,
@@ -98,6 +99,7 @@ import {
   FORM_SUBMISSION_MAX_BODY_BYTES,
   FORM_REQUEST_RATE_LIMIT,
   FORM_REQUEST_RATE_WINDOW_MS,
+  FORM_SHARED_RATE_LIMIT,
   FORM_UPLOAD_MAX_BODY_BYTES,
   formSubmissionKey,
   isFormFilesField,
@@ -415,16 +417,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // be brute-forced or used to DoS the lookup.
   const patTokenLimiter = new FixedWindowLimiter(AGENT_TOKEN_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
   const patFailLimiter = new FixedWindowLimiter(AGENT_FAILED_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
-  // FORM-6: one fixed-window budget shared by uploads and submissions for each
-  // client-IP + form. Forwarded requests do not reliably carry the original peer
-  // address, and client-supplied forwarding headers are spoofable, so those (and
-  // adapters with no socket peer) deliberately collapse to a per-form-only bucket.
+  // FORM-6: uploads and submissions share a per-socket-peer/form budget. The
+  // client-settable forwarded marker never selects the bucket. Adapters without a
+  // trustworthy socket peer use a much larger shared floor sized for honest tunnel
+  // concurrency, rather than collapsing all public traffic into the 30-request cap.
   const formRequestLimiter = new FixedWindowLimiter(FORM_REQUEST_RATE_LIMIT, FORM_REQUEST_RATE_WINDOW_MS);
+  const formSharedLimiter = new FixedWindowLimiter(FORM_SHARED_RATE_LIMIT, FORM_REQUEST_RATE_WINDOW_MS);
+  const formRateBucket = (c: Context<AppEnv>, pageId: string, formId: string) => {
+    const peer = clientIpKey(c);
+    return peer === 'peer'
+      ? {limiter: formSharedLimiter, key: `form:${pageId}:${formId}`}
+      : {limiter: formRequestLimiter, key: `ip:${peer}:form:${pageId}:${formId}`};
+  };
   const formRateLimited = (c: Context<AppEnv>, pageId: string, formId: string): boolean => {
-    const forwarded = !!c.req.header(FORWARDED_HEADER);
-    const peer = forwarded ? 'peer' : clientIpKey(c);
-    const key = peer === 'peer' ? `form:${pageId}:${formId}` : `ip:${peer}:form:${pageId}:${formId}`;
-    if (!formRequestLimiter.exceeded(key)) return false;
+    const {limiter, key} = formRateBucket(c, pageId, formId);
+    if (!limiter.exceeded(key)) return false;
     c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
     return true;
   };
@@ -906,7 +913,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
-      const schema = form.schema as FormSchema;
+      const schema = form.schema;
       const validation = validateSubmission(schema, input.values);
       if ('honeypot' in validation) {
         const tokens = formFileEntries(schema, input.values).flatMap((entry) => entry.tokens);
@@ -936,7 +943,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
       const database = await store.getDatabase(form.databaseId);
       if (!database) throw new HTTPException(404, {message: 'form not found'});
-      const {rowInput} = submissionToRowInput(schema, storedValues, database.schema);
+      const {rowInput, warnings} = submissionToRowInput(schema, storedValues, database.schema);
+      if (warnings.length > 0) {
+        console.warn('OpenBook form submission projection discarded fields:', {
+          pageId: page.id,
+          formId: form.formId,
+          warnings,
+        });
+      }
       const {page: pageRow, created} = await store.createRow(
         form.databaseId,
         {
@@ -953,11 +967,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           },
         },
       );
-      await store.consumeFormUploads(
-        claimed.map((upload) => upload.token),
-        input.idempotencyKey,
-        pageRow.id,
-      );
+      const replayTokens = claimed
+        .filter((upload) => upload.consumedBy === pageRow.id)
+        .map((upload) => upload.token);
+      const freshTokens = claimed
+        .filter((upload) => upload.consumedBy !== pageRow.id)
+        .map((upload) => upload.token);
+      if (created) {
+        await store.consumeFormUploads(claimed.map((upload) => upload.token), input.idempotencyKey, pageRow.id);
+      } else {
+        await store.consumeFormUploads(replayTokens, input.idempotencyKey, pageRow.id);
+        await store.discardFormUploads(page.id, form.formId, freshTokens);
+      }
       const marker = pageRow.properties[FORM_SUBMISSION_PROPERTY_ID];
       const originalSubmittedAt =
         typeof marker === 'object' &&
@@ -1064,9 +1085,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       onError: (c) => c.json({error: 'request body too large'}, 413),
     }),
     async (c) => {
-      const body = await c.req.json<unknown>().catch(() => null);
       const pageId = c.req.param('pageId');
       const formId = c.req.param('formId');
+      // Shed a peer that is already over budget before parsing its multi-megabyte
+      // envelope. Preserve the form gate's byte-identical denial contract.
+      const preGateBucket = formRateBucket(c, pageId, formId);
+      if (preGateBucket.limiter.peek(preGateBucket.key)) {
+        return c.json({error: 'form not found'}, 404);
+      }
+      const body = await c.req.json<unknown>().catch(() => null);
       const {page, form} = await requireFormUploadAccess(
         c,
         store,
@@ -1102,7 +1129,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
             name: input.name.trim(),
           },
           {
+            // TODO(FORM-4/owner-config): make the durable per-form ceiling
+            // operator-configurable and notify the owner when either form budget
+            // is exhausted once an owner-facing notification channel exists.
             maxFormBytes: FORM_UPLOAD_MAX_FORM_BYTES,
+            maxFormStagedBytes: FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
             maxTotalBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
           },
         );
@@ -1169,14 +1200,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // content already stored is a dedup no-op and never throws.
       let id: string;
       try {
-        ({id} = await store.putAsset(bytes, safeMime, {
+        ({id} = await store.putAssetAndRef(bytes, safeMime, pageId, {
           maxTotalBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
         }));
       } catch (err) {
         if (err instanceof AssetBudgetError) return c.json({error: 'asset storage is full'}, 507);
         throw err;
       }
-      await store.refAsset(id, pageId);
       logEdit(c, pageId, 'asset.upload', id);
       return c.json({id}, 201);
     },

@@ -12,6 +12,7 @@ import type {Context} from 'hono';
 import {HTTPException} from 'hono/http-exception';
 import {
   FORM_UPLOAD_MAX_FILE_BYTES,
+  type FormSchema,
   type FormSubmissionRequest,
   type FormUploadRequest,
   type StoredPage,
@@ -32,6 +33,8 @@ export const FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES = 200;
 export const FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS = 10_000;
 /** Shared upload+submit budget per IP/form fixed window. */
 export const FORM_REQUEST_RATE_LIMIT = 30;
+/** Shared fallback floor for adapters that expose no trustworthy socket peer. */
+export const FORM_SHARED_RATE_LIMIT = 600;
 export const FORM_REQUEST_RATE_WINDOW_MS = 60_000;
 /** Base64 JSON envelope for one 5 MiB decoded file plus bounded metadata. */
 export const FORM_UPLOAD_MAX_BODY_BYTES = Math.ceil(FORM_UPLOAD_MAX_FILE_BYTES * 4 / 3) + 64 * 1024;
@@ -47,7 +50,7 @@ export interface StoredFormDefinition {
   submissionKey: string;
   enabled: boolean;
   databaseId: string;
-  schema: unknown;
+  schema: FormSchema;
 }
 
 interface JsonRecord {
@@ -115,6 +118,7 @@ export function findFormInPage(page: Pick<StoredPage, 'data'>, formId: string): 
     if (found) return null;
 
     const props = value.props;
+    const schema = props.schema;
     if (
       typeof props.formId !== 'string' ||
       typeof props.submissionKey !== 'string' ||
@@ -122,7 +126,10 @@ export function findFormInPage(page: Pick<StoredPage, 'data'>, formId: string): 
       typeof props.enabled !== 'boolean' ||
       typeof props.databaseId !== 'string' ||
       props.databaseId.length === 0 ||
-      !Object.prototype.hasOwnProperty.call(props, 'schema')
+      typeof schema !== 'object' ||
+      schema === null ||
+      Array.isArray(schema) ||
+      !Array.isArray((schema as {fields?: unknown}).fields)
     ) {
       return null;
     }
@@ -131,7 +138,7 @@ export function findFormInPage(page: Pick<StoredPage, 'data'>, formId: string): 
       submissionKey: props.submissionKey,
       enabled: props.enabled,
       databaseId: props.databaseId,
-      schema: props.schema,
+      schema: schema as FormSchema,
     };
   }
 

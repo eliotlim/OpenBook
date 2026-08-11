@@ -1,4 +1,4 @@
-import React, {useId, useRef, useState} from 'react';
+import React, {useEffect, useId, useRef, useState} from 'react';
 import {
   FORM_UPLOAD_MAX_FILE_BYTES,
   FORM_UPLOAD_MAX_FILES,
@@ -128,6 +128,7 @@ const LiveField: React.FC<LiveFieldProps> = ({field, value, error, onChange, onB
     id: inputId,
     'aria-invalid': errorMessage !== null,
     'aria-describedby': errorMessage ? errorId : uploadMessage ? uploadStatusId : undefined,
+    'aria-required': field.required || undefined,
     onBlur,
   };
 
@@ -293,7 +294,17 @@ export const FormSubmissionView: React.FC<{
   const pending = useRef(false);
   const localSuccess = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const focusInvalidAfterRender = useRef(false);
   const uploadVersions = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!focusInvalidAfterRender.current) return;
+    focusInvalidAfterRender.current = false;
+    const invalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!invalid) return;
+    invalid.focus();
+    invalid.scrollIntoView({block: 'nearest'});
+  }, [errors]);
 
   const setFieldValue = (fieldId: string, value: unknown): void => {
     setValues((current) => ({...current, [fieldId]: value}));
@@ -391,10 +402,11 @@ export const FormSubmissionView: React.FC<{
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     const uploading = Object.values(fileUploads).some((upload) => upload.status === 'uploading');
-    if (pending.current || uploading || state === 'success' || state === 'unavailable' || state === 'too-large') return;
+    if (pending.current || uploading || state === 'success' || state === 'unavailable') return;
 
     const validation = validateSubmission(schema, values);
     if ('ok' in validation && !validation.ok) {
+      focusInvalidAfterRender.current = true;
       setErrors(errorMap(validation.errors));
       return;
     }
@@ -427,6 +439,9 @@ export const FormSubmissionView: React.FC<{
           setState('unavailable');
         } else if (error.status === 413) {
           setState('too-large');
+        } else if (error.status === 429) {
+          setState('idle');
+          showToast({message: t('formBlock.uploadRateLimited')});
         } else {
           setState('idle');
           showToast({
@@ -457,12 +472,11 @@ export const FormSubmissionView: React.FC<{
   if (state === 'unavailable') {
     return <div className="obe-form-state" data-form-state="unavailable" role="status">{t('formBlock.unavailable')}</div>;
   }
-  if (state === 'too-large') {
-    return <div className="obe-form-state" data-form-state="too-large" role="status">{t('formBlock.tooLarge')}</div>;
-  }
-
   return (
     <form ref={formRef} className="obe-form-preview obe-form-live" data-form-mode="live" data-ob-form onSubmit={submit} noValidate>
+      {state === 'too-large' && (
+        <div className="obe-form-state" data-form-state="too-large" role="alert">{t('formBlock.tooLarge')}</div>
+      )}
       {schema.fields.length === 0 ? (
         <div className="obe-form-empty">{t('formBlock.noFields')}</div>
       ) : schema.fields.map((field) => (
