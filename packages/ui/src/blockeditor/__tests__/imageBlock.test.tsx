@@ -16,8 +16,10 @@ import {
 import {editorFilesFromTransfer} from '../htmlArtifactBlock';
 import {copyRenderedImage} from '../ImageBlockView';
 import * as pageActions from '@/lib/pageActions';
+import {setLocale, t, type Locale} from '@/i18n';
 
 afterEach(() => {
+  setLocale('en');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   cleanup();
@@ -210,6 +212,23 @@ describe('image block — render, resize, alt/caption', () => {
     expect(block!.props?.width).toBe('30%');
   });
 
+  it('localizes every size preset label', () => {
+    const labels: Record<Locale, string[]> = {
+      en: ['Small', 'Medium', 'Full width'],
+      de: ['Klein', 'Mittel', 'Volle Breite'],
+      ja: ['小', '中', '全幅'],
+      zh: ['小', '中', '全宽'],
+    };
+    for (const [locale, expected] of Object.entries(labels) as Array<[Locale, string[]]>) {
+      setLocale(locale);
+      expect([
+        t('blocks.image.sizeSmall'),
+        t('blocks.image.sizeMedium'),
+        t('blocks.image.sizeFull'),
+      ]).toEqual(expected);
+    }
+  });
+
   it('editing the caption persists it to props', () => {
     const doc = createDoc([{id: 'img', type: 'image', props: {src: TINY_PNG}}]);
     render(<BlockEditor doc={doc} />);
@@ -218,10 +237,12 @@ describe('image block — render, resize, alt/caption', () => {
     expect(block!.props?.caption).toBe('Hello caption');
   });
 
-  it('right-clicking the image opens its item-specific menu', () => {
+  it('right-clicking the image opens its item-specific menu with an accessible active size', async () => {
     const doc = createDoc([{id: 'img', type: 'image', props: {src: TINY_PNG, alt: 'A cat'}}]);
     const {container} = render(<BlockEditor doc={doc} />);
     fireEvent.contextMenu(container.querySelector('img.obe-image-img')!);
+
+    expect(screen.getByText('Copy image').closest('[role="menu"]')?.classList.contains('w-52')).toBe(true);
 
     for (const label of [
       'Copy image',
@@ -234,6 +255,12 @@ describe('image block — render, resize, alt/caption', () => {
     ]) {
       expect(screen.getByText(label), label).toBeTruthy();
     }
+
+    const sizeTrigger = screen.getByText('Image size').closest('[role="menuitem"]') as HTMLElement;
+    sizeTrigger.focus();
+    fireEvent.keyDown(sizeTrigger, {key: 'ArrowRight'});
+    expect((await screen.findByRole('menuitemcheckbox', {name: 'Small'})).getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('menuitemcheckbox', {name: 'Full width'}).getAttribute('aria-checked')).toBe('true');
   });
 
   it('the image menu delete action removes that block', () => {

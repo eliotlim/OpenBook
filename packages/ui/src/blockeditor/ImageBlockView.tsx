@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Check, Copy, Download, ExternalLink, ImageOff, ImagePlus, Loader2, Maximize2, Pencil, Trash2, Upload} from 'lucide-react';
-import {t} from '@/i18n';
+import {Copy, Download, ExternalLink, ImageOff, ImagePlus, Loader2, Maximize2, Pencil, Trash2, Upload} from 'lucide-react';
+import {t, type TKey} from '@/i18n';
 import {openLightbox} from '@/lib/imageLightbox';
 import {copyText} from '@/lib/pageActions';
 import {blockId, blockProp, removeBlock, setBlockProp, type BlockMap} from './model';
@@ -18,6 +18,7 @@ import {assetBridge} from '@/lib/assetBridge';
 import {getPageIdForDoc} from '@/lib/aiBridge';
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -45,10 +46,10 @@ import type {EditorUI} from './BlockEditor';
  * clean figure with no chrome.
  */
 
-const SIZE_PRESETS: Array<{label: string; title: string; width: string | undefined}> = [
-  {label: 'S', title: 'Small', width: '30%'},
-  {label: 'M', title: 'Medium', width: '60%'},
-  {label: 'L', title: 'Full width', width: undefined},
+const SIZE_PRESETS: Array<{label: string; title: TKey; width: string | undefined}> = [
+  {label: 'S', title: 'blocks.image.sizeSmall', width: '30%'},
+  {label: 'M', title: 'blocks.image.sizeMedium', width: '60%'},
+  {label: 'L', title: 'blocks.image.sizeFull', width: undefined},
 ];
 
 export type CopyImageResult = 'image' | 'url' | 'failed';
@@ -411,10 +412,13 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
                     {SIZE_PRESETS.map((preset) => {
                       const active = (preset.width ?? undefined) === (width ?? undefined);
                       return (
-                        <ContextMenuItem key={preset.label} onSelect={() => set('width', preset.width)}>
-                          <Check className={`mr-2 h-3.5 w-3.5 ${active ? 'opacity-100' : 'opacity-0'}`} />
-                          {preset.title}
-                        </ContextMenuItem>
+                        <ContextMenuCheckboxItem
+                          key={preset.label}
+                          checked={active}
+                          onSelect={() => set('width', preset.width)}
+                        >
+                          {t(preset.title)}
+                        </ContextMenuCheckboxItem>
                       );
                     })}
                   </ContextMenuSubContent>
@@ -445,8 +449,8 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
                       type="button"
                       className={`obe-image-size${active ? ' obe-image-size-on' : ''}`}
                       aria-pressed={active}
-                      aria-label={p.title}
-                      title={p.title}
+                      aria-label={t(p.title)}
+                      title={t(p.title)}
                       onClick={() => set('width', p.width)}
                     >
                       {p.label}

@@ -33,7 +33,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {MENU_WIDTH_LG} from '@/components/ui/menu-components';
 import {t} from '@/i18n';
 import {LinkPicker, LinkUrlEditor} from './LinkPicker';
 import type {BlockEditorController} from './useBlockEditor';
@@ -824,7 +824,7 @@ export const TextBlockView: React.FC<{
           className="pointer-events-none fixed h-px w-px opacity-0"
         />
         {linkMenu && (
-          <ContextMenuContent className={MENU_WIDTH_MD}>
+          <ContextMenuContent className={MENU_WIDTH_LG}>
             <ContextMenuItem onSelect={() => openInlineLink(linkMenu, 'tab')}>
               <ExternalLink className="mr-2 h-3.5 w-3.5" /> {t('link.open')}
             </ContextMenuItem>

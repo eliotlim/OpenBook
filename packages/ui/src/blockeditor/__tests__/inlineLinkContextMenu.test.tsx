@@ -38,6 +38,7 @@ describe('inline link context menu', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     await openAnchorMenu(anchor);
+    expect(screen.getByText('Open link').closest('[role="menu"]')?.classList.contains('w-60')).toBe(true);
     for (const label of ['Open link', 'Open in new window', 'Copy link address', 'Edit link…', 'Remove link']) {
       expect(screen.getByText(label), label).toBeTruthy();
     }

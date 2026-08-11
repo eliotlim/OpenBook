@@ -10,7 +10,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {consumePendingRename, onRenamePageRequest} from '@/lib/pageActions';
 
 /**
@@ -143,7 +143,7 @@ export const PageHeader: React.FC<{
               />
             </span>
           </ContextMenuTrigger>
-          <ContextMenuContent className={MENU_WIDTH_SM}>
+          <ContextMenuContent className={MENU_WIDTH_MD}>
             <ContextMenuItem onSelect={openIconPicker}>
               <SmilePlus className="mr-2 h-3.5 w-3.5" /> {t('page.changeIconMenu')}
             </ContextMenuItem>

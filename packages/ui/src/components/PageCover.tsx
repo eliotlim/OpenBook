@@ -6,9 +6,10 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_SM} from '@/components/ui/menu-components';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {COVER_GRADIENTS, usePageCover, writePageCover} from '@/lib/pageCover';
 import {cn} from '@/lib/utils';
 
@@ -127,13 +128,14 @@ export function PageCoverBanner({pageId}: {pageId: string}) {
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className={MENU_WIDTH_SM}>
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         <ContextMenuItem disabled={cover.kind !== 'image'} onSelect={startRepositioning}>
           <MoveVertical className="mr-2 h-3.5 w-3.5" /> {t('page.coverReposition')}
         </ContextMenuItem>
         <ContextMenuItem onSelect={openPicker}>
           <ImageIcon className="mr-2 h-3.5 w-3.5" /> {t('page.coverReplace')}
         </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={removeCover}>
           <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('page.coverRemove')}
         </ContextMenuItem>

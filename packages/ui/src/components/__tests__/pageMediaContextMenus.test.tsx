@@ -28,9 +28,12 @@ describe('page cover context menu', () => {
     const {container} = renderCover();
     fireEvent.contextMenu(container.querySelector('.ob-page-cover')!);
 
-    expect(await screen.findByRole('menuitem', {name: 'Reposition'})).toBeTruthy();
+    const reposition = await screen.findByRole('menuitem', {name: 'Reposition'});
+    expect(reposition.closest('[role="menu"]')?.classList.contains('w-52')).toBe(true);
     expect(screen.getByRole('menuitem', {name: 'Replace…'})).toBeTruthy();
-    fireEvent.click(screen.getByRole('menuitem', {name: 'Remove'}));
+    const remove = screen.getByRole('menuitem', {name: 'Remove'});
+    expect(remove.previousElementSibling?.getAttribute('role')).toBe('separator');
+    fireEvent.click(remove);
     expect(readPageCover(pageId)).toBeNull();
   });
 
@@ -57,7 +60,8 @@ describe('page icon context menu', () => {
     const {onIconChange} = renderHeader();
     fireEvent.contextMenu(screen.getByLabelText('Change page icon'));
 
-    expect(await screen.findByRole('menuitem', {name: 'Change icon…'})).toBeTruthy();
+    const changeIcon = await screen.findByRole('menuitem', {name: 'Change icon…'});
+    expect(changeIcon.closest('[role="menu"]')?.classList.contains('w-52')).toBe(true);
     fireEvent.click(screen.getByRole('menuitem', {name: 'Remove icon'}));
     expect(onIconChange).toHaveBeenCalledWith('');
   });

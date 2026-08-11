@@ -737,9 +737,12 @@ export const zh: PartialMessages = {
     image: {
       copy: '复制图片',
       saveAs: '图片另存为…',
-      openOriginal: '打开原图',
+      openOriginal: '在新标签页中打开原图',
       setAltText: '设置替代文本…',
       size: '图片大小',
+      sizeSmall: '小',
+      sizeMedium: '中',
+      sizeFull: '全宽',
       deleteBlock: '删除块',
       expand: '打开原图',
       view: '查看原图',
