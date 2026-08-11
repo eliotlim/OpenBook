@@ -22,8 +22,14 @@ const contextMenu = (target: Element): MouseEvent => {
   return event;
 };
 
+const rightMouseDown = (target: Element): MouseEvent => {
+  const down = new MouseEvent('mousedown', {bubbles: true, cancelable: true, button: 2, buttons: 2});
+  fireEvent(target, down);
+  return down;
+};
+
 const rightClick = (target: Element): MouseEvent => {
-  fireEvent.mouseDown(target, {button: 2, buttons: 2});
+  rightMouseDown(target);
   return contextMenu(target);
 };
 
@@ -170,7 +176,10 @@ describe('multi-block context menu', () => {
     const {row, selectedCount, selectFirstThree} = build();
     selectFirstThree();
 
-    rightClick(row('p2'));
+    const target = row('p2');
+    const down = rightMouseDown(target);
+    expect(down.defaultPrevented).toBe(true);
+    contextMenu(target);
 
     expect(selectedCount()).toBe(3);
     expect(screen.getByText('3 blocks selected')).toBeTruthy();

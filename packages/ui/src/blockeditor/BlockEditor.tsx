@@ -1557,8 +1557,16 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
             // real browser dispatches before contextmenu. Outside starts over,
             // so the following contextmenu renders the ordinary block actions.
             if (e.button === 2 && editor.selection.size > 1) {
-              if (selected) e.stopPropagation();
-              else editor.clearSelection();
+              if (selected) {
+                // Stopping propagation alone is not enough in a real browser:
+                // the secondary press still focuses the contenteditable under
+                // the pointer, whose onFocus clears the block selection before
+                // Radix handles contextmenu. Suppress that default focus too.
+                e.preventDefault();
+                e.stopPropagation();
+              } else {
+                editor.clearSelection();
+              }
               return;
             }
             if (!e.shiftKey || e.button !== 0) return;

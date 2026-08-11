@@ -73,9 +73,9 @@ test('page menu: rename, duplicate, split — and rename focuses the title', {ta
   // Copy link is reachable from the page-actions cluster, not the page menu.
   await expect(page.getByRole('button', {name: 'Copy link'})).toBeVisible();
 
-  // Right-click the page title (page chrome, not a block) — the page menu lives
-  // on the non-block areas of the body; a block shows its own context menu.
-  await page.getByLabel('Page title').click({button: 'right'});
+  // The editable title keeps its native menu (CTX-5); adjacent non-editable
+  // page chrome still opens the page menu, while blocks open their own menu.
+  await page.getByRole('button', {name: 'Change page icon'}).click({button: 'right'});
 
   const menu = page.getByRole('menu');
   await expect(menu.getByText('Rename')).toBeVisible();
