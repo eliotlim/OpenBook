@@ -6,6 +6,7 @@ import react from 'eslint-plugin-react';
 import nextPlugin from '@next/eslint-plugin-next';
 import globals from 'globals';
 import e2eIsolation from './eslint-rules/e2e-workspace-isolation.mjs';
+import noHoverGeometry from './eslint-rules/no-hover-geometry.mjs';
 
 export default tseslint.config(
   {
@@ -49,6 +50,12 @@ export default tseslint.config(
       'no-eval': 'error',
       'no-new-func': 'error',
     },
+  },
+  {
+    // Hover may repaint an element, but it must not alter geometry and shift
+    // adjacent content. UI primitives remain covered by the upstream ignore.
+    plugins: {'layout-shift': noHoverGeometry},
+    rules: {'layout-shift/no-hover-geometry': 'error'},
   },
   {
     // Plain Node scripts (build helpers, etc.).

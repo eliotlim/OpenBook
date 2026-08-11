@@ -65,7 +65,7 @@ export function SidebarSection({id, label, children}: {id: string; label: string
         </span>
         <ChevronRight
           className={cn(
-            'h-3 w-3 text-muted-foreground/50 opacity-0 transition-all group-hover/section:opacity-100',
+            'h-3 w-3 text-muted-foreground/50 opacity-0 transition-[opacity,transform] group-hover/section:opacity-100',
             open && 'rotate-90',
           )}
         />
