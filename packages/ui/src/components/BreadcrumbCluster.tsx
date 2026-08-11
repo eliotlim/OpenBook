@@ -12,6 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {PageMenuItems} from '@/components/PageContextMenu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 /**
  * Past this many crumbs the middle of the chain collapses to a "…" menu
@@ -111,53 +114,60 @@ export default function BreadcrumbCluster() {
   const renderCrumb = (id: string, last: boolean): React.ReactElement => {
     const menu = crumbMenu(id);
     return (
-      // A crumb is a hover group: the navigate button plus (when the page has
-      // siblings or subpages) a chevron that opens the jump menu. The chevron
-      // always reserves its width so hover-reveal never shifts the row.
-      <span className={`group/crumb min-w-0 items-center ${last ? 'flex' : 'hidden sm:flex'}`}>
-        <button
-          type="button"
-          onClick={() => goToCrumb(id)}
-          className={cnCrumb(last)}
-          title={pageLabel(id)}
-          aria-current={last ? 'page' : undefined}
-        >
-          <PageIcon value={readPageIcon(id)} className="text-[0.95em] leading-none" />
-          <span className="truncate">{pageLabel(id)}</span>
-        </button>
-        {menu && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={t('nav.crumbMenu', {page: pageLabel(id)})}
-                className={cnChevron(last)}
-              >
-                <ChevronDown aria-hidden className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-w-72">
-              {menu.siblings.length > 1 && (
-                <>
-                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                    {t('nav.crumbSiblings')}
-                  </DropdownMenuLabel>
-                  {menu.siblings.map((p) => menuItem(p.id))}
-                </>
-              )}
-              {menu.siblings.length > 1 && menu.children.length > 0 && <DropdownMenuSeparator />}
-              {menu.children.length > 0 && (
-                <>
-                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                    {t('nav.crumbSubpages')}
-                  </DropdownMenuLabel>
-                  {menu.children.map((p) => menuItem(p.id))}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </span>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          {/* A crumb is a hover group: the navigate button plus (when the page has
+              siblings or subpages) a chevron that opens the jump menu. The chevron
+              always reserves its width so hover-reveal never shifts the row. */}
+          <span className={`group/crumb min-w-0 items-center ${last ? 'flex' : 'hidden sm:flex'}`}>
+            <button
+              type="button"
+              onClick={() => goToCrumb(id)}
+              className={cnCrumb(last)}
+              title={pageLabel(id)}
+              aria-current={last ? 'page' : undefined}
+            >
+              <PageIcon value={readPageIcon(id)} className="text-[0.95em] leading-none" />
+              <span className="truncate">{pageLabel(id)}</span>
+            </button>
+            {menu && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('nav.crumbMenu', {page: pageLabel(id)})}
+                    className={cnChevron(last)}
+                  >
+                    <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-w-72">
+                  {menu.siblings.length > 1 && (
+                    <>
+                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        {t('nav.crumbSiblings')}
+                      </DropdownMenuLabel>
+                      {menu.siblings.map((p) => menuItem(p.id))}
+                    </>
+                  )}
+                  {menu.siblings.length > 1 && menu.children.length > 0 && <DropdownMenuSeparator />}
+                  {menu.children.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        {t('nav.crumbSubpages')}
+                      </DropdownMenuLabel>
+                      {menu.children.map((p) => menuItem(p.id))}
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </span>
+        </ContextMenuTrigger>
+        <ContextMenuContent className={MENU_WIDTH_MD}>
+          <PageMenuItems pageId={id} surface="row" menu="context" />
+        </ContextMenuContent>
+      </ContextMenu>
     );
   };
 

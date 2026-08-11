@@ -24,6 +24,9 @@ import {
 } from '@/lib/homePage';
 import {t as bareT} from '@/i18n';
 import {cn} from '@/lib/utils';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {PageMenuItems} from '@/components/PageContextMenu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 const displayName = (name: string | null): string => (name && name.trim().length > 0 ? name : bareT('common.untitled'));
 
@@ -41,14 +44,21 @@ function timeAgo(iso: string): string {
 /** A small tile linking to a page: icon + name, card-shaped. */
 function PageTile({page, onOpen}: {page: PageMeta; onOpen: (id: string) => void}) {
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(page.id)}
-      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/15 hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
-    >
-      <PageIcon value={readPageIcon(page.id)} className="text-lg leading-none" />
-      <span className="min-w-0 truncate text-sm font-medium">{displayName(page.name)}</span>
-    </button>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onOpen(page.id)}
+          className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/15 hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
+        >
+          <PageIcon value={readPageIcon(page.id)} className="text-lg leading-none" />
+          <span className="min-w-0 truncate text-sm font-medium">{displayName(page.name)}</span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className={MENU_WIDTH_MD}>
+        <PageMenuItems pageId={page.id} surface="row" menu="context" />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -328,16 +338,22 @@ export default function HomeScreen() {
               <WidgetHeading icon={Pencil}>{t('home.widgetEdited')}</WidgetHeading>
               <div className="flex flex-col">
                 {edited.map((page) => (
-                  <button
-                    key={page.id}
-                    type="button"
-                    onClick={() => selectPage(page.id)}
-                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover"
-                  >
-                    <PageIcon value={readPageIcon(page.id)} className="text-base leading-none" />
-                    <span className="min-w-0 grow truncate text-sm">{displayName(page.name)}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground/70">{timeAgo(page.updatedAt)}</span>
-                  </button>
+                  <ContextMenu key={page.id}>
+                    <ContextMenuTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => selectPage(page.id)}
+                        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover"
+                      >
+                        <PageIcon value={readPageIcon(page.id)} className="text-base leading-none" />
+                        <span className="min-w-0 grow truncate text-sm">{displayName(page.name)}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground/70">{timeAgo(page.updatedAt)}</span>
+                      </button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className={MENU_WIDTH_MD}>
+                      <PageMenuItems pageId={page.id} surface="row" menu="context" />
+                    </ContextMenuContent>
+                  </ContextMenu>
                 ))}
               </div>
             </section>
