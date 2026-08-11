@@ -65,7 +65,7 @@ export const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof
 // The canonical page-action list below renders through whichever Radix menu
 // family its host provides — see {@link MENU_COMPONENTS} (shared with the
 // database's row/column menu lists).
-import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
+import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_LG} from '@/components/ui/menu-components';
 export {MENU_COMPONENTS, type MenuComponentSet} from '@/components/ui/menu-components';
 
 /**
@@ -416,7 +416,7 @@ export function PageContextMenu({pageId, children}: {pageId: string; children: R
       <ContextMenuTrigger asChild>
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-60">
+      <ContextMenuContent className={MENU_WIDTH_LG}>
         <PageMenuItems pageId={pageId} surface="page" />
       </ContextMenuContent>
     </ContextMenu>

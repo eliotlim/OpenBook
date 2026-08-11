@@ -23,6 +23,11 @@ export {MenuDensityProvider, useMenuDensity, type MenuDensity} from '@/component
 /** Shared styling for destructive actions in either Radix menu family. */
 export const MENU_DESTRUCTIVE_CLASS = 'text-destructive hover:text-destructive focus:text-destructive';
 
+/** Canonical widths for menu content and submenus. */
+export const MENU_WIDTH_SM = 'w-40';
+export const MENU_WIDTH_MD = 'w-52';
+export const MENU_WIDTH_LG = 'w-60';
+
 /**
  * The two Radix menu families expose the same item/checkbox/sub/separator shape,
  * so one canonical item list can render through whichever bundle its host

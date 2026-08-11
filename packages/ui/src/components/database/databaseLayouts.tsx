@@ -32,7 +32,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
@@ -228,7 +228,7 @@ export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children:
     <ContextMenuTrigger asChild data-row-anchor={rowId}>
       {children}
     </ContextMenuTrigger>
-    <ContextMenuContent className="w-52">
+    <ContextMenuContent className={MENU_WIDTH_MD}>
       {/* The shared row item list — the same items as the table's cell
           right-click and the row `⋯` dropdown (TBL-9, single source). */}
       <RowMenuItems db={db} rowId={rowId} menu="context" />
@@ -340,7 +340,7 @@ export const GroupContextMenu: React.FC<{
       <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()} data-group-anchor={group.key}>
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         {renaming ? (
           <GroupRenameField
             initial={option?.label ?? groupHeading(group, prop)}

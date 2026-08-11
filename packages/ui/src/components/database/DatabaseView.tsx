@@ -44,7 +44,7 @@ import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
-import {MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {readPageIcon} from '@/lib/pageIcon';
 import {useNavigation, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
@@ -236,7 +236,7 @@ const CellContextMenu: React.FC<{
             fills the cell rather than collapsing to content width. */}
         <div className="min-h-[1.75rem] w-full [&>*]:w-full">{children}</div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         {property && view && filter && (
           <ContextMenuItem onSelect={() => addQuickFilter(db, view, property.id, filter.operator, filter.value)}>
             <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter: {property.name} {filter.label}
@@ -247,7 +247,7 @@ const CellContextMenu: React.FC<{
             <ContextMenuSubTrigger>
               <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter by date
             </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-44">
+            <ContextMenuSubContent className={MENU_WIDTH_SM}>
               {DATE_FILTER_PRESETS.map((preset) => (
                 <ContextMenuItem key={preset.operator} onSelect={() => addQuickFilter(db, view, property.id, preset.operator, undefined)}>
                   {preset.label}
@@ -309,7 +309,7 @@ const ColumnContextMenu: React.FC<{
       >
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         <ColumnMenuItems
           db={db}
           view={view}
@@ -1209,7 +1209,7 @@ const DatabaseContextMenu: React.FC<{
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
         <ContextMenuItem onSelect={onRenameView}>
           <Pencil className="mr-2 h-4 w-4" />
@@ -1231,7 +1231,7 @@ const DatabaseContextMenu: React.FC<{
             <Plus className="mr-2 h-4 w-4" />
             Add view
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-44">
+          <ContextMenuSubContent className={MENU_WIDTH_SM}>
             {VIEW_TYPES.map(({value, label, Icon}) => (
               <ContextMenuItem key={value} onSelect={() => onAddView(value)}>
                 <Icon className="mr-2 h-4 w-4" />

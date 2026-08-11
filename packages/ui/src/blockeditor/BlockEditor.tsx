@@ -106,8 +106,13 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
-import {formatShortcut} from '@/lib/shortcuts';
+import {
+  MENU_COMPONENTS,
+  MENU_DESTRUCTIVE_CLASS,
+  MENU_WIDTH_MD,
+  MENU_WIDTH_SM,
+} from '@/components/ui/menu-components';
+import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
@@ -1785,7 +1790,7 @@ const BlockMenuItems: React.FC<{
         <>
           <C.Sub>
             <C.SubTrigger>Turn into</C.SubTrigger>
-            <C.SubContent className="w-40">
+            <C.SubContent className={MENU_WIDTH_SM}>
               {TURN_OPTIONS.map((o) => (
                 <C.Item key={o.label} onSelect={() => ops.turn(o.type, o.props)}>
                   {o.label}
@@ -1799,7 +1804,7 @@ const BlockMenuItems: React.FC<{
 
       <C.Sub>
         <C.SubTrigger>Text colour</C.SubTrigger>
-        <C.SubContent className="w-40">
+        <C.SubContent className={MENU_WIDTH_SM}>
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
               <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
@@ -1810,7 +1815,7 @@ const BlockMenuItems: React.FC<{
       </C.Sub>
       <C.Sub>
         <C.SubTrigger>Background</C.SubTrigger>
-        <C.SubContent className="w-40">
+        <C.SubContent className={MENU_WIDTH_SM}>
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
@@ -1824,20 +1829,20 @@ const BlockMenuItems: React.FC<{
       <C.Item onSelect={() => editor.setSelection([id])}>Select block</C.Item>
       <C.Item onSelect={ops.duplicate}>
         Duplicate
-        <C.Shortcut>{formatShortcut({key: 'd', mod: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.duplicateBlock)}</C.Shortcut>
       </C.Item>
       <C.Item onSelect={() => ops.move(-1)}>
         Move up
-        <C.Shortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.moveBlockUp)}</C.Shortcut>
       </C.Item>
       <C.Item onSelect={() => ops.move(1)}>
         Move down
-        <C.Shortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.moveBlockDown)}</C.Shortcut>
       </C.Item>
       <C.Separator />
       <C.Item className={MENU_DESTRUCTIVE_CLASS} onSelect={ops.remove}>
         Delete
-        <C.Shortcut>{formatShortcut({key: 'backspace'})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.deleteBlock)}</C.Shortcut>
       </C.Item>
     </>
   );
@@ -1847,7 +1852,7 @@ const BlockMenuItems: React.FC<{
  *  on the gutter handle acts without leaving the mouse. Thin wrapper over the
  *  shared {@link BlockMenuItems}. */
 const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <DropdownMenuContent align="start" side="bottom" className="w-44">
+  <DropdownMenuContent align="start" side="bottom" className={MENU_WIDTH_SM}>
     <BlockMenuItems block={block} editor={editor} menu="dropdown" />
   </DropdownMenuContent>
 );
@@ -1856,7 +1861,7 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
  *  menu, so right-clicking a block reads as "this block", not "this page". Thin
  *  wrapper over the shared {@link BlockMenuItems}. */
 const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <ContextMenuContent className="w-44">
+  <ContextMenuContent className={MENU_WIDTH_SM}>
     <BlockMenuItems block={block} editor={editor} menu="context" />
   </ContextMenuContent>
 );
@@ -2483,7 +2488,7 @@ const TableColorSubmenu: React.FC<{
 }> = ({label, current, onPick}) => (
   <ContextMenuSub>
     <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
-    <ContextMenuSubContent className="w-40">
+    <ContextMenuSubContent className={MENU_WIDTH_SM}>
       {COLOR_MENU.map((c) => (
         <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
           <span
@@ -2541,7 +2546,7 @@ const TableRangeMenuContent: React.FC<{
   const first = cells.length > 0 ? tableCellOwnColor(cells[0]) : null;
   const current = cells.length > 0 && cells.every((c) => tableCellOwnColor(c) === first) ? first : null;
   return (
-    <ContextMenuContent className="w-52">
+    <ContextMenuContent className={MENU_WIDTH_MD}>
       <ContextMenuLabel>
         {t('menu.table.sectionSelection')} · {rowCount} × {colCount}
       </ContextMenuLabel>
@@ -2629,7 +2634,7 @@ const TableCellMenuContent: React.FC<{
     doc.transact(() => setBlockProp(table, 'header', !header), 'local');
   };
   return (
-    <ContextMenuContent className="w-52">
+    <ContextMenuContent className={MENU_WIDTH_MD}>
       {merged && (
         <>
           <ContextMenuItem onSelect={() => tableSplitCell(doc, blockId(cell))}>

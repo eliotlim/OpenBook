@@ -11,6 +11,7 @@ import {readRecents, subscribeRecents} from '@/lib/recents';
 import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t as bareT} from '@/i18n';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 /**
  * The sidebar's flat page sections — Recents (last visited, device-local) and
@@ -97,7 +98,7 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
           <span className="grow truncate">{displayName(page.name)}</span>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className={MENU_WIDTH_MD}>
         <PageMenuItems pageId={page.id} />
       </ContextMenuContent>
     </ContextMenu>
