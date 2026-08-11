@@ -1,4 +1,5 @@
 import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {isSafeHref} from '@book.dev/sdk';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {PageIcon} from '@/components/PageIcon';
 import {t} from '../i18n';
@@ -216,9 +217,17 @@ export const LinkUrlEditor: React.FC<{
     return () => document.removeEventListener('mousedown', onDocDown);
   }, [onClose]);
 
-  const save = (): void => {
+  const normalizedValue = (() => {
     const next = value.trim();
-    if (next) onSave(next);
+    if (!next) return null;
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(next);
+    if (hasScheme && !isSafeHref(next)) return null;
+    const href = hasScheme ? next : `https://${next}`;
+    return isSafeHref(href) ? href : null;
+  })();
+
+  const save = (): void => {
+    if (normalizedValue) onSave(normalizedValue);
   };
 
   return (
@@ -250,7 +259,7 @@ export const LinkUrlEditor: React.FC<{
       />
       <button
         type="submit"
-        disabled={!value.trim()}
+        disabled={!normalizedValue}
         className="shrink-0 rounded-sm bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-40"
       >
         {t('common.save')}

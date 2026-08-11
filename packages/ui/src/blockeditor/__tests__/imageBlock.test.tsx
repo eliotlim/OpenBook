@@ -1,4 +1,4 @@
-import {describe, it, expect, afterEach} from 'vitest';
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {BlockEditor} from '../BlockEditor';
@@ -14,8 +14,14 @@ import {
   type ImageBlockProps,
 } from '../imageBlock';
 import {editorFilesFromTransfer} from '../htmlArtifactBlock';
+import {copyRenderedImage} from '../ImageBlockView';
+import * as pageActions from '@/lib/pageActions';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  cleanup();
+});
 
 // A minimal valid 1×1 transparent PNG as a data URL (kept small so the render
 // tests don't lean on the size cap).
@@ -24,6 +30,47 @@ const TINY_PNG =
 
 const imgFile = (name = 'sunset_photo.png', type = 'image/png', body = 'hello'): File =>
   new File([body], name, {type});
+
+describe('image block — copy rendered image', () => {
+  it('copies the source URL as text when ClipboardItem is unavailable', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+    const image = document.createElement('img');
+
+    await expect(copyRenderedImage(image, 'https://images.test/cat.png')).resolves.toBe('url');
+    expect(copyText).toHaveBeenCalledWith('https://images.test/cat.png');
+  });
+
+  it('falls back to copying the source URL when canvas.toBlob throws', async () => {
+    vi.stubGlobal('ClipboardItem', class ClipboardItem {});
+    vi.stubGlobal('navigator', {clipboard: {write: vi.fn()}});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(() => {
+      throw new Error('encoding failed');
+    });
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+
+    await expect(copyRenderedImage(document.createElement('img'), 'https://images.test/cat.png')).resolves.toBe(
+      'url',
+    );
+    expect(copyText).toHaveBeenCalledWith('https://images.test/cat.png');
+  });
+
+  it('refuses blob and oversized data URL fallbacks but uses an original URL when available', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+    const image = document.createElement('img');
+    const hugeDataUrl = `data:image/png;base64,${'a'.repeat(MAX_IMAGE_DATA_URL_BYTES)}`;
+
+    await expect(copyRenderedImage(image, 'blob:temporary')).resolves.toBe('failed');
+    await expect(copyRenderedImage(image, hugeDataUrl)).resolves.toBe('failed');
+    await expect(copyRenderedImage(image, 'blob:temporary', 'https://images.test/original.png')).resolves.toBe('url');
+    expect(copyText).toHaveBeenCalledTimes(1);
+    expect(copyText).toHaveBeenCalledWith('https://images.test/original.png');
+  });
+});
 
 /**
  * Native image block (Assets A0, data-URL phase-1): model round-trip, the three

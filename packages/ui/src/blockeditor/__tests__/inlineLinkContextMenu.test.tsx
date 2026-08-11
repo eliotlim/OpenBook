@@ -113,6 +113,32 @@ describe('inline link context menu', () => {
     expect(screen.getByLabelText('Link URL')).toHaveProperty('value', 'https://example.test');
   });
 
+  it('prepends https:// when the edited URL has no scheme', async () => {
+    const {doc, container} = renderText([{t: 'Example', a: {a: 'https://example.test'}}]);
+    await openAnchorMenu(container.querySelector('a.obe-link') as HTMLAnchorElement);
+    fireEvent.click(screen.getByText('Edit link…'));
+    const input = screen.getByLabelText('Link URL');
+
+    fireEvent.change(input, {target: {value: 'updated.test/path'}});
+    fireEvent.submit(input.closest('form')!);
+
+    expect(docToJSON(doc)[0].text).toEqual([{t: 'Example', a: {a: 'https://updated.test/path'}}]);
+  });
+
+  it('rejects javascript: when editing a link', async () => {
+    const original = 'https://example.test';
+    const {doc, container} = renderText([{t: 'Example', a: {a: original}}]);
+    await openAnchorMenu(container.querySelector('a.obe-link') as HTMLAnchorElement);
+    fireEvent.click(screen.getByText('Edit link…'));
+    const input = screen.getByLabelText('Link URL');
+
+    fireEvent.change(input, {target: {value: 'javascript:alert(1)'}});
+    expect(screen.getByText('Save').closest('button')).toHaveProperty('disabled', true);
+    fireEvent.submit(input.closest('form')!);
+
+    expect(docToJSON(doc)[0].text).toEqual([{t: 'Example', a: {a: original}}]);
+  });
+
   it('adds the split action for mentions and fires the split-open bridge fallback', async () => {
     const {container} = renderText([{t: 'Roadmap', a: {m: 'page-2'}}]);
     const openPage = vi.spyOn(pageLinks, 'openPage').mockImplementation(() => {});

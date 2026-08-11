@@ -5,6 +5,8 @@ import {openLightbox} from '@/lib/imageLightbox';
 import {copyText} from '@/lib/pageActions';
 import {blockId, blockProp, removeBlock, setBlockProp, type BlockMap} from './model';
 import {
+  MAX_IMAGE_DATA_URL_BYTES,
+  dataUrlByteLength,
   dataUrlMime,
   dataUrlToBytes,
   imageBlockFromFile,
@@ -54,10 +56,15 @@ export type CopyImageResult = 'image' | 'url' | 'failed';
 /**
  * Copy the rendered pixels when the browser exposes the binary clipboard API.
  * WKWebView commonly omits `ClipboardItem`/`clipboard.write` (and cross-origin
- * images can taint a canvas), so every unsupported/error path falls back to the
+ * images can taint a canvas), so unsupported/error paths fall back to a stable
  * image URL through the shared text-copy helper and its `execCommand` fallback.
+ * Ephemeral blob URLs and oversized inline data URLs are never copied as text.
  */
-export async function copyRenderedImage(image: HTMLImageElement, src: string): Promise<CopyImageResult> {
+export async function copyRenderedImage(
+  image: HTMLImageElement,
+  src: string,
+  originalSrc: string | undefined = src,
+): Promise<CopyImageResult> {
   try {
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error('binary clipboard unavailable');
     const canvas = document.createElement('canvas');
@@ -72,7 +79,15 @@ export async function copyRenderedImage(image: HTMLImageElement, src: string): P
     await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
     return 'image';
   } catch {
-    return (await copyText(src)) ? 'url' : 'failed';
+    const fallbackSrc = originalSrc ?? src;
+    if (
+      !fallbackSrc ||
+      fallbackSrc.startsWith('blob:') ||
+      (isDataUrl(fallbackSrc) && dataUrlByteLength(fallbackSrc) > MAX_IMAGE_DATA_URL_BYTES)
+    ) {
+      return 'failed';
+    }
+    return (await copyText(fallbackSrc)) ? 'url' : 'failed';
   }
 }
 
@@ -371,7 +386,9 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
             />
           </ContextMenuTrigger>
           <ContextMenuContent className={MENU_WIDTH_MD}>
-            <ContextMenuItem onSelect={() => imageRef.current && void copyRenderedImage(imageRef.current, displaySrc!)}>
+            <ContextMenuItem
+              onSelect={() => imageRef.current && void copyRenderedImage(imageRef.current, displaySrc!, rawSrc)}
+            >
               <Copy className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.copy')}
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => saveImage(displaySrc!, alt)}>
