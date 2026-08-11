@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {DirLock, DirLockedError, type DirLockInfo} from './dirLock';
+import {DirLock, type DirLockInfo} from './dirLock';
 
 const pexec = promisify(execFile);
 
@@ -31,15 +31,6 @@ describe('DirLock single-owner semantics', () => {
     expect(holder.pid).toBe(process.pid);
     expect(holder.host).toBe(hostname());
     await lock.release();
-  });
-
-  it('refuses a path a live FOREIGN process owns', async () => {
-    // A lock from another host (network-synced folder): liveness is unknowable, so
-    // it must be assumed live and declined rather than start a cross-host write war.
-    writeHolder({pid: process.pid, host: 'some-other-host', startedAt: new Date().toISOString()});
-    await expect(DirLock.acquire(lockPath())).rejects.toBeInstanceOf(DirLockedError);
-    // The foreign lock is left intact (we did not steal it).
-    expect((await readHolder()).host).toBe('some-other-host');
   });
 
   it('takes over a STALE lock whose holder pid is gone (ESRCH)', async () => {
@@ -85,8 +76,8 @@ describe('DirLock single-owner semantics', () => {
     expect((await readHolder()).startedAt).toBe('2099-01-01T00:00:00.000Z');
   });
 
-  it('isLive: cross-host assumed live; dead pid + own pid taken over', () => {
-    expect(DirLock.isLive({pid: process.pid, host: 'elsewhere', startedAt: 'x'})).toBe(true); // cross-host → live
+  it('isLive: hostname is informational; dead pid + own pid are taken over', () => {
+    expect(DirLock.isLive({pid: 999_999, host: 'elsewhere', startedAt: 'x'})).toBe(false); // cross-host dead pid
     expect(DirLock.isLive({pid: 999_999, host: hostname(), startedAt: 'x'})).toBe(false); // dead pid → take over
     expect(DirLock.isLive({pid: process.pid, host: hostname(), startedAt: 'x'})).toBe(false); // own pid → take over
     expect(DirLock.isLive({pid: 'nope' as unknown as number, host: hostname(), startedAt: 'x'})).toBe(false); // malformed pid
@@ -125,7 +116,7 @@ beforeEach(() => {
     `import {DirLock, DirLockedError} from ${JSON.stringify(DIRLOCK_SRC)};`,
     'import {openSync, closeSync, rmSync} from "node:fs";',
     '(async () => {',
-    '  const [p, barrier] = [process.argv[2], Number(process.argv[3])];',
+    '  const [p, barrier, holdMs] = [process.argv[2], Number(process.argv[3]), Number(process.argv[4])];',
     '  while (Date.now() < barrier) { /* spin to the shared barrier */ }',
     '  let lock;',
     '  try {',
@@ -143,7 +134,7 @@ beforeEach(() => {
     '    return;',
     '  }',
     '  process.stdout.write("WON");',
-    '  await new Promise((r) => setTimeout(r, 200));',
+    '  await new Promise((r) => setTimeout(r, holdMs));',
     '  closeSync(fd);',
     '  rmSync(p + ".owner", {force: true}); // drop the marker BEFORE releasing — a serialized re-acquire is fine',
     '  await lock.release();',
@@ -154,10 +145,10 @@ beforeEach(() => {
 });
 
 /** Race `n` child processes to claim `path`; returns each child's verdict. */
-async function raceClaims(path: string, n: number): Promise<string[]> {
+async function raceClaims(path: string, n: number, holdMs = 200): Promise<string[]> {
   const barrier = String(Date.now() + 800); // time for every child to spawn + reach the spin
   const run = (): Promise<string> =>
-    pexec(process.execPath, ['--import', 'tsx', childScript, path, barrier], {cwd: SERVER_SRC_DIR})
+    pexec(process.execPath, ['--import', 'tsx', childScript, path, barrier, String(holdMs)], {cwd: SERVER_SRC_DIR})
       .then((r) => r.stdout.trim())
       .catch((e: Error) => `THROW:${e.message}`);
   return Promise.all(Array.from({length: n}, run));
@@ -212,6 +203,12 @@ async function stress(opts: {n: number; rounds: number; seedStale: boolean; seed
 }
 
 describe('DirLock single-owner stress (cross-process)', () => {
+  it('two claimants over a cross-host dead-pid lock → exactly one wins', async () => {
+    writeHolder({pid: 999_999, host: 'renamed-mac', startedAt: new Date().toISOString()});
+    const verdicts = await raceClaims(lockPath(), 2, 5_000);
+    expect(verdicts.sort()).toEqual(['DECLINED', 'WON']);
+  }, 15_000);
+
   it('free path: N claimants on a fresh lock → never two owners at once', async () => {
     await stress({n: 8, rounds: 5, seedStale: false});
   }, 90_000);

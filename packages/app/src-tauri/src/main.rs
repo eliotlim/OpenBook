@@ -1006,6 +1006,23 @@ fn prior_sidecar_pid(data_dir: &str) -> Option<i32> {
         .or_else(|| read_pid_from(&Path::new(data_dir).join("server.json")))
 }
 
+/// Remove a PGlite lock left by `stale_pid`, but only while the on-disk body still
+/// names that pid. The identity recheck keeps a concurrent replacement intact.
+#[cfg(unix)]
+fn remove_stale_pglite_lock(data_dir: &str, stale_pid: i32) {
+    let path = Path::new(data_dir).join(".openbook-pglite.lock");
+    if read_pid_from(&path) != Some(stale_pid) {
+        return;
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => eprintln!("[reaper] removed stale PGlite dir lock left by dead pid {stale_pid}"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => eprintln!(
+            "[reaper] could not remove stale PGlite dir lock left by dead pid {stale_pid}: {err}"
+        ),
+    }
+}
+
 /// Whether `pid` is a live process. `kill(pid, 0)` only probes: `0` = alive,
 /// `ESRCH` = gone, `EPERM` = exists but owned by another user (still alive).
 #[cfg(unix)]
@@ -1040,7 +1057,9 @@ fn pid_is_openbook_server(pid: i32) -> bool {
 /// hard requirement, since signalling a recycled pid would kill an unrelated
 /// process. We deliberately do **not** escalate to SIGKILL: a half-killed PGlite
 /// can leave an unrecoverable WAL (OB-164), and if SIGTERM is somehow ignored the
-/// new spawn's `DirLock` declines safely rather than risking corruption.
+/// new spawn's `DirLock` declines safely rather than risking corruption. A dead
+/// recorded pid has its stale PGlite lock removed here so bootstrap does not rely
+/// on the sidecar getting far enough to reclaim it itself.
 #[cfg(unix)]
 fn reap_orphan_sidecar(data_dir: &str) {
     let Some(pid) = prior_sidecar_pid(data_dir) else {
@@ -1050,9 +1069,17 @@ fn reap_orphan_sidecar(data_dir: &str) {
         return; // never touch pid 0/1 (a malformed/sentinel body)
     }
     if !pid_is_alive(pid) {
-        return; // dead → the lock is stale; DirLock takes it over on spawn
+        remove_stale_pglite_lock(data_dir, pid);
+        return;
     }
     if !pid_is_openbook_server(pid) {
+        // The process can disappear between the kill(0) probe and `ps`. Re-probe
+        // before treating an empty `ps` result as pid reuse; never remove a lock
+        // while the recorded pid is still alive.
+        if !pid_is_alive(pid) {
+            remove_stale_pglite_lock(data_dir, pid);
+            return;
+        }
         eprintln!(
             "[reaper] pid {pid} from a prior run is alive but is not an openbook-server (pid reuse) — not signalling"
         );
@@ -1066,7 +1093,11 @@ fn reap_orphan_sidecar(data_dir: &str) {
     // Wait briefly for it to checkpoint + release the lock before we spawn.
     const REAP_GRACE_MS: u64 = 5000;
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(REAP_GRACE_MS);
-    while pid_is_alive(pid) {
+    loop {
+        if !pid_is_alive(pid) {
+            remove_stale_pglite_lock(data_dir, pid);
+            break;
+        }
         if std::time::Instant::now() >= deadline {
             eprintln!(
                 "[reaper] pid {pid} still alive after {REAP_GRACE_MS}ms — proceeding (DirLock will arbitrate)"
@@ -1288,6 +1319,44 @@ mod reaper_tests {
         let server_json = dir.join("server.json");
         fs::write(&server_json, br#"{"url":"http://x","port":4319,"pid":777,"startedAt":"x"}"#).unwrap();
         assert_eq!(prior_sidecar_pid(data_dir), Some(777));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reap_removes_a_stale_lock_for_a_dead_recorded_pid() {
+        use super::{pid_is_alive, reap_orphan_sidecar};
+        use std::fs;
+
+        let dir = std::env::temp_dir().join(format!(
+            "ob-reaper-dead-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join(".openbook-pglite.lock");
+
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let dead_pid = child.id() as i32;
+        child.wait().unwrap();
+        assert!(!pid_is_alive(dead_pid));
+
+        fs::write(
+            &lock,
+            format!(
+                r#"{{"pid":{dead_pid},"host":"old-host","startedAt":"2026-08-10T01:16:54.631Z"}}"#
+            ),
+        )
+        .unwrap();
+        reap_orphan_sidecar(dir.to_str().unwrap());
+        assert!(!lock.exists());
 
         fs::remove_dir_all(&dir).ok();
     }
