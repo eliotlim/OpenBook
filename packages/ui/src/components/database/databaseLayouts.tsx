@@ -32,6 +32,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
 import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
@@ -412,7 +413,7 @@ export const GroupContextMenu: React.FC<{
             {isOptionGroup && (
               <>
                 <ContextMenuSeparator />
-                <ContextMenuItem onSelect={deleteGroup} className="text-destructive focus:text-destructive">
+                <ContextMenuItem onSelect={deleteGroup} className={MENU_DESTRUCTIVE_CLASS}>
                   <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete group
                 </ContextMenuItem>
               </>

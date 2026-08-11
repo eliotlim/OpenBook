@@ -44,6 +44,7 @@ import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
+import {MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
 import {readPageIcon} from '@/lib/pageIcon';
 import {useNavigation, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
@@ -1219,7 +1220,7 @@ const DatabaseContextMenu: React.FC<{
           Duplicate view
         </ContextMenuItem>
         {canDeleteView && (
-          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => void db.deleteView(view.id)}>
+          <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
             <Trash2 className="mr-2 h-4 w-4" />
             Delete view
           </ContextMenuItem>

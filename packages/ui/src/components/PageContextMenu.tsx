@@ -65,7 +65,7 @@ export const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof
 // The canonical page-action list below renders through whichever Radix menu
 // family its host provides — see {@link MENU_COMPONENTS} (shared with the
 // database's row/column menu lists).
-import {MENU_COMPONENTS} from '@/components/ui/menu-components';
+import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
 export {MENU_COMPONENTS, type MenuComponentSet} from '@/components/ui/menu-components';
 
 /**
@@ -395,7 +395,7 @@ export function PageMenuItems({
       <C.Item
         disabled={!pageScoped}
         onSelect={() => void onDelete()}
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
       >
         <Trash2 className="mr-2 h-4 w-4" />
         {t('menu.moveToTrash')}

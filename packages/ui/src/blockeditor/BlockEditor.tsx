@@ -93,12 +93,6 @@ import {pageIconToText} from '@/lib/iconValue';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -107,12 +101,12 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
 import {formatShortcut} from '@/lib/shortcuts';
 import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
@@ -1735,42 +1729,6 @@ const COLOR_MENU: Array<{id: string | null; label: string}> = [
 ];
 
 /**
- * The two Radix menu families expose the same item/sub/separator shape, so the
- * one canonical block-action list below renders through whichever bundle its
- * host provides — the drag-handle {@link DropdownMenu} or the right-click
- * {@link ContextMenu}. (Mirrors the `PageMenuItems` single-source pattern.)
- * Typed as {@link React.ElementType} because we only lean on the props both
- * families share (onSelect/className/children).
- */
-interface BlockMenuComponentSet {
-  Item: React.ElementType;
-  Separator: React.ElementType;
-  Shortcut: React.ElementType;
-  Sub: React.ElementType;
-  SubTrigger: React.ElementType;
-  SubContent: React.ElementType;
-}
-
-const BLOCK_MENU_COMPONENTS: Record<'context' | 'dropdown', BlockMenuComponentSet> = {
-  context: {
-    Item: ContextMenuItem,
-    Separator: ContextMenuSeparator,
-    Shortcut: ContextMenuShortcut,
-    Sub: ContextMenuSub,
-    SubTrigger: ContextMenuSubTrigger,
-    SubContent: ContextMenuSubContent,
-  },
-  dropdown: {
-    Item: DropdownMenuItem,
-    Separator: DropdownMenuSeparator,
-    Shortcut: DropdownMenuShortcut,
-    Sub: DropdownMenuSub,
-    SubTrigger: DropdownMenuSubTrigger,
-    SubContent: DropdownMenuSubContent,
-  },
-};
-
-/**
  * The single source of truth for a block's actions, rendered from both entry
  * points — the drag-handle click menu ({@link HandleMenu}, `menu="dropdown"`)
  * and the right-click menu ({@link BlockRowMenu}, `menu="context"`). One list
@@ -1788,7 +1746,7 @@ const BlockMenuItems: React.FC<{
   const id = blockId(block);
   const isText = TEXT_BLOCKS.has(blockType(block));
   const ops = blockOps(editor, id);
-  const C = BLOCK_MENU_COMPONENTS[menu];
+  const C = MENU_COMPONENTS[menu];
 
   // Review affordances need the host (BlockPageDocument) mounted and the live
   // doc registered against a page id (so the composer knows its target page).
@@ -1877,7 +1835,7 @@ const BlockMenuItems: React.FC<{
         <C.Shortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</C.Shortcut>
       </C.Item>
       <C.Separator />
-      <C.Item className="text-destructive focus:text-destructive" onSelect={ops.remove}>
+      <C.Item className={MENU_DESTRUCTIVE_CLASS} onSelect={ops.remove}>
         Delete
         <C.Shortcut>{formatShortcut({key: 'backspace'})}</C.Shortcut>
       </C.Item>
@@ -2605,7 +2563,7 @@ const TableRangeMenuContent: React.FC<{
       />
       <ContextMenuSeparator />
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => {
           tableDeleteRowRange(doc, tableId, rect.top, rect.bottom);
           onClearRange?.();
@@ -2619,7 +2577,7 @@ const TableRangeMenuContent: React.FC<{
             : t('menu.table.deleteRowsN', {n: rowCount})}
       </ContextMenuItem>
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => {
           tableDeleteColumnRange(doc, tableId, rect.left, rect.right);
           onClearRange?.();
@@ -2710,7 +2668,7 @@ const TableCellMenuContent: React.FC<{
         onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
       />
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => tableDeleteRow(doc, tableId, row)}
       >
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
@@ -2748,7 +2706,7 @@ const TableCellMenuContent: React.FC<{
         <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
       </ContextMenuItem>
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => tableDeleteColumn(doc, tableId, col)}
       >
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}

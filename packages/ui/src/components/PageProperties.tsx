@@ -24,6 +24,7 @@ import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties
 import {hydratePageIcons} from '@/lib/pageIcon';
 import {hydratePageAppearance} from '@/lib/pageAppearance';
 import {cn} from '@/lib/utils';
+import {MENU_DESTRUCTIVE_CLASS} from '@/components/ui/menu-components';
 
 export interface PagePropertiesState {
   /** The page's stored property values (owner, verification, …), kept live. */
@@ -222,7 +223,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onChange({verified: false})} className="text-destructive focus:text-destructive">
+          <DropdownMenuItem onClick={() => onChange({verified: false})} className={MENU_DESTRUCTIVE_CLASS}>
             {t('properties.unverify')}
           </DropdownMenuItem>
         </DropdownMenuContent>

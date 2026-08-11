@@ -24,7 +24,7 @@ import {
   type DatabaseView as DbView,
   type FilterOperator,
 } from '@book.dev/sdk';
-import {MENU_COMPONENTS, type MenuComponentSet} from '@/components/ui/menu-components';
+import {MENU_COMPONENTS, MENU_DESTRUCTIVE_CLASS, type MenuComponentSet} from '@/components/ui/menu-components';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
@@ -38,8 +38,6 @@ import type {UseDatabase} from './useDatabase';
  * button stack — its host provides. Keeping the lists here means the dropdown,
  * the context menu, and the popover can never drift apart (TBL-9).
  */
-
-const destructiveClass = 'text-destructive hover:text-destructive focus:text-destructive';
 
 /** Append a leaf condition to a view's filter tree (clearing the legacy flat list). */
 export function addQuickFilter(db: UseDatabase, view: DbView, propertyId: string, operator: FilterOperator, value: unknown): void {
@@ -131,7 +129,7 @@ export const RowMenuItems: React.FC<{
         </C.Item>
       )}
       <C.Separator />
-      <C.Item onSelect={scopedActions.delete} className={destructiveClass}>
+      <C.Item onSelect={scopedActions.delete} className={MENU_DESTRUCTIVE_CLASS}>
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {scopedActions.deleteLabel}
       </C.Item>
     </>
@@ -232,7 +230,7 @@ export const ColumnMenuItems: React.FC<{
           <Pencil className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.edit')}
         </C.Item>
       )}
-      <C.Item onSelect={() => void db.deleteProperty(property.id)} className={destructiveClass}>
+      <C.Item onSelect={() => void db.deleteProperty(property.id)} className={MENU_DESTRUCTIVE_CLASS}>
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('database.columnMenu.delete')}
       </C.Item>
     </>
