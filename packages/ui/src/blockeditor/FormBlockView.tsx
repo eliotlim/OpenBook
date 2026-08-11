@@ -1,5 +1,5 @@
 import React, {createContext, useContext, useEffect, useState} from 'react';
-import type {FormField, FormFieldKind, FormSchema} from '@book.dev/sdk';
+import {isSafeHref, type FormField, type FormFieldKind, type FormSchema} from '@book.dev/sdk';
 import {useOptionalData} from '@/data';
 import {t} from '@/i18n';
 import {blockProp} from './model';
@@ -108,13 +108,16 @@ export const FormEditView: React.FC<{schema: FormSchema}> = ({schema}) => (
 );
 
 /** Reader/presenter/viewer shell: all controls are deliberately frozen. */
-export const FormReadonlyView: React.FC<{schema: FormSchema; originUrl?: string | null}> = ({schema, originUrl}) => (
-  <div className="obe-form-preview" data-form-mode="readonly" data-ob-form>
-    {schema.fields.length === 0 ? <EmptyFields /> : schema.fields.map((field) => <FormFieldPreview key={field.id || `${field.kind}-${field.label}`} field={field} />)}
-    <button type="button" className="obe-kit-action" disabled>{schema.submitLabel || t('formBlock.submit')}</button>
-    {originUrl && <a className="obe-form-live-link" href={originUrl}>{t('formBlock.liveLink')}</a>}
-  </div>
-);
+export const FormReadonlyView: React.FC<{schema: FormSchema; originUrl?: string | null}> = ({schema, originUrl}) => {
+  const liveUrl = originUrl && isSafeHref(originUrl) ? originUrl : null;
+  return (
+    <div className="obe-form-preview" data-form-mode="readonly" data-ob-form>
+      {schema.fields.length === 0 ? <EmptyFields /> : schema.fields.map((field) => <FormFieldPreview key={field.id || `${field.kind}-${field.label}`} field={field} />)}
+      <button type="button" className="obe-kit-action" disabled>{schema.submitLabel || t('formBlock.submit')}</button>
+      {liveUrl && <a className="obe-form-live-link" href={liveUrl}>{t('formBlock.liveLink')}</a>}
+    </div>
+  );
+};
 
 const BoundDatabaseSummary: React.FC<{databaseId?: string}> = ({databaseId}) => {
   const client = useOptionalData();

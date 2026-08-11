@@ -75,6 +75,7 @@ describe('form export arms', () => {
     expect(html).toContain('<input type="checkbox" disabled');
     expect(html).toContain('<button type="button" disabled>Send response</button>');
     expect(html).toContain('href="https://published.example/?page=contact"');
+    expect(blocksToHtml([block], {originPageUrl: 'javascript:alert(1)'})).not.toContain('ob-form-live');
 
     const markdown = blocksToMarkdown([block]);
     expect(markdown).toContain('**Form**');
