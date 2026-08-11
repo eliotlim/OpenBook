@@ -1,8 +1,8 @@
-import {describe, it, expect, afterEach, beforeAll} from 'vitest';
+import {describe, it, expect, afterEach, beforeAll, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import {createDoc, rootBlocks, type BlockMap} from '../../model';
 import type {BlockEditorController} from '../../useBlockEditor';
-import {CHART_BLOCKS, getChartKind, fmtChartValue, type ChartRenderArgs} from '../charts';
+import {CHART_BLOCKS, getChartKind, fmtChartValue, KitChartPlot, type ChartRenderArgs} from '../charts';
 import {PALETTE} from '../chartMath';
 import {ReactiveEvalCache} from '../evalCache';
 
@@ -156,6 +156,64 @@ describe('context menu', async () => {
     fireEvent.keyDown(marks(container)[0], {key: 'Enter'});
     fireEvent.click(screen.getByText('Copy value'));
     expect(copied).toBe('A: 3');
+  });
+
+  it('action mode copies on right-click without replacing left-click drill-down', () => {
+    let copied = '';
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {writeText: (t: string) => ((copied = t), Promise.resolve())},
+    });
+    const onSelect = vi.fn();
+    const outerContextMenu = vi.fn();
+    const {container} = render(
+      <div onContextMenu={outerContextMenu}>
+        <KitChartPlot
+          kind="bar"
+          value={[3, 1]}
+          labels={['A', 'B']}
+          palette={PALETTE}
+          ariaLabel="Action chart"
+          mode="action"
+          onSelect={onSelect}
+        />
+      </div>,
+    );
+    const mark = marks(container)[0];
+
+    fireEvent.contextMenu(mark);
+    expect(screen.getByText('Copy value')).toBeTruthy();
+    expect(outerContextMenu).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Copy value'));
+    expect(copied).toBe('A: 3');
+
+    fireEvent.click(mark);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({label: 'A', value: 3}));
+  });
+
+  it('decorative mode keeps arcs aria-hidden and offers Copy value only on right-click', () => {
+    const onSelect = vi.fn();
+    const {container} = render(
+      <KitChartPlot
+        kind="pie"
+        value={{Apples: 3, Pears: 5}}
+        palette={PALETTE}
+        ariaLabel="Decorative chart"
+        mode="decorative"
+        onSelect={onSelect}
+      />,
+    );
+    const mark = marks(container)[0];
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.queryByText('Copy value')).toBeNull();
+
+    fireEvent.contextMenu(mark);
+    expect(screen.getByText('Copy value')).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(mark);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({label: 'Apples', value: 3}));
   });
 });
 

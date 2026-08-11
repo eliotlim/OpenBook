@@ -1212,7 +1212,7 @@ const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; s
 // The tooltip + highlight + context-menu scaffold used to live inside
 // ChartBlock. It's lifted here so the database chart-views render through the
 // SAME engine: KitChartPlot owns the interaction state, the {@link Mark}
-// context, the tooltip, and (in `'menu'` mode) the context menu, and calls the
+// context, the tooltip, and the context menu, and calls the
 // registered kind's `render`. Callers vary only the mark MODE and the optional
 // drill/highlight/readout hooks — see {@link ChartMarkMode}.
 
@@ -1220,14 +1220,16 @@ const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; s
  * How a datum's mark presents + behaves:
  * - `'menu'` (default, in-doc charts): a `role="button"` with
  *   `aria-haspopup="menu"`; right-click / keyboard opens the shared context menu
- *   (Copy value + `menuExtra`). Byte-identical to the pre-extraction wiring.
+ *   (Copy value + `menuExtra`). The shared `openMenu` stops propagation in every
+ *   mode so an ancestor's context menu does not open too.
  * - `'action'` (DB bar): a `role="button"` whose click / Enter runs `onSelect`
- *   (drill-down). No context menu — so a `getByRole('button', {name})` still
- *   resolves the bar the way the database e2e specs expect.
+ *   (drill-down). Right-click still opens Copy value without changing the
+ *   mark's button semantics.
  * - `'decorative'` (DB pie/sunburst): an `aria-hidden` pointer target; click runs
  *   `onSelect`. The arcs are NOT exposed as buttons (the legend buttons are the
  *   accessible controls) — otherwise a legend-name `getByRole('button')` would
- *   also match the arcs and break the pie spec's single-button lookup.
+ *   also match the arcs and break the pie spec's single-button lookup. A
+ *   pointer right-click still opens Copy value.
  */
 export type ChartMarkMode = 'menu' | 'action' | 'decorative';
 
@@ -1316,6 +1318,15 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
           onFocus: () => setActive({datum, at}),
           onBlur: () => setActive(clearIfMine),
         };
+        const openMenu: React.MouseEventHandler<SVGGElement> = (e) => {
+          e.preventDefault();
+          // Database charts sit inside DatabaseContextMenu. The datum's copy
+          // menu must win rather than also opening the active-view menu.
+          e.stopPropagation();
+          menuReturnRef.current = e.currentTarget;
+          setActive({datum, at});
+          setMenu({datum, at});
+        };
         if (mode === 'decorative') {
           // Arcs are decorative pointer targets; the caller's legend is the a11y control.
           return {
@@ -1324,6 +1335,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
             onPointerEnter: hover.onPointerEnter,
             onPointerLeave: hover.onPointerLeave,
             onClick: onSelect ? () => onSelect(datum) : undefined,
+            onContextMenu: openMenu,
           };
         }
         if (mode === 'action') {
@@ -1334,6 +1346,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
             'aria-label': `${datum.label}: ${fmtChartValue(datum.value)}`,
             ...hover,
             onClick: onSelect ? () => onSelect(datum) : undefined,
+            onContextMenu: openMenu,
             onKeyDown: (e) => {
               if ((e.key === 'Enter' || e.key === ' ') && onSelect) {
                 e.preventDefault();
@@ -1350,12 +1363,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
           'aria-label': `${datum.label}: ${fmtChartValue(datum.value)}`,
           className,
           ...hover,
-          onContextMenu: (e) => {
-            e.preventDefault();
-            menuReturnRef.current = e.currentTarget;
-            setActive({datum, at});
-            setMenu({datum, at});
-          },
+          onContextMenu: openMenu,
           onKeyDown: (e) => {
             if (e.key === 'Enter' || e.key === ' ' || e.key === 'ContextMenu') {
               e.preventDefault();
@@ -1406,7 +1414,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
           <span className="obe-chart-tt-value">{fmtChartValue(active.datum.value)}</span>
         </div>
       )}
-      {mode === 'menu' && (
+      {(mode === 'menu' || menu) && (
         <DropdownMenu open={!!menu} onOpenChange={(o) => !o && setMenu(null)}>
           {/* A zero-size anchor at the datum: the context menu (right-click or
               keyboard) positions against it, so mouse and keyboard open the same

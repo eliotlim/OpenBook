@@ -32,6 +32,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {IconButton} from '@/components/ui/icon-button';
 import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
@@ -881,13 +882,14 @@ export const BoardView: React.FC<{
               {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
               {!isCollapsed && <span className="truncate">{heading}</span>}
               <span className="text-muted-foreground/60">{group.rows.length}</span>
-              <button
+              <IconButton
+                size="inline"
                 onClick={() => toggleCol(group.key)}
                 aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${heading} column`}
-                className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground', !isCollapsed && 'ml-auto')}
+                className={cn('text-muted-foreground/50', !isCollapsed && 'ml-auto')}
               >
                 {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-              </button>
+              </IconButton>
             </div>
           </GroupContextMenu>
         );
@@ -1123,13 +1125,14 @@ export const BoardView: React.FC<{
                       {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
                       <span className="truncate">{heading}</span>
                       <span className="text-muted-foreground/60">{group.rows.length}</span>
-                      <button
+                      <IconButton
+                        size="inline"
                         onClick={() => toggleCol(group.key)}
                         aria-label={`Collapse ${heading} column`}
-                        className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground"
+                        className="ml-auto text-muted-foreground/50"
                       >
                         <ChevronLeft className="h-3.5 w-3.5" />
-                      </button>
+                      </IconButton>
                     </div>
                   </GroupContextMenu>
                   <BoardColumnCards
@@ -1326,12 +1329,12 @@ export const CalendarView: React.FC<{
           <button onClick={() => setCursor({year: today.getFullYear(), month: today.getMonth()})} className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground">
             Today
           </button>
-          <button onClick={() => shift(-1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Previous month">
+          <IconButton size="sm" onClick={() => shift(-1)} aria-label="Previous month">
             <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button onClick={() => shift(1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Next month">
+          </IconButton>
+          <IconButton size="sm" onClick={() => shift(1)} aria-label="Next month">
             <ChevronRight className="h-4 w-4" />
-          </button>
+          </IconButton>
         </div>
       </div>
       <div className="grid grid-cols-7 border-b border-border bg-muted/20 text-center text-[11px] font-medium text-muted-foreground">
@@ -1365,13 +1368,14 @@ export const CalendarView: React.FC<{
               {day && (
                 <div className="mb-1 flex items-center justify-between">
                   {editable ? (
-                    <button
+                    <IconButton
+                      size="inline"
                       onClick={() => createOn(key!)}
                       aria-label={`Add on ${key}`}
-                      className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-hover hover:text-foreground group-hover/day:opacity-100"
+                      className="text-muted-foreground/60 opacity-0 transition-[opacity,background-color,color] group-hover/day:opacity-100"
                     >
                       <Plus className="h-3 w-3" />
-                    </button>
+                    </IconButton>
                   ) : (
                     <span />
                   )}

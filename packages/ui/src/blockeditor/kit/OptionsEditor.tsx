@@ -1,5 +1,6 @@
 import React, {useRef} from 'react';
 import {Select} from '@/components/ui/select';
+import {IconButton} from '@/components/ui/icon-button';
 import {ImagePlus, Plus, X} from 'lucide-react';
 import {blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -101,14 +102,14 @@ export const OptionsEditor: React.FC<{block: BlockMap; editor: BlockEditorContro
                 onChange={(e) => update(i, {value: e.target.value})}
               />
               {!editor.readOnly && (
-                <button
+                <IconButton
+                  size="sm"
                   type="button"
-                  className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                   aria-label={`Remove option ${i + 1}`}
                   onClick={() => remove(i)}
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               )}
             </div>
             {media && <MediaRow index={i} row={row} editor={editor} onChange={(patch) => update(i, patch)} />}
@@ -161,15 +162,15 @@ const MediaRow: React.FC<{
               e.target.value = '';
             }}
           />
-          <button
+          <IconButton
+            size="sm"
             type="button"
-            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label={`Upload option ${index + 1} image`}
             title="Upload image"
             onClick={() => fileRef.current?.click()}
           >
             <ImagePlus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </>
       )}
       <ConfigInput
