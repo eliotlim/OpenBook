@@ -60,7 +60,13 @@ describe('AgentEditsSettings (library-wide agent-edits mode)', () => {
   it('locks the control for a non-owner of a claimed instance', async () => {
     wrapLibrary({
       getInstanceInfo: async () =>
-        info({agentEdits: 'suggest', ownerSubject: 'acct#owner', you: guestPrincipal('Dana'), youRole: null}),
+        info({
+          agentEdits: 'suggest',
+          claimed: true,
+          ownerSubject: 'acct#owner',
+          you: guestPrincipal('Dana'),
+          youRole: null,
+        }),
     });
     expect(await screen.findByText('Only the library owner can change how agents edit.')).toBeTruthy();
     expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
@@ -70,6 +76,31 @@ describe('AgentEditsSettings (library-wide agent-edits mode)', () => {
     wrapLibrary({
       getInstanceInfo: async () =>
         info({agentEdits: 'suggest', claimed: true, ownerSubject: null, you: guestPrincipal(), youRole: null}),
+    });
+    const picker = await screen.findByRole('combobox');
+    expect(picker.hasAttribute('disabled')).toBe(true);
+    expect(picker.getAttribute('aria-describedby')).toBe('agent-edits-owner-locked');
+    expect(screen.getByText('Only the library owner can change how agents edit.').id).toBe(
+      'agent-edits-owner-locked',
+    );
+  });
+
+  it('locks a roster admin on a claimed instance because policy writes are owner-only', async () => {
+    wrapLibrary({
+      getInstanceInfo: async () =>
+        info({
+          agentEdits: 'suggest',
+          claimed: true,
+          ownerSubject: 'acct#owner',
+          you: {
+            kind: 'user',
+            subject: 'acct#admin',
+            issuer: 'https://accounts.book.pub',
+            name: 'Ada',
+            verifiedVia: 'jws',
+          },
+          youRole: 'admin',
+        }),
     });
     expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
     expect(screen.getByText('Only the library owner can change how agents edit.')).toBeTruthy();

@@ -3,7 +3,7 @@ import type {EffectiveVisibility, GuestAccess, InstanceInfo} from '@book.dev/sdk
 import {useData} from '@/data/DataProvider';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
-import {isAdminRole} from '@/components/settings/adminGate';
+import {cleanError, isInstanceOwner} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import type {TKey} from '@/i18n';
 
@@ -114,13 +114,7 @@ const ACCESS_HINT: Record<DefaultAccess, TKey> = {
 
 /** Ties the live hint to the picker for assistive tech (`aria-describedby`). */
 const ACCESS_HINT_ID = 'default-access-hint';
-
-/** Strip the SDK transport wrapper while preserving the server's useful detail. */
-function cleanError(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e);
-  const m = raw.match(/OpenBook request failed \([^)]*\)(?::\s*([\s\S]*))?$/);
-  return (m?.[1] ?? raw).trim();
-}
+const OWNER_LOCKED_ID = 'default-access-owner-locked';
 
 /**
  * The honest description for `state` under `info` — the base one-liner plus any
@@ -210,20 +204,17 @@ export function SharingSection() {
         await client.setInstancePolicy(accessStatePolicy(state));
         refresh();
       } catch (e) {
-        setError(cleanError(e));
+        setError(cleanError(e, t('share.error.generic')));
       } finally {
         setBusy(false);
       }
     },
-    [client, refresh, info],
+    [client, refresh, info, t],
   );
 
   if (unavailable || !info) return null;
 
-  // `ownerSubject` is deliberately redacted to null for anonymous callers, so it
-  // cannot be used as an ownership signal. The effective role remains available
-  // and is null for guests; the shared helper also preserves local-owner access.
-  const isOwner = isAdminRole(info);
+  const isOwner = isInstanceOwner(info);
   const you = info.you;
   const youLine =
     you.kind === 'user'
@@ -242,7 +233,7 @@ export function SharingSection() {
           value={state}
           wrapperClassName="w-full max-w-[280px]"
           aria-label={t('sharing.defaultAccess')}
-          aria-describedby={ACCESS_HINT_ID}
+          aria-describedby={isOwner ? ACCESS_HINT_ID : `${ACCESS_HINT_ID} ${OWNER_LOCKED_ID}`}
           disabled={busy || !isOwner}
           onChange={(e) => void changeAccess(e.target.value as DefaultAccess)}
         >
@@ -272,7 +263,11 @@ export function SharingSection() {
           )}
         </p>
       </SettingsField>
-      {!isOwner && <p className="text-xs text-muted-foreground">{t('sharing.ownerLocked')}</p>}
+      {!isOwner && (
+        <p id={OWNER_LOCKED_ID} className="text-xs text-muted-foreground">
+          {t('sharing.ownerLocked')}
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{t('sharing.saveError', {error})}</p>}
     </SettingsSection>
   );

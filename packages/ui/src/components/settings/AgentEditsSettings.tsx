@@ -3,16 +3,11 @@ import type {AgentEditsMode, InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
-import {isAdminRole} from '@/components/settings/adminGate';
+import {cleanError, isInstanceOwner} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import {SETTINGS_SECTION_AGENTS_EDITS} from '@/lib/settingsIndex';
 
-/** Strip the SDK transport wrapper while preserving the server's useful detail. */
-function cleanError(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e);
-  const m = raw.match(/OpenBook request failed \([^)]*\)(?::\s*([\s\S]*))?$/);
-  return (m?.[1] ?? raw).trim();
-}
+const OWNER_LOCKED_ID = 'agent-edits-owner-locked';
 
 /**
  * The instance-wide agent-edits mode (AGED-5): whether an agent (an MCP client or
@@ -56,20 +51,17 @@ export default function AgentEditsSettings() {
         await client.setInstancePolicy({agentEdits: mode});
         refresh();
       } catch (e) {
-        setError(cleanError(e));
+        setError(cleanError(e, t('share.error.generic')));
       } finally {
         setBusy(false);
       }
     },
-    [client, refresh, info],
+    [client, refresh, info, t],
   );
 
   if (unavailable || !info) return null;
 
-  // `ownerSubject` is deliberately redacted to null for anonymous callers, so it
-  // cannot be used as an ownership signal. The effective role remains available
-  // and is null for guests; the shared helper also preserves local-owner access.
-  const isOwner = isAdminRole(info);
+  const isOwner = isInstanceOwner(info);
   const mode: AgentEditsMode = info.agentEdits ?? 'suggest';
 
   return (
@@ -80,6 +72,7 @@ export default function AgentEditsSettings() {
             value={mode}
             wrapperClassName="w-[240px]"
             aria-label={t('agentEdits.modeLabel')}
+            aria-describedby={isOwner ? undefined : OWNER_LOCKED_ID}
             disabled={busy || !isOwner}
             onChange={(e) => void change(e.target.value as AgentEditsMode)}
           >
@@ -87,7 +80,11 @@ export default function AgentEditsSettings() {
             <option value="direct">{t('agentEdits.modeDirect')}</option>
           </Select>
         </SettingsField>
-        {!isOwner && <p className="text-xs text-muted-foreground">{t('agentEdits.ownerLocked')}</p>}
+        {!isOwner && (
+          <p id={OWNER_LOCKED_ID} className="text-xs text-muted-foreground">
+            {t('agentEdits.ownerLocked')}
+          </p>
+        )}
         {error && <p className="text-xs text-destructive">{t('agentEdits.saveError', {error})}</p>}
       </SettingsSection>
     </div>
