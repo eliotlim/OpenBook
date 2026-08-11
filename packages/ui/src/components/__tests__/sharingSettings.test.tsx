@@ -1,7 +1,7 @@
 import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import type {DataClient} from '@book.dev/sdk';
-import {DEFAULT_INSTANCE_CONFIG, guestPrincipal} from '@book.dev/sdk';
+import {DEFAULT_INSTANCE_CONFIG, guestPrincipal, localPrincipal} from '@book.dev/sdk';
 import type {EffectiveVisibility, GuestAccess} from '@book.dev/sdk';
 import {
   SharingSection,
@@ -47,6 +47,86 @@ describe('SharingSection (guest access)', () => {
     expect(await screen.findByText('Default access')).toBeTruthy();
   });
 
+  it('keeps the picker enabled for an anonymous caller on an explicitly unclaimed instance', async () => {
+    wrap({
+      getInstanceInfo: async () => ({
+        guestAccess: 'write',
+        claimed: false,
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        requireAudience: false,
+        you: guestPrincipal(),
+        youRole: null,
+      }),
+    });
+    expect((await screen.findByRole('combobox', {name: 'Default access'})).hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText('Only the library owner can change this.')).toBeNull();
+  });
+
+  it('keeps the legacy unclaimed fallback when claimed and ownerSubject are absent', async () => {
+    wrap({
+      getInstanceInfo: async () => ({
+        guestAccess: 'write',
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        requireAudience: false,
+        you: guestPrincipal(),
+        youRole: null,
+      }),
+    });
+    expect((await screen.findByRole('combobox', {name: 'Default access'})).hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText('Only the library owner can change this.')).toBeNull();
+  });
+
+  it('locks a guest when the claimed owner identity is redacted', async () => {
+    const client: Partial<DataClient> = {
+      getInstanceInfo: async () => ({
+        guestAccess: 'read',
+        claimed: true,
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        requireAudience: false,
+        you: guestPrincipal(),
+        youRole: null,
+      }),
+    };
+    wrap(client);
+    const picker = await screen.findByRole('combobox', {name: 'Default access'});
+    expect(picker.hasAttribute('disabled')).toBe(true);
+    expect(picker.getAttribute('aria-describedby')).toBe(
+      'default-access-hint default-access-owner-locked',
+    );
+    expect(screen.getByText('Only the library owner can change this.').id).toBe(
+      'default-access-owner-locked',
+    );
+  });
+
+  it('locks a roster admin on a claimed instance because policy writes are owner-only', async () => {
+    wrap({
+      getInstanceInfo: async () => ({
+        guestAccess: 'read',
+        claimed: true,
+        ownerSubject: 'acct#owner',
+        trustedIssuers: [],
+        audience: null,
+        requireAudience: false,
+        you: {
+          kind: 'user',
+          subject: 'acct#admin',
+          issuer: 'https://accounts.book.pub',
+          name: 'Ada',
+          verifiedVia: 'jws',
+        },
+        youRole: 'admin',
+      }),
+    });
+    expect((await screen.findByRole('combobox', {name: 'Default access'})).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Only the library owner can change this.')).toBeTruthy();
+  });
+
   it('hides itself when the server exposes no multi-user endpoint', async () => {
     const client: Partial<DataClient> = {
       getInstanceInfo: async () => {
@@ -62,6 +142,7 @@ describe('SharingSection (guest access)', () => {
     const client: Partial<DataClient> = {
       getInstanceInfo: async () => ({
         guestAccess: 'read',
+        claimed: true,
         ownerSubject: 'acct#owner',
         trustedIssuers: [],
         audience: null,
@@ -83,12 +164,12 @@ describe('SharingSection (guest access)', () => {
       guestAccess: 'read', // freshly-claimed bootstrap …
       defaultVisibility: 'members', // … → renders "Only published pages"
       claimed: true, // …and per-page publishing really is in force (no caveat)
-      ownerSubject: null, // control enabled (unclaimed-owner path)
+      ownerSubject: null, // local-owner authority keeps the control enabled
       trustedIssuers: [],
       audience: null,
       requireAudience: false,
-      you: guestPrincipal('Ola'),
-      youRole: null,
+      you: localPrincipal(),
+      youRole: 'owner',
     }),
     setInstancePolicy,
   });
@@ -146,6 +227,28 @@ describe('SharingSection (guest access)', () => {
     await waitFor(() =>
       expect(setInstancePolicy).toHaveBeenCalledWith({defaultVisibility: 'public', guestAccess: 'write'}),
     );
+  });
+
+  it('shows only the server detail when saving fails', async () => {
+    const setInstancePolicy = vi.fn(async () => {
+      throw new Error('OpenBook request failed (403 Forbidden): only the instance owner can change multi-user policy');
+    }) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Anyone can view'}));
+    expect(await screen.findByText(/only the instance owner can change multi-user policy/)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
+  });
+
+  it('shows a localized generic error when a wrapped failure has no detail', async () => {
+    const setInstancePolicy = vi.fn(async () => {
+      throw new Error('OpenBook request failed (500 Internal Server Error)');
+    }) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Anyone can view'}));
+    expect(await screen.findByText(/Something went wrong\. Please try again\./)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
   });
 
   it('offers all four states', async () => {

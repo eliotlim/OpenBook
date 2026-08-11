@@ -3,8 +3,11 @@ import type {AgentEditsMode, InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
+import {cleanError, isInstanceOwner} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import {SETTINGS_SECTION_AGENTS_EDITS} from '@/lib/settingsIndex';
+
+const OWNER_LOCKED_ID = 'agent-edits-owner-locked';
 
 /**
  * The instance-wide agent-edits mode (AGED-5): whether an agent (an MCP client or
@@ -48,19 +51,17 @@ export default function AgentEditsSettings() {
         await client.setInstancePolicy({agentEdits: mode});
         refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanError(e, t('share.error.generic')));
       } finally {
         setBusy(false);
       }
     },
-    [client, refresh, info],
+    [client, refresh, info, t],
   );
 
   if (unavailable || !info) return null;
 
-  // No claimed owner yet → anyone may set the policy (the first user claims the
-  // library); once claimed, only that owner (matching SharingSection / the server).
-  const isOwner = !info.ownerSubject || info.ownerSubject === info.you.subject;
+  const isOwner = isInstanceOwner(info);
   const mode: AgentEditsMode = info.agentEdits ?? 'suggest';
 
   return (
@@ -71,6 +72,7 @@ export default function AgentEditsSettings() {
             value={mode}
             wrapperClassName="w-[240px]"
             aria-label={t('agentEdits.modeLabel')}
+            aria-describedby={isOwner ? undefined : OWNER_LOCKED_ID}
             disabled={busy || !isOwner}
             onChange={(e) => void change(e.target.value as AgentEditsMode)}
           >
@@ -78,7 +80,11 @@ export default function AgentEditsSettings() {
             <option value="direct">{t('agentEdits.modeDirect')}</option>
           </Select>
         </SettingsField>
-        {!isOwner && <p className="text-xs text-muted-foreground">{t('agentEdits.ownerLocked')}</p>}
+        {!isOwner && (
+          <p id={OWNER_LOCKED_ID} className="text-xs text-muted-foreground">
+            {t('agentEdits.ownerLocked')}
+          </p>
+        )}
         {error && <p className="text-xs text-destructive">{t('agentEdits.saveError', {error})}</p>}
       </SettingsSection>
     </div>

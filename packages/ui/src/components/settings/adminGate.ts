@@ -15,6 +15,14 @@ export function isForbidden(e: unknown): boolean {
   return /\b40[13]\b|forbidden|unauthor/i.test(raw);
 }
 
+/** Strip the SDK transport wrapper while preserving useful server detail. */
+export function cleanError(e: unknown, generic: string): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const match = raw.match(/OpenBook request failed \([^)]*\)(?::\s*([\s\S]*))?$/);
+  if (match) return match[1]?.trim() || generic;
+  return raw.trim() || generic;
+}
+
 /** Best-effort: is the current principal an instance admin (owner/admin/local)? */
 export function isAdminRole(info: InstanceInfo): boolean {
   const you = info.you;
@@ -22,6 +30,25 @@ export function isAdminRole(info: InstanceInfo): boolean {
   if (you.verifiedVia === 'local') return true;
   if (info.ownerSubject && you.verifiedVia === 'jws' && you.subject === info.ownerSubject) return true;
   return info.youRole === 'owner' || info.youRole === 'admin';
+}
+
+/**
+ * Whether this principal may write owner-only instance policy.
+ *
+ * `claimed` is the decisive guest-safe signal: `ownerSubject` is redacted to
+ * `null` for anonymous callers on a claimed instance, while an explicitly
+ * unclaimed instance allows its first caller to write policy. A legacy response
+ * without either signal keeps the old single-user allowance.
+ */
+export function isInstanceOwner(info: InstanceInfo): boolean {
+  return (
+    info.claimed === false ||
+    (info.claimed === undefined && !info.ownerSubject) ||
+    info.localOwner === true ||
+    info.you.verifiedVia === 'local' ||
+    info.youRole === 'owner' ||
+    (info.ownerSubject != null && info.ownerSubject === info.you.subject)
+  );
 }
 
 /**

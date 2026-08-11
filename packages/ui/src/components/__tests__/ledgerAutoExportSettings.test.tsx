@@ -69,11 +69,44 @@ describe('LedgerAutoExportSettings (LGR-7 insurance toggle)', () => {
   it('locks the controls for a non-owner of a claimed instance', async () => {
     wrap({
       getInstanceInfo: async () =>
-        info({ledgerAutoExportPath: '/data/exports/ledger.csv', ownerSubject: 'acct#owner', you: guestPrincipal('Dana'), youRole: 'admin'}),
+        info({
+          ledgerAutoExportPath: '/data/exports/ledger.csv',
+          claimed: true,
+          ownerSubject: 'acct#owner',
+          you: {
+            kind: 'user',
+            subject: 'acct#admin',
+            issuer: 'https://accounts.book.pub',
+            name: 'Dana',
+            verifiedVia: 'jws',
+          },
+          youRole: 'admin',
+        }),
     });
     expect(await screen.findByText('Only the library owner can change the auto-export target.')).toBeTruthy();
     expect((await screen.findByRole('switch')).hasAttribute('disabled')).toBe(true);
     expect((await screen.findByRole('textbox', {name: 'Export file path'})).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('locks both controls for a guest when the claimed owner identity is redacted', async () => {
+    wrap({
+      getInstanceInfo: async () =>
+        info({
+          ledgerAutoExportPath: null,
+          claimed: true,
+          ownerSubject: null,
+          you: guestPrincipal(),
+          youRole: null,
+        }),
+    });
+    const note = await screen.findByText('Only the library owner can change the auto-export target.');
+    const toggle = screen.getByRole('switch');
+    const path = screen.getByRole('textbox', {name: 'Export file path'});
+    expect(toggle.hasAttribute('disabled')).toBe(true);
+    expect(path.hasAttribute('disabled')).toBe(true);
+    expect(note.id).toBe('ledger-auto-export-owner-locked');
+    expect(toggle.getAttribute('aria-describedby')).toBe(note.id);
+    expect(path.getAttribute('aria-describedby')).toBe(note.id);
   });
 
   it('surfaces a server refusal (a path outside the export fence)', async () => {
@@ -87,6 +120,22 @@ describe('LedgerAutoExportSettings (LGR-7 insurance toggle)', () => {
     fireEvent.change(path, {target: {value: '/etc/passwd'}});
     fireEvent.click(await screen.findByRole('switch'));
     expect(await screen.findByText(/outside the allowed export roots/)).toBeTruthy();
+  });
+
+  it('strips the SDK wire wrapper from a save refusal', async () => {
+    wrap({
+      getInstanceInfo: async () => info({ledgerAutoExportPath: null}),
+      setInstancePolicy: (async () => {
+        throw new Error(
+          'OpenBook request failed (403 Forbidden): only the instance owner can set the ledger auto-export path',
+        );
+      }) as unknown as DataClient['setInstancePolicy'],
+    });
+    const path = await screen.findByRole('textbox', {name: 'Export file path'});
+    fireEvent.change(path, {target: {value: '/data/exports/ledger.csv'}});
+    fireEvent.click(await screen.findByRole('switch'));
+    expect(await screen.findByText(/only the instance owner can set the ledger auto-export path/)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
   });
 
   it('renders nothing when the server does not surface the field', async () => {

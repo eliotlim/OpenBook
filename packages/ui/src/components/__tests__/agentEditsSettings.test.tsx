@@ -60,10 +60,64 @@ describe('AgentEditsSettings (library-wide agent-edits mode)', () => {
   it('locks the control for a non-owner of a claimed instance', async () => {
     wrapLibrary({
       getInstanceInfo: async () =>
-        info({agentEdits: 'suggest', ownerSubject: 'acct#owner', you: guestPrincipal('Dana'), youRole: null}),
+        info({
+          agentEdits: 'suggest',
+          claimed: true,
+          ownerSubject: 'acct#owner',
+          you: guestPrincipal('Dana'),
+          youRole: null,
+        }),
     });
     expect(await screen.findByText('Only the library owner can change how agents edit.')).toBeTruthy();
     expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('locks a guest when the claimed owner identity is redacted', async () => {
+    wrapLibrary({
+      getInstanceInfo: async () =>
+        info({agentEdits: 'suggest', claimed: true, ownerSubject: null, you: guestPrincipal(), youRole: null}),
+    });
+    const picker = await screen.findByRole('combobox');
+    expect(picker.hasAttribute('disabled')).toBe(true);
+    expect(picker.getAttribute('aria-describedby')).toBe('agent-edits-owner-locked');
+    expect(screen.getByText('Only the library owner can change how agents edit.').id).toBe(
+      'agent-edits-owner-locked',
+    );
+  });
+
+  it('locks a roster admin on a claimed instance because policy writes are owner-only', async () => {
+    wrapLibrary({
+      getInstanceInfo: async () =>
+        info({
+          agentEdits: 'suggest',
+          claimed: true,
+          ownerSubject: 'acct#owner',
+          you: {
+            kind: 'user',
+            subject: 'acct#admin',
+            issuer: 'https://accounts.book.pub',
+            name: 'Ada',
+            verifiedVia: 'jws',
+          },
+          youRole: 'admin',
+        }),
+    });
+    expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Only the library owner can change how agents edit.')).toBeTruthy();
+  });
+
+  it('shows only the server detail when saving fails', async () => {
+    const setInstancePolicy = vi.fn(async () => {
+      throw new Error('OpenBook request failed (403 Forbidden): only the instance owner can change multi-user policy');
+    }) as unknown as DataClient['setInstancePolicy'];
+    wrapLibrary({
+      getInstanceInfo: async () => info({agentEdits: 'suggest'}),
+      setInstancePolicy,
+    });
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Edit pages directly'}));
+    expect(await screen.findByText(/only the instance owner can change multi-user policy/)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
   });
 
   it('renders nothing when the server exposes no instance endpoint', async () => {

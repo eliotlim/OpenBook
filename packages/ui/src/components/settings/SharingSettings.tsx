@@ -3,6 +3,7 @@ import type {EffectiveVisibility, GuestAccess, InstanceInfo} from '@book.dev/sdk
 import {useData} from '@/data/DataProvider';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
+import {cleanError, isInstanceOwner} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import type {TKey} from '@/i18n';
 
@@ -113,6 +114,7 @@ const ACCESS_HINT: Record<DefaultAccess, TKey> = {
 
 /** Ties the live hint to the picker for assistive tech (`aria-describedby`). */
 const ACCESS_HINT_ID = 'default-access-hint';
+const OWNER_LOCKED_ID = 'default-access-owner-locked';
 
 /**
  * The honest description for `state` under `info` — the base one-liner plus any
@@ -202,19 +204,17 @@ export function SharingSection() {
         await client.setInstancePolicy(accessStatePolicy(state));
         refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanError(e, t('share.error.generic')));
       } finally {
         setBusy(false);
       }
     },
-    [client, refresh, info],
+    [client, refresh, info, t],
   );
 
   if (unavailable || !info) return null;
 
-  // No claimed owner yet → anyone may set the policy (the first user claims the
-  // library); once claimed, only that owner.
-  const isOwner = !info.ownerSubject || info.ownerSubject === info.you.subject;
+  const isOwner = isInstanceOwner(info);
   const you = info.you;
   const youLine =
     you.kind === 'user'
@@ -233,7 +233,7 @@ export function SharingSection() {
           value={state}
           wrapperClassName="w-full max-w-[280px]"
           aria-label={t('sharing.defaultAccess')}
-          aria-describedby={ACCESS_HINT_ID}
+          aria-describedby={isOwner ? ACCESS_HINT_ID : `${ACCESS_HINT_ID} ${OWNER_LOCKED_ID}`}
           disabled={busy || !isOwner}
           onChange={(e) => void changeAccess(e.target.value as DefaultAccess)}
         >
@@ -263,7 +263,11 @@ export function SharingSection() {
           )}
         </p>
       </SettingsField>
-      {!isOwner && <p className="text-xs text-muted-foreground">{t('sharing.ownerLocked')}</p>}
+      {!isOwner && (
+        <p id={OWNER_LOCKED_ID} className="text-xs text-muted-foreground">
+          {t('sharing.ownerLocked')}
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{t('sharing.saveError', {error})}</p>}
     </SettingsSection>
   );
