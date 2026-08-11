@@ -1025,6 +1025,33 @@ test('marquee: drag over empty space selects the intersected blocks', {tag: ['@e
   await expect(page.locator('.obe-root > [data-block-row]')).toHaveCount(5);
 });
 
+test('marquee: right-click bulk delete removes three blocks and one undo restores them', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await fiveBlocks(page);
+  // Keep the bulk command isolated from the two paragraphs typed by fiveBlocks.
+  await page.waitForTimeout(500);
+
+  const rows = page.locator('.obe-root > [data-block-row]');
+  const r2 = (await rows.nth(2).boundingBox())!;
+  const r4 = (await rows.nth(4).boundingBox())!;
+  await page.mouse.move(r4.x + r4.width * 0.75, r4.y + r4.height + 24);
+  await page.mouse.down();
+  await page.mouse.move(r4.x + r4.width * 0.5, r4.y, {steps: 6});
+  await page.mouse.move(r4.x + r4.width * 0.25, r2.y + r2.height / 2, {steps: 6});
+  await page.mouse.up();
+  await expect(page.locator('.obe-row-selected')).toHaveCount(3);
+
+  // A selected row scopes the context menu to the whole marquee selection.
+  await rows.nth(3).click({button: 'right', position: {x: r2.width / 2, y: r2.height / 2}});
+  await expect(page.getByText('3 blocks selected', {exact: true})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Duplicate 3'})).toBeVisible();
+  await page.getByRole('menuitem', {name: 'Delete 3'}).click();
+  await expect(rows).toHaveCount(2);
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(rows).toHaveCount(5);
+});
+
 test('marquee: a plain click on empty space still clears the selection', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 1);
