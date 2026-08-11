@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {PageIcon} from '@/components/PageIcon';
 import {usePreferences, useNavigation, useTranslation} from '@/providers';
 import {useData} from '@/data';
@@ -939,7 +940,7 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className={MENU_WIDTH_MD}>
         {(property.options ?? []).map((option) => (
           <DropdownMenuItem
             key={option.id}
@@ -1122,7 +1123,7 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className={MENU_WIDTH_MD}>
         {(property.options ?? []).map((option) => (
           <DropdownMenuItem key={option.id} onClick={() => onChange(option.id)} className="gap-2">
             <SelectChip option={option} />
