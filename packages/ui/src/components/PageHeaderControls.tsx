@@ -41,7 +41,7 @@ function HeaderOverflowMenu({
             <MoreHorizontal className="h-4 w-4" aria-hidden />
           </IconButton>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="w-48" hideWhenDetached>
           {includeBacklinks && (
             <DropdownMenuItem onSelect={onBacklinks} className="gap-2">
               <Link2 className="h-4 w-4" aria-hidden />
@@ -95,7 +95,7 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
   return (
     <div
       data-page-header-controls
-      className="@container flex h-8 flex-nowrap items-center gap-1 text-sm text-muted-foreground print:hidden"
+      className="@container flex h-8 flex-nowrap items-center gap-1 text-sm text-muted-foreground supports-[not(container-type:inline-size)]:flex-wrap print:hidden"
     >
       {/* The two pane entry points stay quietly visible at rest — an invisible
           cluster was the only way into Customise/Review for a long time, and
@@ -132,7 +132,7 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
       <span
         data-page-header-meta
         className={cn(
-          'flex min-w-0 flex-1 flex-nowrap items-center gap-1',
+          'flex min-w-0 flex-1 flex-nowrap items-center gap-1 supports-[not(container-type:inline-size)]:flex-wrap',
           'opacity-0 pointer-events-none transition-opacity duration-150',
           'group-hover/pagehead:opacity-100 group-hover/pagehead:pointer-events-auto',
           'focus-within:opacity-100 focus-within:pointer-events-auto',

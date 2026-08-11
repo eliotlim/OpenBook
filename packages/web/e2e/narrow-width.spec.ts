@@ -103,7 +103,7 @@ test('narrow database: toolbar stays compact and horizontally scrollable', {tag:
 });
 
 test('page header controls collapse by pane width without wrapping or overlap', {tag: ['@editor']}, async ({page, request}) => {
-  await page.setViewportSize({width: 900, height: 800});
+  await page.setViewportSize({width: 1400, height: 800});
   const pageResponse = await request.post(`${SERVER}/api/pages`, {
     data: {name: 'Responsive header controls', data: emptySnapshot},
   });
@@ -139,6 +139,22 @@ test('page header controls collapse by pane width without wrapping or overlap', 
     }
   };
 
+  // A desktop-wide viewport still narrows the primary editor once a split is
+  // opened. Enter through this header's own control, then prove the 40rem
+  // collapse follows the editor pane rather than the 1400px viewport.
+  await assertSingleRow();
+  await expect(bar.locator('[data-page-header-item="add-cover"]')).toBeVisible();
+  await bar.getByRole('button', {name: 'Customise page'}).click();
+  const splitPane = page.locator('[data-split-pane]');
+  await expect(splitPane).toBeVisible();
+  await expect(bar.locator('[data-page-header-item="add-cover"]')).toBeHidden();
+  await splitPane.getByRole('button', {name: 'Hide split pane'}).click();
+  await expect(splitPane).toHaveCount(0);
+  // Restore the wide primary-pane setup used by the viewport-only checks below.
+  await page.getByRole('button', {name: 'Toggle sidebar'}).click();
+  await expect(page.locator('[data-sidebar-drawer]')).not.toBeInViewport();
+
+  await page.setViewportSize({width: 900, height: 800});
   await assertSingleRow();
   await expect(bar.locator('[data-page-header-item="backlinks"]')).toBeVisible();
   await expect(bar.locator('[data-page-header-item="add-cover"]')).toBeVisible();
