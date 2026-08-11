@@ -1,4 +1,4 @@
-import {mkdir, writeFile, rename, readdir, rm} from 'node:fs/promises';
+import {mkdir, open, rename, readdir, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
   BACKUP_CADENCES,
@@ -144,18 +144,28 @@ export class BackupScheduler implements BackupController {
   }
 
   private async writeBackup(cadence: BackupCadence, dir: string): Promise<string> {
-    // One writer for scheduled and ad-hoc exports: v3 assets/access cannot drift
-    // between the two paths. Inject the scheduler clock for deterministic names.
-    const backup = await this.store.exportAll(this.nowIso());
     const cadenceDir = join(dir, cadence);
     await mkdir(cadenceDir, {recursive: true});
     const name = `openbook-backup-${fileStamp(this.nowIso())}.openbook.json`;
     const abs = join(cadenceDir, name);
     const tmp = `${abs}.tmp`;
-    // Atomic: write to a temp file, then rename into place (same pattern as the
-    // book mirror) so a crash mid-write never leaves a truncated backup.
-    await writeFile(tmp, JSON.stringify(backup), 'utf8');
-    await rename(tmp, abs);
+    // Atomic + bounded: serialize directly into the temp file and await every
+    // append. PageStore yields one verified asset at a time, so neither this
+    // writer nor the store accumulates the raw/base64/JSON asset corpus.
+    const handle = await open(tmp, 'w');
+    let isOpen = true;
+    try {
+      await this.store.exportAllTo(async (chunk) => {
+        await handle.writeFile(chunk, {encoding: 'utf8'});
+      }, this.nowIso());
+      await handle.close();
+      isOpen = false;
+      await rename(tmp, abs);
+    } catch (err) {
+      if (isOpen) await handle.close().catch(() => undefined);
+      await rm(tmp, {force: true}).catch(() => undefined);
+      throw err;
+    }
     return name;
   }
 

@@ -43,11 +43,12 @@ afterEach(async () => {
 });
 
 describe('scheduled backup boot ordering (BOOT-1)', () => {
-  it('binds and serves before exportAll, then catches up after the configured idle delay', async () => {
+  it('binds and serves before export starts, then catches up after the configured idle delay', async () => {
     const order: string[] = [];
-    const original = PageStore.prototype.exportAll;
-    const exported = vi.spyOn(PageStore.prototype, 'exportAll').mockImplementation(async function (this: PageStore, ...args) {
-      order.push('exportAll');
+    const materialized = vi.spyOn(PageStore.prototype, 'exportAll');
+    const original = PageStore.prototype.exportAllTo;
+    const exported = vi.spyOn(PageStore.prototype, 'exportAllTo').mockImplementation(async function (this: PageStore, ...args) {
+      order.push('exportAllTo');
       return original.apply(this, args);
     });
 
@@ -55,17 +56,18 @@ describe('scheduled backup boot ordering (BOOT-1)', () => {
     server = await boot(25);
     order.push('listening');
 
+    expect(materialized).not.toHaveBeenCalled();
     expect(exported).not.toHaveBeenCalled();
     expect(await (await fetch(`${server.url}/health`)).text()).toBe('ok');
     await waitFor(() => expect(exported).toHaveBeenCalled());
 
-    expect(order.indexOf('listening')).toBeLessThan(order.indexOf('exportAll'));
+    expect(order.indexOf('listening')).toBeLessThan(order.indexOf('exportAllTo'));
     expect(Date.now() - startedAt).toBeLessThan(60_000);
   });
 
   it('keeps serving when the deferred catch-up export throws', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const exported = vi.spyOn(PageStore.prototype, 'exportAll').mockRejectedValueOnce(new Error('injected export fault'));
+    const exported = vi.spyOn(PageStore.prototype, 'exportAllTo').mockRejectedValueOnce(new Error('injected export fault'));
 
     server = await boot(0);
     expect(await (await fetch(`${server.url}/health`)).text()).toBe('ok');

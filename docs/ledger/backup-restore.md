@@ -22,6 +22,12 @@ change (LGR-15 / OB-603).
 All three write the **same bundle format**, so anything below applies to every
 snapshot regardless of how it was made. Snapshots are written atomically
 (temp-file + rename): a crash mid-write never leaves a truncated backup.
+The scheduled writer serializes directly into that temp file, awaiting every
+append and fetching/encoding one asset at a time. Its asset-specific high-water
+mark is one 10 MiB raw asset plus its base64 value and serialized JSON (about
+37 MiB, plus database/VM overhead), independent of the library's total asset
+corpus; page/database metadata and an optional ledger section remain snapshot
+arrays.
 
 Scheduled backups default **on**, to `<dataDir>/backups`; policy (cadences,
 retention counts, output dir) lives in Settings → Backup and
@@ -100,9 +106,10 @@ server to obtain a complete v3 bundle. Two other deliberate refusals to know abo
   `0021`, i.e. carries mid-stream `prevHash: null`) is refused at the door as
   unverifiable — the door will not install a stream the tamper check rejects.
 
-**Known limitation:** the bundle remains one JSON document and import
-materializes it in memory (bounded by the route's 512 MiB body cap). A streaming
-bundle format is future work.
+**Known limitation:** the bundle remains one JSON document. Ad-hoc HTTP export
+and import still materialize it in memory (import is bounded by the route's 512
+MiB body cap); only the scheduled on-disk writer streams today. A streaming
+transport/parser for those HTTP paths is future work.
 
 **Scope boundary:** this is a lossless restore of the documented *live library*
 surface, not a raw instance clone. Trash, page-version history, review

@@ -993,6 +993,65 @@ export class PageStore {
    *  bundle also carries its durability surface (LGR-15); v3 additionally
    *  carries every referenced asset and every page's stored access posture. */
   async exportAll(exportedAt: string = new Date().toISOString()): Promise<LibraryBackup> {
+    const snapshot = await this.captureBackupSnapshot(exportedAt);
+    const assets = await this.exportAssets(snapshot.pages);
+    const pageAccess = await this.exportPageAccess(snapshot.pages.map((page) => page.id));
+    return {
+      ...snapshot.envelope,
+      pages: snapshot.pages,
+      databases: snapshot.databases,
+      assets,
+      pageAccess,
+      ...(snapshot.ledger ? {ledger: snapshot.ledger} : {}),
+    };
+  }
+
+  /**
+   * Write the canonical v3 envelope incrementally. Scheduled backups use this
+   * path so asset bytes, base64, and JSON are retained for one asset at a time,
+   * never for the whole corpus. Every writer call is awaited, providing the
+   * filesystem writer's backpressure boundary.
+   */
+  async exportAllTo(
+    write: (chunk: string) => Promise<unknown>,
+    exportedAt: string = new Date().toISOString(),
+  ): Promise<void> {
+    const snapshot = await this.captureBackupSnapshot(exportedAt);
+    const writeArray = async <T>(items: Iterable<T> | AsyncIterable<T>): Promise<void> => {
+      await write('[');
+      let first = true;
+      for await (const item of items) {
+        await write(`${first ? '' : ','}${JSON.stringify(item)}`);
+        first = false;
+      }
+      await write(']');
+    };
+
+    // JSON.stringify preserves insertion order for these string keys. Keeping
+    // the existing field order makes streamed snapshots byte-for-byte identical
+    // to exportAll() for a stable store and timestamp.
+    await write(JSON.stringify(snapshot.envelope).slice(0, -1));
+    await write(',"pages":');
+    await writeArray(snapshot.pages);
+    await write(',"databases":');
+    await writeArray(snapshot.databases);
+    await write(',"assets":');
+    await writeArray(this.exportAssetEntries(snapshot.pages));
+    const pageAccess = await this.exportPageAccess(snapshot.pages.map((page) => page.id));
+    await write(',"pageAccess":');
+    await writeArray(pageAccess);
+    if (snapshot.ledger) {
+      await write(`,"ledger":${JSON.stringify(snapshot.ledger)}`);
+    }
+    await write('}');
+  }
+
+  private async captureBackupSnapshot(exportedAt: string): Promise<{
+    envelope: Pick<LibraryBackup, 'version' | 'exportedAt' | 'instanceId' | 'ownerSubject'>;
+    pages: StoredPage[];
+    databases: StoredDatabase[];
+    ledger: LedgerBackupSection | undefined;
+  }> {
     const instanceId = await this.ensureInstanceId();
     const {ownerSubject} = await this.getInstanceConfig();
     const pageRows = await this.db.query<PageRow>(
@@ -1006,29 +1065,34 @@ export class PageStore {
     // single mutex, and a failing completeness branch must settle before cleanup
     // closes the store (no orphaned sibling promise still queued on the mutex).
     const ledger = await this.exportLedgerSection();
-    const assets = await this.exportAssets(pages);
-    const pageAccess = await this.exportPageAccess(pages.map((page) => page.id));
     return {
-      version: BACKUP_VERSION,
-      exportedAt,
-      instanceId,
-      ...(ownerSubject ? {ownerSubject} : {}),
+      envelope: {
+        version: BACKUP_VERSION,
+        exportedAt,
+        instanceId,
+        ...(ownerSubject ? {ownerSubject} : {}),
+      },
       pages,
       databases: dbRows.map(databaseFromRow),
-      assets,
-      pageAccess,
-      ...(ledger ? {ledger} : {}),
+      ledger,
     };
   }
 
   /** Build and self-verify the v3 content-addressed asset manifest. */
   private async exportAssets(pages: StoredPage[]): Promise<BackupAsset[]> {
+    const assets: BackupAsset[] = [];
+    for await (const asset of this.exportAssetEntries(pages)) assets.push(asset);
+    return assets;
+  }
+
+  /** Yield one verified asset at a time so scheduled writers stay bounded. */
+  private async *exportAssetEntries(pages: StoredPage[]): AsyncGenerator<BackupAsset> {
     // Seed the document scanner with every actually stored id. This makes the
     // backup liveness set a superset of the GC's `position(a.id IN ...::text)`
     // predicate without treating unrelated 64-hex document hashes as assets.
     const stored = await this.db.query<{id: string}>('SELECT id FROM assets');
     const wanted = referencedAssets(pages, stored.map((asset) => asset.id));
-    const assets: BackupAsset[] = [];
+    let captured = 0;
     for (const id of [...wanted.keys()].sort()) {
       const rows = await this.db.query<{id: string; mime: string; size: number | string; bytes: Uint8Array | string}>(
         'SELECT id, mime, size, bytes FROM assets WHERE id = $1',
@@ -1049,20 +1113,20 @@ export class PageStore {
           `backup incomplete: asset ${id} stores size ${String(rows[0].size)} but contains ${bytes.byteLength} bytes`,
         );
       }
-      assets.push({
+      yield {
         id,
         mime: rows[0].mime,
         size: bytes.byteLength,
         bytesBase64: Buffer.from(bytes).toString('base64'),
         refs: [...wanted.get(id)!].sort(),
-      });
+      };
+      captured += 1;
     }
     // Deliberately redundant with the missing-row throw: keep the writer's
     // completeness invariant obvious if the loop is later batched/streamed.
-    if (assets.length !== wanted.size) {
-      throw new BackupFormatError(`backup incomplete: captured ${assets.length} of ${wanted.size} referenced assets`);
+    if (captured !== wanted.size) {
+      throw new BackupFormatError(`backup incomplete: captured ${captured} of ${wanted.size} referenced assets`);
     }
-    return assets;
   }
 
   /** Export exactly one access-state record per live exported page. */

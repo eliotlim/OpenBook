@@ -139,7 +139,15 @@ describe('BackupScheduler', () => {
   });
 
   it('a scheduled snapshot round-trips cleanly through the import/restore path (OB-176)', async () => {
-    await store.upsertPage({name: `rt-${seq}`, data: snapshot()});
+    const assetBytes = Uint8Array.from([11, 22, 33, 44]);
+    const {id: assetId} = await store.putAsset(assetBytes, 'image/png');
+    await store.upsertPage({
+      name: `rt-${seq}`,
+      data: {
+        ...snapshot(),
+        blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId}}]},
+      },
+    });
     const res = await scheduler().runNow('daily');
     expect(res).toBeTruthy();
     const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as LibraryBackup;
@@ -154,10 +162,32 @@ describe('BackupScheduler', () => {
       expect(result.created).toBe(parsed.pages.length);
       expect(result.diagnostics).toBeUndefined();
       expect((await restored.listPages()).map((p) => p.name)).toContain(`rt-${seq}`);
+      expect(Array.from((await restored.getAsset(assetId))!.bytes)).toEqual(Array.from(assetBytes));
     } finally {
       await restored.close();
       await rm(restoreDir, {recursive: true, force: true});
     }
+  });
+
+  it('streams byte-identical v3 JSON without accumulating the asset array', async () => {
+    const bytes = Uint8Array.from([9, 8, 7, 6, 5]);
+    const {id} = await store.putAsset(bytes, 'image/png');
+    await store.upsertPage({
+      name: `stream-${seq}`,
+      data: {
+        ...snapshot(),
+        blockdoc: {v: 1, update: '', blocks: [{id: 'image', type: 'image', props: {assetId: id}}]},
+      },
+    });
+    const exportedAt = '2026-06-02T03:04:05.000Z';
+    const expected = JSON.stringify(await store.exportAll(exportedAt));
+    const chunks: string[] = [];
+
+    await store.exportAllTo(async (chunk) => {
+      chunks.push(chunk);
+    }, exportedAt);
+
+    expect(chunks.join('')).toBe(expected);
   });
 
   it('binds v3 access state to its origin and requires opt-in on a foreign target', async () => {
