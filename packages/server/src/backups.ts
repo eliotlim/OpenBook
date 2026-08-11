@@ -27,6 +27,8 @@ export interface BackupSchedulerOptions {
   defaultDir: string | null;
   /** How often to check for due cadences (ms). Default 30 min. */
   intervalMs?: number;
+  /** Idle delay before the first catch-up check (ms). Default 15 sec. */
+  catchUpDelayMs?: number;
   /** Clock injection (tests). */
   now?: () => number;
 }
@@ -42,6 +44,8 @@ const fileStamp = (iso: string): string => iso.replace(/[:.]/g, '-');
 
 export class BackupScheduler implements BackupController {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private catchUpTimer: ReturnType<typeof setTimeout> | null = null;
+  private started = false;
 
   constructor(
     private readonly store: PageStore,
@@ -60,16 +64,30 @@ export class BackupScheduler implements BackupController {
     return config.dir ?? this.opts.defaultDir;
   }
 
-  /** Start the periodic check (runs once immediately to catch up after downtime). */
+  /** Start the periodic check after a short idle delay to catch up after downtime. */
   start(): void {
-    if (this.timer) return;
-    void this.tick();
+    if (this.started) return;
+    this.started = true;
     const interval = this.opts.intervalMs ?? 30 * 60 * 1000;
-    this.timer = setInterval(() => void this.tick(), interval);
-    this.timer.unref?.();
+    const catchUpDelay = Math.max(0, this.opts.catchUpDelayMs ?? 15_000);
+    this.catchUpTimer = setTimeout(() => {
+      this.catchUpTimer = null;
+      if (!this.started) return;
+      // Fire-and-forget: tick contains its own error boundary, so a catch-up
+      // failure can neither reject startup nor prevent the periodic checks.
+      void this.tick();
+      this.timer = setInterval(() => void this.tick(), interval);
+      this.timer.unref?.();
+    }, catchUpDelay);
+    this.catchUpTimer.unref?.();
   }
 
   stop(): void {
+    this.started = false;
+    if (this.catchUpTimer) {
+      clearTimeout(this.catchUpTimer);
+      this.catchUpTimer = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
