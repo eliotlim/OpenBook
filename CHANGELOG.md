@@ -1,3 +1,28 @@
+## 3.11.0 (2026-08-11)
+
+### 🚀 Features
+
+- **server,sdk:** lossless backup bundle v3 — assets + page ACLs (BAK-1) ([#265](https://github.com/lab255/OpenBook/pull/265))
+- **ui:** desktop security-advisory warning — update / snooze / typed-ack dismiss (LNCH-9) ([#267](https://github.com/lab255/OpenBook/pull/267))
+- **ui:** resident QuickJS sandbox for document eval — closes the desktop RCE chain (SBX-2) ([#270](https://github.com/lab255/OpenBook/pull/270))
+
+### 🩹 Fixes
+
+- **export:** remove new Function from exported HTML runtime + page CSP (SBX-3) ([#268](https://github.com/lab255/OpenBook/pull/268))
+- **server:** owner-gate host-sensitive mutations + bind stdio MCP to local owner (SBX-5) ([#264](https://github.com/lab255/OpenBook/pull/264))
+- **ui:** normalize bundled plugin paths on Windows — restores the Windows release leg (LNCH-6) ([#261](https://github.com/lab255/OpenBook/pull/261))
+- **ui:** defer evalCache dispose — restore initial-load reactive eval (main hotfix) ([#269](https://github.com/lab255/OpenBook/pull/269), [#266](https://github.com/lab255/OpenBook/issues/266))
+- **ui:** guest-safe owner gating in instance settings — no more enabled controls that always 403 (PUB-5) ([#271](https://github.com/lab255/OpenBook/pull/271))
+
+### 🔥 Performance
+
+- **ui:** memo reactive scope by editor version + eval guard (SBX-0) ([#263](https://github.com/lab255/OpenBook/pull/263))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 3.10.0 (2026-08-09)
 
 ### 🚀 Features
