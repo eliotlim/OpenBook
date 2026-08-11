@@ -18,6 +18,9 @@ export const en = {
     settings: 'Settings',
     noOptions: 'No options',
   },
+  comments: {
+    delete: 'Delete comment',
+  },
   errorBoundary: {
     title: 'Something went wrong',
     message: 'This part of OpenBook ran into an unexpected error. Your work is saved — you can head back home or reload.',
@@ -284,12 +287,10 @@ export const en = {
     openTab: 'Open in new tab',
     openWindow: 'Open in new window',
     openSplit: 'Open in split view',
-    diffAgainstCurrent: 'Diff against current',
+    diffAgainstCurrent: 'Compare with current',
     acceptSuggestion: 'Accept suggestion',
     rejectSuggestion: 'Reject suggestion',
     copyMessage: 'Copy message',
-    retry: 'Retry',
-    focusSubgraph: 'Focus subgraph',
     favorite: 'Add to favorites',
     unfavorite: 'Remove from favorites',
     rename: 'Rename',

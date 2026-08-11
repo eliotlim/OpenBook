@@ -56,10 +56,10 @@ describe('HistoryPaneBody entry context menu', () => {
 
     fireEvent.contextMenu(await screen.findByText('Automatic checkpoint'));
 
-    expect(screen.getByRole('menuitem', {name: 'Diff against current'})).toBeTruthy();
+    expect(screen.getByRole('menuitem', {name: 'Compare with current'})).toBeTruthy();
     const restore = screen.getByRole('menuitem', {name: 'Restore this version'});
     for (const className of MENU_DESTRUCTIVE_CLASS.split(' ')) {
-      expect(restore.className.split(' ')).toContain(className);
+      expect(restore.className.split(' ')).not.toContain(className);
     }
     fireEvent.click(restore);
 

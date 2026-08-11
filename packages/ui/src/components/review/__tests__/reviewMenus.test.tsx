@@ -7,7 +7,7 @@ const {copyText} = vi.hoisted(() => ({copyText: vi.fn(async () => true)}));
 
 vi.mock('@/lib/pageActions', () => ({copyText}));
 vi.mock('@/blockeditor/RichTextEditor', () => ({
-  RichTextEditor: () => null,
+  RichTextEditor: ({ariaLabel}: {ariaLabel: string}) => <textarea aria-label={ariaLabel} />,
   RichTextView: ({runs}: {runs: Array<{t: string}>}) => <p>{runs.map((run) => run.t).join('')}</p>,
   runsHaveText: () => false,
 }));
@@ -92,5 +92,51 @@ describe('review context menus', () => {
     fireEvent.click(screen.getByRole('menuitem', {name: 'Copy'}));
 
     expect(copyText).toHaveBeenCalledWith('quoted comment');
+  });
+
+  it('deletes an individual comment from its destructive context-menu action', () => {
+    const onDelete = vi.fn();
+    render(
+      <I18nProvider>
+        <CommentThread
+          comments={[comment]}
+          newComment={{pageId: 'page-1', blockId: 'block-1', suggestionId: null}}
+          authorName="Reviewer"
+          onPost={vi.fn()}
+          onDelete={onDelete}
+        />
+      </I18nProvider>,
+    );
+
+    fireEvent.contextMenu(screen.getByText('quoted comment').closest('li')!);
+
+    const deleteComment = screen.getByRole('menuitem', {name: 'Delete comment'});
+    for (const className of MENU_DESTRUCTIVE_CLASS.split(' ')) {
+      expect(deleteComment.className.split(' ')).toContain(className);
+    }
+    fireEvent.click(deleteComment);
+
+    expect(onDelete).toHaveBeenCalledWith('comment-1');
+  });
+
+  it('keeps composer context-menu events inside the draft', () => {
+    const onContextMenu = vi.fn();
+    render(
+      <div onContextMenu={onContextMenu}>
+        <I18nProvider>
+          <CommentThread
+            comments={[]}
+            newComment={{pageId: 'page-1', blockId: 'block-1', suggestionId: null}}
+            authorName="Reviewer"
+            onPost={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        </I18nProvider>
+      </div>,
+    );
+
+    fireEvent.contextMenu(screen.getByRole('textbox', {name: 'Comment body'}));
+
+    expect(onContextMenu).not.toHaveBeenCalled();
   });
 });

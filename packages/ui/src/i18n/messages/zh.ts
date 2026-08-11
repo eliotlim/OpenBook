@@ -14,6 +14,9 @@ export const zh: PartialMessages = {
     settings: '设置',
     noOptions: '没有选项',
   },
+  comments: {
+    delete: '删除评论',
+  },
   settings: {
     title: '设置',
     fullscreen: '全屏',
@@ -159,8 +162,6 @@ export const zh: PartialMessages = {
     acceptSuggestion: '接受建议',
     rejectSuggestion: '拒绝建议',
     copyMessage: '复制消息',
-    retry: '重试',
-    focusSubgraph: '聚焦子图',
     rename: '重命名',
     copyLink: '复制链接',
     copyLinkLocalOnly: '此链接仅在本设备上有效。发布此资料库即可获得可分享的链接。',

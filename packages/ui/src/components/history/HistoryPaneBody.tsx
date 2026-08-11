@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
 import * as Y from 'yjs';
-import {History, RotateCcw} from 'lucide-react';
+import {GitCompareArrows, History, RotateCcw} from 'lucide-react';
 import type {PageVersionMeta} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {getHistoryTarget, subscribeHistoryPane} from '@/lib/historyPane';
@@ -13,7 +13,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {showToast} from '@/components/ui/toast';
 import {cn} from '@/lib/utils';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
@@ -341,14 +341,15 @@ export function HistoryPaneBody() {
                         setMode('compare');
                       }}
                     >
+                      <GitCompareArrows className="mr-2 h-4 w-4" />
                       {t('menu.diffAgainstCurrent')}
                     </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem
-                      className={MENU_DESTRUCTIVE_CLASS}
                       disabled={restoringId !== null}
                       onSelect={() => void restore(item.version)}
                     >
+                      <RotateCcw className="mr-2 h-4 w-4" />
                       {t('history.restore')}
                     </ContextMenuItem>
                   </ContextMenuContent>

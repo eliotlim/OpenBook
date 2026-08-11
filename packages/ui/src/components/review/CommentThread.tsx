@@ -4,9 +4,15 @@ import type {CommentInput, StoredComment} from '@book.dev/sdk';
 import type {TextRun} from '@/blockeditor/model';
 import {RichTextEditor, RichTextView, runsHaveText} from '@/blockeditor/RichTextEditor';
 import {Button} from '@/components/ui/button';
-import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
-import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {copyText} from '@/lib/pageActions';
 import {useTranslation} from '@/providers';
 
@@ -69,8 +75,8 @@ export function CommentThread({comments, newComment, authorName, onPost, onDelet
                     <IconButton
                       size="sm"
                       className="opacity-0 transition-opacity group-hover:opacity-100"
-                      aria-label="Delete comment"
-                      title="Delete comment"
+                      aria-label={t('comments.delete')}
+                      title={t('comments.delete')}
                       onClick={() => void onDelete(c.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -84,12 +90,17 @@ export function CommentThread({comments, newComment, authorName, onPost, onDelet
                   <Copy className="mr-2 h-4 w-4" />
                   {t('common.copy')}
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void onDelete(c.id)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t('comments.delete')}
+                </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
           ))}
         </ul>
       )}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5" onContextMenu={(event) => event.stopPropagation()}>
         <RichTextEditor
           value={draft}
           onChange={setDraft}

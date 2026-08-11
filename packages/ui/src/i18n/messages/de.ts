@@ -14,6 +14,9 @@ export const de: PartialMessages = {
     settings: 'Einstellungen',
     noOptions: 'Keine Optionen',
   },
+  comments: {
+    delete: 'Kommentar löschen',
+  },
   settings: {
     title: 'Einstellungen',
     fullscreen: 'Vollbild',
@@ -160,8 +163,6 @@ export const de: PartialMessages = {
     acceptSuggestion: 'Vorschlag annehmen',
     rejectSuggestion: 'Vorschlag ablehnen',
     copyMessage: 'Nachricht kopieren',
-    retry: 'Erneut versuchen',
-    focusSubgraph: 'Teilgraph fokussieren',
     rename: 'Umbenennen',
     copyLink: 'Link kopieren',
     copyLinkLocalOnly: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diese Bibliothek, um einen teilbaren Link zu erhalten.',
