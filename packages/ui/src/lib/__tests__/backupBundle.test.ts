@@ -46,9 +46,10 @@ describe('parseBackup', () => {
     expect(parseBackup(JSON.stringify({version: 1, pages: [], databases: []})).ledger).toBeUndefined();
   });
 
-  it('carries the v3 asset and page-access manifests through unchanged (OB-699)', () => {
+  it('carries the v3 asset, page-access, and skipped manifests through unchanged (OB-699)', () => {
     const assets = [{id: 'a'.repeat(64), mime: 'image/png', size: 1, bytesBase64: 'AA==', refs: ['p']}];
     const pageAccess = [{pageId: 'p', visibility: 'restricted', agentEdits: 'suggest', acl: []}];
+    const skipped = [{id: 'b'.repeat(64), refs: ['p'], reason: 'missing-bytes'}];
     const parsed = parseBackup(JSON.stringify({
       version: 3,
       instanceId: 'instance-a',
@@ -57,9 +58,11 @@ describe('parseBackup', () => {
       databases: [],
       assets,
       pageAccess,
+      skipped,
     }));
     expect(parsed.assets).toEqual(assets);
     expect(parsed.pageAccess).toEqual(pageAccess);
+    expect(parsed.skipped).toEqual(skipped);
     expect(parsed.instanceId).toBe('instance-a');
     expect(parsed.ownerSubject).toBe('account#owner');
   });

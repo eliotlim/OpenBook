@@ -28,6 +28,7 @@ export function parseBackup(text: string): LibraryBackup {
     ...(parsed.ledger ? {ledger: parsed.ledger} : {}),
     ...(parsed.assets ? {assets: parsed.assets} : {}),
     ...(parsed.pageAccess ? {pageAccess: parsed.pageAccess} : {}),
+    ...(parsed.skipped ? {skipped: parsed.skipped} : {}),
   };
 }
 

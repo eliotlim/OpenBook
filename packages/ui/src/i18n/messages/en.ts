@@ -645,6 +645,7 @@ export const en = {
     folderEmpty: 'No OpenBook pages found in that folder.',
     restored: 'Restored {count} pages{detail}.',
     restoreFailed: 'Restore failed: {error}',
+    partialRestoreWarning: 'Warning: {message}.',
     // LGR-15: the outcome of a bundle's ledger history section. A `skipped-*`
     // outcome must be LOUD — pages restoring fine while the books' history did
     // not is the one result an operator must never mistake for success.
@@ -685,9 +686,12 @@ export const en = {
       cadenceYearly: 'Yearly',
       keptLast: 'Last {when} · {count} kept',
       never: 'No backup yet',
+      lastSkipped: 'Last run skipped {count} item(s)',
+      lastError: 'Last error: {error}',
       backupNow: 'Back up now',
       backingUp: 'Backing up…',
       ranNow: 'Backed up — {file}',
+      ranNowSkipped: 'Backed up — {file} · skipped {count} item(s)',
       folder: 'Backup folder',
     },
   },

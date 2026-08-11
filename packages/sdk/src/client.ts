@@ -517,7 +517,7 @@ export interface DataClient {
   /** Update the backup policy (enable, cadences, retention, folder). Owner-only. */
   setBackupConfig(patch: Partial<BackupConfig>): Promise<BackupStatus>;
   /** Run a snapshot now ("Back up now"). Resolves the written file + its folder. */
-  runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string}>;
+  runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string; skippedCount: number}>;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   /** Release the client's resources (close the live `EventSource`, drop
@@ -1779,8 +1779,8 @@ export class HttpDataClient implements DataClient {
     return this.request<BackupStatus>('PUT', API.backups, patch);
   }
 
-  async runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string}> {
-    return this.request<{file: string; dir: string}>('POST', API.backupRun, {cadence});
+  async runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string; skippedCount: number}> {
+    return this.request<{file: string; dir: string; skippedCount: number}>('POST', API.backupRun, {cadence});
   }
 
   // ── Optional local AI ───────────────────────────────────────────────────────

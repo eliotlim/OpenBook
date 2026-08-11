@@ -852,7 +852,7 @@ export class LocalDataClient implements DataClient {
     return this.getBackupStatus();
   }
 
-  runBackup(): Promise<{file: string; dir: string}> {
+  runBackup(): Promise<{file: string; dir: string; skippedCount: number}> {
     return Promise.reject(
       new Error('Scheduled backups run on the desktop app or a connected server — not in the browser. Use Export instead.'),
     );
