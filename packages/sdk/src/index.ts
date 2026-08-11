@@ -634,3 +634,4 @@ export {
   buildLedgerBenchBook,
   type LedgerBeancountFixtureBook,
 } from './ledgerBeancountFixture';
+export * from './formSchema';
