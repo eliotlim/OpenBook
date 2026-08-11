@@ -109,6 +109,10 @@ export const ja: PartialMessages = {
   tabs: {
     new: '新規タブ',
     close: 'タブを閉じる',
+    closeOthers: '他のタブを閉じる',
+    closeRight: '右側のタブを閉じる',
+    duplicate: 'タブを複製',
+    moveToWindow: 'タブを新しいウィンドウに移動',
   },
   trash: {
     movedToast: '「{page}」をゴミ箱に移動しました',

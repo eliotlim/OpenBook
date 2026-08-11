@@ -913,7 +913,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
-      const schema = form.schema;
+      if (
+        typeof form.schema !== 'object' ||
+        form.schema === null ||
+        Array.isArray(form.schema) ||
+        !Array.isArray((form.schema as {fields?: unknown}).fields)
+      ) {
+        throw new HTTPException(404, {message: 'form not found'});
+      }
+      const schema = form.schema as FormSchema;
       const validation = validateSubmission(schema, input.values);
       if ('honeypot' in validation) {
         const tokens = formFileEntries(schema, input.values).flatMap((entry) => entry.tokens);

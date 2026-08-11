@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 import {Copy, Minus, Square, X} from 'lucide-react';
 import {usePlatformCapabilities} from '@/providers';
 import {cn} from '@/lib/utils';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /**
  * Minimize / maximize / close buttons for a frameless window (Windows & Linux,
@@ -22,7 +23,7 @@ export default function WindowControls() {
   const button = 'flex h-full w-[46px] items-center justify-center text-muted-foreground transition-colors';
 
   return (
-    <div className="flex h-full shrink-0 items-stretch">
+    <div className="flex h-full shrink-0 items-stretch" onContextMenu={suppressContextMenu}>
       <button
         type="button"
         onClick={windowControls.minimize}

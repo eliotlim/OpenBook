@@ -110,6 +110,10 @@ export const de: PartialMessages = {
   tabs: {
     new: 'Neuer Tab',
     close: 'Tab schließen',
+    closeOthers: 'Andere Tabs schließen',
+    closeRight: 'Tabs rechts schließen',
+    duplicate: 'Tab duplizieren',
+    moveToWindow: 'In neues Fenster verschieben',
   },
   trash: {
     movedToast: '„{page}" in den Papierkorb verschoben',
