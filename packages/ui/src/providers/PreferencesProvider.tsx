@@ -1,6 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
 import {setGuestName} from '@book.dev/sdk';
 import type {FeatureVisibility} from '@/lib/aiFeatures';
+import {MenuDensityProvider, type MenuDensity} from '@/components/ui/menu-density';
 
 /** A user's identity within the app. Cosmetic today (local-first, no accounts). */
 export interface ProfilePreferences {
@@ -19,6 +20,8 @@ export interface GeneralPreferences {
   confirmOnTrash: boolean;
   /** Spellcheck the editor while typing. */
   spellcheck: boolean;
+  /** Spacing and type size used by context and dropdown menus. */
+  menuDensity: MenuDensity;
 }
 
 export interface Preferences {
@@ -31,7 +34,7 @@ export interface Preferences {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   profile: {name: '', displayName: '', avatar: '', avatarImage: '', bio: ''},
-  general: {confirmOnTrash: true, spellcheck: true},
+  general: {confirmOnTrash: true, spellcheck: true, menuDensity: 'comfortable'},
   features: {},
 };
 
@@ -122,7 +125,11 @@ export const PreferencesProvider: React.FC<React.PropsWithChildren<unknown>> = (
 
   const value = useMemo<PreferencesContextValue>(() => ({preferences, update}), [preferences, update]);
 
-  return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
+  return (
+    <MenuDensityProvider density={preferences.general.menuDensity}>
+      <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>
+    </MenuDensityProvider>
+  );
 };
 
 export const usePreferences = (): PreferencesContextValue => {

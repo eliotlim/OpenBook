@@ -12,6 +12,7 @@ import {readFavorites, subscribeFavorites, toggleFavorite} from '@/lib/favorites
 import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t} from '@/i18n';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : t('common.untitled');
@@ -80,7 +81,7 @@ export default function FavoritesNav() {
                   </span>
                 </div>
               </ContextMenuTrigger>
-              <ContextMenuContent className="w-52">
+              <ContextMenuContent className={MENU_WIDTH_MD}>
                 <PageMenuItems pageId={page.id} />
               </ContextMenuContent>
             </ContextMenu>

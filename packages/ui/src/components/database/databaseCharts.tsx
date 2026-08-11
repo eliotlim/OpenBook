@@ -85,7 +85,7 @@ const ChartReadout: React.FC<{view: DbView; properties: DatabaseProperty[]; hove
 }) => (
   <div className="flex items-baseline justify-between gap-2 text-xs">
     <span className="truncate font-medium text-foreground">{hover ? hover.label : measureLabel(view, properties)}</span>
-    <span className="shrink-0 tabular-nums text-muted-foreground">
+    <span className="min-w-[16ch] shrink-0 text-right tabular-nums text-muted-foreground">
       {hover ? `${fmt(hover.value)}${total > 0 ? ` · ${Math.round((hover.value / total) * 100)}%` : ''}` : `Total ${fmt(total)}`}
     </span>
   </div>

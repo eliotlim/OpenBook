@@ -15,6 +15,7 @@ export const en = {
     untitled: 'Untitled',
     undo: 'Undo',
     settings: 'Settings',
+    noOptions: 'No options',
   },
   errorBoundary: {
     title: 'Something went wrong',
@@ -63,6 +64,10 @@ export const en = {
     light: 'Light',
     dark: 'Dark',
     system: 'System',
+    menuDensity: 'Menu density',
+    menuDensityHint: 'Choose tighter menus or roomier spacing for easier scanning.',
+    menuDensityCompact: 'Compact',
+    menuDensityComfortable: 'Comfortable',
     colorScheme: 'Color scheme',
     colorTheme: 'Accent color',
     colorThemeHint: 'The accent threads through buttons, links, the sidebar, and the logo.',
@@ -1923,6 +1928,11 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    empty: {
+      noGroups: 'No groups yet.',
+      noConditions: 'No conditions yet.',
+      noSorts: 'No sorts yet.',
+    },
     autoExpiry: {
       saveError: 'Couldn’t save auto-expiry settings. Try again.',
     },
