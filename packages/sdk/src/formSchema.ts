@@ -138,10 +138,14 @@ export const FORM_FILES_MAX_ITEMS = 20;
 /**
  * JavaScript RegExp has no execution timeout. Patterns are therefore limited to
  * 256 code units, evaluated only against inputs of at most 1,024 code units,
- * and conservatively reject backreferences, lookarounds, and quantified groups
- * containing alternation or another quantifier. This blocks common catastrophic
- * backtracking shapes while keeping the engine dependency-free; it is not a
- * claim that the host RegExp engine is RE2/linear-time.
+ * and screened conservatively. The screen rejects backreferences, lookarounds
+ * and other special groups except `(?:...)`, quantified groups containing
+ * alternation or another quantifier, more than eight quantifier markers, and
+ * quantified atoms with overlapping character sets separated only by optional
+ * atoms. Only literals and simple positive character-class sets/ranges can prove
+ * disjoint; dots, shorthands, negated/complex classes, and groups are assumed to
+ * overlap. This intentionally over-rejects author-supplied patterns. Accepted
+ * patterns are still not guaranteed to execute in linear time in the host engine.
  */
 export const FORM_PATTERN_MAX_LENGTH = 256;
 export const FORM_PATTERN_INPUT_MAX_LENGTH = 1_024;
@@ -221,40 +225,152 @@ function addNumberErrors(field: FormField, value: number, errors: FormValidation
   if (max !== undefined && value > max) errors.push({fieldId: field.id, code: 'max'});
 }
 
+interface PatternRange {
+  start: number;
+  end: number;
+}
+
+// `null` means the atom's character set cannot be proved narrow, so it is
+// treated as overlapping every other set.
+type PatternCharacterSet = PatternRange[] | null;
+const PATTERN_LITERAL_ESCAPES = new Set('\\.-*+?()[]{}|^$/');
+
+interface PatternAtom {
+  characterSet: PatternCharacterSet;
+  quantified: boolean;
+  optional: boolean;
+}
+
 interface PatternFrame {
   hasAlternation: boolean;
   hasQuantifier: boolean;
+  hasEmptyAlternative: boolean;
+  atoms: PatternAtom[];
 }
 
-/** Conservative structural screen for common exponential-backtracking forms. */
+function literalCharacterSet(char: string): PatternCharacterSet {
+  const code = char.charCodeAt(0);
+  return [{start: code, end: code}];
+}
+
+function simpleClassCharacterSet(source: string): PatternCharacterSet {
+  if (source.startsWith('^')) return null;
+
+  const characters: Array<{code: number; rangeMarker: boolean}> = [];
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    if (char !== '\\') {
+      characters.push({code: char.charCodeAt(0), rangeMarker: char === '-'});
+      continue;
+    }
+
+    const escaped = source[i + 1];
+    // Only escaped regex punctuation is unambiguously a literal code unit.
+    // Shorthands, Unicode properties, and character/control escapes stay broad.
+    if (escaped === undefined || !PATTERN_LITERAL_ESCAPES.has(escaped)) return null;
+    characters.push({code: escaped.charCodeAt(0), rangeMarker: false});
+    i += 1;
+  }
+
+  const ranges: PatternRange[] = [];
+  if (characters.some((char, index) => (
+    char.rangeMarker
+    && (characters[index - 1]?.rangeMarker || characters[index + 1]?.rangeMarker)
+  ))) return null;
+  for (let i = 0; i < characters.length;) {
+    const start = characters[i];
+    const marker = characters[i + 1];
+    const end = characters[i + 2];
+    if (!start.rangeMarker && marker?.rangeMarker && end && !end.rangeMarker) {
+      if (start.code > end.code) return null;
+      ranges.push({start: start.code, end: end.code});
+      i += 3;
+    } else {
+      ranges.push({start: start.code, end: start.code});
+      i += 1;
+    }
+  }
+  return ranges;
+}
+
+function characterSetsOverlap(left: PatternCharacterSet, right: PatternCharacterSet): boolean {
+  if (left === null || right === null) return true;
+  return left.some((a) => right.some((b) => a.start <= b.end && b.start <= a.end));
+}
+
+function appendPatternAtom(frame: PatternFrame, characterSet: PatternCharacterSet, optional = false): void {
+  frame.atoms.push({characterSet, quantified: false, optional});
+}
+
+function quantifyLastPatternAtom(frame: PatternFrame, optional: boolean): boolean {
+  const atom = frame.atoms[frame.atoms.length - 1];
+  if (!atom || atom.quantified) return false;
+  atom.quantified = true;
+  atom.optional ||= optional;
+
+  // Moving left, a required atom blocks earlier candidates, but is itself still
+  // a candidate when quantified because no atom lies between it and this one.
+  for (let i = frame.atoms.length - 2; i >= 0; i -= 1) {
+    const candidate = frame.atoms[i];
+    if (candidate.quantified && characterSetsOverlap(candidate.characterSet, atom.characterSet)) return true;
+    if (!candidate.optional) break;
+  }
+  return false;
+}
+
+function quantifierAt(pattern: string, index: number): {end: number; optional: boolean} {
+  const char = pattern[index];
+  if (char !== '{') return {end: index, optional: char === '*' || char === '?'};
+  const match = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(index));
+  if (!match) return {end: index, optional: false};
+  return {end: index + match[0].length - 1, optional: Number(match[1]) === 0};
+}
+
+function patternFrame(): PatternFrame {
+  return {hasAlternation: false, hasQuantifier: false, hasEmptyAlternative: false, atoms: []};
+}
+
+/**
+ * Conservative structural screen for common exponential and high-degree
+ * backtracking forms. Flat atom sequences are tracked per concatenation branch.
+ */
 function isUnsafePattern(pattern: string): boolean {
   if (/\\(?:[1-9]|k<)/.test(pattern)) return true;
-  const frames: PatternFrame[] = [{hasAlternation: false, hasQuantifier: false}];
-  let inClass = false;
+  const frames: PatternFrame[] = [patternFrame()];
   let quantifiers = 0;
 
   for (let i = 0; i < pattern.length; i += 1) {
     const char = pattern[i];
     if (char === '\\') {
+      const escaped = pattern[i + 1];
+      if (escaped !== undefined && escaped !== 'b' && escaped !== 'B') {
+        const isLiteral = PATTERN_LITERAL_ESCAPES.has(escaped);
+        appendPatternAtom(frames[frames.length - 1], isLiteral ? literalCharacterSet(escaped) : null);
+      }
       i += 1;
       continue;
     }
-    if (inClass) {
-      if (char === ']') inClass = false;
-      continue;
-    }
     if (char === '[') {
-      inClass = true;
+      let end = i + 1;
+      for (; end < pattern.length && pattern[end] !== ']'; end += 1) {
+        if (pattern[end] === '\\') end += 1;
+      }
+      if (end >= pattern.length) return true;
+      appendPatternAtom(frames[frames.length - 1], simpleClassCharacterSet(pattern.slice(i + 1, end)));
+      i = end;
       continue;
     }
     if (char === '(') {
       if (pattern[i + 1] === '?' && pattern[i + 2] !== ':') return true;
       if (pattern[i + 1] === '?' && pattern[i + 2] === ':') i += 2;
-      frames.push({hasAlternation: false, hasQuantifier: false});
+      frames.push(patternFrame());
       continue;
     }
     if (char === '|') {
-      frames[frames.length - 1].hasAlternation = true;
+      const frame = frames[frames.length - 1];
+      frame.hasAlternation = true;
+      frame.hasEmptyAlternative ||= frame.atoms.every((atom) => atom.optional);
+      frame.atoms = [];
       continue;
     }
     if (char === ')') {
@@ -266,16 +382,24 @@ function isUnsafePattern(pattern: string): boolean {
       const parent = frames[frames.length - 1];
       parent.hasAlternation ||= frame.hasAlternation;
       parent.hasQuantifier ||= frame.hasQuantifier || quantified;
+      const canMatchEmpty = frame.hasEmptyAlternative || frame.atoms.every((atom) => atom.optional);
+      appendPatternAtom(parent, null, canMatchEmpty);
       continue;
     }
     if (char === '*' || char === '+' || char === '?' || char === '{') {
-      frames[frames.length - 1].hasQuantifier = true;
+      const frame = frames[frames.length - 1];
+      const quantifier = quantifierAt(pattern, i);
+      frame.hasQuantifier = true;
       quantifiers += 1;
       // A small complexity budget also bounds high-degree polynomial patterns.
       if (quantifiers > 8) return true;
+      if (quantifyLastPatternAtom(frame, quantifier.optional)) return true;
+      i = quantifier.end;
+      continue;
     }
+    if (char !== '^' && char !== '$') appendPatternAtom(frames[frames.length - 1], char === '.' ? null : literalCharacterSet(char));
   }
-  return inClass;
+  return false;
 }
 
 function addPatternError(field: FormField, value: string, errors: FormValidationError[]): void {
@@ -476,6 +600,10 @@ export function validateSubmission(schema: FormSchema, values: Record<string, un
       addPatternError(field, normalized, errors);
       value = normalized;
       break;
+    }
+    default: {
+      const _exhaustive: never = field.kind;
+      void _exhaustive;
     }
     }
     if (errors.length === before && value !== undefined) setOwn(coerced, field.id, value);

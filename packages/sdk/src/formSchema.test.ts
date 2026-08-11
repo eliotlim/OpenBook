@@ -321,6 +321,53 @@ describe('bounded patterns and byte caps', () => {
     );
   });
 
+  it('rejects flat overlapping quantified atoms before RegExp evaluation', () => {
+    const patterns = [
+      'a*a*a*a*a*a*a*b',
+      '.*.*.*.*.*.*.*.*x',
+      'a+a+a+a+a+a+X',
+      'a+b*a+',
+      'a+b?a+',
+      'a+b{0,2}a+',
+    ];
+    for (const pattern of patterns) {
+      const field = makeField('longtext', {validation: {pattern}});
+      expectError(
+        validateSubmission(schemaWith([field]), {longtext: 'a'.repeat(FORM_PATTERN_INPUT_MAX_LENGTH)}),
+        'longtext',
+        'pattern',
+      );
+    }
+  });
+
+  it('evaluates an accepted pattern against the maximum adversarial input within 100ms', () => {
+    const field = makeField('longtext', {validation: {pattern: '^a+b$'}});
+    expectOk(validateSubmission(schemaWith([field]), {longtext: 'ab'}));
+
+    const started = performance.now();
+    const result = validateSubmission(
+      schemaWith([field]),
+      {longtext: 'a'.repeat(FORM_PATTERN_INPUT_MAX_LENGTH)},
+    );
+    const elapsed = performance.now() - started;
+
+    expectError(result, 'longtext', 'pattern');
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  it('accepts benign real-world patterns', () => {
+    const cases = [
+      {pattern: '^[A-Z]{2}[0-9]{4}$', value: 'AB1234'},
+      {pattern: '^\\d{3}-\\d{4}$', value: '123-4567'},
+      {pattern: '^[a-z0-9-]+$', value: 'open-book-2'},
+      {pattern: '^.{1,64}$', value: 'A concise response'},
+    ];
+    for (const {pattern, value} of cases) {
+      const field = makeField('text', {validation: {pattern}});
+      expectOk(validateSubmission(schemaWith([field]), {text: value}));
+    }
+  });
+
   const oversizedValues: Array<{kind: FormFieldKind; value: unknown}> = [
     {kind: 'text', value: 'x'.repeat(FORM_FIELD_BYTE_CAPS.text + 1)},
     {kind: 'longtext', value: 'x'.repeat(FORM_FIELD_BYTE_CAPS.longtext + 1)},
