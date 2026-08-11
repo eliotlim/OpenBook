@@ -92,7 +92,7 @@ const RowMenu: React.FC<{db: UseDatabase; rowId: string; bulk?: RowMenuBulk | nu
         <MoreHorizontal className="h-4 w-4" />
       </IconButton>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-52">
+    <DropdownMenuContent align="end" className={MENU_WIDTH_MD}>
       <RowMenuItems db={db} rowId={rowId} menu="dropdown" withTemplate bulk={bulk} />
     </DropdownMenuContent>
   </DropdownMenu>

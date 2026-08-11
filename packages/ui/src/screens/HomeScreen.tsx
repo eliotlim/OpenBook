@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {seedSampleDocument, type PageMeta} from '@book.dev/sdk';
 import {Clock, Database, FilePlus, LayoutTemplate, Pencil, Search, SlidersHorizontal, Sparkles, Star, Trash2, Upload} from 'lucide-react';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -9,10 +10,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {useData} from '@/data';
 import {useHud, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
+import {PageMenuItems} from '@/components/PageContextMenu';
 import {readRecents, subscribeRecents} from '@/lib/recents';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {
@@ -24,9 +27,6 @@ import {
 } from '@/lib/homePage';
 import {t as bareT} from '@/i18n';
 import {cn} from '@/lib/utils';
-import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
-import {PageMenuItems} from '@/components/PageContextMenu';
-import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 const displayName = (name: string | null): string => (name && name.trim().length > 0 ? name : bareT('common.untitled'));
 
@@ -255,7 +255,7 @@ export default function HomeScreen() {
                 <SlidersHorizontal className="h-4 w-4" />
               </IconButton>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className={MENU_WIDTH_MD}>
               <DropdownMenuLabel>{t('home.customize')}</DropdownMenuLabel>
               {WIDGET_LABELS.map(({key, label}) => (
                 <DropdownMenuCheckboxItem

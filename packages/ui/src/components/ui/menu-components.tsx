@@ -23,7 +23,7 @@ export {MenuDensityProvider, useMenuDensity, type MenuDensity} from '@/component
 /** Shared styling for destructive actions in either Radix menu family. */
 export const MENU_DESTRUCTIVE_CLASS = 'text-destructive hover:text-destructive focus:text-destructive';
 
-/** Canonical widths for menu content and submenus. */
+/** Shared widths for profile, page, block, and database menus; w-44/w-56 stragglers await a sizing decision. */
 export const MENU_WIDTH_SM = 'w-40';
 export const MENU_WIDTH_MD = 'w-52';
 export const MENU_WIDTH_LG = 'w-60';
