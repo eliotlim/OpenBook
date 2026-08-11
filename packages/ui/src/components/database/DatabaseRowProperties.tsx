@@ -1,10 +1,12 @@
 import React, {useState} from 'react';
+import {EmptyState} from '@/components/ui/empty-state';
 import {Select} from '@/components/ui/select';
 import {ChevronRight, Eye, EyeOff, FolderPlus, Settings2, Trash2} from 'lucide-react';
 import type {DatabaseProperty, PropertyGroup} from '@book.dev/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
+import {useTranslation} from '@/providers';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
 
@@ -48,8 +50,9 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
   db,
   properties,
   groups,
-}) => (
-  <Popover>
+}) => {
+  const {t} = useTranslation();
+  return <Popover>
     <PopoverTrigger asChild>
       <button
         className="rounded p-1 text-muted-foreground/50 opacity-0 transition hover:bg-hover hover:text-foreground group-hover/props:opacity-100"
@@ -102,7 +105,9 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
             <FolderPlus className="h-3.5 w-3.5" /> Add
           </button>
         </div>
-        {groups.length === 0 && <div className="px-1 text-xs text-muted-foreground/60">No groups yet.</div>}
+        {groups.length === 0 && (
+          <EmptyState variant="overlay" className="px-1 py-1" title={t('database.empty.noGroups')} />
+        )}
         <div className="space-y-1">
           {groups.map((g) => (
             <div key={g.id} className="flex items-center gap-1">
@@ -132,8 +137,8 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
         </div>
       </div>
     </PopoverContent>
-  </Popover>
-);
+  </Popover>;
+};
 
 /**
  * The database-row half of the page-view properties panel. When a page is a
