@@ -485,6 +485,25 @@ describe('submissionToRowInput', () => {
       ],
     });
   });
+
+  it('never projects reserved sys_* database properties', () => {
+    const fields = [
+      makeField('text', {id: 'safe', columnId: 'p_safe'}),
+      makeField('text', {id: 'reserved', columnId: 'sys_form_submission'}),
+    ];
+    const dbSchema: DatabaseSchema = {
+      properties: [
+        {id: 'p_safe', name: 'Safe', type: 'text'},
+        {id: 'sys_form_submission', name: 'Submission marker', type: 'text'},
+      ],
+      views: [],
+    };
+
+    expect(submissionToRowInput(schemaWith(fields), {safe: 'kept', reserved: 'discarded'}, dbSchema)).toEqual({
+      rowInput: {properties: {p_safe: 'kept'}},
+      warnings: [],
+    });
+  });
 });
 
 describe('planColumnCreation', () => {

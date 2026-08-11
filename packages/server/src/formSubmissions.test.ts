@@ -239,6 +239,56 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     expect(rows[0].properties).not.toHaveProperty('contactEmail');
   });
 
+  it('logs discarded projection warnings without changing the success response', async () => {
+    const seeded = await seedForm({
+      fields: [
+        {id: 'unbound', kind: 'text', label: 'Unbound', required: false},
+        {id: 'missing', kind: 'text', label: 'Missing', required: false, columnId: 'missing'},
+        {id: 'mismatch', kind: 'text', label: 'Mismatch', required: false, columnId: 'email'},
+      ],
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `warnings-${seq}`, {
+        unbound: 'one',
+        missing: 'two',
+        mismatch: 'three',
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const result = await response.json() as Record<string, unknown>;
+    expect(Object.keys(result).sort()).toEqual(['rowId', 'submittedAt']);
+    expect(warn).toHaveBeenCalledWith('OpenBook form submission projection discarded fields:', {
+      pageId: seeded.pageId,
+      formId: seeded.formId,
+      warnings: [
+        {fieldId: 'unbound', code: 'unbound_field'},
+        {fieldId: 'missing', code: 'column_not_found'},
+        {fieldId: 'mismatch', code: 'column_type_mismatch'},
+      ],
+    });
+  });
+
+  it.each([
+    ['non-object schema', null],
+    ['non-array fields', {fields: {}}],
+  ] as const)('uniformly denies a persisted %s', async (_name, schema) => {
+    const seeded = await seedForm();
+    await store.upsertPage({
+      id: seeded.pageId,
+      name: `form-host-${seq}`,
+      data: formSnapshot({...seeded.props, schema}),
+    });
+
+    const response = await submit(app(), seeded.pageId, seeded.formId, submissionBody(seeded.submissionKey));
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
+  });
+
   it('returns byte-identical denials for every existence/capability/read failure', async () => {
     const seeded = await seedForm();
     const a = app();

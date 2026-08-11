@@ -844,6 +844,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       );
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
+      if (
+        typeof form.schema !== 'object' ||
+        form.schema === null ||
+        Array.isArray(form.schema) ||
+        !Array.isArray((form.schema as {fields?: unknown}).fields)
+      ) {
+        throw new HTTPException(404, {message: 'form not found'});
+      }
       const schema = form.schema as FormSchema;
       const validation = validateSubmission(schema, input.values);
       if ('honeypot' in validation) {
@@ -853,7 +861,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       if (!validation.ok) return c.json({errors: validation.errors}, 400);
       const database = await store.getDatabase(form.databaseId);
       if (!database) throw new HTTPException(404, {message: 'form not found'});
-      const {rowInput} = submissionToRowInput(schema, validation.coerced, database.schema);
+      const {rowInput, warnings} = submissionToRowInput(schema, validation.coerced, database.schema);
+      if (warnings.length > 0) {
+        console.warn('OpenBook form submission projection discarded fields:', {
+          pageId: page.id,
+          formId: form.formId,
+          warnings,
+        });
+      }
       const {page: pageRow, created} = await store.createRow(
         form.databaseId,
         {
