@@ -1869,7 +1869,7 @@ a.obe-mention {
 .obe-x-plugin > p.obe-x-plugin-text { margin-top: 0.4rem; }
 
 /* Tables */
-.obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 2px 1.4rem 1.4rem 0; }
+.obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 0 24px 24px 0; }
 .obe-table {
   width: 100%;
   border-collapse: collapse;
@@ -1881,10 +1881,11 @@ a.obe-mention {
   vertical-align: top;
   min-width: 4rem;
 }
-.obe-table td .obe-text { padding: 0.35rem 0.5rem; }
+.obe-table td .obe-text { padding: 4px 8px; }
 .obe-table-header td {
   font-weight: 600;
 }
+.obe-table-header td .obe-text { padding-block: 6px; }
 /* Header fill only where the cell has no row/column tint (TBL-4) — a tinted
    header cell shows its `obe-bg-*` colour instead, staying bold. */
 .obe-table-header td:not([class*='obe-bg-']) {
@@ -2009,18 +2010,18 @@ a.obe-mention {
   overscroll-behavior: contain;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   /* Quiet elevation: a hairline ring + a soft, tight shadow. */
   box-shadow: var(--shadow-menu);
-  padding: 0.3rem;
+  padding: 0.25rem;
 }
 .obe-slash-item {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 7px;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
   overflow: hidden;
@@ -2044,7 +2045,7 @@ a.obe-mention {
 }
 /* Category headers between groups of slash commands. */
 .obe-slash-group {
-  padding: 0.45rem 0.6rem 0.2rem;
+  padding: 0.5rem 0.5rem 0.25rem;
   font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -2052,11 +2053,11 @@ a.obe-mention {
   color: hsl(var(--muted-foreground) / 0.7);
   user-select: none;
 }
-.obe-slash-group:first-child { padding-top: 0.2rem; }
+.obe-slash-group:first-child { padding-top: 0.25rem; }
 /* The ":" picker's awaiting-a-query prompt: muted + sentence case, NOT the
    uppercase category-header look of .obe-slash-group. */
 .obe-slash-empty {
-  padding: 0.4rem 0.6rem;
+  padding: 0.375rem 0.5rem;
   font-size: 0.85rem;
   color: hsl(var(--muted-foreground));
   user-select: none;
@@ -2099,17 +2100,17 @@ a.obe-mention {
   z-index: var(--z-index-menu);
   display: flex;
   align-items: center;
-  gap: 1px;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- SPC-2: explicit compact-toolbar half-step; manifest section 4. */
+  gap: 2px;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  /* concentric: child radius (--radius-md) + 3px padding */
-  border-radius: calc(var(--radius-md) + 3px);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-menu);
-  padding: 3px;
+  padding: 4px;
 }
 .obe-tb-btn {
-  min-width: 1.7rem;
-  height: 1.7rem;
+  min-width: var(--height-control-sm);
+  height: var(--height-control-sm);
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);

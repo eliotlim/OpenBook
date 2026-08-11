@@ -138,6 +138,17 @@ in their assigned component scopes and re-run the audit after each mechanical pa
 | Radius literals | 1/2/3/5/7/10px local geometry | Shared radius utilities/tokens; preserve only deliberate pill/circle geometry | Reduced `css.radius.off_token_declarations` |
 | Arbitrary TSX layout | Bracket utilities used for token-sized controls or recipe spacing | Named height/spacing utility | Reduced category count; fixed layout constraints may remain with rationale |
 
+---
+
+## 4. SPC-2 optical exemptions
+
+SPC-2 retains only the following values outside the canonical spacing set. Each
+declaration carries a matching inline stylelint disable comment in `index.css`.
+
+| Selector / property | Value | Justification |
+|---|---:|---|
+| `.obe-toolbar` `gap` | `2px` | The compact inline toolbar uses the explicit half-step geometry required by SPC-2; 4px makes adjacent 28px controls read as separate menu items. |
+
 Progress is directional, not a zero-debt gate: a remaining fixed width, viewport
 calculation, or deliberate circle can be valid. The stable category counts make
 that residual explicit instead of conflating it with padding and control-height

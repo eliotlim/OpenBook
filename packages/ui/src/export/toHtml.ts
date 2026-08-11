@@ -1337,8 +1337,8 @@ table.ledger-table td.ledger-empty { opacity: .6; font-style: italic; }
 .ob-ledger-note { font-size: .85rem; opacity: .8; margin: 4px 0 0; }
 .ob-ledger-note.is-alarm { color: #b91c1c; font-weight: 600; opacity: 1; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
-table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
-table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 4px 8px; text-align: left; vertical-align: top; }
+table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; padding-block: 6px; }
 table.db-table a.db-row { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; font-weight: 600; cursor: pointer; }
 table.db-table a.db-row:hover { text-decoration: underline; }
 .db-empty { opacity: .6; font-size: .9em; }
