@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Pencil, Plus, ShieldCheck, Sparkles, Square} from 'lucide-react';
+import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, ClipboardCheck, Copy, Loader2, Pencil, Plus, ShieldCheck, Sparkles, Square} from 'lucide-react';
 import {
   providerSettings,
   type AgentChatEvent,
@@ -11,7 +11,9 @@ import {
   type StoredSuggestion,
 } from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
+import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {Markdown} from '@/components/ui/markdown';
+import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
@@ -20,6 +22,7 @@ import {HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {aiBridge, routeAiSuggestions} from '@/lib/aiBridge';
 import {lastSelection} from '@/lib/selection';
+import {copyText} from '@/lib/pageActions';
 import {cn} from '@/lib/utils';
 
 /**
@@ -604,18 +607,27 @@ export function AgentPanel() {
             );
           }
           return (
-            <div
-              key={i}
-              data-agent-item={item.kind}
-              className={cn(
-                'max-w-[90%] rounded-lg px-3 py-2 text-sm',
-                item.kind === 'user' && 'self-end whitespace-pre-wrap bg-primary text-primary-foreground',
-                item.kind === 'assistant' && 'self-start bg-accent/50',
-                item.kind === 'error' && 'self-start whitespace-pre-wrap border border-destructive/40 text-destructive',
-              )}
-            >
-              {item.kind === 'assistant' ? <Markdown content={item.text} /> : item.text}
-            </div>
+            <ContextMenu key={i}>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-agent-item={item.kind}
+                  className={cn(
+                    'max-w-[90%] rounded-lg px-3 py-2 text-sm',
+                    item.kind === 'user' && 'self-end whitespace-pre-wrap bg-primary text-primary-foreground',
+                    item.kind === 'assistant' && 'self-start bg-accent/50',
+                    item.kind === 'error' && 'self-start whitespace-pre-wrap border border-destructive/40 text-destructive',
+                  )}
+                >
+                  {item.kind === 'assistant' ? <Markdown content={item.text} /> : item.text}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className={MENU_WIDTH_SM}>
+                <ContextMenuItem onSelect={() => void copyText(item.text)}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  {t('menu.copyMessage')}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           );
         })}
         {busy && (
