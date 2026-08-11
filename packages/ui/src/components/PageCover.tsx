@@ -2,6 +2,13 @@ import React, {useCallback, useRef, useState} from 'react';
 import {Image as ImageIcon, MoveVertical, Check, Trash2} from 'lucide-react';
 import {useTranslation} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {COVER_GRADIENTS, usePageCover, writePageCover} from '@/lib/pageCover';
 import {cn} from '@/lib/utils';
 
@@ -14,11 +21,19 @@ export function PageCoverBanner({pageId}: {pageId: string}) {
   const cover = usePageCover(pageId);
   const {t} = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const [repositioning, setRepositioning] = useState(false);
   const dragRef = useRef<{startY: number; startPos: number} | null>(null);
   const [livePos, setLivePos] = useState<number | null>(null);
 
   const position = cover?.kind === 'image' ? livePos ?? cover.position ?? 50 : 50;
+  const startRepositioning = useCallback(() => setRepositioning(true), []);
+  const removeCover = useCallback(() => writePageCover(pageId, null), [pageId]);
+  const openPicker = useCallback(() => {
+    // The hover button remains the single CoverPicker trigger. Let the context
+    // menu close, then click that same trigger so both surfaces share the flow.
+    requestAnimationFrame(() => pickerTriggerRef.current?.click());
+  }, []);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -52,59 +67,78 @@ export function PageCoverBanner({pageId}: {pageId: string}) {
   if (!cover) return null;
 
   return (
-    <div
-      ref={ref}
-      className="ob-page-cover group/cover relative w-full overflow-hidden"
-      contentEditable={false}
-    >
-      {cover.kind === 'gradient' ? (
-        <div className="absolute inset-0" style={{background: cover.css}} />
-      ) : (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(event) => event.stopPropagation()}>
         <div
-          className="absolute inset-0 bg-cover bg-no-repeat"
-          style={{backgroundImage: `url("${cover.url}")`, backgroundPosition: `50% ${position}%`}}
-        />
-      )}
-
-      {/* Reposition surface — only catches drags while in reposition mode. */}
-      {repositioning && cover.kind === 'image' && (
-        <div
-          className="absolute inset-0 cursor-ns-resize"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          ref={ref}
+          className="ob-page-cover group/cover relative w-full overflow-hidden"
+          contentEditable={false}
         >
-          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-md bg-black/55 px-2 py-1 text-xs font-medium text-white">
-            {t('page.coverDragHint')}
-          </span>
-        </div>
-      )}
-
-      <div className="absolute bottom-2.5 right-3 flex items-center gap-1 opacity-0 transition-opacity group-hover/cover:opacity-100 focus-within:opacity-100">
-        {repositioning ? (
-          <CoverButton onClick={() => setRepositioning(false)} icon={<Check className="h-3.5 w-3.5" />} label={t('page.coverDone')} />
-        ) : (
-          <>
-            {cover.kind === 'image' && (
-              <CoverButton
-                onClick={() => setRepositioning(true)}
-                icon={<MoveVertical className="h-3.5 w-3.5" />}
-                label={t('page.coverReposition')}
-              />
-            )}
-            <CoverPicker pageId={pageId}>
-              <CoverButton icon={<ImageIcon className="h-3.5 w-3.5" />} label={t('page.coverChange')} />
-            </CoverPicker>
-            <CoverButton
-              onClick={() => writePageCover(pageId, null)}
-              icon={<Trash2 className="h-3.5 w-3.5" />}
-              label={t('page.coverRemove')}
+          {cover.kind === 'gradient' ? (
+            <div className="absolute inset-0" style={{background: cover.css}} />
+          ) : (
+            <div
+              className="absolute inset-0 bg-cover bg-no-repeat"
+              style={{backgroundImage: `url("${cover.url}")`, backgroundPosition: `50% ${position}%`}}
             />
-          </>
-        )}
-      </div>
-    </div>
+          )}
+
+          {/* Reposition surface — only catches drags while in reposition mode. */}
+          {repositioning && cover.kind === 'image' && (
+            <div
+              className="absolute inset-0 cursor-ns-resize"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-md bg-black/55 px-2 py-1 text-xs font-medium text-white">
+                {t('page.coverDragHint')}
+              </span>
+            </div>
+          )}
+
+          <div className="absolute bottom-2.5 right-3 flex items-center gap-1 opacity-0 transition-opacity group-hover/cover:opacity-100 focus-within:opacity-100">
+            {repositioning ? (
+              <CoverButton onClick={() => setRepositioning(false)} icon={<Check className="h-3.5 w-3.5" />} label={t('page.coverDone')} />
+            ) : (
+              <>
+                {cover.kind === 'image' && (
+                  <CoverButton
+                    onClick={startRepositioning}
+                    icon={<MoveVertical className="h-3.5 w-3.5" />}
+                    label={t('page.coverReposition')}
+                  />
+                )}
+                <CoverPicker pageId={pageId}>
+                  <CoverButton
+                    ref={pickerTriggerRef}
+                    icon={<ImageIcon className="h-3.5 w-3.5" />}
+                    label={t('page.coverChange')}
+                  />
+                </CoverPicker>
+                <CoverButton
+                  onClick={removeCover}
+                  icon={<Trash2 className="h-3.5 w-3.5" />}
+                  label={t('page.coverRemove')}
+                />
+              </>
+            )}
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className={MENU_WIDTH_SM}>
+        <ContextMenuItem disabled={cover.kind !== 'image'} onSelect={startRepositioning}>
+          <MoveVertical className="mr-2 h-3.5 w-3.5" /> {t('page.coverReposition')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={openPicker}>
+          <ImageIcon className="mr-2 h-3.5 w-3.5" /> {t('page.coverReplace')}
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={removeCover}>
+          <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('page.coverRemove')}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
