@@ -93,10 +93,13 @@ export function PageMenuItems({
   pageId,
   surface = 'row',
   menu = 'context',
+  omit,
 }: {
   pageId: string | null | undefined;
   surface?: PageMenuSurface;
   menu?: 'context' | 'dropdown';
+  /** Suppress destinations already provided by a host menu; all other row actions remain unchanged. */
+  omit?: Readonly<{openTab?: boolean; openWindow?: boolean}>;
 }) {
   const {openInNew, openInSplit, createSubpage, duplicatePage, deletePage, selectPage, pages} =
     useNavigation();
@@ -186,14 +189,18 @@ export function PageMenuItems({
       </C.Item>
       <C.Separator />
 
-      <C.Item disabled={!id} onSelect={() => id && openInNew(id, 'tab')}>
-        <ExternalLink className="mr-2 h-4 w-4" />
-        {t('menu.openTab')}
-      </C.Item>
-      <C.Item disabled={!id} onSelect={() => id && openInNew(id, 'window')}>
-        <AppWindow className="mr-2 h-4 w-4" />
-        {t('menu.openWindow')}
-      </C.Item>
+      {!omit?.openTab && (
+        <C.Item disabled={!id} onSelect={() => id && openInNew(id, 'tab')}>
+          <ExternalLink className="mr-2 h-4 w-4" />
+          {t('menu.openTab')}
+        </C.Item>
+      )}
+      {!omit?.openWindow && (
+        <C.Item disabled={!id} onSelect={() => id && openInNew(id, 'window')}>
+          <AppWindow className="mr-2 h-4 w-4" />
+          {t('menu.openWindow')}
+        </C.Item>
+      )}
       <C.Item disabled={!id} onSelect={() => id && openInSplit(id)}>
         <Columns2 className="mr-2 h-4 w-4" />
         {t('menu.openSplit')}

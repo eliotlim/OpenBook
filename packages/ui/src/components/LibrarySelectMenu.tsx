@@ -74,6 +74,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
     isForwardedLocal(ws) ? forwardedHost! : ws.name;
 
   const [addOpen, setAddOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [name, setName] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [icon, setIcon] = useState('');
@@ -235,10 +236,17 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           {variant === 'titlebar' ? (
-            <Button variant="ghost" className="flex h-7 max-w-[200px] items-center gap-1.5 px-2">
+            <Button
+              variant="ghost"
+              className="flex h-7 max-w-[200px] items-center gap-1.5 px-2"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenuOpen(true);
+              }}
+            >
               {library.icon ? (
                 <span className="shrink-0 text-base leading-none">{library.icon}</span>
               ) : (

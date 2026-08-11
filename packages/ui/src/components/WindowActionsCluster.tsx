@@ -1,6 +1,7 @@
 import {Columns2, PanelRightClose} from 'lucide-react';
 import {useNavigation} from '@/providers';
 import {cn} from '@/lib/utils';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /**
  * Window-level actions in the nav bar: toggle the in-window split view. (New
@@ -14,7 +15,7 @@ export default function WindowActionsCluster() {
     'flex h-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:text-muted-foreground/35';
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-0.5" onContextMenu={suppressContextMenu}>
       <button
         type="button"
         onClick={() => (splitOpen ? closeSplit() : currentPageId && openInSplit(currentPageId))}

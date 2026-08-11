@@ -202,6 +202,10 @@ export const en = {
   tabs: {
     new: 'New tab',
     close: 'Close tab',
+    closeOthers: 'Close other tabs',
+    closeRight: 'Close tabs to the right',
+    duplicate: 'Duplicate tab',
+    moveToWindow: 'Move to new window',
   },
   trash: {
     movedToast: 'Moved "{page}" to trash',
