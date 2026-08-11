@@ -2,7 +2,7 @@ import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {BACKUP_CADENCE_MS, BACKUP_VERSION, type LibraryBackup, type StoredPage} from '@book.dev/sdk';
+import {BACKUP_CADENCE_MS, BACKUP_VERSION, localPrincipal, type LibraryBackup, type StoredPage} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -176,6 +176,7 @@ describe('BackupScheduler', () => {
   });
 
   it('streams byte-identical v3 JSON without accumulating the asset array', async () => {
+    await store.ledger.ensureSetup(localPrincipal());
     const bytes = Uint8Array.from([9, 8, 7, 6, 5]);
     const {id} = await store.putAsset(bytes, 'image/png');
     await store.upsertPage({
@@ -194,6 +195,7 @@ describe('BackupScheduler', () => {
     }, exportedAt);
 
     expect(chunks.join('')).toBe(expected);
+    expect(chunks.some((chunk) => chunk.startsWith(',"ledger":'))).toBe(true);
   });
 
   it('binds v3 access state to its origin and requires opt-in on a foreign target', async () => {
