@@ -1,4 +1,4 @@
-import {describe, it, expect, afterEach} from 'vitest';
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {BlockEditor} from '../BlockEditor';
@@ -14,8 +14,16 @@ import {
   type ImageBlockProps,
 } from '../imageBlock';
 import {editorFilesFromTransfer} from '../htmlArtifactBlock';
+import {copyRenderedImage} from '../ImageBlockView';
+import * as pageActions from '@/lib/pageActions';
+import {setLocale, t, type Locale} from '@/i18n';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  setLocale('en');
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  cleanup();
+});
 
 // A minimal valid 1×1 transparent PNG as a data URL (kept small so the render
 // tests don't lean on the size cap).
@@ -24,6 +32,47 @@ const TINY_PNG =
 
 const imgFile = (name = 'sunset_photo.png', type = 'image/png', body = 'hello'): File =>
   new File([body], name, {type});
+
+describe('image block — copy rendered image', () => {
+  it('copies the source URL as text when ClipboardItem is unavailable', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+    const image = document.createElement('img');
+
+    await expect(copyRenderedImage(image, 'https://images.test/cat.png')).resolves.toBe('url');
+    expect(copyText).toHaveBeenCalledWith('https://images.test/cat.png');
+  });
+
+  it('falls back to copying the source URL when canvas.toBlob throws', async () => {
+    vi.stubGlobal('ClipboardItem', class ClipboardItem {});
+    vi.stubGlobal('navigator', {clipboard: {write: vi.fn()}});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(() => {
+      throw new Error('encoding failed');
+    });
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+
+    await expect(copyRenderedImage(document.createElement('img'), 'https://images.test/cat.png')).resolves.toBe(
+      'url',
+    );
+    expect(copyText).toHaveBeenCalledWith('https://images.test/cat.png');
+  });
+
+  it('refuses blob and oversized data URL fallbacks but uses an original URL when available', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const copyText = vi.spyOn(pageActions, 'copyText').mockResolvedValue(true);
+    const image = document.createElement('img');
+    const hugeDataUrl = `data:image/png;base64,${'a'.repeat(MAX_IMAGE_DATA_URL_BYTES)}`;
+
+    await expect(copyRenderedImage(image, 'blob:temporary')).resolves.toBe('failed');
+    await expect(copyRenderedImage(image, hugeDataUrl)).resolves.toBe('failed');
+    await expect(copyRenderedImage(image, 'blob:temporary', 'https://images.test/original.png')).resolves.toBe('url');
+    expect(copyText).toHaveBeenCalledTimes(1);
+    expect(copyText).toHaveBeenCalledWith('https://images.test/original.png');
+  });
+});
 
 /**
  * Native image block (Assets A0, data-URL phase-1): model round-trip, the three
@@ -163,12 +212,76 @@ describe('image block — render, resize, alt/caption', () => {
     expect(block!.props?.width).toBe('30%');
   });
 
+  it('localizes every size preset label', () => {
+    const labels: Record<Locale, string[]> = {
+      en: ['Small', 'Medium', 'Full width'],
+      de: ['Klein', 'Mittel', 'Volle Breite'],
+      ja: ['小', '中', '全幅'],
+      zh: ['小', '中', '全宽'],
+    };
+    for (const [locale, expected] of Object.entries(labels) as Array<[Locale, string[]]>) {
+      setLocale(locale);
+      expect([
+        t('blocks.image.sizeSmall'),
+        t('blocks.image.sizeMedium'),
+        t('blocks.image.sizeFull'),
+      ]).toEqual(expected);
+    }
+  });
+
   it('editing the caption persists it to props', () => {
     const doc = createDoc([{id: 'img', type: 'image', props: {src: TINY_PNG}}]);
     render(<BlockEditor doc={doc} />);
     fireEvent.change(screen.getByLabelText('Image caption'), {target: {value: 'Hello caption'}});
     const block = docToJSON(doc).find((b) => b.id === 'img');
     expect(block!.props?.caption).toBe('Hello caption');
+  });
+
+  it('right-clicking the image opens its item-specific menu with an accessible active size', async () => {
+    const doc = createDoc([{id: 'img', type: 'image', props: {src: TINY_PNG, alt: 'A cat'}}]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('img.obe-image-img')!);
+
+    expect(screen.getByText('Copy image').closest('[role="menu"]')?.classList.contains('w-52')).toBe(true);
+
+    for (const label of [
+      'Copy image',
+      'Save image as…',
+      'Open original',
+      'Replace image…',
+      'Set alt text…',
+      'Image size',
+      'Delete block',
+    ]) {
+      expect(screen.getByText(label), label).toBeTruthy();
+    }
+
+    const sizeTrigger = screen.getByText('Image size').closest('[role="menuitem"]') as HTMLElement;
+    sizeTrigger.focus();
+    fireEvent.keyDown(sizeTrigger, {key: 'ArrowRight'});
+    expect((await screen.findByRole('menuitemcheckbox', {name: 'Small'})).getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('menuitemcheckbox', {name: 'Full width'}).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('the image menu delete action removes that block', () => {
+    const doc = createDoc([
+      {id: 'img', type: 'image', props: {src: TINY_PNG}},
+      {id: 'p', type: 'paragraph', text: [{t: 'Keep me'}]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('img.obe-image-img')!);
+    fireEvent.click(screen.getByText('Delete block'));
+
+    expect(docToJSON(doc).map((block) => block.id)).toEqual(['p']);
+  });
+
+  it('does not expose the image menu on a non-image block', () => {
+    const doc = createDoc([{id: 'p', type: 'paragraph', text: [{t: 'Plain text'}]}]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('[data-block-text="p"]')!);
+
+    expect(screen.queryByText('Copy image')).toBeNull();
+    expect(screen.queryByText('Open original')).toBeNull();
   });
 });
 
