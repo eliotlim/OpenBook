@@ -23,6 +23,7 @@ import {readRecents, subscribeRecents} from '@/lib/recents';
 import {pagePathLabel} from '@/lib/pagePath';
 import {featureShown, isAiFeature, readFeatureVisibility} from '@/lib/aiFeatures';
 import {t} from '@/i18n';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : t('common.untitled');
@@ -203,7 +204,7 @@ export function CommandMenu() {
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
       <CommandInput placeholder={t('command.placeholder')} value={search} onValueChange={setSearch} />
-      <CommandList>
+      <CommandList onContextMenu={suppressContextMenu}>
         <CommandEmpty>{t('command.noResults')}</CommandEmpty>
         {favorites.length > 0 && (
           <CommandGroup heading={t('command.groupFavorites')}>

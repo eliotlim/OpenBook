@@ -21,13 +21,16 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Network} from 'lucide-react';
+import {Columns2, FolderOpen, Link2, Network} from 'lucide-react';
 import type {PageGraph, PageGraphNode} from '@book.dev/sdk';
 import {layeredLayout, type DataflowGraph} from '@/blockeditor/kit/dataflow';
 import {getGraphTarget, setGraphTarget, subscribeGraphPane} from '@/lib/graphPane';
 import {useData} from '@/data';
 import {useNavigation, useTheme, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
+import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {cn} from '@/lib/utils';
 
 /**
@@ -228,7 +231,8 @@ function neighbourhood(
 export function GraphPaneBody() {
   const {t} = useTranslation();
   const {colorScheme} = useTheme();
-  const {selectPage, focusPane, closeSplit, pageLabel} = useNavigation();
+  const {selectPage, focusPane, closeSplit, openInSplit, pageLabel} = useNavigation();
+  const copyLink = useCopyPageLink();
 
   const [target, setTarget] = useState(getGraphTarget());
   useEffect(() => subscribeGraphPane(() => setTarget(getGraphTarget())), []);
@@ -299,6 +303,7 @@ export function GraphPaneBody() {
   // Re-fit when the graph SHAPE changes — guarded on xyflow v12 measurement so
   // the fit isn't a no-op against unmeasured nodes (the DataflowView lesson).
   const [instance, setInstance] = useState<ReactFlowInstance<GraphFlowNode, Edge> | null>(null);
+  const [menuNode, setMenuNode] = useState<GraphFlowNode | null>(null);
   const shape = nodes.map((n) => n.id).join('|');
   useEffect(() => {
     if (!instance || !shape) return;
@@ -399,31 +404,63 @@ export function GraphPaneBody() {
             {!loading && <p className="max-w-xs text-xs text-muted-foreground/70">{t('graph.emptyHint')}</p>}
           </div>
         ) : (
-          <ActivateContext.Provider value={activate}>
-            <HoverContext.Provider value={hoverValue}>
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                colorMode={colorScheme === 'dark' ? 'dark' : 'light'}
-                fitView
-                fitViewOptions={{padding: 0.15, maxZoom: 1.1}}
-                onInit={setInstance}
-                minZoom={0.2}
-                nodesConnectable={false}
-                nodesDraggable
-                // Node keyboard focus lives on the inner PageNode div (single
-                // tabstop, Enter/Space to activate) — see PageNode.
-                nodesFocusable={false}
-                deleteKeyCode={null}
-                onNodeClick={(_, node) => activate(node.id)}
-                proOptions={{hideAttribution: false}}
+          <ContextMenu onOpenChange={(open) => !open && setMenuNode(null)}>
+            <ContextMenuTrigger asChild>
+              <div
+                className="h-full"
+                onContextMenu={(event) => {
+                  // The trigger spans the canvas so React Flow can remain the
+                  // event source. Only a node owns this menu; suppress the
+                  // otherwise-empty menu on the pane, edges, and controls.
+                  if (!(event.target as Element).closest('.react-flow__node')) {
+                    event.preventDefault();
+                    setMenuNode(null);
+                  }
+                }}
               >
-                <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-                <Controls showInteractive={false} />
-              </ReactFlow>
-            </HoverContext.Provider>
-          </ActivateContext.Provider>
+                <ActivateContext.Provider value={activate}>
+                  <HoverContext.Provider value={hoverValue}>
+                    <ReactFlow
+                      nodes={nodes}
+                      edges={edges}
+                      nodeTypes={nodeTypes}
+                      colorMode={colorScheme === 'dark' ? 'dark' : 'light'}
+                      fitView
+                      fitViewOptions={{padding: 0.15, maxZoom: 1.1}}
+                      onInit={setInstance}
+                      minZoom={0.2}
+                      nodesConnectable={false}
+                      nodesDraggable
+                      // Node keyboard focus lives on the inner PageNode div (single
+                      // tabstop, Enter/Space to activate) — see PageNode.
+                      nodesFocusable={false}
+                      deleteKeyCode={null}
+                      onNodeClick={(_, node) => activate(node.id)}
+                      onNodeContextMenu={(_, node) => setMenuNode(node)}
+                      proOptions={{hideAttribution: false}}
+                    >
+                      <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+                      <Controls showInteractive={false} />
+                    </ReactFlow>
+                  </HoverContext.Provider>
+                </ActivateContext.Provider>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className={MENU_WIDTH_MD}>
+              <ContextMenuItem disabled={!menuNode} onSelect={() => menuNode && activate(menuNode.id)}>
+                <FolderOpen className="mr-2 h-4 w-4" />
+                {t('database.rowMenu.open')}
+              </ContextMenuItem>
+              <ContextMenuItem disabled={!menuNode} onSelect={() => menuNode && openInSplit(menuNode.id)}>
+                <Columns2 className="mr-2 h-4 w-4" />
+                {t('menu.openSplit')}
+              </ContextMenuItem>
+              <ContextMenuItem disabled={!menuNode} onSelect={() => menuNode && copyLink(menuNode.id)}>
+                <Link2 className="mr-2 h-4 w-4" />
+                {t('menu.copyLink')}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         )}
       </div>
     </div>
