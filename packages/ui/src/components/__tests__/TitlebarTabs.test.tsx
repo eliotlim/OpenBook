@@ -19,11 +19,14 @@ const labels: Record<string, string> = {
   'common.close': 'Close',
   'tabs.close': 'Close tab',
   'tabs.new': 'New tab',
-  'tabs.closeOthers': 'Close others',
-  'tabs.closeRight': 'Close to the right',
+  'tabs.closeOthers': 'Close other tabs',
+  'tabs.closeRight': 'Close tabs to the right',
   'tabs.duplicate': 'Duplicate tab',
   'tabs.moveToWindow': 'Move to new window',
   'menu.favorite': 'Favorite',
+  'menu.openTab': 'Open in new tab',
+  'menu.openWindow': 'Open in new window',
+  'menu.openSplit': 'Open in split view',
 };
 
 vi.mock('@/providers', () => ({
@@ -91,14 +94,23 @@ describe('tab close target helpers', () => {
 });
 
 describe('TitlebarTabs context menu', () => {
-  it('renders tab actions at medium width plus row actions for the target page', () => {
+  it('renders tab actions at large width without redundant row open targets', () => {
     render(<TitlebarTabs />);
     fireEvent.contextMenu(screen.getAllByRole('tab')[0]);
 
-    for (const label of ['Close', 'Close others', 'Close to the right', 'Duplicate tab', 'Move to new window']) {
+    for (const label of [
+      'Close',
+      'Close other tabs',
+      'Close tabs to the right',
+      'Duplicate tab',
+      'Move to new window',
+      'Open in split view',
+    ]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
-    expect(screen.getByRole('menu').classList.contains('w-52')).toBe(true);
+    expect(screen.queryByText('Open in new tab')).toBeNull();
+    expect(screen.queryByText('Open in new window')).toBeNull();
+    expect(screen.getByRole('menu').classList.contains('w-60')).toBe(true);
 
     fireEvent.click(screen.getByText('Favorite'));
     expect(mocks.toggleFavorite).toHaveBeenCalledWith('page-1');
@@ -107,8 +119,26 @@ describe('TitlebarTabs context menu', () => {
   it('runs close-others against the titlebar tab order', () => {
     render(<TitlebarTabs />);
     fireEvent.contextMenu(screen.getAllByRole('tab')[0]);
-    fireEvent.click(screen.getByText('Close others'));
+    fireEvent.click(screen.getByText('Close other tabs'));
     expect(mocks.closeTab.mock.calls).toEqual([['tab-2'], ['tab-3']]);
+  });
+
+  it('duplicates the target page in a new tab', () => {
+    render(<TitlebarTabs />);
+    fireEvent.contextMenu(screen.getAllByRole('tab')[0]);
+    fireEvent.click(screen.getByText('Duplicate tab'));
+
+    expect(mocks.openInNew).toHaveBeenCalledWith('page-1', 'tab');
+  });
+
+  it('opens the target page in a window before closing its tab', () => {
+    render(<TitlebarTabs />);
+    fireEvent.contextMenu(screen.getAllByRole('tab')[0]);
+    fireEvent.click(screen.getByText('Move to new window'));
+
+    expect(mocks.openInNew).toHaveBeenCalledWith('page-1', 'window');
+    expect(mocks.closeTab).toHaveBeenCalledWith('tab-1');
+    expect(mocks.openInNew.mock.invocationCallOrder[0]).toBeLessThan(mocks.closeTab.mock.invocationCallOrder[0]);
   });
 
   it('hides move-to-window without the desktop tabs capability', () => {
@@ -116,5 +146,31 @@ describe('TitlebarTabs context menu', () => {
     render(<TitlebarTabs />);
     fireEvent.contextMenu(screen.getAllByRole('tab')[0]);
     expect(screen.queryByText('Move to new window')).toBeNull();
+  });
+});
+
+describe('TitlebarTabs pointer activation', () => {
+  it('selects a tab only on primary-button mousedown', () => {
+    render(<TitlebarTabs />);
+    const tab = screen.getAllByRole('tab')[1];
+
+    fireEvent.mouseDown(tab, {button: 2});
+    expect(mocks.selectTab).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(tab, {button: 0});
+    expect(mocks.selectTab).toHaveBeenCalledWith('tab-2');
+  });
+
+  it('closes a tab only on primary-button mousedown', () => {
+    render(<TitlebarTabs />);
+    const close = screen.getAllByRole('button', {name: 'Close tab'})[0];
+
+    fireEvent.mouseDown(close, {button: 2});
+    expect(mocks.closeTab).not.toHaveBeenCalled();
+    expect(mocks.selectTab).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(close, {button: 0});
+    expect(mocks.closeTab).toHaveBeenCalledWith('tab-1');
+    expect(mocks.selectTab).not.toHaveBeenCalled();
   });
 });

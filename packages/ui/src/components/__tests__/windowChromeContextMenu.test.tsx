@@ -64,6 +64,13 @@ describe('window chrome context-menu suppression', () => {
     expectContextMenuSuppressed(container.querySelector('[data-tauri-drag-region]')!);
   });
 
+  it('suppresses the titlebar strip, leading controls, and new-tab button', () => {
+    const {container} = render(<TitlebarTabs />);
+    expectContextMenuSuppressed(container.firstElementChild!);
+    expectContextMenuSuppressed(screen.getByRole('button', {name: 'Sidebar'}).parentElement!);
+    expectContextMenuSuppressed(screen.getByRole('button', {name: 'tabs.new'}));
+  });
+
   it('suppresses frameless window controls', () => {
     render(<WindowControls />);
     for (const name of ['Minimize', 'Maximize', 'Close']) {

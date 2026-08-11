@@ -10,7 +10,7 @@ import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
 import {suppressContextMenu} from '@/lib/suppressContextMenu';
 import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
-import {MENU_COMPONENTS, MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {MENU_COMPONENTS, MENU_WIDTH_LG} from '@/components/ui/menu-components';
 import {PageMenuItems} from '@/components/PageContextMenu';
 
 type TabRef = Readonly<{id: string}>;
@@ -52,7 +52,7 @@ export default function TitlebarTabs() {
   const multiple = tabs.length > 1;
 
   return (
-    <div className="flex h-full items-stretch select-none">
+    <div className="flex h-full items-stretch select-none" onContextMenu={suppressContextMenu}>
       {/* Leading inset past the window controls, draggable. macOS sets this to
           clear the traffic lights; elsewhere it is ~0 (controls aren't here). */}
       <div
@@ -65,7 +65,7 @@ export default function TitlebarTabs() {
       {/* Desktop-only leading controls (before the tabs), in place of the
           sidebar / nav bar: sidebar toggle, then the library switcher, then
           back/forward. Interactive, so not drag regions. */}
-      <div className="flex shrink-0 items-center gap-0.5 pr-1">
+      <div className="flex shrink-0 items-center gap-0.5 pr-1" onContextMenu={suppressContextMenu}>
         <SideNavToggle className="h-7 px-2" />
         <LibrarySelectMenu variant="titlebar" />
         <BackForwardCluster />
@@ -82,7 +82,9 @@ export default function TitlebarTabs() {
                 <div
                   role="tab"
                   aria-selected={active}
-                  onMouseDown={() => selectTab(tab.id)}
+                  onMouseDown={(e) => {
+                    if (e.button === 0) selectTab(tab.id);
+                  }}
                   title={pageLabel(tab.pageId)}
                   className={cn(
                     'group flex min-w-0 max-w-[200px] cursor-default items-center gap-1.5 px-2 text-sm transition-colors',
@@ -108,6 +110,7 @@ export default function TitlebarTabs() {
                   {multiple && (
                     <button
                       onMouseDown={(e) => {
+                        if (e.button !== 0) return;
                         e.stopPropagation();
                         closeTab(tab.id);
                       }}
@@ -123,7 +126,7 @@ export default function TitlebarTabs() {
                   )}
                 </div>
               </ContextMenuTrigger>
-              <ContextMenuContent className={MENU_WIDTH_MD}>
+              <ContextMenuContent className={MENU_WIDTH_LG}>
                 <C.Item disabled={!multiple} onSelect={() => closeTab(tab.id)}>
                   <X className="mr-2 h-4 w-4" />
                   {t('common.close')}
@@ -157,7 +160,12 @@ export default function TitlebarTabs() {
                   </C.Item>
                 )}
                 <C.Separator />
-                <PageMenuItems pageId={tab.pageId} surface="row" menu="context" />
+                <PageMenuItems
+                  pageId={tab.pageId}
+                  surface="row"
+                  menu="context"
+                  omit={{openTab: true, openWindow: true}}
+                />
               </ContextMenuContent>
             </ContextMenu>
           );
