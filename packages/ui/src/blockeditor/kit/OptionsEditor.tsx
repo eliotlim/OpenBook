@@ -64,7 +64,9 @@ export const OptionsListEditor: React.FC<{
   const add = (): void => onChange([...rows, {label: '', value: ''}]);
 
   return (
-    <ConfigField label={copy.fieldLabel} hint={copy.hint}>
+    <div className="flex flex-col gap-1" role="group" aria-label={copy.fieldLabel}>
+      <span className="text-xs font-medium text-foreground/80">{copy.fieldLabel}</span>
+      <span className="-mt-0.5 text-[0.7rem] text-muted-foreground">{copy.hint}</span>
       <div className="flex flex-col gap-1.5">
         {rows.map((row, i) => (
           <div key={i} className="flex items-center gap-1.5">
@@ -106,7 +108,7 @@ export const OptionsListEditor: React.FC<{
           </button>
         )}
       </div>
-    </ConfigField>
+    </div>
   );
 };
 

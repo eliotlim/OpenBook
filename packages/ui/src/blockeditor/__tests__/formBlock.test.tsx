@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {DataClient, FormSchema} from '@book.dev/sdk';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {DataProvider} from '@/data';
+import {ConfirmProvider} from '@/providers/ConfirmProvider';
 import {getCustomBlock} from '../registry';
 import {FormOriginContext, registerFormBlock} from '../FormBlockView';
 import {insertFormField, makeFormField, moveFormField, reorderFormFields} from '../formBlock';
@@ -106,9 +107,10 @@ describe('form block registration and wire shape', () => {
     const {Render, block, editor} = formHarness();
     const view = render(<Render block={block} editor={editor} pageReadOnly={false} />);
     expect(view.container.querySelector('[data-form-mode="edit"]')).toBeTruthy();
-    expect(screen.getByText('Name')).toBeTruthy();
-    expect(screen.getByText('email')).toBeTruthy();
-    expect(screen.getByText('Open builder')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-builder]')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-field-row="name"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-field-row="email"]')).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Add Files'})).toBeTruthy();
 
     view.rerender(
       <FormOriginContext.Provider value="https://example.test/?page=contact">
@@ -188,12 +190,14 @@ describe('form block registration and wire shape', () => {
   it('resolves the bound database name and row count through the data client', async () => {
     const {Render, block, editor} = formHarness();
     const client = {
-      getDatabase: vi.fn().mockResolvedValue({id: 'db-contacts', name: 'Contacts'}),
+      getDatabase: vi.fn().mockResolvedValue({id: 'db-contacts', name: 'Contacts', schema: {properties: [], views: []}}),
       listRows: vi.fn().mockResolvedValue([{id: 'r1'}, {id: 'r2'}]),
     } as unknown as DataClient;
     render(
       <DataProvider client={client}>
-        <Render block={block} editor={editor} pageReadOnly={false} />
+        <ConfirmProvider>
+          <Render block={block} editor={editor} pageReadOnly={false} />
+        </ConfirmProvider>
       </DataProvider>,
     );
     fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));
