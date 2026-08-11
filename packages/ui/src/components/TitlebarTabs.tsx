@@ -8,6 +8,7 @@ import {cn} from '@/lib/utils';
 import LibrarySelectMenu from '@/components/LibrarySelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /**
  * The in-window tab bar, drawn in the titlebar (Chrome/Arc style) on the
@@ -27,7 +28,7 @@ export default function TitlebarTabs() {
   useEffect(() => subscribePageIcon(() => setIconVersion((v) => v + 1)), []);
 
   if (!inWindowTabs) {
-    return <div data-tauri-drag-region className="h-full w-full" />;
+    return <div data-tauri-drag-region onContextMenu={suppressContextMenu} className="h-full w-full" />;
   }
 
   const multiple = tabs.length > 1;
@@ -36,7 +37,12 @@ export default function TitlebarTabs() {
     <div className="flex h-full items-stretch select-none">
       {/* Leading inset past the window controls, draggable. macOS sets this to
           clear the traffic lights; elsewhere it is ~0 (controls aren't here). */}
-      <div data-tauri-drag-region className="shrink-0" style={{width: 'var(--ob-titlebar-pad-left, 0px)'}} />
+      <div
+        data-tauri-drag-region
+        onContextMenu={suppressContextMenu}
+        className="shrink-0"
+        style={{width: 'var(--ob-titlebar-pad-left, 0px)'}}
+      />
 
       {/* Desktop-only leading controls (before the tabs), in place of the
           sidebar / nav bar: sidebar toggle, then the library switcher, then
@@ -108,7 +114,7 @@ export default function TitlebarTabs() {
       </div>
 
       {/* Remaining space, draggable. */}
-      <div data-tauri-drag-region className="min-w-4 flex-1" />
+      <div data-tauri-drag-region onContextMenu={suppressContextMenu} className="min-w-4 flex-1" />
     </div>
   );
 }
