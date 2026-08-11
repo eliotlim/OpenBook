@@ -1,5 +1,10 @@
 import {afterEach, describe, expect, it} from 'vitest';
-import type {FormSchema, PageSnapshot} from '@book.dev/sdk';
+import {
+  readIsland,
+  readLibraryIsland,
+  type FormSchema,
+  type PageSnapshot,
+} from '@book.dev/sdk';
 import {
   blocksToHtml,
   blocksToMarkdown,
@@ -24,7 +29,7 @@ import type {SiteBundle} from '../exportSite';
 
 const schema: FormSchema = {
   formId: 'form-contact',
-  submissionKey: 'abcdefghijklmnopqrstuv',
+  submissionKey: 'Qx7_vN2kL9pR4tY8mC3sJw',
   enabled: true,
   databaseId: 'db-contacts',
   submitLabel: 'Send response',
@@ -54,13 +59,32 @@ const wire = {
 };
 
 const block: BlockJSON = {id: 'form-block', type: 'form', props: wire};
-const rawSnapshot = (): PageSnapshot => ({
+const rawSnapshot = (): PageSnapshot => projectSnapshotForExport({
   editor: 'blocks',
   blockdoc: encodeSnapshot(createDoc([block])),
   editorjs: {blocks: []},
   values: [],
   names: [],
 } as PageSnapshot);
+
+function expectSanitizedFormSnapshot(snapshot: PageSnapshot): void {
+  const projected = (snapshot.editorjs as {blocks: Array<{data: Record<string, unknown>}>}).blocks[0].data;
+  const projectedProps = projected.props as Record<string, unknown>;
+  const projectedSchema = projected.schema as Record<string, unknown>;
+  const projectedPropsSchema = projectedProps.schema as Record<string, unknown>;
+  expect(projected.submissionKey).toBeUndefined();
+  expect(projectedProps.submissionKey).toBeUndefined();
+  expect(projectedSchema.submissionKey).toBeUndefined();
+  expect(projectedPropsSchema.submissionKey).toBeUndefined();
+  expect(projected.formId).toBe(schema.formId);
+  expect(projectedProps.formId).toBe(schema.formId);
+
+  const native = docToJSON(decodeSnapshot(snapshot.blockdoc as BlockDocSnapshot))[0].props!;
+  expect(native.submissionKey).toBeUndefined();
+  expect((native.schema as Record<string, unknown>).submissionKey).toBeUndefined();
+  expect(native.formId).toBe(schema.formId);
+  expect((native.schema as Record<string, unknown>).formId).toBe(schema.formId);
+}
 
 afterEach(() => setShareLinkOrigin(null));
 
@@ -95,12 +119,20 @@ describe('form export arms', () => {
 
   it('renders the full HTML export frozen with its canonical live-page link', () => {
     setShareLinkOrigin('published.example');
-    const html = toHtml(rawSnapshot(), 'Contact', '', undefined, {id: 'contact'});
-    expect(html).toContain('<section class="ob-form" data-ob-form');
-    expect(html).toContain('disabled aria-label="Name"');
-    expect(html).toContain('href="https://published.example/?page=contact"');
+    const snapshot = rawSnapshot();
+    expect(JSON.stringify(snapshot).split(schema.submissionKey).length - 1).toBe(6);
+    const output = toHtml(snapshot, 'Contact', '', undefined, {id: 'contact'});
+    expect(output).not.toContain(schema.submissionKey);
+    expect(output).toContain(schema.formId);
+    expect(output).toContain('<section class="ob-form" data-ob-form');
+    expect(output).toContain('disabled aria-label="Name"');
+    expect(output).toContain('href="https://published.example/?page=contact"');
     // Hydration harvests that static URL before replacing the first-paint body.
-    expect(html).toContain('formOrigins: formOrigins');
+    expect(output).toContain('formOrigins: formOrigins');
+    expectSanitizedFormSnapshot(readIsland<{data: PageSnapshot}>(output)!.data);
+    // Export sanitization is artifact-only: the live snapshot still owns all
+    // six aliases of its original capability.
+    expect(JSON.stringify(snapshot).split(schema.submissionKey).length - 1).toBe(6);
   });
 
   it('normalizes the form into the document Markdown arm', () => {
@@ -111,7 +143,9 @@ describe('form export arms', () => {
       {label: 'Name', kind: 'text', required: true},
       {label: 'About you', kind: 'longtext', required: false},
     ]);
-    expect(toMarkdown(model)).toContain('- Name (text, required)');
+    const output = toMarkdown(model);
+    expect(output).not.toContain(schema.submissionKey);
+    expect(output).toContain('- Name (text, required)');
   });
 
   it('uses each page origin in a static site export', () => {
@@ -125,11 +159,29 @@ describe('form export arms', () => {
         originUrl: 'https://published.example/?page=contact',
         snapshot: projected,
       }],
-      space: {pages: [], databases: []},
+      space: {
+        pages: [{
+          id: 'contact',
+          name: 'Contact',
+          data: rawSnapshot(),
+          hostedDatabaseId: null,
+          databaseId: null,
+          parentId: null,
+          properties: {},
+          deletedAt: null,
+          createdAt: '',
+          updatedAt: '',
+        }],
+        databases: [],
+      },
     } as SiteBundle;
-    const html = toHtmlSite(bundle);
-    expect(html).toContain('data-page="contact"');
-    expect(html).toContain('href="https://published.example/?page=contact"');
+    const output = toHtmlSite(bundle);
+    expect(output).not.toContain(schema.submissionKey);
+    expect(output).toContain(schema.formId);
+    expect(output).toContain('data-page="contact"');
+    expect(output).toContain('href="https://published.example/?page=contact"');
+    const imported = readLibraryIsland(output)!.space.pages[0].data;
+    expectSanitizedFormSnapshot(imported);
   });
 
   it('staticizes PDF forms to field text and removes every submission control', () => {
@@ -137,6 +189,9 @@ describe('form export arms', () => {
     root.innerHTML = blocksToHtml([block], {originPageUrl: 'https://published.example/?page=contact'});
     staticizeForms(root);
     const form = root.querySelector('[data-pdf-form]')!;
+    const output = root.outerHTML;
+    expect(output).not.toContain(schema.submissionKey);
+    expect(output).toContain(schema.formId);
     expect(form.textContent).toContain('Name * (text)');
     expect(form.textContent).toContain('About you (longtext)');
     expect(form.querySelector('input,textarea,select,button,a')).toBeNull();

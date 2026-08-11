@@ -60,6 +60,7 @@ import {inlineScriptHash, pageCsp} from './exportCsp';
 import {pageIconToText} from '@/lib/iconValue';
 import {cellValue, formatCellValue} from '@/components/database/databaseCells';
 import type {SiteBundle, SiteDatabase} from './exportSite';
+import {sanitizeSnapshotForExport} from './sanitizeSnapshot';
 
 // The legacy runtime is an inline module and can consume the raw file's named
 // export directly. The hydrated viewer remains a classic IIFE, so its preceding
@@ -953,9 +954,10 @@ export interface PageExportMeta {
 /** Build the interactive HTML for a single page snapshot (Markdown/PDF parity).
  *  `assets` is the pre-resolved {@link ExportAssets} (image data-URIs +
  *  artifact document text; a bare image `AssetMap` is still accepted).
- *  Always embeds the lossless `rawSnapshot` as an `openbook+json` source island
- *  (same shape as `.book.html`), so the file re-imports without loss; artifact
- *  bytes ride the sibling assets island (hydrate path). */
+ *  Always embeds the content-lossless `rawSnapshot` as an `openbook+json`
+ *  source island (same shape as `.book.html`), with write capabilities removed
+ *  at that boundary; artifact bytes ride the sibling assets island (hydrate
+ *  path). */
 export function toHtml(
   rawSnapshot: PageSnapshot,
   title: string,
@@ -1004,15 +1006,16 @@ export function toHtml(
 }
 
 /** The source island for a single page export: a versioned page record carrying
- *  the LOSSLESS `rawSnapshot` (block-doc + assetIds intact), not the flattened
- *  render. Same shape read back by the SDK `bookHtmlToPage` / `readIsland`. */
+ *  the content-lossless `rawSnapshot` (block-doc + assetIds intact, form write
+ *  capabilities stripped), not the flattened render. Same shape read back by
+ *  the SDK `bookHtmlToPage` / `readIsland`. */
 function pageIsland(rawSnapshot: PageSnapshot, title: string, icon: string, meta: PageExportMeta): string {
   return pageIslandScript({
     id: meta.id ?? '',
     name: title,
     icon: icon || null,
     updatedAt: meta.updatedAt ?? '',
-    data: rawSnapshot,
+    data: sanitizeSnapshotForExport(rawSnapshot),
   });
 }
 
@@ -1198,10 +1201,15 @@ export function toHtmlSite(
   const rootTitle = byId.get(bundle.rootId)?.title ?? 'Export';
   // One island carries the WHOLE space bundle (pages + databases + nesting), the
   // `openbook.library.json` structure, so a site export re-imports with structure
-  // intact. The visible sections are a render; this is the authoritative source.
+  // intact. The visible sections are a render; this is the authoritative source
+  // after export-only write capabilities have been removed from every page.
   // LX-2: when the exporter opted in (and could read the books), the island
   // additionally carries the ledger records under their own `ledger` key.
-  const island = libraryIslandScript(bundle.rootId, bundle.space, bundle.ledger ? {ledger: bundle.ledger} : {});
+  const islandSpace = {
+    ...bundle.space,
+    pages: bundle.space.pages.map((page) => ({...page, data: sanitizeSnapshotForExport(page.data)})),
+  };
+  const island = libraryIslandScript(bundle.rootId, islandSpace, bundle.ledger ? {ledger: bundle.ledger} : {});
   // Hydrate through the viewer (its `#page=` hash nav replaces the legacy
   // router) only when the viewer can faithfully render the WHOLE bundle: every
   // page a block-doc, and no databases anywhere (the viewer has no database
