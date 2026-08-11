@@ -36,6 +36,14 @@ follow-up adopts a utility. In control roles, `h-5`, `h-6`, `h-11`, and the edit
 toolbar's `1.7rem` are non-canonical even where a raw value happens to coincide with
 a token. Icons may retain `h-5`/`h-6`; the prohibition is about control boxes.
 
+`IconButton` has one deliberate exception: `inline` is 20px for content-lane
+contexts where a 28px row provides a 20px lane, specifically sidebar tree and
+favorites actions plus database cell chrome. This keeps those consumers aligned
+without increasing row height. Its tier names are intentionally offset from the
+control-height scale: `IconButton` `sm` is 24px (approximately control `xs`) and
+`md` is 28px (approximately control `sm`). In control roles, `h-5` remains
+non-canonical except through the scoped `IconButton` `inline` variant.
+
 ### 1.2 Canonical component recipes
 
 | Surface | Canonical recipe | Resolved padding |

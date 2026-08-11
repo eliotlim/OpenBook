@@ -122,15 +122,16 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
   <div className="flex items-center gap-1" style={tree ? {paddingLeft: tree.depth * 16} : undefined}>
     {dragHandle}
     {tree?.hasChildren ? (
-      <button
+      <IconButton
+        size="inline"
         onClick={tree.onToggle}
-        className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition hover:bg-hover hover:text-foreground"
+        className="text-muted-foreground/60"
         aria-label={tree.collapsed ? 'Expand sub-items' : 'Collapse sub-items'}
       >
         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !tree.collapsed && 'rotate-90')} />
-      </button>
+      </IconButton>
     ) : (
-      tree?.anyExpandable && <span className="w-4 shrink-0" />
+      tree?.anyExpandable && <span className="w-5 shrink-0" />
     )}
     <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
     <input
