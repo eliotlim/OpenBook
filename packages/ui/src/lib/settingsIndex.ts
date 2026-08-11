@@ -63,7 +63,7 @@ export const SETTINGS_SEARCH_INDEX: readonly SettingsSearchEntry[] = [
     hintKey: 'appearance.colorThemeHint',
     // "auto-hide"/"sidebar"/"layout" land here now that the auto-hide-sidebar
     // toggle moved from the Shortcuts tab into Appearance (SET2-7).
-    keywords: 'appearance theme dark light accent color colour sidebar auto-hide autohide layout font typeface customization',
+    keywords: 'appearance theme dark light accent color colour sidebar auto-hide autohide layout font typeface customization menu density compact comfortable',
   },
   {
     tab: 'customisation',

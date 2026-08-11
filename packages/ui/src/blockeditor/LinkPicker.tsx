@@ -1,6 +1,8 @@
 import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {isSafeHref} from '@book.dev/sdk';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {PageIcon} from '@/components/PageIcon';
+import {EmptyState} from '@/components/ui/empty-state';
 import {t} from '../i18n';
 import {observePopupPosition, type PopupPosition} from './popupPosition';
 
@@ -169,11 +171,102 @@ export const LinkPicker: React.FC<{
           </button>
         ))}
         {results.length === 0 && (
-          <div className="px-2 py-2 text-sm text-muted-foreground">
-            {kind === 'database' ? t('link.noDatabases') : t('link.noPages')}
-          </div>
+          <EmptyState
+            variant="overlay"
+            className="px-2 text-muted-foreground"
+            title={kind === 'database' ? t('link.noDatabases') : t('link.noPages')}
+          />
         )}
       </div>
     </div>
+  );
+};
+
+/** Prompt-free URL editor used by the inline-link context menu. */
+export const LinkUrlEditor: React.FC<{
+  anchorEl: HTMLElement | null;
+  href: string;
+  onSave: (href: string) => void;
+  onClose: () => void;
+}> = ({anchorEl, href, onSave, onClose}) => {
+  const [value, setValue] = useState(href);
+  const [pos, setPos] = useState<PopupPosition | null>(null);
+  const rootRef = useRef<HTMLFormElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(
+    () =>
+      observePopupPosition({
+        popup: () => rootRef.current,
+        anchor: () => anchorEl?.getBoundingClientRect() ?? FALLBACK_ANCHOR_RECT,
+        onPosition: setPos,
+        options: {align: 'start', capHeightToContent: true},
+      }),
+    [anchorEl],
+  );
+
+  useLayoutEffect(() => {
+    if (pos) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [pos]);
+
+  useEffect(() => {
+    const onDocDown = (event: MouseEvent): void => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [onClose]);
+
+  const normalizedValue = (() => {
+    const next = value.trim();
+    if (!next) return null;
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(next);
+    if (hasScheme && !isSafeHref(next)) return null;
+    const href = hasScheme ? next : `https://${next}`;
+    return isSafeHref(href) ? href : null;
+  })();
+
+  const save = (): void => {
+    if (normalizedValue) onSave(normalizedValue);
+  };
+
+  return (
+    <form
+      ref={rootRef}
+      className="fixed z-50 flex w-72 items-center gap-1.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-overlay"
+      style={pos ? {left: pos.left, top: pos.top} : {left: 0, top: 0, visibility: 'hidden'}}
+      role="dialog"
+      aria-label={t('link.edit')}
+      onSubmit={(event) => {
+        event.preventDefault();
+        save();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        aria-label={t('link.urlLabel')}
+        placeholder="https://…"
+        spellCheck={false}
+        className="min-w-0 flex-1 rounded-sm border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus:border-ring"
+      />
+      <button
+        type="submit"
+        disabled={!normalizedValue}
+        className="shrink-0 rounded-sm bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-40"
+      >
+        {t('common.save')}
+      </button>
+    </form>
   );
 };

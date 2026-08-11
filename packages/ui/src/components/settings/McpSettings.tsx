@@ -7,6 +7,7 @@ import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {SettingsField, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} from '@/components/settings/primitives';
 import {isAdminRole, isForbidden} from '@/components/settings/adminGate';
+import {cn} from '@/lib/utils';
 
 /**
  * Settings → AI → External tools (MCP). The admin-only surface to register
@@ -159,6 +160,7 @@ export default function McpSettings() {
 
               <SettingsField label={t('ai.mcp.transport')}>
                 <Select
+                  inputSize="sm"
                   value={s.transport}
                   wrapperClassName="w-[240px]"
                   disabled={busy}
@@ -194,7 +196,7 @@ export default function McpSettings() {
                   </SettingsField>
                   <SettingsField label={t('ai.mcp.args')}>
                     <textarea
-                      className={SETTINGS_CONTROL_CLASS}
+                      className={cn(SETTINGS_CONTROL_CLASS, '!h-auto min-h-control-sm')}
                       rows={2}
                       value={(s.args ?? []).join('\n')}
                       placeholder={t('ai.mcp.argsPlaceholder')}
@@ -217,7 +219,7 @@ export default function McpSettings() {
                     onBlur={() => void save(config)}
                   />
                   {showTokenSet && (
-                    <Button size="sm" variant="outline" className="shrink-0" disabled={busy} onClick={() => void save(setServer(i, {authToken: null}))}>
+                    <Button size="xs" variant="outline" className="shrink-0" disabled={busy} onClick={() => void save(setServer(i, {authToken: null}))}>
                       {t('ai.mcp.tokenClear')}
                     </Button>
                   )}

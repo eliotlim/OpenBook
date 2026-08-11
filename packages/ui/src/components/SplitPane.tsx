@@ -14,6 +14,7 @@ import {HistoryPaneBody} from '@/components/history/HistoryPaneBody';
 import {AgentPanel} from '@/components/AgentPanel';
 import {useNavigation, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /**
  * The expanded block-settings pane: a host element the interactive block's live
@@ -120,6 +121,7 @@ export function SplitPane() {
         onPointerMove={onDividerMove}
         onPointerUp={onDividerUp}
         onPointerCancel={onDividerUp}
+        onContextMenu={suppressContextMenu}
         role="separator"
         aria-orientation="vertical"
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"

@@ -4,6 +4,7 @@ import type {PageMeta} from '@book.dev/sdk';
 import {useLibrary, useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
+import {IconButton} from '@/components/ui/icon-button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {PageMenuItems} from '@/components/PageContextMenu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 /**
  * Past this many crumbs the middle of the chain collapses to a "…" menu
@@ -110,7 +114,7 @@ export default function BreadcrumbCluster() {
 
   const renderCrumb = (id: string, last: boolean): React.ReactElement => {
     const menu = crumbMenu(id);
-    return (
+    const crumb = (
       // A crumb is a hover group: the navigate button plus (when the page has
       // siblings or subpages) a chevron that opens the jump menu. The chevron
       // always reserves its width so hover-reveal never shifts the row.
@@ -128,13 +132,14 @@ export default function BreadcrumbCluster() {
         {menu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <IconButton
+                size="inline"
                 type="button"
                 aria-label={t('nav.crumbMenu', {page: pageLabel(id)})}
                 className={cnChevron(last)}
               >
                 <ChevronDown aria-hidden className="h-3.5 w-3.5" />
-              </button>
+              </IconButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-w-72">
               {menu.siblings.length > 1 && (
@@ -158,6 +163,15 @@ export default function BreadcrumbCluster() {
           </DropdownMenu>
         )}
       </span>
+    );
+    if (!byId.has(id)) return crumb;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{crumb}</ContextMenuTrigger>
+        <ContextMenuContent className={MENU_WIDTH_MD}>
+          <PageMenuItems pageId={id} surface="row" menu="context" />
+        </ContextMenuContent>
+      </ContextMenu>
     );
   };
 
@@ -212,6 +226,6 @@ const cnCrumb = (last: boolean): string =>
 // menu is open) on ancestor crumbs, always visible on the current page — the
 // standing "explore from here" affordance and the touch entry point.
 const cnChevron = (last: boolean): string =>
-  `shrink-0 rounded p-0.5 text-muted-foreground/70 transition-[opacity,background-color,color] hover:bg-hover hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:text-foreground data-[state=open]:opacity-100 ${
+  `text-muted-foreground/70 transition-[opacity,background-color,color] focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:text-foreground data-[state=open]:opacity-100 ${
     last ? '' : 'opacity-0 group-hover/crumb:opacity-100 group-focus-within/crumb:opacity-100'
   }`;

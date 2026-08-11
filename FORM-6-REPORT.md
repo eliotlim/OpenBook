@@ -52,7 +52,7 @@ The per-form byte transaction is serialized and content-addressed duplicates cou
 ## Verification
 
 - Focused: SDK client `24/24`; server access/submission/migration `39/39`; UI form suites `19/19`.
-- Package gates: SDK, server, and UI typecheck and lint passed. The seven FORM-6 locale additions are present in en/de/ja/zh; i18n reports no extra-key or placeholder mismatch in any locale (the repository's existing untranslated-key baseline remains de 677, ja 681, zh 681).
+- Package gates: SDK, server, and UI typecheck and lint passed. The seven FORM-6 locale additions are present in en/de/ja/zh; i18n reports no extra-key or placeholder mismatch in any locale (after the main merge, the repository's untranslated-key baseline is de 675, ja 679, zh 679).
 - Foreground `pnpm verify`: all library builds, generated-mirror check, six workspace typechecks, six workspace lints, SDK `473/473`, UI `1928/1928`, and MCP workspace tests passed. Server Vitest reached `1190 passed`, `5 skipped`, `1 failed` across `89 passed`/`1 failed` files. The sole failure and 14 unhandled errors are the known sandbox-only watcher exhaustion in `mirror.integration.test.ts` (`EMFILE: too many open files, watch`); per task direction it was recorded and not chased. Verify stopped before its e2e phase.
 - E2E invoked separately after verify stopped: server `256/256`; MCP `44/44`.
 

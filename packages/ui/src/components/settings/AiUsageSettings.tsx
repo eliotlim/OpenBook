@@ -328,7 +328,7 @@ export default function AiUsageSettings() {
               }}
             />
           </div>
-          <Button size="sm" variant="outline" onClick={() => void saveRetention()} disabled={savingRetention}>
+          <Button size="xs" variant="outline" onClick={() => void saveRetention()} disabled={savingRetention}>
             {savingRetention ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t('aiUsage.saveRetention')}
           </Button>
