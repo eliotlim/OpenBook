@@ -1,11 +1,19 @@
 import {useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
 import * as Y from 'yjs';
-import {History, RotateCcw} from 'lucide-react';
+import {GitCompareArrows, History, RotateCcw} from 'lucide-react';
 import type {PageVersionMeta} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {getHistoryTarget, subscribeHistoryPane} from '@/lib/historyPane';
 import {useConfirm, useNavigation, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {showToast} from '@/components/ui/toast';
 import {cn} from '@/lib/utils';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
@@ -294,13 +302,14 @@ export function HistoryPaneBody() {
             {items.map((item) => {
               const selected = selectedId === item.id;
               const isCurrent = item.kind === 'current';
-              return (
+              const row = (
                 <div
                   key={item.id}
                   id={`history-opt-${item.id}`}
                   role="option"
                   aria-selected={selected}
                   onClick={() => setSelectedId(item.id)}
+                  onContextMenu={() => setSelectedId(item.id)}
                   className={cn(
                     'flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors',
                     selected ? 'bg-accent' : 'hover:bg-accent/60',
@@ -320,6 +329,31 @@ export function HistoryPaneBody() {
                     {isCurrent ? t('history.currentHint') : item.who}
                   </span>
                 </div>
+              );
+              if (item.kind === 'current') return row;
+              return (
+                <ContextMenu key={item.id}>
+                  <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+                  <ContextMenuContent className={MENU_WIDTH_MD}>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        setSelectedId(item.id);
+                        setMode('compare');
+                      }}
+                    >
+                      <GitCompareArrows className="mr-2 h-4 w-4" />
+                      {t('menu.diffAgainstCurrent')}
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      disabled={restoringId !== null}
+                      onSelect={() => void restore(item.version)}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      {t('history.restore')}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               );
             })}
           </div>
