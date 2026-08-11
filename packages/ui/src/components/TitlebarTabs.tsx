@@ -42,7 +42,7 @@ export default function TitlebarTabs() {
           sidebar / nav bar: sidebar toggle, then the library switcher, then
           back/forward. Interactive, so not drag regions. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1">
-        <SideNavToggle className="h-7 px-2" />
+        <SideNavToggle className="h-control-sm px-2" />
         <LibrarySelectMenu variant="titlebar" />
         <BackForwardCluster />
       </div>
@@ -72,8 +72,8 @@ export default function TitlebarTabs() {
                   ? // pb-1 mirrors the inactive tab's `mb-1`: both reserve 4px at
                 // the strip's lower edge so the label centers over the same
                 // region and doesn't drop when a tab becomes active.
-                  'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
-                  : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
+                  'relative z-[1] h-control-md rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
+                  : 'mb-1 h-control-sm rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
               )}
             >
               <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
@@ -101,7 +101,7 @@ export default function TitlebarTabs() {
           onClick={() => openInNew(HOME_PAGE_ID, 'tab')}
           aria-label={t('tabs.new')}
           title={t('tabs.new')}
-          className="mb-1 flex h-6 shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
+          className="mb-1 flex h-control-xs shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
         >
           <Plus className="h-4 w-4" />
         </button>
