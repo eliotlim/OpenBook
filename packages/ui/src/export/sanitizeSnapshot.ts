@@ -65,21 +65,36 @@ function stripBlockSubmissionKeys(blocks: BlockJSON[]): {blocks: BlockJSON[]; st
   return stripped ? {blocks: next, stripped} : {blocks, stripped};
 }
 
+function stripAliasSubmissionKeys(value: unknown): {value: unknown; stripped: boolean} {
+  if (Array.isArray(value)) {
+    let stripped = false;
+    const next = value.map((entry) => {
+      const result = stripAliasSubmissionKeys(entry);
+      stripped ||= result.stripped;
+      return result.value;
+    });
+    return stripped ? {value: next, stripped} : {value, stripped};
+  }
+  const source = record(value);
+  if (!source) return {value, stripped: false};
+  if (source.type === 'form') return stripSubmissionKey(source);
+  let stripped = false;
+  const next: JsonRecord = {};
+  for (const [key, entry] of Object.entries(source)) {
+    const result = stripAliasSubmissionKeys(entry);
+    stripped ||= result.stripped;
+    next[key] = result.value;
+  }
+  return stripped ? {value: next, stripped} : {value, stripped};
+}
+
 function sanitizeEditorJsAlias(editorjs: unknown): {editorjs: unknown; stripped: boolean} {
   const source = record(editorjs);
   if (!source || !Array.isArray(source.blocks)) return {editorjs, stripped: false};
-  let stripped = false;
-  const blocks = source.blocks.map((value) => {
-    const block = record(value);
-    if (!block || block.type !== 'form') return value;
-    const data = stripSubmissionKey(block.data);
-    if (!data.stripped) return value;
-    stripped = true;
-    return {...block, data: data.value};
-  });
-  return stripped
-    ? {editorjs: {...source, blocks}, stripped}
-    : {editorjs, stripped};
+  const result = stripAliasSubmissionKeys(source.blocks);
+  return result.stripped
+    ? {editorjs: {...source, blocks: result.value}, stripped: true}
+    : {editorjs, stripped: false};
 }
 
 /**

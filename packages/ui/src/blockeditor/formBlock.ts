@@ -105,19 +105,27 @@ function mintBlockSubmissionKeys(
   return changed ? {blocks: next, changed} : {blocks, changed};
 }
 
-function mintAliasSubmissionKeys(
-  editorjs: unknown,
+function mintAliasValueSubmissionKeys(
+  value: unknown,
   keyByForm: Map<string, string>,
-): {editorjs: unknown; changed: boolean} {
-  const source = jsonRecord(editorjs);
-  if (!source || !Array.isArray(source.blocks)) return {editorjs, changed: false};
+): {value: unknown; changed: boolean} {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((entry) => {
+      const result = mintAliasValueSubmissionKeys(entry, keyByForm);
+      changed ||= result.changed;
+      return result.value;
+    });
+    return changed ? {value: next, changed} : {value, changed};
+  }
+  const source = jsonRecord(value);
+  if (!source) return {value, changed: false};
   let changed = false;
-  const blocks = source.blocks.map((value) => {
-    const block = jsonRecord(value);
-    const data = jsonRecord(block?.data);
-    if (!block || block.type !== 'form' || !data) return value;
+  let current = source;
+  const data = jsonRecord(source.data);
+  if (source.type === 'form' && data) {
     const props = jsonRecord(data.props) ?? {};
-    const identity = formIdOf(data) || formIdOf(props) || (typeof block.id === 'string' ? block.id : '');
+    const identity = formIdOf(data) || formIdOf(props) || (typeof source.id === 'string' ? source.id : '');
     const existing = submissionKeyOf(data) || submissionKeyOf(props);
     // The rebuilt blockdoc is authoritative when an old/partial artifact's two
     // aliases disagree; a sanitized export has neither key and lands here with
@@ -130,13 +138,34 @@ function mintAliasSubmissionKeys(
       props.submissionKey !== submissionKey ||
       (dataSchema !== null && dataSchema.submissionKey !== submissionKey) ||
       (propsSchema !== null && propsSchema.submissionKey !== submissionKey);
-    if (!needsKey) return value;
-    const nextData = withSubmissionKey(data, submissionKey);
-    nextData.props = withSubmissionKey(props, submissionKey);
+    if (needsKey) {
+      const nextData = withSubmissionKey(data, submissionKey);
+      nextData.props = withSubmissionKey(props, submissionKey);
+      current = {...source, data: nextData};
+      changed = true;
+    }
+  }
+  let next = current;
+  for (const [key, entry] of Object.entries(current)) {
+    const result = mintAliasValueSubmissionKeys(entry, keyByForm);
+    if (!result.changed) continue;
+    if (next === current) next = {...current};
+    next[key] = result.value;
     changed = true;
-    return {...block, data: nextData};
-  });
-  return changed ? {editorjs: {...source, blocks}, changed} : {editorjs, changed};
+  }
+  return changed ? {value: next, changed} : {value, changed};
+}
+
+function mintAliasSubmissionKeys(
+  editorjs: unknown,
+  keyByForm: Map<string, string>,
+): {editorjs: unknown; changed: boolean} {
+  const source = jsonRecord(editorjs);
+  if (!source || !Array.isArray(source.blocks)) return {editorjs, changed: false};
+  const result = mintAliasValueSubmissionKeys(source.blocks, keyByForm);
+  return result.changed
+    ? {editorjs: {...source, blocks: result.value}, changed: true}
+    : {editorjs, changed: false};
 }
 
 /**

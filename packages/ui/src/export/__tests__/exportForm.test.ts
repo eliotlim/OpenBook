@@ -59,16 +59,27 @@ const wire = {
 };
 
 const block: BlockJSON = {id: 'form-block', type: 'form', props: wire};
-const rawSnapshot = (): PageSnapshot => projectSnapshotForExport({
+const columnsBlock: BlockJSON = {
+  id: 'columns-block',
+  type: 'columns',
+  children: [
+    {id: 'form-column', type: 'column', children: [block]},
+    {id: 'empty-column', type: 'column', children: []},
+  ],
+};
+const rawSnapshot = (nested = false): PageSnapshot => projectSnapshotForExport({
   editor: 'blocks',
-  blockdoc: encodeSnapshot(createDoc([block])),
+  blockdoc: encodeSnapshot(createDoc([nested ? columnsBlock : block])),
   editorjs: {blocks: []},
   values: [],
   names: [],
 } as PageSnapshot);
 
-function expectSanitizedFormSnapshot(snapshot: PageSnapshot): void {
-  const projected = (snapshot.editorjs as {blocks: Array<{data: Record<string, unknown>}>}).blocks[0].data;
+function expectSanitizedFormSnapshot(snapshot: PageSnapshot, nested = false): void {
+  const projectedRoot = (snapshot.editorjs as {blocks: Array<{data: Record<string, unknown>}>}).blocks[0];
+  const projected = nested
+    ? ((projectedRoot.data.columns as Array<Array<{data: Record<string, unknown>}>>)[0][0].data)
+    : projectedRoot.data;
   const projectedProps = projected.props as Record<string, unknown>;
   const projectedSchema = projected.schema as Record<string, unknown>;
   const projectedPropsSchema = projectedProps.schema as Record<string, unknown>;
@@ -79,7 +90,8 @@ function expectSanitizedFormSnapshot(snapshot: PageSnapshot): void {
   expect(projected.formId).toBe(schema.formId);
   expect(projectedProps.formId).toBe(schema.formId);
 
-  const native = docToJSON(decodeSnapshot(snapshot.blockdoc as BlockDocSnapshot))[0].props!;
+  const nativeRoot = docToJSON(decodeSnapshot(snapshot.blockdoc as BlockDocSnapshot))[0];
+  const native = (nested ? nativeRoot.children![0].children![0] : nativeRoot).props!;
   expect(native.submissionKey).toBeUndefined();
   expect((native.schema as Record<string, unknown>).submissionKey).toBeUndefined();
   expect(native.formId).toBe(schema.formId);
@@ -133,6 +145,15 @@ describe('form export arms', () => {
     // Export sanitization is artifact-only: the live snapshot still owns all
     // six aliases of its original capability.
     expect(JSON.stringify(snapshot).split(schema.submissionKey).length - 1).toBe(6);
+  });
+
+  it('removes every form submission key from forms nested in columns', () => {
+    const snapshot = rawSnapshot(true);
+    expect(JSON.stringify(snapshot).split(schema.submissionKey).length - 1).toBe(6);
+
+    const output = toHtml(snapshot, 'Contact columns', '', undefined, {id: 'contact-columns'});
+    expect(output.split(schema.submissionKey).length - 1).toBe(0);
+    expectSanitizedFormSnapshot(readIsland<{data: PageSnapshot}>(output)!.data, true);
   });
 
   it('normalizes the form into the document Markdown arm', () => {
