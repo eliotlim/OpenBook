@@ -1885,15 +1885,27 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
 /** The block's right-click menu — the same block actions in place of the page
  *  menu, so right-clicking a block reads as "this block", not "this page". Thin
  *  wrapper over the shared {@link BlockMenuItems}. */
-const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <ContextMenuContent className={MENU_WIDTH_MD}>
-    {editor.selection.size > 1 && editor.selection.has(blockId(block)) ? (
-      <BlockBulkMenu editor={editor} />
-    ) : (
-      <BlockMenuItems block={block} editor={editor} menu="context" />
-    )}
-  </ContextMenuContent>
-);
+const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
+  let topLevelId = blockId(block);
+  let current = findBlock(editor.doc, topLevelId);
+  while (current && current.parent !== rootBlocks(editor.doc)) {
+    const parent = parentBlockOf(editor.doc, current.parent);
+    if (!parent) break;
+    topLevelId = blockId(parent);
+    current = findBlock(editor.doc, topLevelId);
+  }
+  const inBulkSelection = editor.selection.size > 1 && editor.selection.has(topLevelId);
+
+  return (
+    <ContextMenuContent className={MENU_WIDTH_MD}>
+      {inBulkSelection ? (
+        <BlockBulkMenu editor={editor} />
+      ) : (
+        <BlockMenuItems block={block} editor={editor} menu="context" />
+      )}
+    </ContextMenuContent>
+  );
+};
 
 /** Whole-selection actions for a right-click inside a 2+ block selection. */
 const BlockBulkMenu: React.FC<{editor: BlockEditorController}> = ({editor}) => {
@@ -1938,7 +1950,9 @@ const BlockBulkMenu: React.FC<{editor: BlockEditorController}> = ({editor}) => {
         {t('menu.block.bulkDuplicate', {count})}
       </C.Item>
       <C.Sub>
-        <C.SubTrigger disabled={textIds.length === 0}>Turn into</C.SubTrigger>
+        <C.SubTrigger disabled={textIds.length === 0}>
+          {textIds.length < count ? t('menu.block.bulkTurnInto', {count: textIds.length}) : 'Turn into'}
+        </C.SubTrigger>
         <C.SubContent className={MENU_WIDTH_SM}>
           {TURN_OPTIONS.map((option) => (
             <C.Item key={option.label} onSelect={() => turnAll(option.type, option.props)}>

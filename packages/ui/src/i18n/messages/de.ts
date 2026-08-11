@@ -171,6 +171,7 @@ export const de: PartialMessages = {
       comment: 'Kommentieren…',
       bulkSelected: '{count} Blöcke ausgewählt',
       bulkDuplicate: '{count} duplizieren',
+      bulkTurnInto: 'Umwandeln ({count})',
       bulkDelete: '{count} löschen',
     },
     table: {

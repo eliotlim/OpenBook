@@ -1028,7 +1028,7 @@ test('marquee: drag over empty space selects the intersected blocks', {tag: ['@e
 test('marquee: right-click bulk delete removes three blocks and one undo restores them', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await fiveBlocks(page);
-  // Keep the bulk command isolated from the two paragraphs typed by fiveBlocks.
+  // Guard captureTimeout=400 merging: isolate the bulk command from fiveBlocks' typing.
   await page.waitForTimeout(500);
 
   const rows = page.locator('.obe-root > [data-block-row]');

@@ -24,7 +24,20 @@ export function shouldUseNativeEditableContextMenu(target: EventTarget | null): 
       ? textControl.selectionStart !== textControl.selectionEnd
       : false;
   }
-  return document.getSelection()?.isCollapsed === false;
+  const selection = document.getSelection();
+  return selection?.isCollapsed === false &&
+    selection.rangeCount > 0 &&
+    editable.contains(selection.getRangeAt(0).commonAncestorContainer);
+}
+
+/** The page menu also yields for selected read-only text under the pointer. */
+export function shouldUseNativePageContextMenu(target: EventTarget | null): boolean {
+  if (shouldUseNativeEditableContextMenu(target)) return true;
+  const targetEl = target instanceof Element ? target : null;
+  const selection = document.getSelection();
+  if (!targetEl || selection?.isCollapsed !== false || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  return targetEl.contains(range.commonAncestorContainer) || range.intersectsNode(targetEl);
 }
 
 /**
@@ -37,4 +50,12 @@ export function passEditableContextMenuToBrowser(event: {
   stopPropagation(): void;
 }): void {
   if (shouldUseNativeEditableContextMenu(event.target)) event.stopPropagation();
+}
+
+/** Page-level variant that also preserves Copy for selected read-only text. */
+export function passPageContextMenuToBrowser(event: {
+  target: EventTarget | null;
+  stopPropagation(): void;
+}): void {
+  if (shouldUseNativePageContextMenu(event.target)) event.stopPropagation();
 }

@@ -170,6 +170,7 @@ export const ja: PartialMessages = {
       comment: 'コメント…',
       bulkSelected: '{count}ブロックを選択中',
       bulkDuplicate: '{count}件を複製',
+      bulkTurnInto: '変換（{count}件）',
       bulkDelete: '{count}件を削除',
     },
     table: {

@@ -3,6 +3,7 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {BlockEditor} from '../BlockEditor';
 import {createDoc, rootBlocks} from '../model';
 import {passEditableContextMenuToBrowser} from '../nativeContextMenu';
+import {PageContextMenu} from '@/components/PageContextMenu';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -61,6 +62,22 @@ describe('native editable context-menu passthrough', () => {
     expect(screen.getByText('Duplicate')).toBeTruthy();
   });
 
+  it('ignores a stale selection in another editable when right-clicking a collapsed caret', () => {
+    const doc = createDoc([
+      {id: 'a', type: 'paragraph', text: [{t: 'selected in A'}]},
+      {id: 'b', type: 'paragraph', text: [{t: 'caret in B'}]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    const textA = container.querySelector('[data-block-text="a"]') as HTMLElement;
+    const textB = container.querySelector('[data-block-text="b"]') as HTMLElement;
+    selectText(textA, false);
+
+    const event = contextMenu(textB);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.getByText('Duplicate')).toBeTruthy();
+  });
+
   it('always leaves code-block source text to the native menu', () => {
     const doc = createDoc([{id: 'code', type: 'code', text: [{t: 'const answer = 42'}]}]);
     const {container} = render(<BlockEditor doc={doc} />);
@@ -90,6 +107,21 @@ describe('native editable context-menu passthrough', () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(screen.queryByText('Page action')).toBeNull();
+  });
+
+  it('leaves selected read-only page text to the browser for Copy', () => {
+    const doc = createDoc([{id: 'p', type: 'paragraph', text: [{t: 'read-only selection'}]}]);
+    const {container} = render(
+      <PageContextMenu pageId="page-1">
+        <BlockEditor doc={doc} readOnly />
+      </PageContextMenu>,
+    );
+    const text = container.querySelector('[data-block-text="p"]') as HTMLElement;
+    selectText(text, false);
+
+    const event = contextMenu(text);
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 
@@ -124,6 +156,41 @@ describe('multi-block context menu', () => {
     expect(screen.getByText('Background')).toBeTruthy();
     expect(screen.getByText('Delete 3')).toBeTruthy();
     expect(screen.queryByText('Select block')).toBeNull();
+  });
+
+  it('uses the selected top-level columns row for nested targets, but keeps outside targets single', () => {
+    const doc = createDoc([
+      {id: 'p1', type: 'paragraph', text: [{t: 'first'}]},
+      {
+        id: 'cols',
+        type: 'columns',
+        children: [
+          {id: 'left-col', type: 'column', children: [{id: 'inside', type: 'paragraph', text: [{t: 'inside columns'}]}]},
+          {id: 'right-col', type: 'column', children: [{id: 'peer', type: 'paragraph', text: [{t: 'peer'}]}]},
+        ],
+      },
+      {id: 'p3', type: 'paragraph', text: [{t: 'third'}]},
+      {id: 'p4', type: 'paragraph', text: [{t: 'outside'}]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    const row = (id: string) => container.querySelector(`[data-block-row="${id}"]`) as HTMLElement;
+    const text = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
+
+    fireEvent.focus(text('p1'));
+    fireEvent.mouseDown(row('p3'), {shiftKey: true, button: 0});
+    expect(container.querySelectorAll('.obe-row-selected')).toHaveLength(3);
+
+    rightClick(text('inside'));
+    expect(screen.getByText('3 blocks selected')).toBeTruthy();
+    expect(screen.getByText('Turn into (2)')).toBeTruthy();
+    expect(screen.queryByText('Select block')).toBeNull();
+
+    fireEvent.keyDown(document, {key: 'Escape'});
+    rightClick(row('p4'));
+    expect(container.querySelectorAll('.obe-row-selected')).toHaveLength(0);
+    expect(screen.queryByText('3 blocks selected')).toBeNull();
+    expect(screen.getByText('Turn into')).toBeTruthy();
+    expect(screen.getByText('Select block')).toBeTruthy();
   });
 
   it('bulk delete removes all selected blocks and one undo restores the whole selection', () => {

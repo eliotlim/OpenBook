@@ -170,6 +170,7 @@ export const zh: PartialMessages = {
       comment: '评论…',
       bulkSelected: '已选择 {count} 个块',
       bulkDuplicate: '复制 {count} 个',
+      bulkTurnInto: '转换为（{count}）',
       bulkDelete: '删除 {count} 个',
     },
     table: {

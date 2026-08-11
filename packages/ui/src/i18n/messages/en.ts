@@ -311,6 +311,7 @@ export const en = {
       comment: 'Comment…',
       bulkSelected: '{count} blocks selected',
       bulkDuplicate: 'Duplicate {count}',
+      bulkTurnInto: 'Turn into ({count})',
       bulkDelete: 'Delete {count}',
     },
     table: {
