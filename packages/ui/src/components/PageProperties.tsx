@@ -24,6 +24,7 @@ import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties
 import {hydratePageIcons} from '@/lib/pageIcon';
 import {hydratePageAppearance} from '@/lib/pageAppearance';
 import {cn} from '@/lib/utils';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_LG} from '@/components/ui/menu-components';
 
 export interface PagePropertiesState {
   /** The page's stored property values (owner, verification, …), kept live. */
@@ -200,7 +201,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
             {expired ? t('properties.verifyExpired') : t('properties.verified')}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-60">
+        <DropdownMenuContent align="start" className={MENU_WIDTH_LG}>
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             {by ? t('properties.verifiedBy', {name: by}) : t('properties.verified')}
             {at ? ` · ${new Date(at).toLocaleDateString()}` : ''}
@@ -222,7 +223,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onChange({verified: false})} className="text-destructive focus:text-destructive">
+          <DropdownMenuItem onClick={() => onChange({verified: false})} className={MENU_DESTRUCTIVE_CLASS}>
             {t('properties.unverify')}
           </DropdownMenuItem>
         </DropdownMenuContent>

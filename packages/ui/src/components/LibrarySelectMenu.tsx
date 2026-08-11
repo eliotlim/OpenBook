@@ -218,7 +218,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
             type="button"
             aria-label={t('library.removeLibrary', {name: ws.name})}
             title={t('common.remove')}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive group-hover:flex"
+            className="pointer-events-none flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-hover hover:text-destructive group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.preventDefault();
