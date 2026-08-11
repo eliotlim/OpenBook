@@ -73,6 +73,14 @@ function redactSubmissionKeys(value: unknown): unknown {
   return redacted;
 }
 
+function containsSubmissionKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSubmissionKey);
+  const source = jsonRecord(value);
+  return source !== null && Object.entries(source).some(
+    ([key, entry]) => key === 'submissionKey' || containsSubmissionKey(entry),
+  );
+}
+
 const runText = (b: AnyJsonBlock): string => (Array.isArray(b.text) ? b.text.map((r) => r.t).join('') : '');
 
 function blockdocBlocks(data: PageSnapshot | null | undefined): AnyJsonBlock[] | null {
@@ -1546,6 +1554,9 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       }
       const info = blockInfoInSnapshot(page.data, blockId);
       if (!info) return failure(missing);
+      if (info.type === 'form' && containsSubmissionKey(props)) {
+        return failure('submissionKey is author-managed; not editable via MCP.');
+      }
       // Permissive-but-typed prop check against the catalogue: only props the
       // catalogue declares for this block's type are validated; unknown props
       // (and plugin/custom types) pass through untouched.
@@ -1574,7 +1585,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       } catch (err) {
         return failure(`Could not update the props (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
-      return text(`Updated props of block ${blockId} directly on "${page.name ?? 'Untitled'}" — now ${JSON.stringify(applied.props)}.`);
+      return text(`Updated props of block ${blockId} directly on "${page.name ?? 'Untitled'}" — now ${JSON.stringify(redactSubmissionKeys(applied.props))}.`);
     },
   );
 

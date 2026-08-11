@@ -160,6 +160,33 @@ async function main(): Promise<void> {
   check('inspect_page_structure still shows the nested form', resultText(tree).includes('form') && resultText(tree).includes('contact'));
   check('inspect_page_structure redacts both key copies', !resultText(tree).includes(KEY_22) && !resultText(tree).includes('submissionKey'));
 
+  console.log('\nFORM-7 update_block_props capability guard');
+  const topLevelKeyWrite = await mcp.callTool({
+    name: 'update_block_props',
+    arguments: {pageId: directHost.id, blockId: 'survey-block', props: {submissionKey: 'ATTACKER_CHOSEN'}},
+  });
+  check('update_block_props refuses a top-level submissionKey write',
+    topLevelKeyWrite.isError === true && resultText(topLevelKeyWrite).includes('submissionKey is author-managed; not editable via MCP'));
+  const schemaKeyWrite = await mcp.callTool({
+    name: 'update_block_props',
+    arguments: {pageId: directHost.id, blockId: 'survey-block', props: {schema: {submissionKey: 'ATTACKER_CHOSEN'}}},
+  });
+  check('update_block_props refuses a nested schema.submissionKey smuggle',
+    schemaKeyWrite.isError === true && resultText(schemaKeyWrite).includes('submissionKey is author-managed; not editable via MCP'));
+  const propsAfterRefusals = findFormProps((await seed.getPage(directHost.id))!.data, 'survey-block');
+  check('both refused probes leave both stored key copies unchanged',
+    propsAfterRefusals.submissionKey === KEY_43 && (propsAfterRefusals.schema as FormSchema).submissionKey === KEY_43);
+
+  const harmlessPropWrite = await mcp.callTool({
+    name: 'update_block_props',
+    arguments: {pageId: directHost.id, blockId: 'survey-block', props: {label: 'Survey intake'}},
+  });
+  const harmlessEcho = Buffer.from(resultText(harmlessPropWrite), 'utf8');
+  check('update_block_props still applies harmless form props directly',
+    harmlessPropWrite.isError !== true && findFormProps((await seed.getPage(directHost.id))!.data, 'survey-block').label === 'Survey intake');
+  check('the merged-props success echo contains no submission key bytes',
+    !harmlessEcho.includes(Buffer.from('submissionKey')) && !harmlessEcho.includes(Buffer.from(KEY_43)));
+
   console.log('\nFORM-7 list_form_submissions filtering + cursor');
   const firstPage = resultJson<{rows: Array<{id: string; formId: string; submittedAt?: string}>; nextCursor?: string}>(
     await mcp.callTool({name: 'list_form_submissions', arguments: {pageId: suggestHost.id, formId: 'contact', limit: 1}}),
