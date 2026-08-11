@@ -98,6 +98,7 @@ export const SHORTCUTS = {
   toggleFullWidth: {key: '.', mod: true},
   toggleTheme: {key: 'l', mod: true, shift: true},
   openTrash: {key: 'delete', mod: true, shift: true},
+  // Editor-scoped combos (deleteBlock is modifier-less) — never attach these to the global command registry.
   duplicateBlock: {key: 'd', mod: true},
   moveBlockUp: {key: 'arrowup', mod: true, shift: true},
   moveBlockDown: {key: 'arrowdown', mod: true, shift: true},

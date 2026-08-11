@@ -112,7 +112,7 @@ import {
   MENU_WIDTH_MD,
   MENU_WIDTH_SM,
 } from '@/components/ui/menu-components';
-import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
+import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
@@ -687,16 +687,22 @@ export const BlockEditor: React.FC<{
       editor.clearSelection();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+    if (matchShortcut(e, SHORTCUTS.duplicateBlock)) {
       e.preventDefault();
       editor.duplicateSelected();
       setLive('Duplicated');
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    if (matchShortcut(e, SHORTCUTS.moveBlockUp)) {
       e.preventDefault();
-      editor.moveSelected(e.key === 'ArrowDown' ? 1 : -1);
-      setLive(e.key === 'ArrowDown' ? 'Moved down' : 'Moved up');
+      editor.moveSelected(-1);
+      setLive('Moved up');
+      return;
+    }
+    if (matchShortcut(e, SHORTCUTS.moveBlockDown)) {
+      e.preventDefault();
+      editor.moveSelected(1);
+      setLive('Moved down');
       return;
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1852,7 +1858,7 @@ const BlockMenuItems: React.FC<{
  *  on the gutter handle acts without leaving the mouse. Thin wrapper over the
  *  shared {@link BlockMenuItems}. */
 const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <DropdownMenuContent align="start" side="bottom" className={MENU_WIDTH_SM}>
+  <DropdownMenuContent align="start" side="bottom" className={MENU_WIDTH_MD}>
     <BlockMenuItems block={block} editor={editor} menu="dropdown" />
   </DropdownMenuContent>
 );
@@ -1861,7 +1867,7 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
  *  menu, so right-clicking a block reads as "this block", not "this page". Thin
  *  wrapper over the shared {@link BlockMenuItems}. */
 const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <ContextMenuContent className={MENU_WIDTH_SM}>
+  <ContextMenuContent className={MENU_WIDTH_MD}>
     <BlockMenuItems block={block} editor={editor} menu="context" />
   </ContextMenuContent>
 );

@@ -5,6 +5,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
+import {MENU_WIDTH_LG} from '@/components/ui/menu-components';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
 import {useNavigation, useTranslation} from '@/providers';
 import {pageDocActions, pageDocActionsVersion, subscribePageDocActions} from '@/lib/pageDocActions';
@@ -42,7 +43,7 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
           <DotsVerticalIcon className="h-4 w-4"/>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-60">
+      <DropdownMenuContent className={MENU_WIDTH_LG}>
         <PageMenuItems pageId={currentPageId} surface="page" menu="dropdown" />
       </DropdownMenuContent>
     </DropdownMenu>

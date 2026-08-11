@@ -58,7 +58,7 @@ export const de: PartialMessages = {
     menuDensity: 'Menüdichte',
     menuDensityHint: 'Wähle kompakte Menüs oder großzügigere Abstände für leichteres Erfassen.',
     menuDensityCompact: 'Kompakt',
-    menuDensityComfortable: 'Bequem',
+    menuDensityComfortable: 'Komfortabel',
     colorScheme: 'Farbschema',
     colorTheme: 'Farbthema',
     colorThemeHint: 'Wähle die App-Akzentfarbe.',
