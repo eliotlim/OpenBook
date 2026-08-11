@@ -219,7 +219,7 @@ export default function McpSettings() {
                     onBlur={() => void save(config)}
                   />
                   {showTokenSet && (
-                    <Button size="sm" variant="outline" className="shrink-0" disabled={busy} onClick={() => void save(setServer(i, {authToken: null}))}>
+                    <Button size="xs" variant="outline" className="shrink-0" disabled={busy} onClick={() => void save(setServer(i, {authToken: null}))}>
                       {t('ai.mcp.tokenClear')}
                     </Button>
                   )}
