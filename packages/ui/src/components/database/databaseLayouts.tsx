@@ -882,7 +882,7 @@ export const BoardView: React.FC<{
               {!isCollapsed && <span className="truncate">{heading}</span>}
               <span className="text-muted-foreground/60">{group.rows.length}</span>
               <IconButton
-                size="xs"
+                size="inline"
                 onClick={() => toggleCol(group.key)}
                 aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${heading} column`}
                 className={cn('text-muted-foreground/50', !isCollapsed && 'ml-auto')}
@@ -1125,7 +1125,7 @@ export const BoardView: React.FC<{
                       <span className="truncate">{heading}</span>
                       <span className="text-muted-foreground/60">{group.rows.length}</span>
                       <IconButton
-                        size="xs"
+                        size="inline"
                         onClick={() => toggleCol(group.key)}
                         aria-label={`Collapse ${heading} column`}
                         className="ml-auto text-muted-foreground/50"
@@ -1368,10 +1368,10 @@ export const CalendarView: React.FC<{
                 <div className="mb-1 flex items-center justify-between">
                   {editable ? (
                     <IconButton
-                      size="xs"
+                      size="inline"
                       onClick={() => createOn(key!)}
                       aria-label={`Add on ${key}`}
-                      className="text-muted-foreground/60 opacity-0 group-hover/day:opacity-100"
+                      className="text-muted-foreground/60 opacity-0 transition-[opacity,background-color,color] group-hover/day:opacity-100"
                     >
                       <Plus className="h-3 w-3" />
                     </IconButton>

@@ -122,7 +122,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
     {dragHandle}
     {tree?.hasChildren ? (
       <IconButton
-        size="xs"
+        size="inline"
         onClick={tree.onToggle}
         className="text-muted-foreground/60"
         aria-label={tree.collapsed ? 'Expand sub-items' : 'Collapse sub-items'}
@@ -130,7 +130,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !tree.collapsed && 'rotate-90')} />
       </IconButton>
     ) : (
-      tree?.anyExpandable && <span className="w-4 shrink-0" />
+      tree?.anyExpandable && <span className="w-5 shrink-0" />
     )}
     <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
     <input

@@ -42,7 +42,7 @@ export default function TitlebarTabs() {
           sidebar / nav bar: sidebar toggle, then the library switcher, then
           back/forward. Interactive, so not drag regions. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1">
-        <SideNavToggle className="h-control-sm px-2" />
+        <SideNavToggle className="px-2" />
         <LibrarySelectMenu variant="titlebar" />
         <BackForwardCluster />
       </div>

@@ -20,7 +20,7 @@ const iconButtonVariants = cva(
       size: {
         // Deliberate compact exception for inline tree/cell actions whose row
         // height cannot absorb the canonical 24px control without growing.
-        xs: "h-5 w-5 p-0.5", // 20px
+        inline: "h-5 w-5 p-0.5", // 20px
         sm: "p-1",     // ~24px — sidebar / inline toolbars
         md: "p-1.5",   // ~28px — page actions / headers
       },

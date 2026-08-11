@@ -102,7 +102,7 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
         </span>
       </span>
       <IconButton
-        size="xs"
+        size="inline"
         onClick={onClose}
         aria-label="Close drill-down"
         className="cursor-pointer"

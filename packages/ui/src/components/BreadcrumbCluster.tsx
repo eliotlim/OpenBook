@@ -130,7 +130,7 @@ export default function BreadcrumbCluster() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <IconButton
-                size="xs"
+                size="inline"
                 type="button"
                 aria-label={t('nav.crumbMenu', {page: pageLabel(id)})}
                 className={cnChevron(last)}

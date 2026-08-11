@@ -54,7 +54,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
     <PopoverTrigger asChild>
       <IconButton
         size="sm"
-        className="text-muted-foreground/50 opacity-0 group-hover/props:opacity-100"
+        className="text-muted-foreground/50 opacity-0 transition-[opacity,background-color,color] group-hover/props:opacity-100"
         aria-label="Configure properties"
         title="Show, hide & group properties"
       >

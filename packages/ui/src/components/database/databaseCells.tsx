@@ -638,7 +638,7 @@ const DependencyCell: React.FC<{
   return (
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
-        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
           <span className="max-w-[120px] truncate">{labelOf(id)}</span>
           <button
             type="button"
@@ -653,7 +653,7 @@ const DependencyCell: React.FC<{
       <Popover>
         <PopoverTrigger asChild>
           <IconButton
-            size="xs"
+            size="inline"
             type="button"
             aria-label="Add dependency"
           >
@@ -745,7 +745,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
             </button>
           </span>
         ) : (
-          <span key={i} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
+          <span key={i} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
             <a
               href={url}
               target="_blank"
@@ -763,7 +763,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
       )}
       <Popover>
         <PopoverTrigger asChild>
-          <IconButton size="xs" type="button" aria-label="Add file">
+          <IconButton size="inline" type="button" aria-label="Add file">
             <Plus className="h-3.5 w-3.5" />
           </IconButton>
         </PopoverTrigger>
@@ -1043,7 +1043,7 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
   return (
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
-        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
           <RowHoverCard rowId={id}>
             <span className="inline-flex min-w-0 items-center gap-1">
               <span className="leading-none">{pageLinks.icon(id)}</span>
@@ -1064,7 +1064,7 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <IconButton
-              size="xs"
+              size="inline"
               type="button"
               aria-label={`Link a ${noun}`}
             >

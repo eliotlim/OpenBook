@@ -123,7 +123,7 @@ export default function LibraryNavigationTree() {
           renderRowActions={(item, {openMenu}) => (
             <>
               <IconButton
-                size="xs"
+                size="inline"
                 aria-label={t('menu.addSubpage')}
                 title={t('menu.addSubpage')}
                 onClick={() => void createSubpage(item.id, 'page').then(openPrimary)}
@@ -131,7 +131,7 @@ export default function LibraryNavigationTree() {
                 <Plus className="h-3.5 w-3.5" />
               </IconButton>
               <IconButton
-                size="xs"
+                size="inline"
                 aria-label={t('nav.more')}
                 title={t('nav.more')}
                 onClick={openMenu}
