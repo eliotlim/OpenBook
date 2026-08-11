@@ -316,13 +316,17 @@ fn spawn_sidecar(
 /// cannot enter the crash retry loop. The socket is rebound, so the host bridge
 /// and IPC requests reconnect across the brief gap.
 fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    let (generation, payload) = state
-        .supervision
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .begin_forced_respawn()
-        .ok_or_else(|| "the app is shutting down".to_string())?;
-    emit_sidecar_state(app, payload);
+    let generation = {
+        let mut supervisor = state
+            .supervision
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (generation, payload) = supervisor
+            .begin_forced_respawn()
+            .ok_or_else(|| "the app is shutting down".to_string())?;
+        emit_sidecar_state(app, payload);
+        generation
+    };
 
     // Take and drop the lock before BOOT-7's potentially blocking graceful stop.
     // The generation was already invalidated, so this death is expected.
@@ -364,7 +368,7 @@ fn launch_sidecar(app: &AppHandle, state: &AppState, generation: u64) -> Result<
         &cfg,
     )?;
 
-    let running_payload = {
+    let should_schedule_healthy_reset = {
         let mut supervisor = state
             .supervision
             .lock()
@@ -379,15 +383,16 @@ fn launch_sidecar(app: &AppHandle, state: &AppState, generation: u64) -> Result<
         *state
             .child
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ManagedSidecar {
-            generation,
-            child,
-        });
-        payload
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some(ManagedSidecar { generation, child });
+        let should_schedule = payload.attempts > 0;
+        emit_sidecar_state(app, payload);
+        should_schedule
     };
-    emit_sidecar_state(app, running_payload);
     monitor_sidecar(app.clone(), generation, rx);
-    schedule_healthy_reset(app.clone(), generation);
+    if should_schedule_healthy_reset {
+        schedule_healthy_reset(app.clone(), generation);
+    }
     Ok(())
 }
 
@@ -410,7 +415,7 @@ fn monitor_sidecar(
                         if stderr_tail.len() == STDERR_TAIL_LINES {
                             stderr_tail.pop_front();
                         }
-                        stderr_tail.push_back(line.to_string());
+                        stderr_tail.push_back(line.chars().take(2048).collect());
                     }
                 }
                 CommandEvent::Terminated(terminated) => {
@@ -429,6 +434,13 @@ fn monitor_sidecar(
                 _ => {}
             }
         }
+        handle_sidecar_terminated(
+            &app,
+            generation,
+            None,
+            None,
+            stderr_tail.into_iter().collect(),
+        );
     });
 }
 
@@ -474,22 +486,26 @@ fn handle_sidecar_failure(
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let Some((payload, decision)) = state
-        .supervision
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .failed(generation, Instant::now(), exit_code, stderr_tail)
-    else {
-        eprintln!("[sidecar] ignored expected/stale termination for generation {generation}");
-        return;
+    let decision = {
+        let mut supervisor = state
+            .supervision
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some((payload, decision)) =
+            supervisor.failed(generation, Instant::now(), exit_code, stderr_tail)
+        else {
+            eprintln!("[sidecar] ignored expected/stale termination for generation {generation}");
+            return;
+        };
+        emit_sidecar_state(app, payload);
+        decision
     };
-    emit_sidecar_state(app, payload);
 
     match decision {
         FailureDecision::RetryAfter(delay) => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                tokio_sleep(delay).await;
+                tokio::time::sleep(delay).await;
                 retry_sidecar(&app, generation);
             });
         }
@@ -499,12 +515,6 @@ fn handle_sidecar_failure(
             );
         }
     }
-}
-
-async fn tokio_sleep(delay: std::time::Duration) {
-    // Tauri re-exports its Tokio runtime but not `time`; a small async-friendly
-    // blocking task keeps the backoff off both the UI and async-runtime threads.
-    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(delay)).await;
 }
 
 fn retry_sidecar(app: &AppHandle, expected_generation: u64) {
@@ -528,16 +538,15 @@ fn retry_sidecar(app: &AppHandle, expected_generation: u64) {
 
 fn schedule_healthy_reset(app: AppHandle, generation: u64) {
     tauri::async_runtime::spawn(async move {
-        tokio_sleep(HEALTHY_UPTIME).await;
+        tokio::time::sleep(HEALTHY_UPTIME).await;
         let Some(state) = app.try_state::<AppState>() else {
             return;
         };
-        let payload = state
+        let mut supervisor = state
             .supervision
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .mark_healthy(generation, Instant::now());
-        if let Some(payload) = payload {
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(payload) = supervisor.mark_healthy(generation, Instant::now()) {
             emit_sidecar_state(&app, payload);
         }
     });

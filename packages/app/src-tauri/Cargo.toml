@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.128"
+tokio = { version = "1", features = ["time"] }
 # The bundled TypeScript server (`@book.dev/server`) is launched as a sidecar
 # via the shell plugin (v2 moved `tauri::api::process` here).
 tauri-plugin-shell = "2"
