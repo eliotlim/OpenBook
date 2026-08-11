@@ -138,6 +138,22 @@ describe('form block registration and wire shape', () => {
     expect(view.container.querySelector('[data-form-mode="live"]')).toBeNull();
   });
 
+  it('keeps a group-locked form frozen on an editable page when live prerequisites exist', () => {
+    const {Render, block, editor} = formHarness();
+    const client = {submitForm: vi.fn()} as unknown as DataClient;
+    const {container} = render(
+      <DataProvider client={client}>
+        <FormOriginContext.Provider value="https://example.test/?page=contact">
+          <KitLockContext.Provider value={{locked: true}}>
+            <Render block={block} editor={editor} pageReadOnly={false} />
+          </KitLockContext.Provider>
+        </FormOriginContext.Provider>
+      </DataProvider>,
+    );
+
+    expect(container.querySelector('[data-form-mode="readonly"]')).toBeTruthy();
+  });
+
   it.each([
     ['disabled', {enabled: false}],
     ['zero-cap', {maxSubmissions: 0}],

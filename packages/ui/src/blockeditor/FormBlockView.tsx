@@ -177,7 +177,7 @@ export const FormBlockView: React.FC<CustomBlockProps> = ({block, editor, pageRe
   const submissionClient = client?.submitForm
     ? client as NonNullable<typeof client> & Required<Pick<NonNullable<typeof client>, 'submitForm'>>
     : null;
-  const live = readonly && !editor.readOnly && pageId !== null && submissionClient !== null;
+  const live = pageReadOnly && !editor.readOnly && pageId !== null && submissionClient !== null;
   const config = (
     <>
       <NameDescriptionFields block={block} editor={editor} namePlaceholder={t('formBlock.label')} />
