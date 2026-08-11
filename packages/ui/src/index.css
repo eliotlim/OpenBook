@@ -1934,9 +1934,11 @@ a.obe-mention {
   font-size: 11px;
   color: hsl(var(--muted-foreground));
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
-.obe-table-wrap:hover .obe-table-tools { opacity: 1; }
+.obe-table-wrap:hover .obe-table-tools,
+.obe-table-tools:focus-within { opacity: 1; pointer-events: auto; }
 .obe-table-tools button {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
