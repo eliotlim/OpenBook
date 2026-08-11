@@ -1,4 +1,4 @@
-import {mkdir, open, rename, readdir, rm} from 'node:fs/promises';
+import {mkdir, open, rename, readdir, rm, stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
   BACKUP_CADENCES,
@@ -46,6 +46,7 @@ export interface BackupController {
 
 /** Make an ISO timestamp safe + lexically sortable as a filename segment. */
 const fileStamp = (iso: string): string => iso.replace(/[:.]/g, '-');
+const TMP_ORPHAN_MAX_AGE_MS = 60 * 60 * 1000;
 
 export class BackupScheduler implements BackupController {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -231,7 +232,18 @@ export class BackupScheduler implements BackupController {
       await rm(join(cadenceDir, f), {force: true});
     }
     for (const orphan of entries.filter((entry) => entry.endsWith('.openbook.json.tmp'))) {
-      await rm(join(cadenceDir, orphan), {force: true});
+      const tmpPath = join(cadenceDir, orphan);
+      let mtimeMs: number;
+      try {
+        ({mtimeMs} = await stat(tmpPath));
+      } catch (err) {
+        // A concurrent writer may have renamed its tmp after our readdir.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw err;
+      }
+      if (this.now() - mtimeMs > TMP_ORPHAN_MAX_AGE_MS) {
+        await rm(tmpPath, {force: true});
+      }
     }
   }
 

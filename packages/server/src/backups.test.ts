@@ -1,4 +1,4 @@
-import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile, rm, utimes, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
@@ -130,18 +130,32 @@ describe('BackupScheduler', () => {
   it('prunes to the retention count, keeping the newest', async () => {
     await store.updateBackupConfig({keep: {daily: 2, weekly: 5, monthly: 12, yearly: 3}});
     const s = scheduler();
-    const cadenceDir = join(backupDir, 'daily');
-    const orphan = 'openbook-backup-orphan.openbook.json.tmp';
-    await mkdir(cadenceDir, {recursive: true});
-    await writeFile(join(cadenceDir, orphan), 'incomplete');
     for (let i = 0; i < 4; i += 1) {
       nowMs += DAY; // distinct, sortable filenames
       await s.runNow('daily');
     }
     const remaining = (await listSnapshots('daily')).sort();
     expect(remaining).toHaveLength(2);
-    expect(await readdir(cadenceDir)).not.toContain(orphan);
     // The two kept are the most recent (lexically largest ISO-stamped names).
+  });
+
+  it('prunes old tmp orphans without deleting fresh in-flight tmp files', async () => {
+    const cadenceDir = join(backupDir, 'daily');
+    const fresh = 'openbook-backup-fresh.openbook.json.tmp';
+    const old = 'openbook-backup-old.openbook.json.tmp';
+    await mkdir(cadenceDir, {recursive: true});
+    await writeFile(join(cadenceDir, fresh), 'in-flight');
+    await writeFile(join(cadenceDir, old), 'orphaned');
+    const freshTime = new Date(nowMs);
+    const oldTime = new Date(nowMs - 60 * 60 * 1000 - 1);
+    await utimes(join(cadenceDir, fresh), freshTime, freshTime);
+    await utimes(join(cadenceDir, old), oldTime, oldTime);
+
+    await scheduler().runNow('daily');
+
+    const entries = await readdir(cadenceDir);
+    expect(entries).toContain(fresh);
+    expect(entries).not.toContain(old);
   });
 
   it('a scheduled snapshot round-trips cleanly through the import/restore path (OB-176)', async () => {
