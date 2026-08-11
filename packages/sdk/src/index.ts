@@ -24,6 +24,7 @@ export type {
 } from './types';
 export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POLICIES, resolveAgentEdits} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
+export {generateSubmissionKey, type FormSubmissionRequest, type FormSubmissionResult} from './forms';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient, IdentityRejectedError} from './client';
 export {
@@ -186,6 +187,7 @@ export {
   OWNER_PROPERTY_ID,
   VERIFICATION_PROPERTY_ID,
   BACKLINKS_PROPERTY_ID,
+  FORM_SUBMISSION_PROPERTY_ID,
   THEME_PROPERTY_ID,
   COVER_PROPERTY_ID,
   FONTS_PROPERTY_ID,
