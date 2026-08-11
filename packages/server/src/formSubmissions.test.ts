@@ -1,8 +1,9 @@
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
+  FORM_SUBMISSION_PROPERTY_ID,
   FORWARDED_HEADER,
   generateSubmissionKey,
   mintIdentityKeypair,
@@ -20,18 +21,28 @@ import {IDENTITY_HEADER} from './principal';
 import {
   FORM_SUBMISSION_MAX_BODY_BYTES,
   FORM_SUBMISSION_MAX_VALUE_BYTES,
-  FORM_SUBMISSION_PROVENANCE_PROPERTY,
 } from './formAccess';
 
 const ISS = 'https://account.book.pub';
 
 let store: PageStore;
+let db: PgliteDb;
 let dir: string;
 let seq = 0;
 let kp: IdentityKeypair;
 let jwks: Jwks;
 
 const emptySnapshot = () => ({editorjs: {blocks: []}, values: [], names: []});
+
+const formSnapshot = (props: Record<string, unknown>, id = `form-block-${seq}`) => ({
+  // Mirrors projectBlockPageSnapshot: editorjs is the export projection, while
+  // blockdoc retains the raw props/children consumed by the capability gate.
+  editorjs: {blocks: [{id, type: 'form', data: {props, text: ''}}]},
+  values: [],
+  names: [],
+  editor: 'blocks' as const,
+  blockdoc: {v: 1 as const, update: '', blocks: [{id, type: 'form', props}]},
+});
 
 const identityFor = (sub: string, over: Partial<IdentityClaims> = {}): Promise<string> =>
   signIdentity(
@@ -52,7 +63,8 @@ beforeEach(async () => {
   seq += 1;
   dir = join(tmpdir(), `ob-form-submit-${process.pid}-${seq}`);
   rmSync(dir, {recursive: true, force: true});
-  store = new PageStore(await PgliteDb.create(dir));
+  db = await PgliteDb.create(dir);
+  store = new PageStore(db);
   await store.migrate();
   kp = await mintIdentityKeypair('form-k1');
   jwks = {keys: [kp.publicJwk]};
@@ -64,13 +76,14 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await store.close();
   rmSync(dir, {recursive: true, force: true});
 });
 
 const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
 
-async function seedForm(over: {enabled?: boolean; visibility?: 'public' | 'members' | 'restricted'} = {}) {
+async function seedForm(over: {enabled?: boolean; visibility?: 'public' | 'members' | 'restricted'; maxSubmissions?: number} = {}) {
   const page = await store.upsertPage({name: `form-host-${seq}`, data: emptySnapshot()});
   const database = await store.createDatabase({pageId: page.id, name: 'Submissions'});
   const formId = `contact-${seq}`;
@@ -80,16 +93,12 @@ async function seedForm(over: {enabled?: boolean; visibility?: 'public' | 'membe
     submissionKey,
     enabled: over.enabled ?? true,
     databaseId: database.id,
-    schema: {fields: []},
+    schema: {fields: [], ...(over.maxSubmissions === undefined ? {} : {maxSubmissions: over.maxSubmissions})},
   };
   await store.upsertPage({
     id: page.id,
     name: page.name,
-    data: {
-      editorjs: {blocks: [{id: `form-block-${seq}`, type: 'form', props}]},
-      values: [],
-      names: [],
-    },
+    data: formSnapshot(props),
   });
   await store.setPageVisibility(page.id, over.visibility ?? 'public');
   return {pageId: page.id, databaseId: database.id, formId, submissionKey, props};
@@ -136,7 +145,7 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(result.rowId);
     expect(rows[0].properties.email).toBe('reader@example.com');
-    expect(rows[0].properties[FORM_SUBMISSION_PROVENANCE_PROPERTY]).toEqual({
+    expect(rows[0].properties[FORM_SUBMISSION_PROPERTY_ID]).toEqual({
       formId: seeded.formId,
       submittedAt: result.submittedAt,
     });
@@ -163,18 +172,14 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     await store.upsertPage({
       id: seeded.pageId,
       name: `form-host-${seq}`,
-      data: {
-        editorjs: {blocks: [{type: 'form', props: {...seeded.props, enabled: false}}]},
-        values: [],
-        names: [],
-      },
+      data: formSnapshot({...seeded.props, enabled: false}),
     });
     responses.push(await submit(a, seeded.pageId, seeded.formId, validBody));
 
     await store.upsertPage({
       id: seeded.pageId,
       name: `form-host-${seq}`,
-      data: {editorjs: {blocks: [{type: 'form', props: seeded.props}]}, values: [], names: []},
+      data: formSnapshot(seeded.props),
     });
     await store.setPageVisibility(seeded.pageId, 'members');
     responses.push(await submit(a, seeded.pageId, seeded.formId, validBody));
@@ -201,10 +206,11 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     expect(await store.listRows(seeded.databaseId)).toHaveLength(1);
   });
 
-  it('replays an idempotency key as the exact original success without a second row', async () => {
+  it('replays in the same millisecond with the exact original success and one edit-log row', async () => {
     const seeded = await seedForm();
     const a = app();
     const body = submissionBody(seeded.submissionKey, `stable-replay-${seq}`);
+    vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-08-12T01:02:03.456Z');
     const first = await submit(a, seeded.pageId, seeded.formId, body);
     const firstBytes = await first.text();
     const replay = await submit(a, seeded.pageId, seeded.formId, body);
@@ -214,6 +220,31 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     expect(replay.status).toBe(201);
     expect(replayBytes).toBe(firstBytes);
     expect(await store.listRows(seeded.databaseId)).toHaveLength(1);
+    const rowId = (JSON.parse(firstBytes) as {rowId: string}).rowId;
+    expect((await store.listEdits(rowId)).filter((edit) => edit.kind === 'form.submit')).toHaveLength(1);
+  });
+
+  it('allows a submission below maxSubmissions and uniformly denies once the cap is reached', async () => {
+    const seeded = await seedForm({maxSubmissions: 2});
+    await store.createRow(seeded.databaseId, {name: 'existing'});
+
+    const belowCap = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `below-cap-${seq}`),
+    );
+    expect(belowCap.status).toBe(201);
+    expect(await store.countActiveRows(seeded.databaseId)).toBe(2);
+
+    const atCap = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `at-cap-${seq}`),
+    );
+    expect(`${atCap.status}\n${await atCap.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.countActiveRows(seeded.databaseId)).toBe(2);
   });
 
   it('rejects raw-body and per-value oversize submissions', async () => {
@@ -255,14 +286,48 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
     await store.upsertPage({
       id: seeded.pageId,
       name: `form-host-${seq}`,
-      data: {
-        editorjs: {blocks: [{type: 'form', props: {...seeded.props, databaseId: otherDatabase.id}}]},
-        values: [],
-        names: [],
-      },
+      data: formSnapshot({...seeded.props, databaseId: otherDatabase.id}),
     });
     const response = await submit(app(), seeded.pageId, seeded.formId, submissionBody(seeded.submissionKey));
     expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
     expect(await store.listRows(otherDatabase.id)).toHaveLength(0);
+  });
+
+  it('uniformly denies a form bound to an authoritative managed database', async () => {
+    const seeded = await seedForm();
+    await store.setSetting('aiUsageDb', {databaseId: seeded.databaseId, hostPageId: seeded.pageId});
+
+    const response = await submit(app(), seeded.pageId, seeded.formId, submissionBody(seeded.submissionKey));
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.countActiveRows(seeded.databaseId)).toBe(0);
+  });
+
+  it('uniformly denies a form bound to a ledger database before createRow can leak its managed 403', async () => {
+    const info = await store.ledger.ensureSetup();
+    const databaseId = info.databases!.transactions;
+    const database = (await store.getDatabase(databaseId))!;
+    const formId = `ledger-form-${seq}`;
+    const submissionKey = generateSubmissionKey();
+    const snapshot = formSnapshot({
+      formId,
+      submissionKey,
+      enabled: true,
+      databaseId,
+      schema: {fields: []},
+    }, `ledger-form-block-${seq}`);
+    // Deliberately bypass the ledger store guard to exercise hostile persisted
+    // state: ordinary APIs correctly cannot put a form on a ledger host page.
+    await db.query('UPDATE pages SET data = $2::jsonb WHERE id = $1', [database.pageId, JSON.stringify(snapshot)]);
+    const before = await store.countActiveRows(databaseId);
+
+    const response = await submit(
+      app(),
+      database.pageId,
+      formId,
+      submissionBody(submissionKey, `ledger-${seq}`),
+      {jws: await identityFor('owner'), clientHeader: false},
+    );
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.countActiveRows(databaseId)).toBe(before);
   });
 });

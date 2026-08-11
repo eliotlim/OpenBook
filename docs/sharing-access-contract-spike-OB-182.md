@@ -10,9 +10,12 @@ An anonymous form submission is authorized by a capability stored in the form
 block's persisted props: `{formId, submissionKey, enabled, databaseId, schema}`.
 The v1 endpoint is page-scoped —
 `POST /api/pages/:pageId/forms/:formId/submissions` — so the server reads that
-single page and scans the retained `PageSnapshot.editorjs` JSON projection for a
-matching `type:'form'` block; it never performs a full-library form-id scan and no
-form-definition table is introduced. Submission keys are crypto-random, 256-bit,
+single page and scans for a matching `type:'form'` block in
+`PageSnapshot.blockdoc.blocks`, the raw recursive
+JSON written by the block editor's `encodeSnapshot`; `editorjs` is only the export
+projection and is not authoritative for form props/children. The server never
+performs a full-library form-id scan and no form-definition table is introduced.
+Submission keys are crypto-random, 256-bit,
 unpadded base64url values. Keeping the key in readable page props is acceptable:
 anyone who can read the published page already has permission to submit to that
 form. The capability is not intended to be secret from readers; it prevents
@@ -32,11 +35,14 @@ existing page decision. In particular, `guestAccess:'off'` denies every
 unauthenticated submission even when the page is public and the supplied key is
 valid. The target database must exist and be hosted by the same page; this
 fail-closed binding prevents edited props from becoming a confused-deputy write
-into an unrelated database.
+into an unrelated database. Server-managed databases (including every ledger
+database) are also denied inside this same gate, before the generic row writer's
+managed-database error can expose a distinct response.
 
 No-such-page, no-such-form, duplicate/malformed form definitions, disabled form,
 wrong or missing key, unreadable host page, foreign/missing target database, and
-the `guestAccess:'off'` floor all return the identical `404` JSON bytes
+the `guestAccess:'off'` floor, a managed target database, and a reached submission
+ceiling all return the identical `404` JSON bytes
 `{"error":"form not found"}`. A caller cannot use response status or body as an
 existence oracle. The guest-mutation CSRF posture is unchanged: an anonymous POST
 must carry `X-OpenBook-Client` (or the existing non-simple Authorization header)
@@ -48,7 +54,14 @@ Rows record submitted values plus the reserved `sys_form_submission`
 `{formId, submittedAt}` provenance marker; anonymous submissions assert no
 verified author. FORM-5 will apply the form schema semantics. FORM-1 limits only
 the JSON envelope: 100 top-level fields, depth 8, 16 KiB per value, 128 KiB total
-values, a 200-byte idempotency key, and a 160 KiB raw request body.
+values, a 200-byte idempotency key after trimming, and a 160 KiB raw request body.
+
+As an interim abuse ceiling pending FORM-6 rate limiting, the gate counts the
+target database's non-deleted rows before creation. It denies when the count is
+greater than or equal to the form schema's non-negative integer `maxSubmissions`;
+when that field is absent, the instance default is the documented constant
+10,000 submissions per form. A malformed override fails closed. The default is
+not yet instance-configurable (FORM-6 owns that policy together with rate limits).
 
 **FORM-6 asset-upload carve-out (design only).** A future asset endpoint may accept
 the same page+form submission capability to stage files for a submission without

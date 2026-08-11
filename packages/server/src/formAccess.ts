@@ -23,7 +23,9 @@ export const FORM_SUBMISSION_MAX_VALUE_BYTES = 16 * 1024;
 export const FORM_SUBMISSION_MAX_VALUE_DEPTH = 8;
 export const FORM_SUBMISSION_MAX_FIELDS = 100;
 export const FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES = 200;
-export const FORM_SUBMISSION_PROVENANCE_PROPERTY = 'sys_form_submission';
+/** Interim FORM-1 abuse ceiling when the persisted form schema has no override. */
+export const FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS = 10_000;
+// TODO(FORM-6): make the default instance-configurable with the rate-limit policy.
 
 const DUMMY_SUBMISSION_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const textEncoder = new TextEncoder();
@@ -61,14 +63,15 @@ export function constantTimeSubmissionKeyEqual(provided: string, expected: strin
 }
 
 /**
- * Locate one form in the retained `PageSnapshot.editorjs` JSON projection.
- * Nested block children are scanned iteratively; `blockdoc` is intentionally not
- * consulted because `editorjs` is the storage/back-compat projection contract.
- * Duplicate matching ids or malformed matching props fail closed.
+ * Locate one form in the raw `PageSnapshot.blockdoc.blocks` JSON projection
+ * written by the block editor's `encodeSnapshot`. The retained `editorjs` field
+ * is an export projection and is not authoritative for block props or children.
+ * Nested block children are scanned iteratively. A missing/malformed blockdoc,
+ * duplicate matching ids, or malformed matching props fail closed.
  */
 export function findFormInPage(page: Pick<StoredPage, 'data'>, formId: string): StoredFormDefinition | null {
-  const projection = isRecord(page.data.editorjs) ? page.data.editorjs : null;
-  const roots = projection && Array.isArray(projection.blocks) ? projection.blocks : [];
+  const blockdoc = isRecord(page.data.blockdoc) ? page.data.blockdoc : null;
+  const roots = blockdoc && Array.isArray(blockdoc.blocks) ? blockdoc.blocks : [];
   const stack: unknown[] = [...roots].reverse();
   const seen = new Set<object>();
   let found: StoredFormDefinition | null = null;
@@ -108,6 +111,16 @@ export function findFormInPage(page: Pick<StoredPage, 'data'>, formId: string): 
   return found;
 }
 
+/** Resolve a non-negative integer schema override, failing closed if malformed. */
+function formSubmissionCap(schema: unknown): number | null {
+  if (!isRecord(schema) || !Object.prototype.hasOwnProperty.call(schema, 'maxSubmissions')) {
+    return FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS;
+  }
+  return Number.isSafeInteger(schema.maxSubmissions) && (schema.maxSubmissions as number) >= 0
+    ? schema.maxSubmissions as number
+    : null;
+}
+
 /**
  * Resolve and authorize a form submission through one indistinguishable deny
  * door. The caller's existing page READ decision is reused verbatim; guests,
@@ -126,6 +139,9 @@ export async function requireFormSubmissionAccess(
   const keyMatches = constantTimeSubmissionKeyEqual(providedKey, form?.submissionKey ?? DUMMY_SUBMISSION_KEY);
   const {decision, exists} = await store.decidePageAccess(c.get('principal'), pageId);
   const database = form ? await store.getDatabase(form.databaseId) : null;
+  const submissionCap = form ? formSubmissionCap(form.schema) : null;
+  const managedDatabase = database ? await store.isManagedDatabase(database.id) : false;
+  const submissionCount = database ? await store.countActiveRows(database.id) : 0;
 
   // Bind the capability to a database hosted by the SAME page. Without this,
   // editable form props would be a confused-deputy write primitive into an
@@ -138,7 +154,10 @@ export async function requireFormSubmissionAccess(
     !exists ||
     !decision.canRead ||
     !database ||
-    database.pageId !== pageId
+    database.pageId !== pageId ||
+    managedDatabase ||
+    submissionCap === null ||
+    submissionCount >= submissionCap
   ) {
     denyFormSubmission();
   }
@@ -178,10 +197,11 @@ export function validateFormSubmissionRequest(body: unknown): FormSubmissionRequ
   if (!isRecord(body) || !isRecord(body.values)) {
     throw new HTTPException(400, {message: 'invalid form submission'});
   }
+  const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
   if (
     typeof body.idempotencyKey !== 'string' ||
-    body.idempotencyKey.trim().length === 0 ||
-    textEncoder.encode(body.idempotencyKey).byteLength > FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES
+    idempotencyKey.length === 0 ||
+    textEncoder.encode(idempotencyKey).byteLength > FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES
   ) {
     throw new HTTPException(400, {message: 'invalid form submission'});
   }
@@ -209,6 +229,6 @@ export function validateFormSubmissionRequest(body: unknown): FormSubmissionRequ
   return {
     key: formSubmissionKey(body),
     values: body.values,
-    idempotencyKey: body.idempotencyKey.trim(),
+    idempotencyKey,
   };
 }
