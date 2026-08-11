@@ -93,12 +93,6 @@ import {pageIconToText} from '@/lib/iconValue';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -107,13 +101,18 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {formatShortcut} from '@/lib/shortcuts';
+import {
+  MENU_COMPONENTS,
+  MENU_DESTRUCTIVE_CLASS,
+  MENU_WIDTH_MD,
+  MENU_WIDTH_SM,
+} from '@/components/ui/menu-components';
+import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
@@ -688,16 +687,22 @@ export const BlockEditor: React.FC<{
       editor.clearSelection();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+    if (matchShortcut(e, SHORTCUTS.duplicateBlock)) {
       e.preventDefault();
       editor.duplicateSelected();
       setLive('Duplicated');
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    if (matchShortcut(e, SHORTCUTS.moveBlockUp)) {
       e.preventDefault();
-      editor.moveSelected(e.key === 'ArrowDown' ? 1 : -1);
-      setLive(e.key === 'ArrowDown' ? 'Moved down' : 'Moved up');
+      editor.moveSelected(-1);
+      setLive('Moved up');
+      return;
+    }
+    if (matchShortcut(e, SHORTCUTS.moveBlockDown)) {
+      e.preventDefault();
+      editor.moveSelected(1);
+      setLive('Moved down');
       return;
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1735,42 +1740,6 @@ const COLOR_MENU: Array<{id: string | null; label: string}> = [
 ];
 
 /**
- * The two Radix menu families expose the same item/sub/separator shape, so the
- * one canonical block-action list below renders through whichever bundle its
- * host provides — the drag-handle {@link DropdownMenu} or the right-click
- * {@link ContextMenu}. (Mirrors the `PageMenuItems` single-source pattern.)
- * Typed as {@link React.ElementType} because we only lean on the props both
- * families share (onSelect/className/children).
- */
-interface BlockMenuComponentSet {
-  Item: React.ElementType;
-  Separator: React.ElementType;
-  Shortcut: React.ElementType;
-  Sub: React.ElementType;
-  SubTrigger: React.ElementType;
-  SubContent: React.ElementType;
-}
-
-const BLOCK_MENU_COMPONENTS: Record<'context' | 'dropdown', BlockMenuComponentSet> = {
-  context: {
-    Item: ContextMenuItem,
-    Separator: ContextMenuSeparator,
-    Shortcut: ContextMenuShortcut,
-    Sub: ContextMenuSub,
-    SubTrigger: ContextMenuSubTrigger,
-    SubContent: ContextMenuSubContent,
-  },
-  dropdown: {
-    Item: DropdownMenuItem,
-    Separator: DropdownMenuSeparator,
-    Shortcut: DropdownMenuShortcut,
-    Sub: DropdownMenuSub,
-    SubTrigger: DropdownMenuSubTrigger,
-    SubContent: DropdownMenuSubContent,
-  },
-};
-
-/**
  * The single source of truth for a block's actions, rendered from both entry
  * points — the drag-handle click menu ({@link HandleMenu}, `menu="dropdown"`)
  * and the right-click menu ({@link BlockRowMenu}, `menu="context"`). One list
@@ -1788,7 +1757,7 @@ const BlockMenuItems: React.FC<{
   const id = blockId(block);
   const isText = TEXT_BLOCKS.has(blockType(block));
   const ops = blockOps(editor, id);
-  const C = BLOCK_MENU_COMPONENTS[menu];
+  const C = MENU_COMPONENTS[menu];
 
   // Review affordances need the host (BlockPageDocument) mounted and the live
   // doc registered against a page id (so the composer knows its target page).
@@ -1827,7 +1796,7 @@ const BlockMenuItems: React.FC<{
         <>
           <C.Sub>
             <C.SubTrigger>Turn into</C.SubTrigger>
-            <C.SubContent className="w-40">
+            <C.SubContent className={MENU_WIDTH_SM}>
               {TURN_OPTIONS.map((o) => (
                 <C.Item key={o.label} onSelect={() => ops.turn(o.type, o.props)}>
                   {o.label}
@@ -1841,7 +1810,7 @@ const BlockMenuItems: React.FC<{
 
       <C.Sub>
         <C.SubTrigger>Text colour</C.SubTrigger>
-        <C.SubContent className="w-40">
+        <C.SubContent className={MENU_WIDTH_SM}>
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
               <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
@@ -1852,7 +1821,7 @@ const BlockMenuItems: React.FC<{
       </C.Sub>
       <C.Sub>
         <C.SubTrigger>Background</C.SubTrigger>
-        <C.SubContent className="w-40">
+        <C.SubContent className={MENU_WIDTH_SM}>
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
@@ -1866,20 +1835,20 @@ const BlockMenuItems: React.FC<{
       <C.Item onSelect={() => editor.setSelection([id])}>Select block</C.Item>
       <C.Item onSelect={ops.duplicate}>
         Duplicate
-        <C.Shortcut>{formatShortcut({key: 'd', mod: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.duplicateBlock)}</C.Shortcut>
       </C.Item>
       <C.Item onSelect={() => ops.move(-1)}>
         Move up
-        <C.Shortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.moveBlockUp)}</C.Shortcut>
       </C.Item>
       <C.Item onSelect={() => ops.move(1)}>
         Move down
-        <C.Shortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.moveBlockDown)}</C.Shortcut>
       </C.Item>
       <C.Separator />
-      <C.Item className="text-destructive focus:text-destructive" onSelect={ops.remove}>
+      <C.Item className={MENU_DESTRUCTIVE_CLASS} onSelect={ops.remove}>
         Delete
-        <C.Shortcut>{formatShortcut({key: 'backspace'})}</C.Shortcut>
+        <C.Shortcut>{formatShortcut(SHORTCUTS.deleteBlock)}</C.Shortcut>
       </C.Item>
     </>
   );
@@ -1889,7 +1858,7 @@ const BlockMenuItems: React.FC<{
  *  on the gutter handle acts without leaving the mouse. Thin wrapper over the
  *  shared {@link BlockMenuItems}. */
 const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <DropdownMenuContent align="start" side="bottom" className="w-44">
+  <DropdownMenuContent align="start" side="bottom" className={MENU_WIDTH_MD}>
     <BlockMenuItems block={block} editor={editor} menu="dropdown" />
   </DropdownMenuContent>
 );
@@ -1898,7 +1867,7 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
  *  menu, so right-clicking a block reads as "this block", not "this page". Thin
  *  wrapper over the shared {@link BlockMenuItems}. */
 const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
-  <ContextMenuContent className="w-44">
+  <ContextMenuContent className={MENU_WIDTH_MD}>
     <BlockMenuItems block={block} editor={editor} menu="context" />
   </ContextMenuContent>
 );
@@ -2525,7 +2494,7 @@ const TableColorSubmenu: React.FC<{
 }> = ({label, current, onPick}) => (
   <ContextMenuSub>
     <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
-    <ContextMenuSubContent className="w-40">
+    <ContextMenuSubContent className={MENU_WIDTH_SM}>
       {COLOR_MENU.map((c) => (
         <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
           <span
@@ -2583,7 +2552,7 @@ const TableRangeMenuContent: React.FC<{
   const first = cells.length > 0 ? tableCellOwnColor(cells[0]) : null;
   const current = cells.length > 0 && cells.every((c) => tableCellOwnColor(c) === first) ? first : null;
   return (
-    <ContextMenuContent className="w-52">
+    <ContextMenuContent className={MENU_WIDTH_MD}>
       <ContextMenuLabel>
         {t('menu.table.sectionSelection')} · {rowCount} × {colCount}
       </ContextMenuLabel>
@@ -2605,7 +2574,7 @@ const TableRangeMenuContent: React.FC<{
       />
       <ContextMenuSeparator />
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => {
           tableDeleteRowRange(doc, tableId, rect.top, rect.bottom);
           onClearRange?.();
@@ -2619,7 +2588,7 @@ const TableRangeMenuContent: React.FC<{
             : t('menu.table.deleteRowsN', {n: rowCount})}
       </ContextMenuItem>
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => {
           tableDeleteColumnRange(doc, tableId, rect.left, rect.right);
           onClearRange?.();
@@ -2671,7 +2640,7 @@ const TableCellMenuContent: React.FC<{
     doc.transact(() => setBlockProp(table, 'header', !header), 'local');
   };
   return (
-    <ContextMenuContent className="w-52">
+    <ContextMenuContent className={MENU_WIDTH_MD}>
       {merged && (
         <>
           <ContextMenuItem onSelect={() => tableSplitCell(doc, blockId(cell))}>
@@ -2710,7 +2679,7 @@ const TableCellMenuContent: React.FC<{
         onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
       />
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => tableDeleteRow(doc, tableId, row)}
       >
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
@@ -2748,7 +2717,7 @@ const TableCellMenuContent: React.FC<{
         <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
       </ContextMenuItem>
       <ContextMenuItem
-        className="text-destructive focus:text-destructive"
+        className={MENU_DESTRUCTIVE_CLASS}
         onSelect={() => tableDeleteColumn(doc, tableId, col)}
       >
         <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}

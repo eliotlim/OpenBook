@@ -2,7 +2,7 @@ import {describe, it, expect, afterEach, beforeEach} from 'vitest';
 import {render, screen, cleanup, fireEvent, within} from '@testing-library/react';
 import AppearanceSettings from '../AppearanceSettings';
 import {PageAppearanceControls} from '../appearance/PageCustomiseBody';
-import {I18nProvider, ThemeProvider} from '@/providers';
+import {I18nProvider, PreferencesProvider, ThemeProvider} from '@/providers';
 import {readPageTheme} from '@/lib/pageTheme';
 import {readPageFonts} from '@/lib/pageFont';
 import {readPageCover} from '@/lib/pageCover';
@@ -10,7 +10,9 @@ import {readPageCover} from '@/lib/pageCover';
 function renderWithProviders(node: React.ReactNode) {
   return render(
     <I18nProvider>
-      <ThemeProvider defaultColorMode="light">{node}</ThemeProvider>
+      <PreferencesProvider>
+        <ThemeProvider defaultColorMode="light">{node}</ThemeProvider>
+      </PreferencesProvider>
     </I18nProvider>,
   );
 }
@@ -39,6 +41,12 @@ describe('AppearanceSettings', () => {
     fireEvent.click(screen.getByText('Forest'));
     expect(document.documentElement.style.getPropertyValue('--primary')).toBe('142 71% 38%');
     expect(JSON.parse(localStorage.getItem('openbook.appearance')!).themeId).toBe('forest');
+  });
+
+  it('persists the selected menu density', () => {
+    renderWithProviders(<AppearanceSettings />);
+    fireEvent.click(screen.getByText('Compact'));
+    expect(JSON.parse(localStorage.getItem('openbook.preferences')!).general.menuDensity).toBe('compact');
   });
 
   it('picking the Slate gray accent retints the surfaces cool', () => {

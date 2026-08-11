@@ -3,6 +3,7 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { CheckIcon, ChevronRightIcon } from "@radix-ui/react-icons"
 
 import { cn } from "@/lib/utils"
+import { useMenuDensity } from "@/components/ui/menu-density"
 
 const ContextMenu = ContextMenuPrimitive.Root
 
@@ -19,56 +20,68 @@ const ContextMenuSubTrigger = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger> & {
     inset?: boolean
   }
->(({ className, inset, children, ...props }, ref) => (
-  <ContextMenuPrimitive.SubTrigger
-    ref={ref}
-    className={cn(
-      "flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-[state=open]:bg-hover",
-      inset && "pl-8",
-      className
-    )}
-    {...props}
-  >
-    {children}
-    <ChevronRightIcon className="ml-auto h-4 w-4" />
-  </ContextMenuPrimitive.SubTrigger>
-))
+>(({ className, inset, children, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.SubTrigger
+      ref={ref}
+      className={cn(
+        "flex cursor-pointer select-none items-center rounded-sm px-2 outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-[state=open]:bg-hover",
+        density === "compact" ? "py-1 text-xs" : "py-1.5 text-sm",
+        inset && "pl-8",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRightIcon className="ml-auto h-4 w-4" />
+    </ContextMenuPrimitive.SubTrigger>
+  )
+})
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
 
 const ContextMenuSubContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.SubContent
-    ref={ref}
-    className={cn(
-      "z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-      className
-    )}
-    {...props}
-  />
-))
+>(({ className, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.SubContent
+      ref={ref}
+      className={cn(
+        "z-50 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        density === "compact" ? "p-0.5" : "p-1",
+        className
+      )}
+      {...props}
+    />
+  )
+})
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 
 const ContextMenuContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Content
-      ref={ref}
-      className={cn(
-        // Match the dropdown: bound to the viewport and scroll rather than
-        // clip, so the unified page menu's (CM-2) lower items stay reachable
-        // when the right-click opens near the bottom of the screen.
-        "z-50 max-h-[var(--radix-context-menu-content-available-height)] min-w-32 overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-overlay",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        className
-      )}
-      {...props}
-    />
-  </ContextMenuPrimitive.Portal>
-))
+>(({ className, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Content
+        ref={ref}
+        className={cn(
+          // Match the dropdown: bound to the viewport and scroll rather than
+          // clip, so the unified page menu's (CM-2) lower items stay reachable
+          // when the right-click opens near the bottom of the screen.
+          "z-50 max-h-[var(--radix-context-menu-content-available-height)] min-w-32 overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover text-popover-foreground shadow-overlay",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:pointer-events-none data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          density === "compact" ? "p-0.5" : "p-1",
+          className
+        )}
+        {...props}
+      />
+    </ContextMenuPrimitive.Portal>
+  )
+})
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
 const ContextMenuItem = React.forwardRef<
@@ -76,42 +89,50 @@ const ContextMenuItem = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> & {
     inset?: boolean
   }
->(({ className, inset, ...props }, ref) => (
-  <ContextMenuPrimitive.Item
-    ref={ref}
-    className={cn(
-      // cursor-pointer: WKWebView only dispatches clicks to elements it treats
-      // as clickable, so a div menu item without it is dead on the desktop.
-      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
-      inset && "pl-8",
-      className
-    )}
-    {...props}
-  />
-))
+>(({ className, inset, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.Item
+      ref={ref}
+      className={cn(
+        // cursor-pointer: WKWebView only dispatches clicks to elements it treats
+        // as clickable, so a div menu item without it is dead on the desktop.
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        density === "compact" ? "py-1 text-xs" : "py-1.5 text-sm",
+        inset && "pl-8",
+        className
+      )}
+      {...props}
+    />
+  )
+})
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
 
 const ContextMenuCheckboxItem = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.CheckboxItem>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.CheckboxItem>
->(({ className, children, checked, ...props }, ref) => (
-  <ContextMenuPrimitive.CheckboxItem
-    ref={ref}
-    className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
-      className
-    )}
-    checked={checked}
-    {...props}
-  >
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-      <ContextMenuPrimitive.ItemIndicator>
-        <CheckIcon className="h-4 w-4" />
-      </ContextMenuPrimitive.ItemIndicator>
-    </span>
-    {children}
-  </ContextMenuPrimitive.CheckboxItem>
-))
+>(({ className, children, checked, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.CheckboxItem
+      ref={ref}
+      className={cn(
+        "relative flex cursor-pointer select-none items-center rounded-sm pl-8 pr-2 outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        density === "compact" ? "py-1 text-xs" : "py-1.5 text-sm",
+        className
+      )}
+      checked={checked}
+      {...props}
+    >
+      <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+        <ContextMenuPrimitive.ItemIndicator>
+          <CheckIcon className="h-4 w-4" />
+        </ContextMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </ContextMenuPrimitive.CheckboxItem>
+  )
+})
 ContextMenuCheckboxItem.displayName = ContextMenuPrimitive.CheckboxItem.displayName
 
 const ContextMenuLabel = React.forwardRef<
@@ -119,13 +140,21 @@ const ContextMenuLabel = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label> & {
     inset?: boolean
   }
->(({ className, inset, ...props }, ref) => (
-  <ContextMenuPrimitive.Label
-    ref={ref}
-    className={cn("px-2 py-1.5 text-sm font-semibold text-foreground", inset && "pl-8", className)}
-    {...props}
-  />
-))
+>(({ className, inset, ...props }, ref) => {
+  const density = useMenuDensity()
+  return (
+    <ContextMenuPrimitive.Label
+      ref={ref}
+      className={cn(
+        "px-2 font-semibold text-foreground",
+        density === "compact" ? "py-1 text-xs" : "py-1.5 text-sm",
+        inset && "pl-8",
+        className
+      )}
+      {...props}
+    />
+  )
+})
 ContextMenuLabel.displayName = ContextMenuPrimitive.Label.displayName
 
 const ContextMenuSeparator = React.forwardRef<

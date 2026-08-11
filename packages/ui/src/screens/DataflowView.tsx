@@ -35,6 +35,7 @@ import {openDoc, subscribeOpenDocs} from '@/lib/openDocs';
 import {HOME_PAGE_ID} from '@/lib/homePage';
 import {useData} from '@/data';
 import {useNavigation, useTheme, useTranslation} from '@/providers';
+import {EmptyState} from '@/components/ui/empty-state';
 import {cn} from '@/lib/utils';
 
 /**
@@ -280,11 +281,13 @@ export default function DataflowView() {
 
   if (graph.nodes.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center" data-dataflow-empty>
-        <GitFork className="h-6 w-6 text-muted-foreground/50" />
-        <p className="text-sm text-muted-foreground">{t('flow.empty')}</p>
-        <p className="max-w-xs text-xs text-muted-foreground/70">{t('flow.emptyHint')}</p>
-      </div>
+      <EmptyState
+        className="h-full justify-center px-8"
+        data-dataflow-empty
+        icon={<GitFork className="h-6 w-6 text-muted-foreground/50" />}
+        title={t('flow.empty')}
+        hint={t('flow.emptyHint')}
+      />
     );
   }
 

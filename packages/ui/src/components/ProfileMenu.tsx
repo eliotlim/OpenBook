@@ -15,6 +15,7 @@ import {
 import {Button} from '@/components/ui/button';
 import AboutDialog from '@/components/AboutDialog';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
+import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {useHud, usePlatformCapabilities, useSelfIdentity, useTheme, useTranslation, type ColorMode} from '@/providers';
 
 /**
@@ -73,7 +74,7 @@ export default function ProfileMenu() {
               <ModeIcon className="mr-2 h-4 w-4" />
               {t('appearance.colorMode')}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-40">
+            <DropdownMenuSubContent className={MENU_WIDTH_SM}>
               <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as ColorMode)}>
                 <DropdownMenuRadioItem value="light">{t('appearance.light')}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="dark">{t('appearance.dark')}</DropdownMenuRadioItem>
