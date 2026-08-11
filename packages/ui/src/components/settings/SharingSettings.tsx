@@ -3,6 +3,7 @@ import type {EffectiveVisibility, GuestAccess, InstanceInfo} from '@book.dev/sdk
 import {useData} from '@/data/DataProvider';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
+import {isAdminRole} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import type {TKey} from '@/i18n';
 
@@ -114,6 +115,13 @@ const ACCESS_HINT: Record<DefaultAccess, TKey> = {
 /** Ties the live hint to the picker for assistive tech (`aria-describedby`). */
 const ACCESS_HINT_ID = 'default-access-hint';
 
+/** Strip the SDK transport wrapper while preserving the server's useful detail. */
+function cleanError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const m = raw.match(/OpenBook request failed \([^)]*\)(?::\s*([\s\S]*))?$/);
+  return (m?.[1] ?? raw).trim();
+}
+
 /**
  * The honest description for `state` under `info` — the base one-liner plus any
  * caveat the four-state mapping would otherwise paper over.
@@ -202,7 +210,7 @@ export function SharingSection() {
         await client.setInstancePolicy(accessStatePolicy(state));
         refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanError(e));
       } finally {
         setBusy(false);
       }
@@ -212,9 +220,10 @@ export function SharingSection() {
 
   if (unavailable || !info) return null;
 
-  // No claimed owner yet → anyone may set the policy (the first user claims the
-  // library); once claimed, only that owner.
-  const isOwner = !info.ownerSubject || info.ownerSubject === info.you.subject;
+  // `ownerSubject` is deliberately redacted to null for anonymous callers, so it
+  // cannot be used as an ownership signal. The effective role remains available
+  // and is null for guests; the shared helper also preserves local-owner access.
+  const isOwner = isAdminRole(info);
   const you = info.you;
   const youLine =
     you.kind === 'user'

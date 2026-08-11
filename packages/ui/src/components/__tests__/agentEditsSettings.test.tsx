@@ -66,6 +66,29 @@ describe('AgentEditsSettings (library-wide agent-edits mode)', () => {
     expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
   });
 
+  it('locks a guest when the claimed owner identity is redacted', async () => {
+    wrapLibrary({
+      getInstanceInfo: async () =>
+        info({agentEdits: 'suggest', claimed: true, ownerSubject: null, you: guestPrincipal(), youRole: null}),
+    });
+    expect((await screen.findByRole('combobox')).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Only the library owner can change how agents edit.')).toBeTruthy();
+  });
+
+  it('shows only the server detail when saving fails', async () => {
+    const setInstancePolicy = vi.fn(async () => {
+      throw new Error('OpenBook request failed (403 Forbidden): only the instance owner can change multi-user policy');
+    }) as unknown as DataClient['setInstancePolicy'];
+    wrapLibrary({
+      getInstanceInfo: async () => info({agentEdits: 'suggest'}),
+      setInstancePolicy,
+    });
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Edit pages directly'}));
+    expect(await screen.findByText(/only the instance owner can change multi-user policy/)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
+  });
+
   it('renders nothing when the server exposes no instance endpoint', async () => {
     const {container} = wrapLibrary({
       getInstanceInfo: async () => {

@@ -3,8 +3,16 @@ import type {AgentEditsMode, InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Select} from '@/components/ui/select';
+import {isAdminRole} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 import {SETTINGS_SECTION_AGENTS_EDITS} from '@/lib/settingsIndex';
+
+/** Strip the SDK transport wrapper while preserving the server's useful detail. */
+function cleanError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const m = raw.match(/OpenBook request failed \([^)]*\)(?::\s*([\s\S]*))?$/);
+  return (m?.[1] ?? raw).trim();
+}
 
 /**
  * The instance-wide agent-edits mode (AGED-5): whether an agent (an MCP client or
@@ -48,7 +56,7 @@ export default function AgentEditsSettings() {
         await client.setInstancePolicy({agentEdits: mode});
         refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(cleanError(e));
       } finally {
         setBusy(false);
       }
@@ -58,9 +66,10 @@ export default function AgentEditsSettings() {
 
   if (unavailable || !info) return null;
 
-  // No claimed owner yet → anyone may set the policy (the first user claims the
-  // library); once claimed, only that owner (matching SharingSection / the server).
-  const isOwner = !info.ownerSubject || info.ownerSubject === info.you.subject;
+  // `ownerSubject` is deliberately redacted to null for anonymous callers, so it
+  // cannot be used as an ownership signal. The effective role remains available
+  // and is null for guests; the shared helper also preserves local-owner access.
+  const isOwner = isAdminRole(info);
   const mode: AgentEditsMode = info.agentEdits ?? 'suggest';
 
   return (

@@ -1,7 +1,7 @@
 import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import type {DataClient} from '@book.dev/sdk';
-import {DEFAULT_INSTANCE_CONFIG, guestPrincipal} from '@book.dev/sdk';
+import {DEFAULT_INSTANCE_CONFIG, guestPrincipal, localPrincipal} from '@book.dev/sdk';
 import type {EffectiveVisibility, GuestAccess} from '@book.dev/sdk';
 import {
   SharingSection,
@@ -47,6 +47,24 @@ describe('SharingSection (guest access)', () => {
     expect(await screen.findByText('Default access')).toBeTruthy();
   });
 
+  it('locks a guest when the claimed owner identity is redacted', async () => {
+    const client: Partial<DataClient> = {
+      getInstanceInfo: async () => ({
+        guestAccess: 'read',
+        claimed: true,
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        requireAudience: false,
+        you: guestPrincipal(),
+        youRole: null,
+      }),
+    };
+    wrap(client);
+    expect((await screen.findByRole('combobox', {name: 'Default access'})).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Only the library owner can change this.')).toBeTruthy();
+  });
+
   it('hides itself when the server exposes no multi-user endpoint', async () => {
     const client: Partial<DataClient> = {
       getInstanceInfo: async () => {
@@ -83,12 +101,12 @@ describe('SharingSection (guest access)', () => {
       guestAccess: 'read', // freshly-claimed bootstrap …
       defaultVisibility: 'members', // … → renders "Only published pages"
       claimed: true, // …and per-page publishing really is in force (no caveat)
-      ownerSubject: null, // control enabled (unclaimed-owner path)
+      ownerSubject: null, // local-owner authority keeps the control enabled
       trustedIssuers: [],
       audience: null,
       requireAudience: false,
-      you: guestPrincipal('Ola'),
-      youRole: null,
+      you: localPrincipal(),
+      youRole: 'owner',
     }),
     setInstancePolicy,
   });
@@ -146,6 +164,17 @@ describe('SharingSection (guest access)', () => {
     await waitFor(() =>
       expect(setInstancePolicy).toHaveBeenCalledWith({defaultVisibility: 'public', guestAccess: 'write'}),
     );
+  });
+
+  it('shows only the server detail when saving fails', async () => {
+    const setInstancePolicy = vi.fn(async () => {
+      throw new Error('OpenBook request failed (403 Forbidden): only the instance owner can change multi-user policy');
+    }) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Anyone can view'}));
+    expect(await screen.findByText(/only the instance owner can change multi-user policy/)).toBeTruthy();
+    expect(screen.queryByText(/OpenBook request failed/)).toBeNull();
   });
 
   it('offers all four states', async () => {
