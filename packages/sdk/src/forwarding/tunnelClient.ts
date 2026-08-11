@@ -162,6 +162,7 @@ export class TunnelClient {
   }
 
   private async onMessage(data: string | ArrayBuffer): Promise<void> {
+    if (this.stopped) return;
     if (typeof data === 'string') {
       const frame = decodeControl(data);
       if (frame) await this.onControl(frame);

@@ -147,6 +147,7 @@ export interface ForwardingClientOptions {
    */
   localFetchImpl?: FetchLike;
   webSocketImpl?: typeof WebSocket;
+  maxBackoffMs?: number;
 }
 
 export class ForwardingClient {
@@ -443,7 +444,11 @@ export class ForwardingClient {
       ticketProvider: async () => {
         const info = await this.mintAttach(id); // fresh ticket per (re)connect
         if (info.host && info.host !== reportedHost) {
-          await this.adoptCanonicalHost(id, info.host);
+          try {
+            await this.adoptCanonicalHost(id, info.host);
+          } catch {
+            this.identity = {...(this.identity ?? id), host: info.host};
+          }
           reportedHost = info.host;
           this.opts.onHost?.(info.host);
         }
@@ -457,6 +462,7 @@ export class ForwardingClient {
       // (no port), separate from the account API's global fetch.
       fetchImpl: this.opts.localFetchImpl ?? this.opts.fetchImpl,
       webSocketImpl: this.opts.webSocketImpl,
+      maxBackoffMs: this.opts.maxBackoffMs,
     });
     this.tunnel.start();
     return {host: id.host};

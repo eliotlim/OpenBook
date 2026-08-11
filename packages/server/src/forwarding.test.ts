@@ -440,6 +440,7 @@ describe('ForwardingClient.start (live serving)', () => {
       fetchImpl: accountFetch,
       localFetchImpl: async () => new Response('[]', {status: 200}),
       webSocketImpl: ws.ctor,
+      ...{maxBackoffMs: 1},
       onStatus: (status) => statuses.push(status),
     });
 

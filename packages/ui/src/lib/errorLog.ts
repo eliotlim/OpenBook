@@ -17,7 +17,14 @@ const listeners = new Set<Listener>();
 export function push(input: ErrorLogInput): ErrorLogEntry {
   const entry: ErrorLogEntry = {...input, ts: input.ts ?? Date.now()};
   entries = [entry, ...entries].slice(0, CAPACITY);
-  listeners.forEach((listener) => listener());
+  listeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // A diagnostic subscriber must not block later listeners or unwind into
+      // the SDK callback that reported the original error.
+    }
+  });
   return entry;
 }
 

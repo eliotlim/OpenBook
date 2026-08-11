@@ -48,7 +48,7 @@ const START_RETRY_MAX_MS = 5 * 60 * 1000;
 /** Only failures that can plausibly heal without user action enter the launch retry loop. */
 const isRetryableStartError = (error: unknown): boolean =>
   (error instanceof SiteReattachError && error.retryable) ||
-  (error instanceof ForwardingApiError && error.status >= 500) ||
+  (error instanceof ForwardingApiError && (error.status >= 500 || error.status === 429)) ||
   error instanceof TypeError ||
   (error instanceof DOMException && (error.name === 'NetworkError' || error.name === 'TimeoutError'));
 
@@ -263,6 +263,13 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     startRetryTimerRef.current = null;
   }, []);
 
+  useEffect(() => {
+    if (token) return;
+    cancelStartRetry();
+    terminalStartErrorRef.current = false;
+    setClaimRefusal(null);
+  }, [token, cancelStartRetry]);
+
   const scheduleStartRetry = useCallback(() => {
     if (!enabledRef.current || startRetryTimerRef.current) return;
     const delay = startRetryDelayRef.current;
@@ -306,6 +313,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       // claim with, so we never leave it unclaimed-and-exposed. The refusal is a
       // localized, severity-aware notice (`claimRefusal`), not a raw `error` string.
       const claim = await ensureClaimedForForwarding(audienceDeps);
+      if (!enabledRef.current) return;
       if (claim.status === 'refused') {
         setStatus('offline');
         setClaimRefusal(claim.code);

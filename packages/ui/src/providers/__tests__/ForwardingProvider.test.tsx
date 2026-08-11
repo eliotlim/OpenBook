@@ -365,4 +365,36 @@ describe('ForwardingProvider — claim refusal intent (TUN-4)', () => {
     expect(result.current.claimRefusal).toBeNull();
     expect(localStorage.getItem('openbook.forwarding.enabled')).toBe('1');
   });
+
+  it('clears a boot refusal across sign-out so signing back in can attach', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('openbook.forwarding.enabled', '1');
+    signIn();
+    h.claimSpy.mockResolvedValueOnce({
+      status: 'refused',
+      code: 'unverified',
+      reason: 'identity is not ready yet',
+    } as never);
+    const {result, rerender} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.claimRefusal).toBe('unverified');
+    expect(h.clientCtor).not.toHaveBeenCalled();
+
+    await act(async () => {
+      h.account.connected = false;
+      h.account.token = null;
+      h.account.status = 'disconnected';
+      rerender();
+    });
+    expect(result.current.claimRefusal).toBeNull();
+
+    await act(async () => {
+      signIn('fresh-token');
+      rerender();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(h.clientCtor).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('online');
+  });
 });

@@ -31,4 +31,16 @@ describe('shared error log', () => {
     log.push({subsystem: 'forwarding', message: 'second'});
     expect(listener).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps notifying subscribers when an earlier listener throws', async () => {
+    const log = await import('../errorLog');
+    const later = vi.fn();
+    log.subscribe(() => {
+      throw new Error('subscriber failed');
+    });
+    log.subscribe(later);
+
+    expect(() => log.push({subsystem: 'forwarding', message: 'dial failed'})).not.toThrow();
+    expect(later).toHaveBeenCalledTimes(1);
+  });
 });
