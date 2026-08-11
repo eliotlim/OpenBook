@@ -739,7 +739,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
             <button
               type="button"
               onClick={() => remove(i)}
-              className="absolute -right-1 -top-1 hidden rounded-full bg-background text-muted-foreground shadow group-hover/file:block hover:text-destructive"
+              className="pointer-events-none absolute -right-1 -top-1 rounded-full bg-background text-muted-foreground opacity-0 shadow transition-[color,opacity] group-hover/file:pointer-events-auto group-hover/file:opacity-100 hover:text-destructive focus-visible:pointer-events-auto focus-visible:opacity-100"
               aria-label="Remove file"
             >
               <X className="h-3 w-3" />

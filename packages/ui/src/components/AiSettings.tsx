@@ -244,7 +244,7 @@ export default function AiSettings() {
                   />
                   {showKeySet && (
                     <Button
-                      size="sm"
+                      size="xs"
                       variant="outline"
                       className="shrink-0"
                       disabled={busy}
@@ -315,6 +315,7 @@ export default function AiSettings() {
         <SettingsSection title={t('ai.assistant')} description={t('ai.assistantHint')}>
           <SettingsField label={t('ai.effort')} hint={t('ai.effortHint')}>
             <Select
+              inputSize="sm"
               value={draft.effort ?? 'med'}
               wrapperClassName="w-[180px]"
               data-ai-effort
@@ -345,6 +346,7 @@ export default function AiSettings() {
             <div key={f.id} className="flex items-center justify-between gap-4">
               <span className="text-sm">{t(f.labelKey)}</span>
               <Select
+                inputSize="sm"
                 value={preferences.features[f.id] ?? 'recommended'}
                 wrapperClassName="w-[160px]"
                 onChange={(e) => updatePreferences({features: {[f.id]: e.target.value as FeatureVisibility}})}
@@ -460,7 +462,7 @@ function SkillsEditor({
           </SettingsField>
           <SettingsField label={t('ai.skillInstructions')}>
             <textarea
-              className={cn(SETTINGS_CONTROL_CLASS, 'min-h-24 resize-y')}
+              className={cn(SETTINGS_CONTROL_CLASS, '!h-auto min-h-24 resize-y')}
               value={instructions}
               placeholder={t('ai.skillInstructionsPlaceholder')}
               onChange={(e) => setInstructions(e.target.value)}

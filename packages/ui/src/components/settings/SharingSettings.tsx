@@ -230,6 +230,7 @@ export function SharingSection() {
       <p className="text-sm text-muted-foreground">{youLine}</p>
       <SettingsField label={t('sharing.defaultAccess')} hint={t('sharing.defaultAccessHint')}>
         <Select
+          inputSize="sm"
           value={state}
           wrapperClassName="w-full max-w-[280px]"
           aria-label={t('sharing.defaultAccess')}

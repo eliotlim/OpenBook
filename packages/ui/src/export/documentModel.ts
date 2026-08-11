@@ -10,6 +10,7 @@
  */
 import type {PageSnapshot} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {formSchemaFromProps} from '../blockeditor/formBlock';
 import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 
@@ -60,6 +61,7 @@ export type DocBlock =
   | {type: 'light'; label: string; status: string; value: unknown}
   | {type: 'progress'; label: string; pct: number; readout: string}
   | {type: 'image'; src: string; alt: string; caption: string; width?: string}
+  | {type: 'form'; fields: Array<{label: string; kind: string; required: boolean}>}
   /** A block no exporter can draw — a plugin-contributed or newer-version type.
    *  `raw` is the verbatim block type (renderers derive the display name from
    *  it, see `describeUnknownBlock`); `runs` is any text the block carried. */
@@ -318,6 +320,21 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets =
       const direct = rawSrc && (rawSrc.startsWith('data:') || /^https?:\/\//i.test(rawSrc)) ? rawSrc : '';
       const src = (assetId ? assets.get(assetId) : '') || direct;
       out.push({type: 'image', src, alt: str(data.alt), caption: str(data.caption).trim(), width: str(data.width) || undefined});
+      break;
+    }
+    case 'form': {
+      const props = data.props && typeof data.props === 'object' && !Array.isArray(data.props)
+        ? data.props as Record<string, unknown>
+        : data;
+      const schema = formSchemaFromProps(props);
+      out.push({
+        type: 'form',
+        fields: schema.fields.map((field) => ({
+          label: field.label,
+          kind: field.kind,
+          required: field.required,
+        })),
+      });
       break;
     }
     default:

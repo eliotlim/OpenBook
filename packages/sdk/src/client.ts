@@ -20,6 +20,7 @@ import type {
 } from './ai';
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
+import type {FormSubmissionRequest, FormSubmissionResult} from './forms';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
@@ -1180,6 +1181,15 @@ export class HttpDataClient implements DataClient {
     // dedupes the replay per-principal on that key instead.
     const body: PageInput = input.idempotencyKey ? input : {...input, id: globalThis.crypto.randomUUID()};
     return this.request<StoredPage>('POST', API.pages, body);
+  }
+
+  /** Submit values through a form block's capability-gated public endpoint. */
+  async submitForm(
+    pageId: string,
+    formId: string,
+    input: FormSubmissionRequest,
+  ): Promise<FormSubmissionResult> {
+    return this.request<FormSubmissionResult>('POST', API.formSubmissions(pageId, formId), input);
   }
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {
