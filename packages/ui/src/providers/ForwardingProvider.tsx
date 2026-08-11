@@ -275,11 +275,16 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
         localOrigin: '',
         localFetchImpl: forwarding.localFetch,
         onStatus: setStatus,
+        onHost: (canonicalHost) => {
+          setHost(canonicalHost);
+          void bindAudience(canonicalHost).catch((bindError: unknown) => {
+            setAudienceNotice({code: 'bindFailed', detail: bindError instanceof Error ? bindError.message : String(bindError)});
+          });
+        },
       });
       clientRef.current = client;
       const {host: assigned} = await client.start();
       setHost(assigned);
-      await bindAudience(assigned);
       startRetryDelayRef.current = START_RETRY_INITIAL_MS;
       terminalStartErrorRef.current = false;
     } catch (e) {
