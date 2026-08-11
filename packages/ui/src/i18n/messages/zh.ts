@@ -1101,6 +1101,10 @@ export const zh: PartialMessages = {
       changeType: '更改类型',
       delete: '删除视图',
     },
+    chipMenu: {
+      edit: '编辑…',
+      remove: '移除',
+    },
     rowMenu: {
       open: '打开',
       openTab: '在新标签页中打开',

@@ -1950,6 +1950,10 @@ export const en = {
       changeType: 'Change type',
       delete: 'Delete view',
     },
+    chipMenu: {
+      edit: 'Edit…',
+      remove: 'Remove',
+    },
     rowMenu: {
       open: 'Open',
       openTab: 'Open in new tab',

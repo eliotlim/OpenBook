@@ -1107,6 +1107,10 @@ export const ja: PartialMessages = {
       changeType: '種類を変更',
       delete: 'ビューを削除',
     },
+    chipMenu: {
+      edit: '編集…',
+      remove: '削除',
+    },
     rowMenu: {
       open: '開く',
       openTab: '新しいタブで開く',

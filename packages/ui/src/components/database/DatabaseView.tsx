@@ -1144,12 +1144,16 @@ export const Toolbar: React.FC<{
   renamingId: string | null;
   setRenamingId: (id: string | null) => void;
   onAddView: (type: DatabaseViewType) => void;
+  chipEditor?: 'filter' | 'sort' | 'group' | null;
+  onChipEditorChange?: (editor: 'filter' | 'sort' | 'group' | null) => void;
 }> = ({
   db,
   view,
   renamingId,
   setRenamingId,
   onAddView,
+  chipEditor,
+  onChipEditorChange,
 }) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
@@ -1225,9 +1229,26 @@ export const Toolbar: React.FC<{
       <div className="flex shrink-0 items-center gap-1 sm:shrink sm:flex-wrap">
         <NewRowMenu db={db} />
         <SearchBox db={db} />
-        <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-        <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-        <GroupMenu db={db} view={view} />
+        <FilterMenu
+          database={db.database!}
+          view={view}
+          onChange={(patch) => void db.updateView(view.id, patch)}
+          open={chipEditor === undefined ? undefined : chipEditor === 'filter'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'filter' : null) : undefined}
+        />
+        <SortMenu
+          database={db.database!}
+          view={view}
+          onChange={(patch) => void db.updateView(view.id, patch)}
+          open={chipEditor === undefined ? undefined : chipEditor === 'sort'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'sort' : null) : undefined}
+        />
+        <GroupMenu
+          db={db}
+          view={view}
+          open={chipEditor === undefined ? undefined : chipEditor === 'group'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'group' : null) : undefined}
+        />
         <FieldsMenu db={db} view={view} />
         <ViewOptionsMenu db={db} view={view} />
         <span className="px-1 text-xs text-muted-foreground/70">
@@ -1539,6 +1560,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   const anchorRootRef = useRef<HTMLDivElement>(null);
   useDatabaseAnchor(pageId, inline, db.loading, anchorRootRef);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [chipEditor, setChipEditor] = useState<'filter' | 'sort' | 'group' | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
   // Add a view. When its layout still needs a property picked (fresh DB with no
   // date/location/dependency/group-by column), the in-body ViewSetupCard offers
@@ -1586,11 +1608,13 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
             renamingId={renamingViewId}
             setRenamingId={setRenamingViewId}
             onAddView={addView}
+            chipEditor={chipEditor}
+            onChipEditorChange={setChipEditor}
           />
           <div className="flex flex-wrap items-center gap-x-3">
-            <FilterChips db={db} view={view} />
-            <SortChips db={db} view={view} />
-            <GroupChips db={db} view={view} />
+            <FilterChips db={db} view={view} onEdit={() => setChipEditor('filter')} />
+            <SortChips db={db} view={view} onEdit={() => setChipEditor('sort')} />
+            <GroupChips db={db} view={view} onEdit={() => setChipEditor('group')} />
           </div>
           <MetricsBar db={db} view={view} />
           <ViewBody db={db} view={view} columns={columns} schema={schema} />

@@ -1114,6 +1114,10 @@ export const de: PartialMessages = {
       changeType: 'Typ ändern',
       delete: 'Ansicht löschen',
     },
+    chipMenu: {
+      edit: 'Bearbeiten…',
+      remove: 'Entfernen',
+    },
     rowMenu: {
       open: 'Öffnen',
       openTab: 'In neuem Tab öffnen',
