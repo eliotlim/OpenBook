@@ -42,5 +42,16 @@ describe('PreferencesProvider', () => {
     // A key absent from storage falls back to its default (forward-compatible).
     expect(result.current.preferences.profile.avatar).toBe(DEFAULT_PREFERENCES.profile.avatar);
     expect(result.current.preferences.general.confirmOnTrash).toBe(true);
+    expect(result.current.preferences.general.menuDensity).toBe('comfortable');
+  });
+
+  it('persists menu density across provider remounts', () => {
+    const first = renderHook(() => usePreferences(), {wrapper});
+    act(() => first.result.current.update({general: {menuDensity: 'compact'}}));
+    expect(first.result.current.preferences.general.menuDensity).toBe('compact');
+    first.unmount();
+
+    const second = renderHook(() => usePreferences(), {wrapper});
+    expect(second.result.current.preferences.general.menuDensity).toBe('compact');
   });
 });

@@ -18,6 +18,8 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 
+export {MenuDensityProvider, useMenuDensity, type MenuDensity} from '@/components/ui/menu-density';
+
 /**
  * The two Radix menu families expose the same item/checkbox/sub/separator shape,
  * so one canonical item list can render through whichever bundle its host

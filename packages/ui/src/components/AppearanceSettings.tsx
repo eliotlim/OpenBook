@@ -2,10 +2,11 @@ import {type ComponentType} from 'react';
 import {SlidersHorizontal} from 'lucide-react';
 import {SunIcon} from '@heroicons/react/24/outline';
 import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
-import {ColorMode, useHud, useOptionalNavigation, useTheme, useTranslation} from '@/providers';
+import {ColorMode, useHud, useOptionalNavigation, usePreferences, useTheme, useTranslation} from '@/providers';
 import {AccentPicker, Field, LevelPicker, Segmented} from '@/components/appearance/AppearanceControls';
 import {SettingsScreen, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
+import type {MenuDensity} from '@/components/ui/menu-components';
 import {CUSTOMISE_PANE_ID} from '@/lib/homePage';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import type {TKey} from '@/i18n';
@@ -22,6 +23,7 @@ export default function AppearanceSettings() {
   const {mode, setMode, appearance, setAppearance, colorScheme} = useTheme();
   const {t} = useTranslation();
   const {hud, setHud} = useHud();
+  const {preferences, update} = usePreferences();
   // Optional so the panel still renders in reduced harnesses (unit tests) without
   // a NavigationProvider; the real app always supplies one.
   const nav = useOptionalNavigation();
@@ -46,6 +48,17 @@ export default function AppearanceSettings() {
           options={MODES.map(({value, key, icon}) => ({value, label: t(key), icon}))}
           value={mode}
           onChange={setMode}
+        />
+      </Field>
+
+      <Field label={t('appearance.menuDensity')} hint={t('appearance.menuDensityHint')}>
+        <Segmented<MenuDensity>
+          options={[
+            {value: 'compact', label: t('appearance.menuDensityCompact')},
+            {value: 'comfortable', label: t('appearance.menuDensityComfortable')},
+          ]}
+          value={preferences.general.menuDensity}
+          onChange={(menuDensity) => update({general: {menuDensity}})}
         />
       </Field>
 
