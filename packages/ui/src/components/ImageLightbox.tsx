@@ -4,6 +4,7 @@ import {Minus, Plus, RotateCcw, X} from 'lucide-react';
 import {DialogPortal} from '@/components/ui/dialog';
 import {useTranslation} from '@/providers';
 import {closeLightbox, useImageLightbox} from '@/lib/imageLightbox';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 import {
   clampPan,
   fitTransform,
@@ -224,6 +225,7 @@ export default function ImageLightbox() {
                 ref={stageRef}
                 className={`obe-lightbox-stage${zoomed ? ' obe-lightbox-stage-zoomed' : ''}`}
                 data-zoomed={zoomed ? 'yes' : 'no'}
+                onContextMenu={suppressContextMenu}
                 onClick={onStageClick}
                 onDoubleClick={(e) => doToggle(e.clientX, e.clientY)}
                 onPointerDown={onPointerDown}

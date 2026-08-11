@@ -5,6 +5,7 @@ import {useHud} from '@/providers';
 import {cn} from '@/lib/utils';
 import {type SettingsMode, type SettingsTab} from '@/lib/hud';
 import SettingsPanel from '@/components/SettingsPanel';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 // Centered, fixed-size card.
 const MODAL_CLS =
@@ -41,6 +42,7 @@ export default function Settings() {
       <DialogPortal>
         <DialogOverlay />
         <DialogPrimitive.Content
+          onContextMenu={suppressContextMenu}
           className={cn(
             'fixed z-50 flex overflow-hidden bg-background p-0 shadow-overlay duration-200',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',

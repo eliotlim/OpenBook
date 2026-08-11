@@ -5,6 +5,7 @@ import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {writePageIcon} from '@/lib/pageIcon';
 import type {TKey} from '@/i18n';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /** Template ids are kebab-case; i18n keys are camelCase under `templates.`. */
 const keyOf = (id: PageTemplate['id'], field: 'name' | 'description' | 'guidance'): TKey =>
@@ -86,6 +87,7 @@ export function TemplateGallery() {
                       data-template={template.id}
                       disabled={busyId !== null}
                       onClick={() => void pick(template)}
+                      onContextMenu={suppressContextMenu}
                       className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3 text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:shadow-lift active:shadow-none disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
                     >
                       <span aria-hidden className="text-2xl leading-none">
