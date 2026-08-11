@@ -728,7 +728,7 @@ export default function ShareDialog({
                     <option value="read">{t('share.levelRead')}</option>
                     <option value="write">{t('share.levelWrite')}</option>
                   </Select>
-                  <Button size="sm" onClick={() => void addPerson()} disabled={adding || !invitee.trim()}>
+                  <Button size="xs" onClick={() => void addPerson()} disabled={adding || !invitee.trim()}>
                     {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.add')}
                   </Button>
                 </div>

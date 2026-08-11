@@ -353,7 +353,7 @@ function BookFilesFields() {
     <>
       <p className="text-sm text-muted-foreground">{t('connection.bookFilesDescription')}</p>
       <SettingsField label={t('connection.bookFolder')} className="max-w-lg">
-        <code className="block truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+        <code className="block truncate rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs">
           {info?.bookDir ?? '—'}
         </code>
       </SettingsField>
@@ -499,7 +499,7 @@ function ScheduledBackupsSection() {
               {busy ? t('backup.schedule.backingUp') : t('backup.schedule.backupNow')}
             </Button>
             {status.resolvedDir && (
-              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs">
                 {status.resolvedDir}
               </code>
             )}

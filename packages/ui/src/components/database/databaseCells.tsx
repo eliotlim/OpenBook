@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {PageIcon} from '@/components/PageIcon';
 import {usePreferences, useNavigation, useTranslation} from '@/providers';
 import {useData} from '@/data';
@@ -652,13 +653,13 @@ const DependencyCell: React.FC<{
       ))}
       <Popover>
         <PopoverTrigger asChild>
-          <button
+          <IconButton
+            size="inline"
             type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="Add dependency"
           >
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -738,7 +739,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
             <button
               type="button"
               onClick={() => remove(i)}
-              className="absolute -right-1 -top-1 hidden rounded-full bg-background text-muted-foreground shadow group-hover/file:block hover:text-destructive"
+              className="pointer-events-none absolute -right-1 -top-1 rounded-full bg-background text-muted-foreground opacity-0 shadow transition-[color,opacity] group-hover/file:pointer-events-auto group-hover/file:opacity-100 hover:text-destructive focus-visible:pointer-events-auto focus-visible:opacity-100"
               aria-label="Remove file"
             >
               <X className="h-3 w-3" />
@@ -763,9 +764,9 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
       )}
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add file">
+          <IconButton size="inline" type="button" aria-label="Add file">
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-1.5">
           <div className="flex items-center gap-1">
@@ -876,7 +877,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="51.5074"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
           <label className="flex-1">
@@ -887,7 +888,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="-0.1278"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
         </div>
@@ -898,7 +899,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setLabel(e.target.value)}
             onBlur={commit}
             placeholder="Optional name"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
         <label className="block">
@@ -908,7 +909,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setAddress(e.target.value)}
             onBlur={commit}
             placeholder="Optional address"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
       </PopoverContent>
@@ -939,7 +940,7 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className={MENU_WIDTH_MD}>
         {(property.options ?? []).map((option) => (
           <DropdownMenuItem
             key={option.id}
@@ -1063,13 +1064,13 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
       {(!single || ids.length === 0) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button
+            <IconButton
+              size="inline"
               type="button"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
               aria-label={`Link a ${noun}`}
             >
               <Plus className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-60 p-1">
             <input
@@ -1122,7 +1123,7 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className={MENU_WIDTH_MD}>
         {(property.options ?? []).map((option) => (
           <DropdownMenuItem key={option.id} onClick={() => onChange(option.id)} className="gap-2">
             <SelectChip option={option} />

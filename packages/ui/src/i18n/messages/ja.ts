@@ -11,6 +11,7 @@ export const ja: PartialMessages = {
     untitled: '無題',
     undo: '元に戻す',
     settings: '設定',
+    noOptions: 'オプションがありません',
   },
   settings: {
     title: '設定',
@@ -54,6 +55,10 @@ export const ja: PartialMessages = {
     light: 'ライト',
     dark: 'ダーク',
     system: 'システム',
+    menuDensity: 'メニューの密度',
+    menuDensityHint: 'コンパクトなメニューまたは見やすいゆったりした間隔を選択します。',
+    menuDensityCompact: 'コンパクト',
+    menuDensityComfortable: 'ゆったり',
     colorScheme: 'カラースキーム',
     colorTheme: 'カラーテーマ',
     colorThemeHint: 'アプリ全体のアクセントカラーを選択します。',
@@ -1110,10 +1115,25 @@ export const ja: PartialMessages = {
     emptyHint: '他のページから @ でこのページに言及してください。そうでなければ、その名前がリンクされていない言及としてここに表示されます。',
   },
   database: {
+    empty: {
+      noGroups: 'グループはまだありません。',
+      noConditions: '条件はまだありません。',
+      noSorts: '並べ替えはまだありません。',
+    },
     toolbar: {
       group: 'グループ',
       fields: 'フィールド',
       removeGrouping: 'グループ化を解除',
+    },
+    viewMenu: {
+      rename: 'ビュー名を変更',
+      duplicate: 'ビューを複製',
+      changeType: '種類を変更',
+      delete: 'ビューを削除',
+    },
+    chipMenu: {
+      edit: '編集…',
+      remove: '削除',
     },
     rowMenu: {
       open: '開く',

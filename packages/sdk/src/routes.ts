@@ -9,6 +9,9 @@ export const API = {
   pages: '/api/pages',
   /** Single page: `GET` / `PUT` (upsert) / `PATCH` (rename) / `DELETE` (to trash). */
   page: (id: string): string => `/api/pages/${encodeURIComponent(id)}`,
+  /** Capability-gated form row creation: `POST`. */
+  formSubmissions: (pageId: string, formId: string): string =>
+    `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/submissions`,
   /** A page's structured properties (owner, verification, …): `PATCH` (shallow merge). */
   pageProperties: (id: string): string => `/api/pages/${encodeURIComponent(id)}/properties`,
   /** Pages that link to this one (the backlink graph): `GET`. */

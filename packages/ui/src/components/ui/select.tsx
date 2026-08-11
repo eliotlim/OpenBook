@@ -2,6 +2,8 @@ import * as React from "react"
 import {Check, ChevronDown} from "lucide-react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
 
+import {EmptyState} from "@/components/ui/empty-state"
+import {t} from "@/i18n"
 import {cn} from "@/lib/utils"
 import {inputVariants} from "@/components/ui/input"
 
@@ -200,7 +202,9 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
             "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           )}
         >
-          {items.length === 0 && <div className="px-2 py-1.5 text-sm text-muted-foreground">No options</div>}
+          {items.length === 0 && (
+            <EmptyState variant="overlay" className="px-2 text-muted-foreground" title={t("common.noOptions")} />
+          )}
           {items.map((it, i) => {
             const header = it.group && it.group !== items[i - 1]?.group
             return (

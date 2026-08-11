@@ -11,6 +11,7 @@ export const zh: PartialMessages = {
     untitled: '无标题',
     undo: '撤销',
     settings: '设置',
+    noOptions: '没有选项',
   },
   settings: {
     title: '设置',
@@ -54,6 +55,10 @@ export const zh: PartialMessages = {
     light: '浅色',
     dark: '深色',
     system: '系统',
+    menuDensity: '菜单密度',
+    menuDensityHint: '选择紧凑菜单或更宽松、易于浏览的间距。',
+    menuDensityCompact: '紧凑',
+    menuDensityComfortable: '舒适',
     colorScheme: '配色方案',
     colorTheme: '配色主题',
     colorThemeHint: '选择整个应用使用的强调色。',
@@ -1104,10 +1109,25 @@ export const zh: PartialMessages = {
     emptyHint: '用 @ 从其他页面提及此页面，否则它的名称会作为未链接的提及显示在这里。',
   },
   database: {
+    empty: {
+      noGroups: '还没有分组。',
+      noConditions: '还没有筛选条件。',
+      noSorts: '还没有排序。',
+    },
     toolbar: {
       group: '分组',
       fields: '字段',
       removeGrouping: '移除分组',
+    },
+    viewMenu: {
+      rename: '重命名视图',
+      duplicate: '复制视图',
+      changeType: '更改类型',
+      delete: '删除视图',
+    },
+    chipMenu: {
+      edit: '编辑…',
+      remove: '移除',
     },
     rowMenu: {
       open: '打开',

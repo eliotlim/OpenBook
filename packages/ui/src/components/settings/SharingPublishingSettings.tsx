@@ -129,7 +129,7 @@ function ForwardingSection() {
       {host && (
         <SettingsField label={t('forwarding.address')} className="max-w-lg">
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs">
               https://{host}
             </code>
             <Button variant="outline" size="sm" onClick={copyAddress}>
@@ -247,7 +247,7 @@ function LanPublishSection() {
           </p>
           <SettingsField label={t('connection.lanAddress')} className="max-w-lg">
             <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs">
                 {info.lanAddress ?? '—'}
               </code>
               <Button variant="outline" size="sm" disabled={!info.lanAddress} onClick={() => copy('addr', info.lanAddress ?? '')}>

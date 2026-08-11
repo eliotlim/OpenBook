@@ -19,6 +19,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 import { PageIcon } from "@/components/PageIcon";
 import type { DropWhere } from "@/lib/treeMove";
 import useResizeObserver from "use-resize-observer";
+import { MENU_WIDTH_MD } from "@/components/ui/menu-components";
 
 interface TreeDataItem {
   id: string;
@@ -84,7 +85,7 @@ function WithRowMenu({menu, children}: {menu?: React.ReactNode; children: React.
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-52">{menu}</ContextMenuContent>
+      <ContextMenuContent className={MENU_WIDTH_MD}>{menu}</ContextMenuContent>
     </ContextMenu>
   );
 }
