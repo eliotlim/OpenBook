@@ -1,4 +1,5 @@
-import {execFile} from 'node:child_process';
+import {execFile, spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {existsSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {readFile, writeFile} from 'node:fs/promises';
 import {hostname, tmpdir} from 'node:os';
@@ -9,6 +10,12 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {DirLock, type DirLockInfo} from './dirLock';
 
 const pexec = promisify(execFile);
+
+const spawnDeadPid = async (): Promise<number> => {
+  const child = spawn(process.execPath, ['-e', ''], {stdio: 'ignore'});
+  await once(child, 'exit');
+  return child.pid!;
+};
 
 let dir: string;
 const lockPath = (): string => join(dir, '.test.lock');
@@ -34,7 +41,8 @@ describe('DirLock single-owner semantics', () => {
   });
 
   it('takes over a STALE lock whose holder pid is gone (ESRCH)', async () => {
-    writeHolder({pid: 999_999, host: hostname(), startedAt: new Date().toISOString()});
+    const deadPid = await spawnDeadPid();
+    writeHolder({pid: deadPid, host: hostname(), startedAt: new Date().toISOString()});
     const lock = await DirLock.acquire(lockPath());
     expect((await readHolder()).pid).toBe(process.pid); // claimed
     await lock.release();
@@ -76,9 +84,10 @@ describe('DirLock single-owner semantics', () => {
     expect((await readHolder()).startedAt).toBe('2099-01-01T00:00:00.000Z');
   });
 
-  it('isLive: hostname is informational; dead pid + own pid are taken over', () => {
-    expect(DirLock.isLive({pid: 999_999, host: 'elsewhere', startedAt: 'x'})).toBe(false); // cross-host dead pid
-    expect(DirLock.isLive({pid: 999_999, host: hostname(), startedAt: 'x'})).toBe(false); // dead pid → take over
+  it('isLive: hostname is informational; dead pid + own pid are taken over', async () => {
+    const deadPid = await spawnDeadPid();
+    expect(DirLock.isLive({pid: deadPid, host: 'elsewhere', startedAt: 'x'})).toBe(false); // cross-host dead pid
+    expect(DirLock.isLive({pid: deadPid, host: hostname(), startedAt: 'x'})).toBe(false); // dead pid → take over
     expect(DirLock.isLive({pid: process.pid, host: hostname(), startedAt: 'x'})).toBe(false); // own pid → take over
     expect(DirLock.isLive({pid: 'nope' as unknown as number, host: hostname(), startedAt: 'x'})).toBe(false); // malformed pid
   });
@@ -204,7 +213,8 @@ async function stress(opts: {n: number; rounds: number; seedStale: boolean; seed
 
 describe('DirLock single-owner stress (cross-process)', () => {
   it('two claimants over a cross-host dead-pid lock → exactly one wins', async () => {
-    writeHolder({pid: 999_999, host: 'renamed-mac', startedAt: new Date().toISOString()});
+    const deadPid = await spawnDeadPid();
+    writeHolder({pid: deadPid, host: 'renamed-mac', startedAt: new Date().toISOString()});
     const verdicts = await raceClaims(lockPath(), 2, 5_000);
     expect(verdicts.sort()).toEqual(['DECLINED', 'WON']);
   }, 15_000);

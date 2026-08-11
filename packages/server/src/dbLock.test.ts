@@ -23,6 +23,12 @@ const startLiveChild = async (): Promise<ChildProcess> => {
   return child;
 };
 
+const spawnDeadPid = async (): Promise<number> => {
+  const child = spawn(process.execPath, ['-e', ''], {stdio: 'ignore'});
+  await once(child, 'exit');
+  return child.pid!;
+};
+
 const stopChild = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, 'exit');
@@ -82,7 +88,7 @@ describe('createPgliteDb single-owner dataDir lock (corruption guard)', () => {
   });
 
   it('starts after reclaiming a dead-pid lock recorded under a prior hostname', async () => {
-    const deadPid = 999_999;
+    const deadPid = await spawnDeadPid();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     writeFileSync(
       lockPath(),
