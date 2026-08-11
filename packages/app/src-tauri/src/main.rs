@@ -1008,6 +1008,12 @@ fn prior_sidecar_pid(data_dir: &str) -> Option<i32> {
 
 /// Remove a PGlite lock left by `stale_pid`, but only while the on-disk body still
 /// names that pid. The identity recheck keeps a concurrent replacement intact.
+///
+/// Residual (accepted, ER-5-style): between the recheck and the unlink a concurrent
+/// non-app claimant (CLI verify run; a second app is excluded by the single-instance
+/// guard) could complete a breaker-serialized takeover, and we would unlink its fresh
+/// lock. The window is ~one syscall wide and requires a same-moment boot collision;
+/// serializing via the .breaker protocol from Rust is the fix if this is ever observed.
 #[cfg(unix)]
 fn remove_stale_pglite_lock(data_dir: &str, stale_pid: i32) {
     let path = Path::new(data_dir).join(".openbook-pglite.lock");

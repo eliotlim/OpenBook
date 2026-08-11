@@ -96,10 +96,13 @@ const sameIdentity = (a: DirLockInfo, b: DirLockInfo): boolean =>
  * ordinary renames/network changes, so `host` is informational: every pid is
  * probed locally. A dead pid (`ESRCH`) or our own pid (an abandoned prior instance
  * / restart replay) is stale and taken over; a live foreign pid (`EPERM`/exists)
- * is declined. Network-volume caveat: a directory genuinely shared by multiple
- * machines cannot use this lock for cross-machine exclusion because pid namespaces
- * are local. The immutable lock has no heartbeat/lease with which to add a safe
- * freshness gate; such shared data directories are therefore unsupported.
+ * is declined. Residual: a recycled pid makes a dead holder read as live (decline —
+ * annoying but safe); the desktop host's reaper narrows this with an executable-name
+ * check before signalling, but never deletes a lock whose recorded pid is alive.
+ * Network-volume caveat: a directory genuinely shared by multiple machines cannot
+ * use this lock for cross-machine exclusion because pid namespaces are local. The
+ * immutable lock has no heartbeat/lease with which to add a safe freshness gate;
+ * such shared data directories are therefore unsupported.
  */
 export class DirLock {
   private held = false;
