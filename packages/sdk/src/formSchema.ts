@@ -302,20 +302,26 @@ function appendPatternAtom(frame: PatternFrame, characterSet: PatternCharacterSe
   frame.atoms.push({characterSet, quantified: false, optional});
 }
 
-function quantifyLastPatternAtom(frame: PatternFrame, optional: boolean): boolean {
-  const atom = frame.atoms[frame.atoms.length - 1];
-  if (!atom || atom.quantified) return false;
-  atom.quantified = true;
-  atom.optional ||= optional;
-
+function hasOverlappingQuantifiedAtom(frame: PatternFrame): boolean {
+  const atomIndex = frame.atoms.length - 1;
+  const atom = frame.atoms[atomIndex];
+  if (!atom) return false;
   // Moving left, a required atom blocks earlier candidates, but is itself still
   // a candidate when quantified because no atom lies between it and this one.
-  for (let i = frame.atoms.length - 2; i >= 0; i -= 1) {
+  for (let i = atomIndex - 1; i >= 0; i -= 1) {
     const candidate = frame.atoms[i];
     if (candidate.quantified && characterSetsOverlap(candidate.characterSet, atom.characterSet)) return true;
     if (!candidate.optional) break;
   }
   return false;
+}
+
+function quantifyLastPatternAtom(frame: PatternFrame, optional: boolean): boolean {
+  const atom = frame.atoms[frame.atoms.length - 1];
+  if (!atom || atom.quantified) return false;
+  atom.quantified = true;
+  atom.optional ||= optional;
+  return hasOverlappingQuantifiedAtom(frame);
 }
 
 function quantifierAt(pattern: string, index: number): {end: number; optional: boolean} {
@@ -333,6 +339,8 @@ function patternFrame(): PatternFrame {
 /**
  * Conservative structural screen for common exponential and high-degree
  * backtracking forms. Flat atom sequences are tracked per concatenation branch.
+ * Groups containing quantifiers are treated as quantified universal atoms for
+ * overlap purposes.
  */
 function isUnsafePattern(pattern: string): boolean {
   if (/\\(?:[1-9]|k<)/.test(pattern)) return true;
@@ -377,13 +385,20 @@ function isUnsafePattern(pattern: string): boolean {
       if (frames.length === 1) continue;
       const frame = frames.pop()!;
       const next = pattern[i + 1];
-      const quantified = next === '*' || next === '+' || next === '?' || next === '{';
-      if (quantified && (frame.hasAlternation || frame.hasQuantifier)) return true;
+      const groupIsDirectlyQuantified = next === '*' || next === '+' || next === '?' || next === '{';
+      if (groupIsDirectlyQuantified && (frame.hasAlternation || frame.hasQuantifier)) return true;
       const parent = frames[frames.length - 1];
       parent.hasAlternation ||= frame.hasAlternation;
-      parent.hasQuantifier ||= frame.hasQuantifier || quantified;
+      const groupIsQuantified = frame.hasQuantifier || groupIsDirectlyQuantified;
+      parent.hasQuantifier ||= groupIsQuantified;
       const canMatchEmpty = frame.hasEmptyAlternative || frame.atoms.every((atom) => atom.optional);
-      appendPatternAtom(parent, null, canMatchEmpty);
+      const groupAtom: PatternAtom = {
+        characterSet: null,
+        quantified: groupIsQuantified,
+        optional: canMatchEmpty || (groupIsDirectlyQuantified && quantifierAt(pattern, i + 1).optional),
+      };
+      parent.atoms.push(groupAtom);
+      if (groupIsQuantified && hasOverlappingQuantifiedAtom(parent)) return true;
       continue;
     }
     if (char === '*' || char === '+' || char === '?' || char === '{') {
