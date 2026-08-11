@@ -1,5 +1,7 @@
 import {afterEach, describe, expect, it} from 'vitest';
-import {cleanup, render, screen} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {t} from '@/i18n';
+import {Command, CommandEmpty, CommandInput, CommandItem, CommandList} from '../command';
 import {EmptyState} from '../empty-state';
 
 afterEach(() => cleanup());
@@ -46,5 +48,26 @@ describe('EmptyState', () => {
     expect(screen.getByText('Nothing here').className).toContain('text-sm');
     expect(screen.getByText('Create the first item.').className).toContain('text-xs');
     expect(screen.getByRole('button', {name: 'Create'})).toBeTruthy();
+  });
+});
+
+describe('CommandEmpty', () => {
+  it('shows the localized empty state only when the query has no matches', async () => {
+    render(
+      <Command>
+        <CommandInput aria-label="Search commands" />
+        <CommandList>
+          <CommandEmpty>{t('common.noOptions')}</CommandEmpty>
+          <CommandItem value="Alpha">Alpha</CommandItem>
+        </CommandList>
+      </Command>,
+    );
+
+    const input = screen.getByRole('combobox');
+    fireEvent.change(input, {target: {value: 'Missing'}});
+    expect(await screen.findByText(t('common.noOptions'))).toBeTruthy();
+
+    fireEvent.change(input, {target: {value: 'Alpha'}});
+    await waitFor(() => expect(screen.queryByText(t('common.noOptions'))).toBeNull());
   });
 });

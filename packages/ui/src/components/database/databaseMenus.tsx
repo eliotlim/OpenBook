@@ -1037,7 +1037,7 @@ const GroupEditor: React.FC<{
       </div>
       <div className="space-y-1.5">
         {group.filters.length === 0 && (
-          <EmptyState variant="overlay" className="text-muted-foreground" title={t('database.empty.noConditions')} />
+          <EmptyState variant="overlay" className="py-1" title={t('database.empty.noConditions')} />
         )}
         {group.filters.map((node, i) =>
           isFilterGroup(node) ? (
@@ -1108,7 +1108,7 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 space-y-2 p-3">
         {sorts.length === 0 && (
-          <EmptyState variant="overlay" className="text-muted-foreground" title={t('database.empty.noSorts')} />
+          <EmptyState variant="overlay" className="py-1" title={t('database.empty.noSorts')} />
         )}
         {sorts.map((sort, index) => (
           <div key={index} className="flex items-center gap-1">

@@ -106,7 +106,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
           </button>
         </div>
         {groups.length === 0 && (
-          <EmptyState variant="overlay" className="px-1 text-muted-foreground/60" title={t('database.empty.noGroups')} />
+          <EmptyState variant="overlay" className="px-1 py-1" title={t('database.empty.noGroups')} />
         )}
         <div className="space-y-1">
           {groups.map((g) => (

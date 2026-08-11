@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Check, Plus, X} from 'lucide-react';
 import {Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {t} from '@/i18n';
 import {blockId, blockProp, type BlockMap, type TextRun} from '../model';
 import {domToRuns, runsToHtml} from '../RichTextEditor';
 import {isColorToken} from '../colors';
@@ -451,7 +452,7 @@ const SearchPicker: React.FC<{
         <Command>
           <CommandInput placeholder="Search…" aria-label="Search options" />
           <CommandList>
-            <CommandEmpty>No options</CommandEmpty>
+            <CommandEmpty>{t('common.noOptions')}</CommandEmpty>
             <CommandGroup>
               {options.map((opt) => (
                 <CommandItem

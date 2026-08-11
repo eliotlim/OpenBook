@@ -94,7 +94,8 @@ export default function LibraryNavigationTree() {
         // blank gap, so lead with the same starters Home offers — a plain new
         // page and the template gallery — right where pages will appear.
         <EmptyState
-          className="px-3"
+          variant="overlay"
+          className="px-3 py-2 items-stretch text-left"
           data-pages-empty
           title={t('nav.emptyPagesHint')}
           action={
