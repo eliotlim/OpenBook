@@ -297,7 +297,7 @@ export function LinksPaneBody() {
                       <PageIcon value={readPageIcon(page.id)} className="leading-none" />
                       <span className="truncate">{page.name?.trim() || pageLabel(page.id)}</span>
                     </span>
-                    {snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{snippet}</span>}
+                    {snippet && <span className="truncate pl-5 text-xs text-muted-foreground">{snippet}</span>}
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent className={MENU_WIDTH_MD}>
@@ -338,7 +338,7 @@ export function LinksPaneBody() {
                       <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                       <span className="truncate">{row.title || pageLabel(row.pageId)}</span>
                     </span>
-                    {row.snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{row.snippet}</span>}
+                    {row.snippet && <span className="truncate pl-5 text-xs text-muted-foreground">{row.snippet}</span>}
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent className={MENU_WIDTH_MD}>
