@@ -147,7 +147,10 @@ declaration carries a matching inline stylelint disable comment in `index.css`.
 
 | Selector / property | Value | Justification |
 |---|---:|---|
+| `.ob-desk-row[data-titlebar='true']` `margin-top` | `-1px` | The desktop sheet is pulled under the titlebar hairline so the active tab visually joins the page; 0 or 4px leaves a doubled seam. |
 | `.obe-toolbar` `gap` | `2px` | The compact inline toolbar uses the explicit half-step geometry required by SPC-2; 4px makes adjacent 28px controls read as separate menu items. |
+| `.obe-root` bottom `padding` | `30vh` | The editor's click-to-append zone must scale with the viewport; its other padding components remain grid-aligned. |
+| `.ob-present-stage` `padding` | viewport `clamp()` | Presentation gutters scale with viewport dimensions while every minimum and maximum remains on-grid. |
 
 Progress is directional, not a zero-debt gate: a remaining fixed width, viewport
 calculation, or deliberate circle can be valid. The stable category counts make
