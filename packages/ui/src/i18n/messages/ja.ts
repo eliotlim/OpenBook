@@ -895,13 +895,18 @@ export const ja: PartialMessages = {
     signInHint: 'アドレスを取得するには、まずアカウントにサインインしてください。',
     signInPending: 'アカウントへのサインインを完了してください — サインインが済むと公開は自動的にオンになります。',
     resumedToast: '公開が有効になりました — あなたのアドレスは {host} です。',
+    stalledToast: '公開を再接続できません — 現在、ライブラリにオンラインでアクセスできません。',
+    stalledAction: '共有設定を開く',
+    offlineToast: '公開がオフラインになりました。',
+    offlineToastDetail: '公開がオフラインになりました: {error}',
     signIn: 'サインイン',
     registering: '接続中…',
     address: 'あなたのアドレス',
     addressHint: 'オンラインの間、このデバイスのブックをどのブラウザーからでも開けます。',
     copy: 'コピー',
     copied: 'コピーしました',
-    failed: '登録できませんでした: {error}',
+    failed: '公開サービスに接続できませんでした。サインアウトしてから再度サインインするか、診断を確認してください。',
+    reconnectFailed: '公開サービスに再接続できませんでした。サインアウトしてから再度サインインするか、診断を確認してください。',
     claimWarning:
       '初めてオンにすると、このライブラリはあなたのアカウントに紐付けられ、非公開になります。あなたと招待した人だけが開けます。この操作は取り消せません。',
     claimRefusedUnverified: '公開するには、まずアカウントのアイデンティティを検証する必要があります。',
@@ -913,6 +918,7 @@ export const ja: PartialMessages = {
     status: {
       live: '稼働中',
       connecting: '接続中',
+      stalled: '接続停止',
       offline: 'オフライン',
     },
     visibility: {

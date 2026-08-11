@@ -1548,13 +1548,18 @@ export const en = {
     signInHint: 'Sign in to your account first to claim an address.',
     signInPending: 'Finish signing in — publishing will turn on automatically.',
     resumedToast: 'Publishing is on — your address is {host}.',
+    stalledToast: 'Publishing can\'t reconnect — your library isn\'t reachable online right now.',
+    stalledAction: 'Open sharing settings',
+    offlineToast: 'Publishing went offline.',
+    offlineToastDetail: 'Publishing went offline: {error}',
     signIn: 'Sign in',
     registering: 'Connecting…',
     address: 'Your address',
     addressHint: 'Opens this library in any browser while it’s online.',
     copy: 'Copy',
     copied: 'Copied',
-    failed: 'Couldn’t register: {error}',
+    failed: 'Couldn\'t connect to the publishing service. Try signing out and back in, or check Diagnostics.',
+    reconnectFailed: 'Couldn\'t reconnect to the publishing service. Try signing out and back in, or check Diagnostics.',
     partialUnscoped:
       'Publishing is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
     ensureRescope:
@@ -1571,6 +1576,7 @@ export const en = {
     status: {
       live: 'Live',
       connecting: 'Connecting',
+      stalled: 'Connection stalled',
       offline: 'Offline',
     },
     // Address-level audience scope (SHR-8): the published *.book.cloud address is

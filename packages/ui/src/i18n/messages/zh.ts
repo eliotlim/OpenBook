@@ -891,13 +891,18 @@ export const zh: PartialMessages = {
     signInHint: '请先登录你的账户以获取地址。',
     signInPending: '请完成账户登录 —— 登录后发布将自动开启。',
     resumedToast: '发布已开启 —— 你的地址是 {host}。',
+    stalledToast: '发布无法重新连接 —— 你的资料库目前无法在线访问。',
+    stalledAction: '打开共享设置',
+    offlineToast: '发布已离线。',
+    offlineToastDetail: '发布已离线：{error}',
     signIn: '登录',
     registering: '连接中…',
     address: '你的地址',
     addressHint: '只要设备在线，就能在任意浏览器中打开本设备的图书。',
     copy: '复制',
     copied: '已复制',
-    failed: '注册失败：{error}',
+    failed: '无法连接到发布服务。请退出后重新登录，或检查“诊断”。',
+    reconnectFailed: '无法重新连接到发布服务。请退出后重新登录，或检查“诊断”。',
     claimWarning:
       '首次开启时，此资料库将归属到你的账户并设为私有 —— 只有你和你邀请的人可以打开。此操作无法撤销。',
     claimRefusedUnverified: '要发布，需先验证你的账户身份。',
@@ -908,6 +913,7 @@ export const zh: PartialMessages = {
     status: {
       live: '在线',
       connecting: '连接中',
+      stalled: '连接停滞',
       offline: '离线',
     },
     visibility: {

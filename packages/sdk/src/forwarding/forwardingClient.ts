@@ -133,6 +133,10 @@ export interface ForwardingClientOptions {
   /** The cell to attach in (nearest region). Defaults to the platform home cell. */
   region?: string;
   onStatus?: (status: TunnelStatus) => void;
+  onDialError?: (error: unknown) => void;
+  /** Reports the canonical host returned by the first successful attach mint,
+   *  and again only if a later mint reports a different host. */
+  onHost?: (host: string) => void;
   /** `fetch` for the account API (account.book.pub). Defaults to the global fetch. */
   fetchImpl?: FetchLike;
   /**
@@ -143,6 +147,7 @@ export interface ForwardingClientOptions {
    */
   localFetchImpl?: FetchLike;
   webSocketImpl?: typeof WebSocket;
+  maxBackoffMs?: number;
 }
 
 export class ForwardingClient {
@@ -417,37 +422,47 @@ export class ForwardingClient {
     };
   }
 
-  /** Begin forwarding the local instance. Resolves with the public host. */
+  /** Adopt the account's canonical host without ever overwriting another account's keychain slot. */
+  private async adoptCanonicalHost(stored: SiteIdentity, host: string): Promise<void> {
+    const active = this.identity ?? stored;
+    if (!host || active.siteId !== stored.siteId || host === active.host) return;
+    const healed = {...active, host};
+    // An account switch can re-point the per-account slot while a dial is in
+    // flight. The in-memory client can still heal, but must not write its private
+    // key into a slot that is now empty or belongs to another site.
+    const current = await this.opts.keyStore.load();
+    if (current?.siteId === stored.siteId) await this.opts.keyStore.save(healed);
+    this.identity = healed;
+  }
+
+  /** Begin forwarding the local instance. Ticket minting happens inside the
+   *  reconnecting tunnel, so a failed first mint cannot abort this start call. */
   async start(): Promise<{host: string}> {
-    const stored = await this.ensureSite();
-    // Mint once up front to learn the canonical host for our prefix. After the
-    // book.pub→book.cloud root migration, a persisted identity can carry a stale
-    // host while the edge now mints aud=<prefix>.book.cloud — the origin would then
-    // reject every forwarded request as `wrong-audience`. The account returns the
-    // fresh host on attach; adopt + persist it so the recorded aud heals itself.
-    const {host} = await this.mintAttach(stored);
-    const id = host && host !== stored.host ? {...stored, host} : stored;
-    if (id !== stored) {
-      // Persist the heal ONLY if the slot still holds the identity we healed:
-      // an account switch between ensureSite and here re-points the (per-
-      // account) keystore slot, and writing `id` — private key included —
-      // would overwrite the other account's identity, or resurrect one into
-      // an empty slot. The heal is an optimization, so skipping the persist
-      // is always safe; the in-memory identity still carries the fresh host
-      // for this session's tunnel.
-      const current = await this.opts.keyStore.load();
-      if (current?.siteId === stored.siteId) await this.opts.keyStore.save(id);
-      this.identity = id;
-    }
+    const id = await this.ensureSite();
+    let reportedHost: string | undefined;
     this.tunnel = new TunnelClient({
-      ticketProvider: () => this.mintAttach(id), // fresh ticket per (re)connect
+      ticketProvider: async () => {
+        const info = await this.mintAttach(id); // fresh ticket per (re)connect
+        if (info.host && info.host !== reportedHost) {
+          try {
+            await this.adoptCanonicalHost(id, info.host);
+          } catch {
+            this.identity = {...(this.identity ?? id), host: info.host};
+          }
+          reportedHost = info.host;
+          this.opts.onHost?.(info.host);
+        }
+        return info;
+      },
       privateKey: id.privateKey,
       localOrigin: this.opts.localOrigin,
       onStatus: this.opts.onStatus,
+      onDialError: this.opts.onDialError,
       // The tunnel forwards to the LOCAL server; the desktop routes that over IPC
       // (no port), separate from the account API's global fetch.
       fetchImpl: this.opts.localFetchImpl ?? this.opts.fetchImpl,
       webSocketImpl: this.opts.webSocketImpl,
+      maxBackoffMs: this.opts.maxBackoffMs,
     });
     this.tunnel.start();
     return {host: id.host};

@@ -1,6 +1,14 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {ForwardingClient, setForwardingAudience, type SiteVisibility, type TunnelStatus} from '@book.dev/sdk';
+import {
+  ForwardingApiError,
+  ForwardingClient,
+  SiteReattachError,
+  setForwardingAudience,
+  type SiteVisibility,
+  type TunnelStatus,
+} from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
+import {useHud} from './HudProvider';
 import {usePlatformCapabilities} from './PlatformCapabilitiesProvider';
 import {
   ensureClaimedForForwarding,
@@ -10,6 +18,7 @@ import {
   type AudienceNoticeCode,
 } from './forwardingAudience';
 import {useData} from '@/data/DataProvider';
+import {push as pushError} from '@/lib/errorLog';
 import {setShareLinkOrigin} from '@/lib/pageActions';
 import {showToast} from '@/components/ui/toast';
 import {t} from '@/i18n';
@@ -34,6 +43,31 @@ const ENABLED_KEY = 'openbook.forwarding.enabled';
  * unrelated sign-in can never silently complete the (irreversible) claim.
  */
 const SIGN_IN_RESUME_TTL_MS = 3 * 60 * 1000;
+const START_RETRY_INITIAL_MS = 2_000;
+const START_RETRY_MAX_MS = 5 * 60 * 1000;
+
+/** Only failures that can plausibly heal without user action enter the launch retry loop. */
+const isRetryableStartError = (error: unknown): boolean =>
+  (error instanceof SiteReattachError && error.retryable) ||
+  (error instanceof ForwardingApiError && (error.status >= 500 || error.status === 429)) ||
+  error instanceof TypeError ||
+  (error instanceof DOMException && (error.name === 'NetworkError' || error.name === 'TimeoutError'));
+
+const describeForwardingError = (error: unknown): {code?: string; message: string; detail?: string} => {
+  const fields = error && typeof error === 'object' ? (error as {code?: unknown; status?: unknown; detail?: unknown}) : {};
+  const rawCode = error instanceof ForwardingApiError ? error.status : (fields.code ?? fields.status);
+  const code = typeof rawCode === 'string' || typeof rawCode === 'number' ? String(rawCode) : undefined;
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = code && !rawMessage.includes(code) ? `${rawMessage} (${code})` : rawMessage;
+  const detail = typeof fields.detail === 'string' ? fields.detail : undefined;
+  return {code, message, detail};
+};
+
+const recordForwardingError = (error: unknown): ReturnType<typeof describeForwardingError> => {
+  const info = describeForwardingError(error);
+  pushError({subsystem: 'forwarding', ...info});
+  return info;
+};
 
 /** Combined provisioning/tunnel status. `idle` = never started this session. */
 export type ForwardingStatus = TunnelStatus | 'idle';
@@ -142,6 +176,7 @@ const writeEnabled = (on: boolean): void => {
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformCapabilities();
+  const {setHud} = useHud();
   const {connected, token, accountUrl, status: accountStatus, signIn, remintIdentity, identityIssuance} =
     useAccount();
   const data = useData();
@@ -155,6 +190,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // This closes the window before the first await; cleared in `startTunnel`'s finally.
   const startingRef = useRef(false);
   const [enabled, setEnabled] = useState<boolean>(() => readEnabled());
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const startRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRetryDelayRef = useRef(START_RETRY_INITIAL_MS);
+  const terminalStartErrorRef = useRef(false);
+  const startTunnelRef = useRef<() => Promise<void>>(async () => undefined);
   const [status, setStatus] = useState<ForwardingStatus>('idle');
   const [host, setHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -167,6 +208,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // The auto-resume (P1-6) can complete with Settings closed / off-screen, so flag
   // the resume so we can announce it with a toast once the address is live.
   const resumedRef = useRef(false);
+  const outageFailureCountRef = useRef(0);
+  const outageToastShownRef = useRef(false);
 
   // The latest issuance verdict, read at claim time through a ref so the memoized
   // `audienceDeps` below stays stable across issuance state changes.
@@ -217,11 +260,50 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     [audienceDeps],
   );
 
+  const cancelStartRetry = useCallback(() => {
+    if (startRetryTimerRef.current) clearTimeout(startRetryTimerRef.current);
+    startRetryTimerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (token) return;
+    cancelStartRetry();
+    terminalStartErrorRef.current = false;
+    setClaimRefusal(null);
+  }, [token, cancelStartRetry]);
+
+  const scheduleStartRetry = useCallback(() => {
+    if (!enabledRef.current || startRetryTimerRef.current) return;
+    const delay = startRetryDelayRef.current;
+    startRetryDelayRef.current = Math.min(delay * 2, START_RETRY_MAX_MS);
+    startRetryTimerRef.current = setTimeout(() => {
+      startRetryTimerRef.current = null;
+      if (enabledRef.current) void startTunnelRef.current();
+    }, delay);
+  }, []);
+
+  const handleTunnelStatus = useCallback((next: TunnelStatus) => {
+    if (next === 'online') {
+      outageFailureCountRef.current = 0;
+      outageToastShownRef.current = false;
+      terminalStartErrorRef.current = false;
+      setError(null);
+    }
+    setStatus(next);
+  }, []);
+
+  const handleDialError = useCallback((dialError: unknown) => {
+    const info = recordForwardingError(dialError);
+    outageFailureCountRef.current += 1;
+    if (outageFailureCountRef.current >= 2) setError(info.message);
+  }, []);
+
   const startTunnel = useCallback(async () => {
     if (!forwarding || !token || clientRef.current || startingRef.current) return;
+    cancelStartRetry();
     startingRef.current = true; // latch BEFORE the first await (see startingRef)
     setBusy(true);
-    setError(null);
+    if (outageFailureCountRef.current === 0) setError(null);
     setAudienceNotice(null);
     setClaimRefusal(null);
     try {
@@ -233,11 +315,14 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       // claim with, so we never leave it unclaimed-and-exposed. The refusal is a
       // localized, severity-aware notice (`claimRefusal`), not a raw `error` string.
       const claim = await ensureClaimedForForwarding(audienceDeps);
+      if (!enabledRef.current) return;
       if (claim.status === 'refused') {
-        setEnabled(false);
-        writeEnabled(false);
         setStatus('offline');
         setClaimRefusal(claim.code);
+        // A boot-time identity/claim race must not erase the user's durable
+        // publish intent. Keep retrying refusals that can heal; only a server
+        // that explicitly disables identity issuance is terminal for this account.
+        if (claim.code !== 'issuance-disabled') scheduleStartRetry();
         return;
       }
       const client = new ForwardingClient({
@@ -246,21 +331,46 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
         keyStore: forwarding.keyStore,
         localOrigin: '',
         localFetchImpl: forwarding.localFetch,
-        onStatus: setStatus,
+        onStatus: handleTunnelStatus,
+        onDialError: handleDialError,
+        onHost: (canonicalHost) => {
+          setHost(canonicalHost);
+          void bindAudience(canonicalHost).catch((bindError: unknown) => {
+            setAudienceNotice({code: 'bindFailed', detail: bindError instanceof Error ? bindError.message : String(bindError)});
+          });
+        },
       });
       clientRef.current = client;
       const {host: assigned} = await client.start();
       setHost(assigned);
-      await bindAudience(assigned);
+      startRetryDelayRef.current = START_RETRY_INITIAL_MS;
+      terminalStartErrorRef.current = false;
     } catch (e) {
+      clientRef.current?.stop();
       clientRef.current = null;
-      setStatus('offline');
-      setError(e instanceof Error ? e.message : String(e));
+      const info = recordForwardingError(e);
+      outageFailureCountRef.current += 1;
+      setError(info.message);
+      const retryable = isRetryableStartError(e);
+      terminalStartErrorRef.current = !retryable;
+      setStatus(retryable && outageFailureCountRef.current >= 2 ? 'stalled' : 'offline');
+      if (retryable) scheduleStartRetry();
     } finally {
       setBusy(false);
       startingRef.current = false;
     }
-  }, [forwarding, token, accountUrl, bindAudience, audienceDeps]);
+  }, [
+    forwarding,
+    token,
+    accountUrl,
+    bindAudience,
+    audienceDeps,
+    cancelStartRetry,
+    scheduleStartRetry,
+    handleTunnelStatus,
+    handleDialError,
+  ]);
+  startTunnelRef.current = startTunnel;
 
   // Resume on launch / once the account connects, when forwarding is enabled. This
   // is the SINGLE dial point for the intent-driven paths (relaunch, and the P1-6
@@ -268,11 +378,29 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // exactly one ForwardingClient into `clientRef` — so `disable()` can always stop
   // it (an orphaned client started off-book would stay published after an off flip).
   useEffect(() => {
-    if (supported && enabled && connected && token && !clientRef.current && !startingRef.current) void startTunnel();
-  }, [supported, enabled, connected, token, startTunnel]);
+    if (
+      supported &&
+      enabled &&
+      connected &&
+      token &&
+      !clientRef.current &&
+      !startingRef.current &&
+      !startRetryTimerRef.current &&
+      !terminalStartErrorRef.current &&
+      !claimRefusal
+    ) {
+      void startTunnel();
+    }
+  }, [supported, enabled, connected, token, claimRefusal, startTunnel]);
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
-  useEffect(() => () => clientRef.current?.stop(), []);
+  useEffect(
+    () => () => {
+      cancelStartRetry();
+      clientRef.current?.stop();
+    },
+    [cancelStartRetry],
+  );
 
   // Where the library is currently reachable by others, or `null` (see the
   // context doc). Computed once so the registry effect below and every context
@@ -343,10 +471,11 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       return;
     }
     setSignInPending(false);
+    terminalStartErrorRef.current = false;
+    enabledRef.current = true;
     setEnabled(true);
     writeEnabled(true);
-    await startTunnel();
-  }, [connected, token, signIn, startTunnel]);
+  }, [connected, token, signIn]);
 
   // Auto-resume the interrupted first flip (P1-6): the user flipped "Forward this
   // device" while signed out and we sent them off to sign in — complete the enable
@@ -361,6 +490,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     if (!signInPending || !connected || !token) return;
     setSignInPending(false);
     resumedRef.current = true; // announce it once the address is live (may be off-screen)
+    enabledRef.current = true;
     setEnabled(true);
     writeEnabled(true);
   }, [signInPending, connected, token]);
@@ -391,10 +521,42 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     }
   }, [status, host]);
 
+  // Announce a real outage once per incident. A retryable one must fail at least
+  // twice before it is considered stalled; terminal launch errors are actionable
+  // immediately. Recovery re-arms the toast in `handleTunnelStatus`.
+  useEffect(() => {
+    if (!enabled || outageToastShownRef.current || (status !== 'offline' && status !== 'stalled')) return;
+    if (!terminalStartErrorRef.current && outageFailureCountRef.current < 2) return;
+    outageToastShownRef.current = true;
+    if (status === 'stalled') {
+      showToast({
+        message: t('forwarding.stalledToast'),
+        actionLabel: t('forwarding.stalledAction'),
+        onAction: () =>
+          setHud((draft) => {
+            draft.settings.open = true;
+            draft.settings.tab = 'sharing';
+            draft.settings.section = null;
+            return draft;
+          }),
+        durationMs: 15_000,
+      });
+      return;
+    }
+    showToast({
+      message: error ? t('forwarding.offlineToastDetail', {error}) : t('forwarding.offlineToast'),
+    });
+  }, [enabled, status, error, setHud]);
+
   const disable = useCallback(() => {
+    cancelStartRetry();
     clientRef.current?.stop();
     clientRef.current = null;
     setStatus('offline');
+    terminalStartErrorRef.current = false;
+    outageFailureCountRef.current = 0;
+    outageToastShownRef.current = false;
+    enabledRef.current = false;
     setEnabled(false);
     writeEnabled(false);
     setAudienceNotice(null);
@@ -410,7 +572,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       const outcome = await unbindForwardingAudience(audienceDeps);
       if (outcome.status === 'held') setAudienceNotice({code: outcome.code, detail: outcome.reason});
     })();
-  }, [audienceDeps]);
+  }, [audienceDeps, cancelStartRetry]);
 
   // The explicit "abandon this address" path (NAME-1): stop the tunnel, forget
   // the stored identity, and let the resume effect (when still enabled) — or the

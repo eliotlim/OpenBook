@@ -400,9 +400,9 @@ describe('ForwardingClient.start (live serving)', () => {
     await client.start();
     await waitFor(() => ws.sockets.length === 1); // first dial: mint + open
     expect(ws.sockets).toHaveLength(1);
-    // Two mints by now: start() mints once up front to learn the canonical host
-    // (the stale-host audience heal), then the first dial mints its own ticket.
-    expect(ticketMints).toBe(2);
+    // The dial owns the only mint; start() no longer performs a failure-prone
+    // up-front mint merely to discover the canonical host.
+    expect(ticketMints).toBe(1);
 
     // The relay drops the socket (expired ticket / takeover / network blip). The
     // tunnel must reconnect AND mint a brand-new ticket — reusing the first one
@@ -410,8 +410,48 @@ describe('ForwardingClient.start (live serving)', () => {
     ws.sockets[0].onclose?.();
     await waitFor(() => ws.sockets.length === 2); // reconnect (500ms backoff) + fresh mint
     expect(ws.sockets).toHaveLength(2);
-    expect(ticketMints).toBe(3); // up-front heal mint + one per dial (2 dials)
+    expect(ticketMints).toBe(2); // exactly one fresh mint per dial
     expect(ws.sockets[1].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
+  });
+
+  it('keeps retrying failed first mints until the existing tunnel comes online', async () => {
+    const kp = await mintSiteKeypair();
+    let ticketMints = 0;
+    const accountFetch: typeof fetch = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/sites') {
+        return json({site: {id: 's1', prefix: 'p', host: 'p.book.cloud', publicKey: kp.publicKey}, privateKey: kp.privateKey}, 201);
+      }
+      if (path === '/api/sites/challenge') return json({nonce: `n${ticketMints}`, ts: Date.now()});
+      if (path === '/api/sites/attach-ticket') {
+        ticketMints += 1;
+        if (ticketMints < 3) return json({error: 'account temporarily unavailable'}, 503);
+        return json({ticket: 'T3', relayBase: 'wss://relay.book.cloud', host: 'p.book.cloud', region: 'iad1'});
+      }
+      throw new Error(`unexpected ${path}`);
+    };
+    const statuses: string[] = [];
+    const ws = fakeWebSocket();
+    const client = new ForwardingClient({
+      accountUrl: 'https://account.book.cloud',
+      authToken: 'tok',
+      keyStore: new MemoryKeyStore(),
+      localOrigin: '',
+      fetchImpl: accountFetch,
+      localFetchImpl: async () => new Response('[]', {status: 200}),
+      webSocketImpl: ws.ctor,
+      ...{maxBackoffMs: 1},
+      onStatus: (status) => statuses.push(status),
+    });
+
+    await expect(client.start()).resolves.toEqual({host: 'p.book.cloud'});
+    await waitFor(() => ws.sockets.length === 1, 4_000);
+    expect(ticketMints).toBe(3); // the same TunnelClient survived both failures
+
+    ws.sockets[0].onmessage?.({data: JSON.stringify({t: 'ready'})});
+    await waitFor(() => statuses.includes('online'));
+    expect(statuses).toContain('reconnecting');
+    client.stop();
   });
 });
 
@@ -419,9 +459,9 @@ describe('ForwardingClient.start (live serving)', () => {
  * After the book.pub→book.cloud root-domain migration, an identity persisted at
  * provision time carries a stale host (`<prefix>.book.pub`), but the edge now
  * mints `aud=<prefix>.book.cloud` — so the origin rejects every forwarded request
- * as `identity rejected: wrong-audience`. The account returns the canonical host
- * on attach; start() mints once up front to learn it, then adopts + persists the
- * refreshed identity so the recorded audience heals itself.
+ * as `identity rejected: wrong-audience`. The first successful per-dial mint
+ * returns the canonical host; the live client adopts + persists it opportunistically
+ * so a failed mint never prevents the reconnecting tunnel from being constructed.
  */
 describe('ForwardingClient.start (stale-host audience heal)', () => {
   // A keystore seeded with `host`, whose save() calls are counted (the seed save
@@ -452,7 +492,7 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
         throw new Error(`unexpected ${path}`);
       };
 
-  const healClient = (keyStore: MemoryKeyStore, attachHost: string): ForwardingClient => {
+  const healClient = (keyStore: MemoryKeyStore, attachHost: string, onHost?: (host: string) => void): ForwardingClient => {
     const ws = fakeWebSocket();
     return new ForwardingClient({
       accountUrl: 'https://account.book.cloud',
@@ -462,22 +502,26 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
       fetchImpl: healFetch(attachHost),
       localFetchImpl: async () => new Response('[]', {status: 200}),
       webSocketImpl: ws.ctor,
+      onHost,
     });
   };
 
   it('adopts + persists the fresh host when the stored one is stale', async () => {
     const {store, saves} = await spyKeyStore('p.book.pub'); // pre-migration host
-    const client = healClient(store, 'p.book.cloud'); // account now reports book.cloud
+    const reportedHosts: string[] = [];
+    const client = healClient(store, 'p.book.cloud', (host) => reportedHosts.push(host)); // account now reports book.cloud
 
     const result = await client.start();
+    await waitFor(() => client.site?.host === 'p.book.cloud');
     client.stop();
 
-    expect(result).toEqual({host: 'p.book.cloud'}); // start() returns the canonical host
+    expect(result).toEqual({host: 'p.book.pub'}); // start() returns before the mint, using the last-known host
     expect(saves()).toBe(1); // healed identity persisted exactly once
     const reloaded = await store.load();
     expect(reloaded?.host).toBe('p.book.cloud');
     expect(reloaded?.siteId).toBe('s1'); // only the host changed; the key is preserved
     expect(client.site?.host).toBe('p.book.cloud'); // in-memory identity updated too
+    expect(reportedHosts).toEqual(['p.book.cloud']); // provider can re-bind to the healed audience
   });
 
   it('does not re-persist when the stored host is already canonical', async () => {
@@ -485,6 +529,7 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
     const client = healClient(store, 'p.book.cloud');
 
     const result = await client.start();
+    await waitFor(() => client.site?.host === 'p.book.cloud');
     client.stop();
 
     expect(result).toEqual({host: 'p.book.cloud'});
@@ -522,10 +567,11 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
     });
 
     const result = await client.start();
+    await waitFor(() => client.site?.host === 'p.book.cloud');
     client.stop();
 
     expect(saved).toEqual([]); // never wrote over the other account's slot
-    expect(result).toEqual({host: 'p.book.cloud'}); // session still uses the fresh host
+    expect(result).toEqual({host: 'p.book.pub'}); // start returns the safe last-known host immediately
     expect(client.site?.host).toBe('p.book.cloud'); // in-memory heal only
   });
 });
