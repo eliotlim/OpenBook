@@ -16,6 +16,7 @@ import {
   tableInsertRow,
   type BlockMap,
   type BlockType,
+  type InlineAttrs,
   type NewBlock,
   type TextRun,
 } from './model';
@@ -729,11 +730,27 @@ export const TextBlockView: React.FC<{
     const selection = document.getSelection();
     if (selection && !selection.isCollapsed) return;
 
-    const start = domToOffset(root, anchor, 0);
+    const fragmentStart = domToOffset(root, anchor, 0);
     const length = anchor.textContent?.length ?? 0;
     const mentionId = anchor.dataset.pageId;
     const href = anchor.getAttribute('href') ?? '';
-    if (start === null || length === 0 || (!mentionId && !href)) return;
+    if (fragmentStart === null || length === 0 || (!mentionId && !href)) return;
+
+    const linkAttr = mentionId ? 'm' : 'a';
+    const linkValue = mentionId || href;
+    let offset = 0;
+    const runs = (text.toDelta() as Array<{insert: string; attributes?: InlineAttrs}>).map((op) => {
+      const start = offset;
+      offset += op.insert.length;
+      return {start, end: offset, matches: op.attributes?.[linkAttr] === linkValue};
+    });
+    const clicked = runs.findIndex((run) => run.matches && run.start <= fragmentStart && fragmentStart < run.end);
+    let first = clicked;
+    let last = clicked;
+    while (first > 0 && runs[first - 1].matches) first -= 1;
+    while (last >= 0 && last + 1 < runs.length && runs[last + 1].matches) last += 1;
+    const start = clicked >= 0 ? runs[first].start : fragmentStart;
+    const end = clicked >= 0 ? runs[last].end : fragmentStart + length;
 
     event.preventDefault();
     event.stopPropagation();
@@ -743,7 +760,7 @@ export const TextBlockView: React.FC<{
       target: mentionId || anchor.href,
       editValue: mentionId || href,
       start,
-      end: start + length,
+      end,
       anchorEl: anchor,
     });
 

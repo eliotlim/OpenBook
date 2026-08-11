@@ -55,6 +55,56 @@ describe('inline link context menu', () => {
     expect(docToJSON(doc)[0].text).toEqual([{t: 'Example'}]);
   });
 
+  it('removes a mixed-mark logical link across all three rendered anchors without absorbing a different URL', async () => {
+    const shared = 'https://example.test/shared';
+    const separate = 'https://separate.test';
+    const {doc, container} = renderText([
+      {t: 'foo', a: {a: shared}},
+      {t: 'bar', a: {a: shared, b: true}},
+      {t: 'baz', a: {a: shared}},
+      {t: 'qux', a: {a: separate}},
+    ]);
+    const anchors = container.querySelectorAll<HTMLAnchorElement>('a.obe-link');
+    expect(anchors).toHaveLength(4);
+
+    await openAnchorMenu(anchors[1]);
+    fireEvent.click(screen.getByText('Remove link'));
+
+    expect(docToJSON(doc)[0].text).toEqual([
+      {t: 'foo'},
+      {t: 'bar', a: {b: true}},
+      {t: 'baz'},
+      {t: 'qux', a: {a: separate}},
+    ]);
+  });
+
+  it('edits a mixed-mark logical link across all three rendered anchors without absorbing a different URL', async () => {
+    const shared = 'https://example.test/shared';
+    const updated = 'https://updated.test';
+    const separate = 'https://separate.test';
+    const {doc, container} = renderText([
+      {t: 'foo', a: {a: shared}},
+      {t: 'bar', a: {a: shared, b: true}},
+      {t: 'baz', a: {a: shared}},
+      {t: 'qux', a: {a: separate}},
+    ]);
+    const anchors = container.querySelectorAll<HTMLAnchorElement>('a.obe-link');
+    expect(anchors).toHaveLength(4);
+
+    await openAnchorMenu(anchors[1]);
+    fireEvent.click(screen.getByText('Edit link…'));
+    const input = screen.getByLabelText('Link URL');
+    fireEvent.change(input, {target: {value: updated}});
+    fireEvent.submit(input.closest('form')!);
+
+    expect(docToJSON(doc)[0].text).toEqual([
+      {t: 'foo', a: {a: updated}},
+      {t: 'bar', a: {a: updated, b: true}},
+      {t: 'baz', a: {a: updated}},
+      {t: 'qux', a: {a: separate}},
+    ]);
+  });
+
   it('opens the prompt-free URL editor from Edit link', async () => {
     const {container} = renderText([{t: 'Example', a: {a: 'https://example.test'}}]);
     await openAnchorMenu(container.querySelector('a.obe-link') as HTMLAnchorElement);
