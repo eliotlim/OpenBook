@@ -1968,6 +1968,16 @@ export const en = {
       fields: 'Fields',
       removeGrouping: 'Remove grouping',
     },
+    viewMenu: {
+      rename: 'Rename view',
+      duplicate: 'Duplicate view',
+      changeType: 'Change type',
+      delete: 'Delete view',
+    },
+    chipMenu: {
+      edit: 'Edit…',
+      remove: 'Remove',
+    },
     rowMenu: {
       open: 'Open',
       openTab: 'Open in new tab',
