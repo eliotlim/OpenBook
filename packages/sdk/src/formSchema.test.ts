@@ -216,11 +216,13 @@ describe('honeypot semantics', () => {
 
   it('returns the distinguished silent-success signal for any non-empty trap value', () => {
     expect(validateSubmission(schema, {website: 'bot', name: ''})).toEqual({honeypot: true});
+    expect(validateSubmission(schema, {website: false, name: 'Ada'})).toEqual({honeypot: true});
     expect(validateSubmission(schema, {website: {bot: true}, unknown: 'also ignored'})).toEqual({honeypot: true});
   });
 
-  it('ignores an absent or whitespace-only trap and validates normal fields', () => {
-    expect(expectOk(validateSubmission(schema, {website: '  ', name: 'Ada'}))).toEqual({name: 'Ada'});
+  it('treats whitespace as non-empty but ignores an absent or exactly empty trap', () => {
+    expect(validateSubmission(schema, {website: '  ', name: 'Ada'})).toEqual({honeypot: true});
+    expect(expectOk(validateSubmission(schema, {website: '', name: 'Ada'}))).toEqual({name: 'Ada'});
     expect(expectOk(validateSubmission(schema, {name: 'Grace'}))).toEqual({name: 'Grace'});
   });
 });

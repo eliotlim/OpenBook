@@ -204,7 +204,7 @@ function isEmptyForField(field: FormField, value: unknown): boolean {
 
 function hasHoneypotValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
-  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'string') return value.length > 0;
   if (Array.isArray(value)) return value.length > 0;
   return true;
 }
