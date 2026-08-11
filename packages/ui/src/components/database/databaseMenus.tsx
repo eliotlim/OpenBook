@@ -664,12 +664,13 @@ export const PropertyMenu = React.forwardRef<
       }}
     >
       <PopoverTrigger asChild>
-        <button
-          className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-hover hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+        <IconButton
+          size="xs"
+          className="text-muted-foreground/60 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
           aria-label="Property options"
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       </PopoverTrigger>
       {pointer && (
         <PopoverAnchor asChild>
@@ -1247,9 +1248,9 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
           </option>
         ))}
       </Select>
-      <button onClick={remove} aria-label="Remove rule" className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
+      <IconButton size="xs" onClick={remove} aria-label="Remove rule" className="text-muted-foreground/70">
         <X className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </div>
   );
 };

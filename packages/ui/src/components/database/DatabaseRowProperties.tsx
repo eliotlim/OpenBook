@@ -3,6 +3,7 @@ import {Select} from '@/components/ui/select';
 import {ChevronRight, Eye, EyeOff, FolderPlus, Settings2, Trash2} from 'lucide-react';
 import type {DatabaseProperty, PropertyGroup} from '@book.dev/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
@@ -51,13 +52,14 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
 }) => (
   <Popover>
     <PopoverTrigger asChild>
-      <button
-        className="rounded p-1 text-muted-foreground/50 opacity-0 transition hover:bg-hover hover:text-foreground group-hover/props:opacity-100"
+      <IconButton
+        size="sm"
+        className="text-muted-foreground/50 opacity-0 group-hover/props:opacity-100"
         aria-label="Configure properties"
         title="Show, hide & group properties"
       >
         <Settings2 className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </PopoverTrigger>
     <PopoverContent align="end" className="w-72 space-y-3 p-3">
       <div>

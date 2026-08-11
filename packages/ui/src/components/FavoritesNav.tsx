@@ -70,8 +70,7 @@ export default function FavoritesNav() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <IconButton
-                      size="sm"
-                      className="h-5 w-5 rounded p-0.5"
+                      size="xs"
                       aria-label={t('menu.unfavorite')}
                       title={t('menu.unfavorite')}
                       onClick={() => toggleFavorite(page.id)}

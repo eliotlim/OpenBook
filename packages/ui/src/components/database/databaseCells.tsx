@@ -652,13 +652,13 @@ const DependencyCell: React.FC<{
       ))}
       <Popover>
         <PopoverTrigger asChild>
-          <button
+          <IconButton
+            size="xs"
             type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="Add dependency"
           >
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -763,9 +763,9 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
       )}
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add file">
+          <IconButton size="xs" type="button" aria-label="Add file">
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-1.5">
           <div className="flex items-center gap-1">
@@ -1063,13 +1063,13 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
       {(!single || ids.length === 0) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button
+            <IconButton
+              size="xs"
               type="button"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
               aria-label={`Link a ${noun}`}
             >
               <Plus className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-60 p-1">
             <input

@@ -10,6 +10,7 @@ import {
   type DatabaseView as DbView,
 } from '@book.dev/sdk';
 import {cn} from '@/lib/utils';
+import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {KitChartPlot, type ChartDatum, type ChartMatrixInput} from '@/blockeditor/kit/charts';
@@ -100,13 +101,14 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
           {drill.rows.length} {drill.rows.length === 1 ? 'row' : 'rows'}
         </span>
       </span>
-      <button
+      <IconButton
+        size="xs"
         onClick={onClose}
         aria-label="Close drill-down"
-        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+        className="cursor-pointer"
       >
         <X className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </div>
     <div className="max-h-56 overflow-y-auto">
       {drill.rows.length === 0 && <div className="px-3 py-3 text-center text-xs text-muted-foreground">No rows.</div>}
