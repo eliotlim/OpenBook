@@ -7,11 +7,23 @@ import {registerCustomBlock, type CustomBlockProps} from './registry';
 import {ConfigField, KitFrame, NameDescriptionFields} from './kit/KitFrame';
 import {useKitLock} from './kit/lock';
 import {formSchemaFromProps, makeFormBlock} from './formBlock';
+import {FormClosedView, FormSubmissionView} from './FormSubmissionView';
 
 export {formOriginUrl} from './formBlock';
 
 /** The live-page destination used by frozen form previews, when one is known. */
 export const FormOriginContext = createContext<string | null>(null);
+
+/** Page id carried by the safe live-page URL; absent for static/offline previews. */
+export function formPageIdFromOrigin(originUrl: string | null | undefined): string | null {
+  if (!originUrl || !isSafeHref(originUrl)) return null;
+  try {
+    const pageId = new URL(originUrl).searchParams.get('page');
+    return pageId?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 function propsRecord(block: CustomBlockProps['block']): Record<string, unknown> {
   const schema = blockProp<unknown>(block, 'schema');
@@ -157,9 +169,15 @@ const BoundDatabaseSummary: React.FC<{databaseId?: string}> = ({databaseId}) => 
  */
 export const FormBlockView: React.FC<CustomBlockProps> = ({block, editor, pageReadOnly}) => {
   const schema = formSchemaFromBlock(block);
+  const client = useOptionalData();
   const groupLocked = useKitLock();
   const readonly = pageReadOnly || groupLocked;
   const originUrl = useContext(FormOriginContext);
+  const pageId = formPageIdFromOrigin(originUrl);
+  const submissionClient = client?.submitForm
+    ? client as NonNullable<typeof client> & Required<Pick<NonNullable<typeof client>, 'submitForm'>>
+    : null;
+  const live = readonly && !editor.readOnly && pageId !== null && submissionClient !== null;
   const config = (
     <>
       <NameDescriptionFields block={block} editor={editor} namePlaceholder={t('formBlock.label')} />
@@ -171,9 +189,11 @@ export const FormBlockView: React.FC<CustomBlockProps> = ({block, editor, pageRe
       </ConfigField>
     </>
   );
-  const control = readonly
-    ? <FormReadonlyView schema={schema} originUrl={originUrl} />
-    : <FormEditView schema={schema} />;
+  let control: React.ReactNode;
+  if (!readonly) control = <FormEditView schema={schema} />;
+  else if (live && (!schema.enabled || schema.maxSubmissions === 0)) control = <FormClosedView />;
+  else if (live) control = <FormSubmissionView schema={schema} pageId={pageId} client={submissionClient} />;
+  else control = <FormReadonlyView schema={schema} originUrl={originUrl} />;
   return <KitFrame block={block} editor={editor} kind="form" defaultName={t('formBlock.label')} symbol={false} control={control} config={config} />;
 };
 
