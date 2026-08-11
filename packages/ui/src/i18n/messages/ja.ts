@@ -11,6 +11,7 @@ export const ja: PartialMessages = {
     untitled: '無題',
     undo: '元に戻す',
     settings: '設定',
+    noOptions: 'オプションがありません',
   },
   settings: {
     title: '設定',
@@ -1096,6 +1097,11 @@ export const ja: PartialMessages = {
     emptyHint: '他のページから @ でこのページに言及してください。そうでなければ、その名前がリンクされていない言及としてここに表示されます。',
   },
   database: {
+    empty: {
+      noGroups: 'グループはまだありません。',
+      noConditions: '条件はまだありません。',
+      noSorts: '並べ替えはまだありません。',
+    },
     toolbar: {
       group: 'グループ',
       fields: 'フィールド',
