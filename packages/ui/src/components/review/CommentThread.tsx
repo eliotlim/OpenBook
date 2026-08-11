@@ -1,10 +1,14 @@
 import {useState} from 'react';
-import {Trash2} from 'lucide-react';
+import {Copy, Trash2} from 'lucide-react';
 import type {CommentInput, StoredComment} from '@book.dev/sdk';
 import type {TextRun} from '@/blockeditor/model';
 import {RichTextEditor, RichTextView, runsHaveText} from '@/blockeditor/RichTextEditor';
 import {Button} from '@/components/ui/button';
+import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
+import {copyText} from '@/lib/pageActions';
+import {useTranslation} from '@/providers';
 
 /**
  * A threaded rich-text discussion: the comments for a target (a suggestion's
@@ -33,6 +37,7 @@ const fmtTime = (iso: string): string => {
 };
 
 export function CommentThread({comments, newComment, authorName, onPost, onDelete, compact}: CommentThreadProps) {
+  const {t} = useTranslation();
   const [draft, setDraft] = useState<TextRun[]>([]);
   const [seed, setSeed] = useState(0);
   const [posting, setPosting] = useState(false);
@@ -54,23 +59,33 @@ export function CommentThread({comments, newComment, authorName, onPost, onDelet
       {comments.length > 0 && (
         <ul className="flex flex-col gap-2">
           {comments.map((c) => (
-            <li key={c.id} className="group rounded-md border border-border bg-muted px-2.5 py-2">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="text-xs font-medium">{c.authorName}</span>
-                <span className="text-[11px] text-muted-foreground">{fmtTime(c.createdAt)}</span>
-                <span className="flex-1" />
-                <IconButton
-                  size="sm"
-                  className="opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Delete comment"
-                  title="Delete comment"
-                  onClick={() => void onDelete(c.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </IconButton>
-              </div>
-              <RichTextView runs={c.body as TextRun[]} className="ob-comment-body text-sm" />
-            </li>
+            <ContextMenu key={c.id}>
+              <ContextMenuTrigger asChild onContextMenu={(event) => event.stopPropagation()}>
+                <li className="group rounded-md border border-border bg-muted px-2.5 py-2">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-xs font-medium">{c.authorName}</span>
+                    <span className="text-[11px] text-muted-foreground">{fmtTime(c.createdAt)}</span>
+                    <span className="flex-1" />
+                    <IconButton
+                      size="sm"
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label="Delete comment"
+                      title="Delete comment"
+                      onClick={() => void onDelete(c.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </div>
+                  <RichTextView runs={c.body as TextRun[]} className="ob-comment-body text-sm" />
+                </li>
+              </ContextMenuTrigger>
+              <ContextMenuContent className={MENU_WIDTH_SM}>
+                <ContextMenuItem onSelect={() => void copyText(c.body.map((run) => run.t).join(''))}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  {t('common.copy')}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
         </ul>
       )}
