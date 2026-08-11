@@ -2,7 +2,7 @@ import type * as Y from 'yjs';
 import {
   captureScopeProgram,
   evaluateScopeProgram,
-  newFunctionEvalBackend,
+  renderEvalBackend,
   type ComputedScope,
   type EvalBackend,
   type EvalRequest,
@@ -62,7 +62,7 @@ export class ReactiveEvalCache {
 
   constructor(
     private readonly doc: Y.Doc,
-    private readonly backend: EvalBackend = newFunctionEvalBackend,
+    private readonly backend: EvalBackend = renderEvalBackend,
   ) {}
 
   readonly subscribe = (listener: () => void): (() => void) => {

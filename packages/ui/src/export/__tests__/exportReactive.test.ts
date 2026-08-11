@@ -1,7 +1,8 @@
-import {describe, it, expect} from 'vitest';
+import {beforeAll, describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
-import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
+import {createDoc, decodeSnapshot, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
+import {computeExportCells} from '../../blockeditor/kit/scope';
 import {buildDocumentModel} from '../documentModel';
 import {toHtml, toSlideDeck} from '../toHtml';
 import {toMarkdown} from '../toMarkdown';
@@ -32,9 +33,19 @@ const DOC: NewBlock[] = [
   {type: 'callout', text: [{t: 'Tip'}], props: {variant: 'success'}},
 ];
 
-const blockSnapshot = (): PageSnapshot => {
+let preparedBlockSnapshot: PageSnapshot;
+
+beforeAll(async () => {
   const doc = createDoc(DOC);
-  return {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)} as never;
+  const raw = {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)} as never;
+  preparedBlockSnapshot = projectSnapshotForExport(raw, undefined, await computeExportCells(doc));
+});
+
+const blockSnapshot = (): PageSnapshot => preparedBlockSnapshot;
+
+const authoritativeSnapshot = async (raw: PageSnapshot): Promise<PageSnapshot> => {
+  const doc = decodeSnapshot(raw.blockdoc as never);
+  return projectSnapshotForExport(raw, undefined, await computeExportCells(doc));
 };
 
 describe('reactive export from a block document', () => {
@@ -255,8 +266,8 @@ describe('export block fidelity', () => {
     expect(md).not.toContain('class="cols"');
   });
 
-  it('summarises a pie chart by label:value in Markdown', () => {
-    const md = toMarkdown(buildDocumentModel({title: 'T', icon: '', snapshot: fancy()}));
+  it('summarises a pie chart by label:value in Markdown', async () => {
+    const md = toMarkdown(buildDocumentModel({title: 'T', icon: '', snapshot: await authoritativeSnapshot(fancy())}));
     expect(md).toContain('**Slices**');
     expect(md).toContain('- Red: 2');
     expect(md).toContain('- Blue: 3');
@@ -265,7 +276,7 @@ describe('export block fidelity', () => {
   // The intake template binds a progress bar to a gated accordion's auto-computed
   // completion (`intake.ratio`) — a container-completion signal that must resolve
   // in the export the same way it does live.
-  it('resolves a gated-accordion completion into a progress bar', () => {
+  it('resolves a gated-accordion completion into a progress bar', async () => {
     const doc = createDoc([
       {type: 'accordion', props: {name: 'intake', gated: true}, children: [
         {type: 'accordionsection', props: {label: 'A'}, children: [{type: 'textfield', props: {name: 'goal', value: 'ship'}}]},
@@ -274,21 +285,22 @@ describe('export block fidelity', () => {
       {type: 'progressbar', props: {label: 'Completed', source: 'intake.ratio', max: 1, format: 'percent'}},
     ]);
     const snap = {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)} as never;
-    const model = buildDocumentModel({title: 'T', icon: '', snapshot: snap});
+    const resolved = await authoritativeSnapshot(snap);
+    const model = buildDocumentModel({title: 'T', icon: '', snapshot: resolved});
     const progress = model.blocks.find((b) => b.type === 'progress') as {pct: number} | undefined;
     expect(progress?.pct).toBe(50); // one of two fields filled → 50%
-    expect(toHtml(snap, 'T', '')).toContain('width:50%');
+    expect(toHtml(resolved, 'T', '')).toContain('width:50%');
   });
 
   // The savings template's live code returns an object of arrays (multi-series);
   // the chart and the Markdown summary must both read it.
-  it('handles a multi-series object chart (object of arrays)', () => {
+  it('handles a multi-series object chart (object of arrays)', async () => {
     const doc = createDoc([
       {type: 'code', text: [{t: 'return {Invested: [10, 20, 30], Projected: [10, 25, 44]}'}], props: {live: true, name: 'proj'}},
       {type: 'kitchart', props: {kind: 'area', title: 'Balance', source: 'proj'}},
     ]);
     const snap = {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)} as never;
-    const md = toMarkdown(buildDocumentModel({title: 'T', icon: '', snapshot: snap}));
+    const md = toMarkdown(buildDocumentModel({title: 'T', icon: '', snapshot: await authoritativeSnapshot(snap)}));
     expect(md).toContain('**Balance**');
     expect(md).toContain('- Invested: 10, 20, 30');
     expect(md).toContain('- Projected: 10, 25, 44');

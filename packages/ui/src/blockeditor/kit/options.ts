@@ -37,8 +37,10 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-// Reserved words can't be used as a binding name in `new Function(name, …)`
-// (the reactive engine), so a label that camelCases to one gets a trailing `_`.
+// Keep the historical suffix for derived names: saved formulas may already
+// reference `class_`, and changing the derived binding would silently break
+// those documents. Authors who intentionally use a reserved explicit name can
+// address it through the forward-compatible `scope.<name>` form.
 const RESERVED_WORDS = new Set([
   'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
   'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof',
@@ -53,10 +55,9 @@ const RESERVED_WORDS = new Set([
  * (`taxRate2024`) with the author never touching the config. The rules, in
  * order: fold accents to ASCII ("Café" → "Cafe"); split on every run of
  * non-identifier characters and camelCase the words; prefix a leading digit
- * with `_`; suffix a reserved word with `_`. Returns '' only when nothing
- * usable remains (the caller falls back to the block's default symbol). The
- * reactive engine references these via `new Function(name, …)`, so the result
- * is always legal.
+ * with `_`; preserve the historical `_` suffix for a reserved word. Returns ''
+ * only when nothing usable remains (the caller falls back to the block's
+ * default symbol). Explicit reserved names remain readable as `scope.class`.
  */
 export const varNameFromLabel = (label: string): string => {
   const folded = label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');

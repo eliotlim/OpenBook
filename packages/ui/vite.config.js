@@ -1,4 +1,5 @@
 //vite.config.js
+import { realpathSync } from "fs";
 import { resolve, isAbsolute } from "path";
 import { fileURLToPath, URL } from "url";
 import { defineConfig } from "vite";
@@ -10,6 +11,7 @@ import { defineConfig } from "vite";
 // build in place while watching (overwrite in place); still clean for one-shot
 // production builds.
 const isWatch = process.argv.includes("--watch");
+const quickJSPackageRoot = realpathSync(resolve(__dirname, "node_modules/@jitl/quickjs-wasmfile-release-sync"));
 
 export default defineConfig ({
   define: {
@@ -44,6 +46,11 @@ export default defineConfig ({
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
     ],
     dedupe: ['react', 'react-dom'],
+  },
+  server: {
+    // pnpm worktrees may link dependencies from the primary checkout. Vitest
+    // must be allowed to transform the inlined QuickJS WASM at its real path.
+    fs: {allow: [quickJSPackageRoot]},
   },
   test: {
     environment: 'happy-dom',

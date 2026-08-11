@@ -158,14 +158,15 @@ describe('export of a database-bound chart (export-time resolution, no persisted
   // read from the doc (the block stores no dbSnapshot).
   const dbSeries = (): DbChartSeriesMap => new Map([['k1', {value: [2, 1], labels: ['Todo', 'Done']}]]);
 
-  it('seeds the computed cell from the threaded series (not from the doc)', () => {
-    const cells = computeExportCells(dbChartDoc(), dbSeries());
+  it('seeds the computed cell from the threaded series (not from the doc)', async () => {
+    const cells = await computeExportCells(dbChartDoc(), dbSeries());
     expect(cells.get('k1')?.value).toEqual([2, 1]);
   });
 
-  it('bakes the resolved series in as a constant literal and takes labels from the groups', () => {
+  it('bakes the resolved series in as a constant literal and takes labels from the groups', async () => {
     const snapshot = {editorjs: {blocks: []}, values: [] as unknown[], names: [] as unknown[], editor: 'blocks' as const, blockdoc: encodeSnapshot(dbChartDoc())};
-    const projected = projectSnapshotForExport(snapshot, dbSeries());
+    const computed = await computeExportCells(dbChartDoc(), dbSeries());
+    const projected = projectSnapshotForExport(snapshot, dbSeries(), computed);
     const blocks = (projected.editorjs as {blocks: Array<{type: string; data: Record<string, unknown>}>}).blocks;
     // A DB chart has no reactive expression — its series is baked as a constant so
     // the export's live runtime recomputes to the same data.

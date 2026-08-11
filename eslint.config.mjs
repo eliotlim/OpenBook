@@ -42,8 +42,9 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Dynamic code execution is limited to the explicitly annotated legacy
-    // evaluator sites pending the OB-146 sandbox migration.
+    // Host-realm dynamic code execution is forbidden by default. Narrow
+    // non-document exceptions must be annotated at the call site; reactive
+    // document evaluation lives in the QuickJS Worker sandbox.
     rules: {
       'no-eval': 'error',
       'no-new-func': 'error',

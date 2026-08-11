@@ -7,7 +7,7 @@ import {computeScopeAuthoritative} from '../kit/scope';
 const baseSnapshot = (): PageSnapshot => ({editorjs: {blocks: []}, values: [], names: []});
 
 describe('authoritative save projection', () => {
-  it('round-trips inputs, chained values, and export cells from the specific document', () => {
+  it('round-trips inputs, chained values, and export cells from the specific document', async () => {
     const doc = createDoc([
       {id: 'n', type: 'number', props: {name: 'n', value: 4}},
       {id: 'double', type: 'code', text: 'n * 2', props: {live: true, name: 'double'}},
@@ -16,7 +16,7 @@ describe('authoritative save projection', () => {
       {id: 'light', type: 'statuslight', props: {source: 'plus > 8', okAt: 1, warnAt: 0}},
     ]);
 
-    const saved = projectBlockPageSnapshot(doc, baseSnapshot());
+    const saved = await projectBlockPageSnapshot(doc, baseSnapshot());
     const savedValues = new Map(saved.values);
     expect(savedValues.get('n')).toBe(4);
     expect(savedValues.get('double')).toBe(8);
@@ -25,13 +25,13 @@ describe('authoritative save projection', () => {
     expect(savedValues.get('light')).toBe(true);
 
     const reopened = decodeSnapshot(saved.blockdoc as BlockDocSnapshot);
-    expect(computeScopeAuthoritative(reopened).scope).toMatchObject({n: 4, double: 8, plus: 9});
-    expect(projectBlockPageSnapshot(reopened, saved).values).toEqual(saved.values);
+    expect((await computeScopeAuthoritative(reopened)).scope).toMatchObject({n: 4, double: 8, plus: 9});
+    expect((await projectBlockPageSnapshot(reopened, saved)).values).toEqual(saved.values);
 
     // The next checkpoint reads the supplied Y.Doc, not any last UI cache.
     const input = findBlock(doc, 'n')!.block;
     doc.transact(() => setBlockProp(input, 'value', 7), 'local');
-    const next = projectBlockPageSnapshot(doc, saved);
+    const next = await projectBlockPageSnapshot(doc, saved);
     const nextValues = new Map(next.values);
     expect(nextValues.get('n')).toBe(7);
     expect(nextValues.get('double')).toBe(14);

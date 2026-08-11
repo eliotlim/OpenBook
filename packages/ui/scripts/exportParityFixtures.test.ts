@@ -37,8 +37,8 @@ import {
 const OUT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/e2e-viewer/generated');
 
 describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.ts)', () => {
-  it('writes a deterministic single-page export', () => {
-    const snap = parityExportSnapshot();
+  it('writes a deterministic single-page export', async () => {
+    const snap = await parityExportSnapshot();
     const assets = parityExportAssets();
     const meta = {id: 'fx-root', updatedAt: '2026-07-04T00:00:00.000Z'};
     const html = toHtml(snap, 'Parity fixture', '🧪', assets, meta);
@@ -49,8 +49,8 @@ describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.t
 
   // LX-1: the plugin-block page. Exported HTML must show every plugin block as a
   // labelled placeholder — no block may vanish into an empty paragraph.
-  it('writes a plugin-block export where every unrenderable block is visibly labelled', () => {
-    const snap = parityExportSnapshot(PARITY_PLUGIN_BLOCKS);
+  it('writes a plugin-block export where every unrenderable block is visibly labelled', async () => {
+    const snap = await parityExportSnapshot(PARITY_PLUGIN_BLOCKS);
     const meta = {id: 'lx-root', updatedAt: '2026-07-04T00:00:00.000Z'};
     const html = toHtml(snap, 'Ledger plugin blocks', '📒', parityExportAssets(), meta);
     expect(toHtml(snap, 'Ledger plugin blocks', '📒', parityExportAssets(), meta)).toBe(html); // byte-stable
@@ -94,8 +94,8 @@ describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.t
     expect(noRecords).toContain('the books weren\'t included in this export');
   });
 
-  it('writes a deterministic site-bundle export', () => {
-    const bundle = paritySiteBundle();
+  it('writes a deterministic site-bundle export', async () => {
+    const bundle = await paritySiteBundle();
     const html = toHtmlSite(bundle, parityExportAssets());
     expect(toHtmlSite(bundle, parityExportAssets())).toBe(html); // byte-stable
     mkdirSync(OUT_DIR, {recursive: true});

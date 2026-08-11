@@ -26,7 +26,7 @@
   "module": "dist/index.js",
   "scripts": {
     "build": "pnpm run gen:bundled-plugins && pnpm run build:viewer && vite build && tsc",
-    "gen:bundled-plugins": "tsx scripts/bundlePlugins.ts",
+    "gen:bundled-plugins": "node --import tsx scripts/bundlePlugins.ts",
     "check:gen": "pnpm run gen:bundled-plugins && (git diff --exit-code -- src/plugins/bundled.gen.ts src/export/ledgerFolds.gen || (echo 'Committed .gen mirror is STALE: run pnpm --filter @book.dev/ui run gen:bundled-plugins and commit the result.' >&2 && exit 1))",
     "build:viewer": "vite build --config vite.viewer.config.js",
     "gen:export-fixtures": "vitest run scripts/exportParityFixtures.test.ts",
@@ -43,6 +43,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@heroicons/react": "^2.1.5",
     "@observablehq/plot": "^0.6.17",
     "@book.dev/sdk": "workspace:*",
@@ -69,6 +70,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "node-emoji": "^2.2.0",
+    "quickjs-emscripten-core": "0.32.0",
     "react-leaflet": "^5.0.0",
     "sucrase": "^3.35.1",
     "svg2pdf.js": "^2.7.0",

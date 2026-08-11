@@ -4,11 +4,11 @@ import {ReactiveEvalCache} from '../evalCache';
 import {
   captureScopeProgram,
   evaluateScopeProgram,
-  newFunctionEvalBackend,
   type EvalBackend,
   type EvalRequest,
   type EvalResult,
 } from '../scope';
+import {quickJSEvalBackend} from '../sandbox/quickjsBackend';
 
 function controlledBackend(): {
   backend: EvalBackend;
@@ -82,7 +82,7 @@ describe('async evaluator seam', () => {
     const delayed: EvalBackend = {
       async evaluate(request) {
         await Promise.resolve();
-        return newFunctionEvalBackend.evaluate(request);
+        return quickJSEvalBackend.evaluate(request);
       },
     };
     const computed = await evaluateScopeProgram(captureScopeProgram(doc), delayed);
