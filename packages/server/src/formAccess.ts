@@ -10,7 +10,12 @@
 import {createHash, timingSafeEqual} from 'node:crypto';
 import type {Context} from 'hono';
 import {HTTPException} from 'hono/http-exception';
-import type {FormSubmissionRequest, StoredPage} from '@book.dev/sdk';
+import {
+  FORM_UPLOAD_MAX_FILE_BYTES,
+  type FormSubmissionRequest,
+  type FormUploadRequest,
+  type StoredPage,
+} from '@book.dev/sdk';
 import type {AppEnv} from './appEnv';
 import type {PageStore} from './store';
 
@@ -25,7 +30,13 @@ export const FORM_SUBMISSION_MAX_FIELDS = 100;
 export const FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES = 200;
 /** Interim FORM-1 abuse ceiling when the persisted form schema has no override. */
 export const FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS = 10_000;
-// TODO(FORM-6): make the default instance-configurable with the rate-limit policy.
+/** Shared upload+submit budget per IP/form fixed window. */
+export const FORM_REQUEST_RATE_LIMIT = 30;
+export const FORM_REQUEST_RATE_WINDOW_MS = 60_000;
+/** Base64 JSON envelope for one 5 MiB decoded file plus bounded metadata. */
+export const FORM_UPLOAD_MAX_BODY_BYTES = Math.ceil(FORM_UPLOAD_MAX_FILE_BYTES * 4 / 3) + 64 * 1024;
+export const FORM_UPLOAD_MAX_NAME_BYTES = 512;
+export const FORM_UPLOAD_MAX_FIELD_ID_BYTES = 200;
 
 const DUMMY_SUBMISSION_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const textEncoder = new TextEncoder();
@@ -49,6 +60,22 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function denyFormSubmission(): never {
   throw new HTTPException(404, {message: FORM_SUBMISSION_DENIED_MESSAGE});
+}
+
+/** Whether a validated-enough persisted schema exposes at least one files field. */
+export function formHasFilesField(schema: unknown): boolean {
+  return isRecord(schema)
+    && Array.isArray(schema.fields)
+    && schema.fields.some((field) => isRecord(field) && field.kind === 'files' && typeof field.id === 'string');
+}
+
+/** Whether `fieldId` names a files field in this persisted schema. */
+export function isFormFilesField(schema: unknown, fieldId: string): boolean {
+  return isRecord(schema)
+    && Array.isArray(schema.fields)
+    && schema.fields.some((field) =>
+      isRecord(field) && field.kind === 'files' && field.id === fieldId,
+    );
 }
 
 /**
@@ -164,9 +191,48 @@ export async function requireFormSubmissionAccess(
   return {page, form};
 }
 
+/** Reuse the security-cleared submission gate, then apply the files-only carve-out. */
+export async function requireFormUploadAccess(
+  c: Ctx,
+  store: PageStore,
+  pageId: string,
+  formId: string,
+  providedKey: string,
+): Promise<{page: StoredPage; form: StoredFormDefinition}> {
+  const access = await requireFormSubmissionAccess(c, store, pageId, formId, providedKey);
+  if (!formHasFilesField(access.form.schema)) denyFormSubmission();
+  return access;
+}
+
 /** Extract only the candidate key so the oracle-safe gate runs before 400s. */
 export function formSubmissionKey(body: unknown): string {
   return isRecord(body) && typeof body.key === 'string' ? body.key : '';
+}
+
+/** Validate upload metadata after the capability gate has passed. */
+export function validateFormUploadRequest(body: unknown): FormUploadRequest {
+  if (
+    !isRecord(body)
+    || typeof body.key !== 'string'
+    || typeof body.fieldId !== 'string'
+    || body.fieldId.length === 0
+    || textEncoder.encode(body.fieldId).byteLength > FORM_UPLOAD_MAX_FIELD_ID_BYTES
+    || typeof body.name !== 'string'
+    || body.name.trim().length === 0
+    || textEncoder.encode(body.name).byteLength > FORM_UPLOAD_MAX_NAME_BYTES
+    || typeof body.mime !== 'string'
+    || typeof body.data !== 'string'
+    || body.data.length === 0
+  ) {
+    throw new HTTPException(400, {message: 'invalid form upload'});
+  }
+  return {
+    key: body.key,
+    fieldId: body.fieldId,
+    name: body.name,
+    mime: body.mime || 'application/octet-stream',
+    data: body.data,
+  };
 }
 
 function jsonDepthWithin(value: unknown, maxDepth: number): boolean {

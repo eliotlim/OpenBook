@@ -12,6 +12,10 @@ import {
   CLIENT_HEADER,
   FORWARDED_HEADER,
   FORM_SUBMISSION_PROPERTY_ID,
+  FORM_UPLOAD_MAX_FILE_BYTES,
+  FORM_UPLOAD_MAX_FILES,
+  FORM_UPLOAD_MAX_FORM_BYTES,
+  FORM_UPLOAD_ORPHAN_TTL_MS,
   submissionToRowInput,
   validateSubmission,
   PAGE_VISIBILITIES,
@@ -24,6 +28,7 @@ import {
   type DatabaseUpdate,
   type FormSubmissionResult,
   type FormSchema,
+  type FormUploadResult,
   type ImportRequest,
   type InstanceConfig,
   type InstanceInfo,
@@ -54,7 +59,7 @@ import {
   type LedgerTransactionState,
   localPrincipal,
 } from '@book.dev/sdk';
-import {PageStore, AssetBudgetError, BackupFormatError} from './store';
+import {PageStore, AssetBudgetError, BackupFormatError, FormAssetBudgetError} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
 import {ServerAuthoritativePersister} from './collabPersist';
@@ -91,8 +96,14 @@ import type {McpClientManager} from './ai/mcpClients';
 import type {AiUsageLog} from './ai/usage';
 import {
   FORM_SUBMISSION_MAX_BODY_BYTES,
+  FORM_REQUEST_RATE_LIMIT,
+  FORM_REQUEST_RATE_WINDOW_MS,
+  FORM_UPLOAD_MAX_BODY_BYTES,
   formSubmissionKey,
+  isFormFilesField,
+  requireFormUploadAccess,
   requireFormSubmissionAccess,
+  validateFormUploadRequest,
   validateFormSubmissionRequest,
 } from './formAccess';
 
@@ -133,7 +144,7 @@ function safeEqual(a: string, b: string): boolean {
  *    reflected, so a published instance stays browser-unreadable from a foreign page.
  */
 const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
-const FORM_SUBMISSION_PATH = /^\/api\/pages\/[^/]+\/forms\/[^/]+\/submissions$/;
+const FORM_PUBLIC_WRITE_PATH = /^\/api\/pages\/[^/]+\/forms\/[^/]+\/(?:submissions|uploads)$/;
 export function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
   // Scheme and host are case-insensitive (RFC 3986 §3.1/§6.2.2.1), so a browser MAY send
@@ -189,6 +200,38 @@ function safeAssetMime(raw: string): string | null {
   if (/[\u0000-\u001f\u007f]/.test(raw)) return null;
   const base = raw.split(';', 1)[0].trim().toLowerCase();
   return ASSET_IMAGE_MIMES.has(base) ? base : 'application/octet-stream';
+}
+
+/** Strict base64 decoder for the public form-upload envelope. */
+function decodeFormUploadBase64(raw: string): Uint8Array | null {
+  if (raw.length % 4 !== 0) return null;
+  const padding = raw.endsWith('==') ? 2 : raw.endsWith('=') ? 1 : 0;
+  for (let i = 0; i < raw.length - padding; i += 1) {
+    const code = raw.charCodeAt(i);
+    const valid = (code >= 65 && code <= 90)
+      || (code >= 97 && code <= 122)
+      || (code >= 48 && code <= 57)
+      || code === 43
+      || code === 47;
+    if (!valid) return null;
+  }
+  const bytes = new Uint8Array(Buffer.from(raw, 'base64'));
+  return Buffer.from(bytes).toString('base64') === raw ? bytes : null;
+}
+
+function formFileEntries(
+  schema: FormSchema,
+  values: Record<string, unknown>,
+): Array<{fieldId: string; tokens: string[]}> {
+  const entries: Array<{fieldId: string; tokens: string[]}> = [];
+  for (const field of schema.fields) {
+    if (field.kind !== 'files') continue;
+    const value = values[field.id];
+    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+      entries.push({fieldId: field.id, tokens: value as string[]});
+    }
+  }
+  return entries;
 }
 
 /**
@@ -372,6 +415,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // be brute-forced or used to DoS the lookup.
   const patTokenLimiter = new FixedWindowLimiter(AGENT_TOKEN_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
   const patFailLimiter = new FixedWindowLimiter(AGENT_FAILED_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
+  // FORM-6: one fixed-window budget shared by uploads and submissions for each
+  // client-IP + form. Forwarded requests do not reliably carry the original peer
+  // address, and client-supplied forwarding headers are spoofable, so those (and
+  // adapters with no socket peer) deliberately collapse to a per-form-only bucket.
+  const formRequestLimiter = new FixedWindowLimiter(FORM_REQUEST_RATE_LIMIT, FORM_REQUEST_RATE_WINDOW_MS);
+  const formRateLimited = (c: Context<AppEnv>, pageId: string, formId: string): boolean => {
+    const forwarded = !!c.req.header(FORWARDED_HEADER);
+    const peer = forwarded ? 'peer' : clientIpKey(c);
+    const key = peer === 'peer' ? `form:${pageId}:${formId}` : `ip:${peer}:form:${pageId}:${formId}`;
+    if (!formRequestLimiter.exceeded(key)) return false;
+    c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
+    return true;
+  };
   // Loads a page's durable snapshot as raw Yjs update bytes — the seed base for the
   // relay doc. The block document stores its CRDT state as base64 in `blockdoc.update`.
   const loadRelayBase = async (pageId: string): Promise<Uint8Array | null> => {
@@ -643,8 +699,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // form gate reuse the page READ decision itself, including the stricter
       // `guestAccess:'off'` floor, so every form denial has one oracle-safe body.
       // The separate X-OpenBook-Client CSRF middleware below still applies.
-      const isFormSubmission = c.req.method === 'POST' && FORM_SUBMISSION_PATH.test(c.req.path);
-      const gate = isFormSubmission ? null : guestGate(principal, guestAccess, c.req.method);
+      const isFormPublicWrite = c.req.method === 'POST' && FORM_PUBLIC_WRITE_PATH.test(c.req.path);
+      const gate = isFormPublicWrite ? null : guestGate(principal, guestAccess, c.req.method);
       if (gate) return c.json({error: gate.error}, gate.status);
       // Claim-on-sign-in (contract §4.3 step 3). The first time a verified persona
       // JWS appears, bind every matching `invited` roster row / email ACL to its
@@ -835,25 +891,52 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     }),
     async (c) => {
       const body = await c.req.json<unknown>().catch(() => null);
+      const pageId = c.req.param('pageId');
+      const formId = c.req.param('formId');
       const {page, form} = await requireFormSubmissionAccess(
         c,
         store,
-        c.req.param('pageId'),
-        c.req.param('formId'),
+        pageId,
+        formId,
         formSubmissionKey(body),
       );
+      if (formRateLimited(c, pageId, formId)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
       const schema = form.schema as FormSchema;
       const validation = validateSubmission(schema, input.values);
       if ('honeypot' in validation) {
+        const tokens = formFileEntries(schema, input.values).flatMap((entry) => entry.tokens);
+        await store.discardFormUploads(page.id, form.formId, tokens);
         const result: FormSubmissionResult = {rowId: randomUUID(), submittedAt};
         return c.json(result, 201);
       }
       if (!validation.ok) return c.json({errors: validation.errors}, 400);
+      const uploadEntries = formFileEntries(schema, validation.coerced);
+      const uploadCount = uploadEntries.reduce((count, entry) => count + entry.tokens.length, 0);
+      if (uploadCount > FORM_UPLOAD_MAX_FILES) return c.json({error: 'too many files'}, 400);
+      const claimed = await store.claimFormUploads(
+        page.id,
+        form.formId,
+        uploadEntries,
+        input.idempotencyKey,
+        FORM_UPLOAD_ORPHAN_TTL_MS,
+      );
+      if (!claimed) return c.json({error: 'invalid or expired form upload'}, 400);
+      const uploadByToken = new Map(claimed.map((upload) => [upload.token, upload]));
+      const storedValues = {...validation.coerced};
+      for (const entry of uploadEntries) {
+        storedValues[entry.fieldId] = entry.tokens.map((token) => {
+          const upload = uploadByToken.get(token)!;
+          return `${API.asset(upload.assetId)}?filename=${encodeURIComponent(upload.name)}`;
+        });
+      }
       const database = await store.getDatabase(form.databaseId);
       if (!database) throw new HTTPException(404, {message: 'form not found'});
-      const {rowInput} = submissionToRowInput(schema, validation.coerced, database.schema);
+      const {rowInput} = submissionToRowInput(schema, storedValues, database.schema);
       const {page: pageRow, created} = await store.createRow(
         form.databaseId,
         {
@@ -869,6 +952,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
             key: input.idempotencyKey,
           },
         },
+      );
+      await store.consumeFormUploads(
+        claimed.map((upload) => upload.token),
+        input.idempotencyKey,
+        pageRow.id,
       );
       const marker = pageRow.properties[FORM_SUBMISSION_PROPERTY_ID];
       const originalSubmittedAt =
@@ -963,6 +1051,71 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // all stored asset bytes past this is rejected with a friendly 507. `<= 0` means
   // no budget. A dedup re-upload adds no bytes and is always allowed (in the store).
   const ASSET_STORAGE_BUDGET_BYTES = resolveAssetStorageBudgetBytes(opts.assetStorageBudgetBytes);
+
+  // FORM-6 anonymous asset carve-out. This route deliberately reuses the exact
+  // submission capability/read/same-host/ceiling gate and only then admits forms
+  // with a files field. Bytes are staged without an `asset_refs` edge, so they are
+  // neither readable nor durable until a valid submission consumes the opaque
+  // token. Activity on either form route sweeps unconsumed stages after 30 minutes.
+  app.post(
+    `${API.pages}/:pageId/forms/:formId/uploads`,
+    bodyLimit({
+      maxSize: FORM_UPLOAD_MAX_BODY_BYTES,
+      onError: (c) => c.json({error: 'request body too large'}, 413),
+    }),
+    async (c) => {
+      const body = await c.req.json<unknown>().catch(() => null);
+      const pageId = c.req.param('pageId');
+      const formId = c.req.param('formId');
+      const {page, form} = await requireFormUploadAccess(
+        c,
+        store,
+        pageId,
+        formId,
+        formSubmissionKey(body),
+      );
+      if (formRateLimited(c, pageId, formId)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+      const input = validateFormUploadRequest(body);
+      if (!isFormFilesField(form.schema, input.fieldId)) {
+        return c.json({error: 'invalid form upload field'}, 400);
+      }
+      const bytes = decodeFormUploadBase64(input.data);
+      if (!bytes || bytes.byteLength === 0) return c.json({error: 'invalid form upload'}, 400);
+      if (bytes.byteLength > FORM_UPLOAD_MAX_FILE_BYTES) {
+        return c.json({error: 'request body too large'}, 413);
+      }
+      const mime = safeAssetMime(input.mime);
+      if (mime === null) return c.json({error: 'invalid content type'}, 400);
+
+      try {
+        const staged = await store.stageFormUpload(
+          bytes,
+          mime,
+          {
+            token: randomUUID(),
+            pageId: page.id,
+            formId: form.formId,
+            fieldId: input.fieldId,
+            name: input.name.trim(),
+          },
+          {
+            maxFormBytes: FORM_UPLOAD_MAX_FORM_BYTES,
+            maxTotalBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
+          },
+        );
+        const result: FormUploadResult = {token: staged.token, name: staged.name, size: staged.size};
+        return c.json(result, 201);
+      } catch (err) {
+        if (err instanceof AssetBudgetError || err instanceof FormAssetBudgetError) {
+          return c.json({error: 'asset storage is full'}, 507);
+        }
+        throw err;
+      }
+    },
+  );
 
   // Upload an asset. Write-gated to `?pageId=<id>` — a page the uploader can write —
   // and ref'd to that page in the same request, so the asset is immediately

@@ -579,6 +579,32 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_database_position_idx ON pages (database_id, position)',
     ],
   },
+  {
+    // FORM-6 — opaque staged-upload tokens. Asset bytes stay in the existing
+    // content-addressed store; this table binds a random token to one form field
+    // until submission. `claimed_by` is the submission idempotency key, allowing
+    // exact retries but preventing a token being spent by a different submission.
+    // `consumed_by` keeps the form-byte accounting tied to the live/trashed row and
+    // cascade-removes it on hard purge. Unconsumed rows are swept after 30 minutes.
+    name: '0024_form_uploads',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS form_uploads (
+        token        TEXT        PRIMARY KEY,
+        asset_id     TEXT        NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        page_id      UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        form_id      TEXT        NOT NULL,
+        field_id     TEXT        NOT NULL,
+        file_name    TEXT        NOT NULL,
+        owns_asset   BOOLEAN     NOT NULL DEFAULT false,
+        claimed_by   TEXT,
+        consumed_by  UUID        REFERENCES pages(id) ON DELETE CASCADE,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS form_uploads_form_idx ON form_uploads (page_id, form_id)',
+      'CREATE INDEX IF NOT EXISTS form_uploads_expiry_idx ON form_uploads (created_at) WHERE consumed_by IS NULL',
+      'CREATE INDEX IF NOT EXISTS form_uploads_asset_idx ON form_uploads (asset_id)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

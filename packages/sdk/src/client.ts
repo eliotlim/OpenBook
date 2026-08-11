@@ -20,7 +20,14 @@ import type {
 } from './ai';
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
-import {FormSubmissionError, type FormSubmissionRequest, type FormSubmissionResult} from './forms';
+import {
+  FormSubmissionError,
+  FormUploadError,
+  type FormSubmissionRequest,
+  type FormSubmissionResult,
+  type FormUploadInput,
+  type FormUploadResult,
+} from './forms';
 import {FORM_VALIDATION_ERROR_CODES, type FormValidationError} from './formSchema';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
@@ -125,6 +132,12 @@ export interface DataClient {
     formId: string,
     input: FormSubmissionRequest,
   ): Promise<FormSubmissionResult>;
+  /** Stage one file for a capability-gated public form submission. */
+  uploadFormFile?(
+    pageId: string,
+    formId: string,
+    input: FormUploadInput,
+  ): Promise<FormUploadResult>;
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /**
@@ -1229,6 +1242,28 @@ export class HttpDataClient implements DataClient {
       throw new FormSubmissionError(res.status, errors);
     }
     return (await res.json()) as FormSubmissionResult;
+  }
+
+  /** Stage one form file as base64 JSON so every HTTP/IPC transport stays byte-exact. */
+  async uploadFormFile(
+    pageId: string,
+    formId: string,
+    input: FormUploadInput,
+  ): Promise<FormUploadResult> {
+    const res = await this.authFetch(`${this.baseUrl}${API.formUploads(pageId, formId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        key: input.key,
+        fieldId: input.fieldId,
+        name: input.name,
+        mime: input.mime,
+        data: bytesToBase64(input.bytes),
+      }),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new FormUploadError(res.status);
+    return (await res.json()) as FormUploadResult;
   }
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {

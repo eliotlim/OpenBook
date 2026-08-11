@@ -12,6 +12,9 @@ export const API = {
   /** Capability-gated form row creation: `POST`. */
   formSubmissions: (pageId: string, formId: string): string =>
     `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/submissions`,
+  /** Capability-gated staged form-file upload: `POST`. */
+  formUploads: (pageId: string, formId: string): string =>
+    `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/uploads`,
   /** A page's structured properties (owner, verification, …): `PATCH` (shallow merge). */
   pageProperties: (id: string): string => `/api/pages/${encodeURIComponent(id)}/properties`,
   /** Pages that link to this one (the backlink graph): `GET`. */
