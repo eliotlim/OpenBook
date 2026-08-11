@@ -201,6 +201,16 @@ export interface UpsertPageOptions {
   captureMode?: CaptureMode;
 }
 
+/** Optional atomic replay ledger for {@link PageStore.createRow}. */
+export interface CreateRowOptions {
+  idempotency?: {
+    /** Stable namespace for this row-create capability (stored in `write_keys.author_subject`). */
+    scope: string;
+    /** Client-generated replay key within that scope. */
+    key: string;
+  };
+}
+
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -2914,17 +2924,59 @@ export class PageStore {
    * of the database's manual order. `input.parentId` nests it under another row
    * as a sub-item. Returns the page.
    */
-  async createRow(databaseId: string, input: RowInput = {}, author?: Principal): Promise<StoredPage> {
+  async createRow(
+    databaseId: string,
+    input: RowInput = {},
+    author?: Principal,
+    opts?: CreateRowOptions,
+  ): Promise<StoredPage> {
     // LGR-3: ledger rows are minted only by `LedgerStore` (which writes inside
     // its own transaction, never through here) — every other caller is rejected,
     // in server AND browser-local mode alike.
     await this.assertNotLedgerDatabase(databaseId);
-    const id = randomUUID();
+    const scope = opts?.idempotency?.scope.trim();
+    const clientKey = opts?.idempotency?.key.trim();
+    if (scope && clientKey) {
+      return this.db.begin(async (tx) => {
+        const newId = randomUUID();
+        const claim = await tx.query<{page_id: string}>(
+          `INSERT INTO write_keys (author_subject, client_key, page_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (author_subject, client_key) DO NOTHING
+           RETURNING page_id`,
+          [scope, clientKey, newId],
+        );
+        if (claim.length === 0) {
+          const keyed = await tx.query<{page_id: string}>(
+            'SELECT page_id FROM write_keys WHERE author_subject = $1 AND client_key = $2',
+            [scope, clientKey],
+          );
+          const keyedId = keyed[0]?.page_id ?? newId;
+          const rows = await tx.query<PageRow>(`SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`, [keyedId]);
+          if (rows.length > 0) return pageFromRow(rows[0]);
+          // Match the page-create ledger's rare hard-purge posture: recreate under
+          // the recorded id so all later replays remain stable.
+          return this.createRowTx(tx, keyedId, databaseId, input, author);
+        }
+        return this.createRowTx(tx, newId, databaseId, input, author);
+      });
+    }
+    return this.db.begin((tx) => this.createRowTx(tx, randomUUID(), databaseId, input, author));
+  }
+
+  /** Row insert body, shared by ordinary creates and atomic idempotent creates. */
+  private async createRowTx(
+    tx: Db,
+    id: string,
+    databaseId: string,
+    input: RowInput,
+    author?: Principal,
+  ): Promise<StoredPage> {
     // A fresh row has no prior content, so every block is stamped "now" and
     // attributed to its (verified) creator (OB-170).
     const stamped = stampSnapshotMtimes(null, input.data ?? emptyPageSnapshot(), new Date().toISOString());
     const data = stampSnapshotAuthors(null, stamped, verifiedSubject(author));
-    const rows = await this.db.query<PageRow>(
+    const rows = await tx.query<PageRow>(
       `INSERT INTO pages (id, name, data, database_id, parent_id, properties, position, updated_at)
        VALUES ($1, $2, $3::jsonb, $4, $6, $5::jsonb,
          (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE database_id = $4), now())

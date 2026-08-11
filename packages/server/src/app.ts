@@ -18,6 +18,7 @@ import {
   type CommentInput,
   type DatabaseInput,
   type DatabaseUpdate,
+  type FormSubmissionResult,
   type ImportRequest,
   type InstanceConfig,
   type InstanceInfo,
@@ -83,6 +84,13 @@ import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
 import type {McpClientManager} from './ai/mcpClients';
 import type {AiUsageLog} from './ai/usage';
+import {
+  FORM_SUBMISSION_MAX_BODY_BYTES,
+  FORM_SUBMISSION_PROVENANCE_PROPERTY,
+  formSubmissionKey,
+  requireFormSubmissionAccess,
+  validateFormSubmissionRequest,
+} from './formAccess';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -121,6 +129,7 @@ function safeEqual(a: string, b: string): boolean {
  *    reflected, so a published instance stays browser-unreadable from a foreign page.
  */
 const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const FORM_SUBMISSION_PATH = /^\/api\/pages\/[^/]+\/forms\/[^/]+\/submissions$/;
 export function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
   // Scheme and host are case-insensitive (RFC 3986 §3.1/§6.2.2.1), so a browser MAY send
@@ -625,7 +634,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         }
       }
       const {guestAccess} = await opts.identity.policy();
-      const gate = guestGate(principal, guestAccess, c.req.method);
+      // A form capability is a narrow exception to the ordinary guest MUTATION
+      // floor: `guestAccess:'read'` may submit to a readable public page. Let the
+      // form gate reuse the page READ decision itself, including the stricter
+      // `guestAccess:'off'` floor, so every form denial has one oracle-safe body.
+      // The separate X-OpenBook-Client CSRF middleware below still applies.
+      const isFormSubmission = c.req.method === 'POST' && FORM_SUBMISSION_PATH.test(c.req.path);
+      const gate = isFormSubmission ? null : guestGate(principal, guestAccess, c.req.method);
       if (gate) return c.json({error: gate.error}, gate.status);
       // Claim-on-sign-in (contract §4.3 step 3). The first time a verified persona
       // JWS appears, bind every matching `invited` roster row / email ACL to its
@@ -803,6 +818,65 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     logEdit(c, page.id, 'page.create', page.name ?? '');
     return c.json(page, 201);
   });
+
+  // Page-scoped lookup avoids a full-store formId scan. The form capability is
+  // necessary but not sufficient: requireFormSubmissionAccess also reuses the
+  // caller's existing page READ decision and binds the target database to this
+  // host page. Every missing/disabled/unreadable/wrong-key state 404s alike.
+  app.post(
+    `${API.pages}/:pageId/forms/:formId/submissions`,
+    bodyLimit({
+      maxSize: FORM_SUBMISSION_MAX_BODY_BYTES,
+      onError: (c) => c.json({error: 'request body too large'}, 413),
+    }),
+    async (c) => {
+      const body = await c.req.json<unknown>().catch(() => null);
+      const {page, form} = await requireFormSubmissionAccess(
+        c,
+        store,
+        c.req.param('pageId'),
+        c.req.param('formId'),
+        formSubmissionKey(body),
+      );
+      const input = validateFormSubmissionRequest(body);
+      const submittedAt = new Date().toISOString();
+      const pageRow = await store.createRow(
+        form.databaseId,
+        {
+          properties: {
+            ...input.values,
+            [FORM_SUBMISSION_PROVENANCE_PROPERTY]: {formId: form.formId, submittedAt},
+          },
+        },
+        c.get('principal'),
+        {
+          idempotency: {
+            scope: `form:${page.id}:${form.formId}`,
+            key: input.idempotencyKey,
+          },
+        },
+      );
+      const marker = pageRow.properties[FORM_SUBMISSION_PROVENANCE_PROPERTY];
+      const originalSubmittedAt =
+        typeof marker === 'object' &&
+        marker !== null &&
+        'submittedAt' in marker &&
+        typeof marker.submittedAt === 'string'
+          ? marker.submittedAt
+          : submittedAt;
+
+      // A replay returns the original row/result and emits no duplicate durable
+      // edit-log entry. A same-millisecond replay may repeat only an ephemeral
+      // live notification; the write_keys transaction still prevents a row dup.
+      if (originalSubmittedAt === submittedAt) {
+        hub.publishPage(pageRow);
+        await broadcastRows(form.databaseId);
+        logEdit(c, pageRow.id, 'form.submit', form.formId);
+      }
+      const result: FormSubmissionResult = {rowId: pageRow.id, submittedAt: originalSubmittedAt};
+      return c.json(result, 201);
+    },
+  );
 
   app.get(`${API.pages}/:id`, async (c) => {
     const page = await store.getPageFor(c.get('principal'), c.req.param('id'));
