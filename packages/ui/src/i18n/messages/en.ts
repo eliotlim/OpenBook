@@ -989,6 +989,22 @@ export const en = {
     noPages: 'No pages found',
     noDatabases: 'No databases found',
   },
+  formBlock: {
+    label: 'Form',
+    untitledField: 'Untitled field',
+    noFields: 'No fields yet.',
+    openBuilder: 'Open builder',
+    submit: 'Submit',
+    liveLink: 'Fill this form on the live site',
+    formId: 'Form ID',
+    destination: 'Submission database',
+    noDatabase: 'No database bound',
+    database: 'Database',
+    databaseUnavailable: 'Database unavailable',
+    databaseId: 'Database {id}',
+    loadingDatabase: 'Loading database…',
+    databaseSummary: '{name} · {count} rows',
+  },
   slash: {
     group: {
       pages: 'Pages',
@@ -1035,6 +1051,7 @@ export const en = {
       statuslight: {label: 'Status light', hint: 'Green / amber / red from a live value'},
       tooltipcard: {label: 'Tooltip', hint: 'A term that explains itself on hover'},
       linkcard: {label: 'Link card', hint: 'A titled card that opens a URL'},
+      form: {label: 'Form', hint: 'Collect structured responses into a database'},
     },
   },
   extensions: {
