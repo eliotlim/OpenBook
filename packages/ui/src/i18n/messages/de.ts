@@ -169,6 +169,9 @@ export const de: PartialMessages = {
       linkToPage: 'Mit Seite verknüpfen',
       suggestEdit: 'Änderung vorschlagen…',
       comment: 'Kommentieren…',
+      bulkSelected: '{count} Blöcke ausgewählt',
+      bulkDuplicate: '{count} duplizieren',
+      bulkDelete: '{count} löschen',
     },
     table: {
       sectionRow: 'Zeile',

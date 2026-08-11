@@ -36,6 +36,7 @@ import {
   makeBlock,
   moveBlock,
   moveBlocks,
+  patchBlock,
   parentBlockOf,
   blockToJSON,
   cellInRect,
@@ -1551,6 +1552,15 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
       onMouseDownCapture={
         depth === 0 && !editor.readOnly
           ? (e) => {
+            // A secondary press inside a multi-block selection is a bulk-menu
+            // gesture: keep the selection intact through the mousedown that a
+            // real browser dispatches before contextmenu. Outside starts over,
+            // so the following contextmenu renders the ordinary block actions.
+            if (e.button === 2 && editor.selection.size > 1) {
+              if (selected) e.stopPropagation();
+              else editor.clearSelection();
+              return;
+            }
             if (!e.shiftKey || e.button !== 0) return;
             // Don't hijack native intra-block text extension ("caret at word 3,
             // shift-click word 20" inside ONE block): when nothing is
@@ -1877,9 +1887,95 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
  *  wrapper over the shared {@link BlockMenuItems}. */
 const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
   <ContextMenuContent className={MENU_WIDTH_MD}>
-    <BlockMenuItems block={block} editor={editor} menu="context" />
+    {editor.selection.size > 1 && editor.selection.has(blockId(block)) ? (
+      <BlockBulkMenu editor={editor} />
+    ) : (
+      <BlockMenuItems block={block} editor={editor} menu="context" />
+    )}
   </ContextMenuContent>
 );
+
+/** Whole-selection actions for a right-click inside a 2+ block selection. */
+const BlockBulkMenu: React.FC<{editor: BlockEditorController}> = ({editor}) => {
+  const C = MENU_COMPONENTS.context;
+  const ids = [...editor.selection];
+  const count = ids.length;
+  const textIds = ids.filter((id) => {
+    const found = findBlock(editor.doc, id);
+    return found ? TEXT_BLOCKS.has(blockType(found.block)) : false;
+  });
+
+  // Delimit every menu command from nearby typing and from the next command.
+  // The mutation itself remains one Yjs transaction, hence one undo item.
+  const runAsUndoStep = (op: () => void): void => {
+    editor.undo.stopCapturing();
+    op();
+    editor.undo.stopCapturing();
+  };
+  const turnAll = (type: BlockType, props?: Record<string, unknown>): void =>
+    runAsUndoStep(() => {
+      editor.doc.transact(() => {
+        for (const id of textIds) {
+          const found = findBlock(editor.doc, id);
+          if (found) patchBlock(found.block, {type, props});
+        }
+      }, 'local');
+    });
+  const colorAll = (which: 'fg' | 'bg', token: string | null): void =>
+    runAsUndoStep(() => {
+      editor.doc.transact(() => {
+        for (const id of ids) {
+          const found = findBlock(editor.doc, id);
+          if (found) setBlockProp(found.block, which, token ?? undefined);
+        }
+      }, 'local');
+    });
+
+  return (
+    <>
+      <ContextMenuLabel>{t('menu.block.bulkSelected', {count})}</ContextMenuLabel>
+      <C.Item onSelect={() => runAsUndoStep(editor.duplicateSelected)}>
+        {t('menu.block.bulkDuplicate', {count})}
+      </C.Item>
+      <C.Sub>
+        <C.SubTrigger disabled={textIds.length === 0}>Turn into</C.SubTrigger>
+        <C.SubContent className={MENU_WIDTH_SM}>
+          {TURN_OPTIONS.map((option) => (
+            <C.Item key={option.label} onSelect={() => turnAll(option.type, option.props)}>
+              {option.label}
+            </C.Item>
+          ))}
+        </C.SubContent>
+      </C.Sub>
+      <C.Sub>
+        <C.SubTrigger>Text colour</C.SubTrigger>
+        <C.SubContent className={MENU_WIDTH_SM}>
+          {COLOR_MENU.map((color) => (
+            <C.Item key={color.id ?? 'default'} onSelect={() => colorAll('fg', color.id)}>
+              <span className={`obe-mi-sw ${color.id ? `obe-fg-${color.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
+              {color.label}
+            </C.Item>
+          ))}
+        </C.SubContent>
+      </C.Sub>
+      <C.Sub>
+        <C.SubTrigger>Background</C.SubTrigger>
+        <C.SubContent className={MENU_WIDTH_SM}>
+          {COLOR_MENU.map((color) => (
+            <C.Item key={color.id ?? 'default'} onSelect={() => colorAll('bg', color.id)}>
+              <span className={`obe-mi-sw obe-mi-sw-fill ${color.id ? `obe-hl-${color.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
+              {color.label}
+            </C.Item>
+          ))}
+        </C.SubContent>
+      </C.Sub>
+      <C.Separator />
+      <C.Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => runAsUndoStep(editor.removeSelected)}>
+        {t('menu.block.bulkDelete', {count})}
+      </C.Item>
+    </>
+  );
+};
 
 // ── Group ────────────────────────────────────────────────────────────────────
 

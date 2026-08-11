@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {BlockEditor} from '../BlockEditor';
-import {createDoc} from '../model';
+import {createDoc, rootBlocks} from '../model';
 import {passEditableContextMenuToBrowser} from '../nativeContextMenu';
 import {
   ContextMenu,
@@ -19,6 +19,11 @@ const contextMenu = (target: Element): MouseEvent => {
   const event = new MouseEvent('contextmenu', {bubbles: true, cancelable: true});
   fireEvent(target, event);
   return event;
+};
+
+const rightClick = (target: Element): MouseEvent => {
+  fireEvent.mouseDown(target, {button: 2, buttons: 2});
+  return contextMenu(target);
 };
 
 const selectText = (el: HTMLElement, collapsed: boolean): void => {
@@ -85,5 +90,75 @@ describe('native editable context-menu passthrough', () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(screen.queryByText('Page action')).toBeNull();
+  });
+});
+
+describe('multi-block context menu', () => {
+  const build = () => {
+    const doc = createDoc(
+      ['p1', 'p2', 'p3', 'p4'].map((id) => ({id, type: 'paragraph' as const, text: [{t: id}]})),
+    );
+    const {container} = render(<BlockEditor doc={doc} />);
+    const row = (id: string) => container.querySelector(`[data-block-row="${id}"]`) as HTMLElement;
+    const text = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
+    const selectedCount = () => container.querySelectorAll('.obe-row-selected').length;
+    const selectFirstThree = () => {
+      fireEvent.focus(text('p1'));
+      fireEvent.mouseDown(row('p3'), {shiftKey: true, button: 0});
+      expect(selectedCount()).toBe(3);
+    };
+    return {doc, container, row, text, selectedCount, selectFirstThree};
+  };
+
+  it('right-click inside the selection opens the bulk menu and preserves all selected rows', () => {
+    const {row, selectedCount, selectFirstThree} = build();
+    selectFirstThree();
+
+    rightClick(row('p2'));
+
+    expect(selectedCount()).toBe(3);
+    expect(screen.getByText('3 blocks selected')).toBeTruthy();
+    expect(screen.getByText('Duplicate 3')).toBeTruthy();
+    expect(screen.getByText('Turn into')).toBeTruthy();
+    expect(screen.getByText('Text colour')).toBeTruthy();
+    expect(screen.getByText('Background')).toBeTruthy();
+    expect(screen.getByText('Delete 3')).toBeTruthy();
+    expect(screen.queryByText('Select block')).toBeNull();
+  });
+
+  it('bulk delete removes all selected blocks and one undo restores the whole selection', () => {
+    const {doc, row, text, selectFirstThree} = build();
+    selectFirstThree();
+    rightClick(row('p2'));
+
+    fireEvent.click(screen.getByText('Delete 3'));
+    expect(rootBlocks(doc).map((block) => block.get('id'))).toEqual(['p4']);
+
+    fireEvent.keyDown(text('p4'), {key: 'z', metaKey: true});
+    expect(rootBlocks(doc).map((block) => block.get('id'))).toEqual(['p1', 'p2', 'p3', 'p4']);
+  });
+
+  it('bulk duplicate clones every selected block and one undo removes all clones', () => {
+    const {doc, row, text, selectFirstThree} = build();
+    selectFirstThree();
+    rightClick(row('p2'));
+
+    fireEvent.click(screen.getByText('Duplicate 3'));
+    expect(rootBlocks(doc)).toHaveLength(7);
+
+    fireEvent.keyDown(text('p4'), {key: 'z', metaKey: true});
+    expect(rootBlocks(doc).map((block) => block.get('id'))).toEqual(['p1', 'p2', 'p3', 'p4']);
+  });
+
+  it('right-click outside the selection collapses to the target block menu', () => {
+    const {row, selectedCount, selectFirstThree} = build();
+    selectFirstThree();
+
+    rightClick(row('p4'));
+
+    expect(selectedCount()).toBe(0);
+    expect(screen.queryByText('3 blocks selected')).toBeNull();
+    expect(screen.getByText('Duplicate')).toBeTruthy();
+    expect(screen.getByText('Select block')).toBeTruthy();
   });
 });
