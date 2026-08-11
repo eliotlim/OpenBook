@@ -638,7 +638,7 @@ const DependencyCell: React.FC<{
   return (
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
-        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
           <span className="max-w-[120px] truncate">{labelOf(id)}</span>
           <button
             type="button"
@@ -745,7 +745,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
             </button>
           </span>
         ) : (
-          <span key={i} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
+          <span key={i} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
             <a
               href={url}
               target="_blank"
@@ -876,7 +876,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="51.5074"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
           <label className="flex-1">
@@ -887,7 +887,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="-0.1278"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
         </div>
@@ -898,7 +898,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setLabel(e.target.value)}
             onBlur={commit}
             placeholder="Optional name"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
         <label className="block">
@@ -908,7 +908,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setAddress(e.target.value)}
             onBlur={commit}
             placeholder="Optional address"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
       </PopoverContent>
@@ -1043,7 +1043,7 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
   return (
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
-        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs">
           <RowHoverCard rowId={id}>
             <span className="inline-flex min-w-0 items-center gap-1">
               <span className="leading-none">{pageLinks.icon(id)}</span>
