@@ -4,6 +4,7 @@ import type {PageMeta} from '@book.dev/sdk';
 import BreadcrumbCluster from '@/components/BreadcrumbCluster';
 import HomeScreen from '@/screens/HomeScreen';
 import {LinksPaneBody} from '@/components/links/LinksPaneBody';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 import {setLinksTarget} from '@/lib/linksPane';
 
 const mocks = vi.hoisted(() => ({
@@ -115,6 +116,16 @@ describe('page entry-point context menus', () => {
     fireEvent.contextMenu(crumb);
     fireEvent.click(screen.getByText('Open in new tab'));
     expect(mocks.pageAction).toHaveBeenCalledWith('current', 'row', 'context');
+  });
+
+  it('does not open a page menu from the Home breadcrumb', () => {
+    mocks.currentPageId = HOME_PAGE_ID;
+    mocks.panes = [{pageId: HOME_PAGE_ID}];
+    render(<BreadcrumbCluster />);
+
+    fireEvent.contextMenu(screen.getByTitle(HOME_PAGE_ID));
+    expect(screen.queryByText('Open in new tab')).toBeNull();
+    expect(mocks.pageAction).not.toHaveBeenCalled();
   });
 
   it('opens the shared page-row menu from a Home tile', () => {
