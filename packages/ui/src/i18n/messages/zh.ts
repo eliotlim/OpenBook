@@ -723,6 +723,12 @@ export const zh: PartialMessages = {
       error: '无法显示此内容。',
     },
     image: {
+      copy: '复制图片',
+      saveAs: '图片另存为…',
+      openOriginal: '打开原图',
+      setAltText: '设置替代文本…',
+      size: '图片大小',
+      deleteBlock: '删除块',
       expand: '打开原图',
       view: '查看原图',
       viewAlt: '查看原图：{alt}',

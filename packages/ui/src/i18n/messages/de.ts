@@ -730,6 +730,12 @@ export const de: PartialMessages = {
       error: 'Dieser Inhalt konnte nicht angezeigt werden.',
     },
     image: {
+      copy: 'Bild kopieren',
+      saveAs: 'Bild speichern unter…',
+      openOriginal: 'Original öffnen',
+      setAltText: 'Alternativtext festlegen…',
+      size: 'Bildgröße',
+      deleteBlock: 'Block löschen',
       expand: 'In voller Größe öffnen',
       view: 'Bild in voller Größe ansehen',
       viewAlt: 'Bild in voller Größe ansehen: {alt}',

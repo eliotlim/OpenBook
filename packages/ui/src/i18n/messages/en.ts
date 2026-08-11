@@ -1318,6 +1318,12 @@ export const en = {
       error: 'This content could not be displayed.',
     },
     image: {
+      copy: 'Copy image',
+      saveAs: 'Save image as…',
+      openOriginal: 'Open original',
+      setAltText: 'Set alt text…',
+      size: 'Image size',
+      deleteBlock: 'Delete block',
       expand: 'Open full size',
       view: 'View image full size',
       viewAlt: 'View image full size: {alt}',

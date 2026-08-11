@@ -170,6 +170,45 @@ describe('image block — render, resize, alt/caption', () => {
     const block = docToJSON(doc).find((b) => b.id === 'img');
     expect(block!.props?.caption).toBe('Hello caption');
   });
+
+  it('right-clicking the image opens its item-specific menu', () => {
+    const doc = createDoc([{id: 'img', type: 'image', props: {src: TINY_PNG, alt: 'A cat'}}]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('img.obe-image-img')!);
+
+    for (const label of [
+      'Copy image',
+      'Save image as…',
+      'Open original',
+      'Replace image…',
+      'Set alt text…',
+      'Image size',
+      'Delete block',
+    ]) {
+      expect(screen.getByText(label), label).toBeTruthy();
+    }
+  });
+
+  it('the image menu delete action removes that block', () => {
+    const doc = createDoc([
+      {id: 'img', type: 'image', props: {src: TINY_PNG}},
+      {id: 'p', type: 'paragraph', text: [{t: 'Keep me'}]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('img.obe-image-img')!);
+    fireEvent.click(screen.getByText('Delete block'));
+
+    expect(docToJSON(doc).map((block) => block.id)).toEqual(['p']);
+  });
+
+  it('does not expose the image menu on a non-image block', () => {
+    const doc = createDoc([{id: 'p', type: 'paragraph', text: [{t: 'Plain text'}]}]);
+    const {container} = render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(container.querySelector('[data-block-text="p"]')!);
+
+    expect(screen.queryByText('Copy image')).toBeNull();
+    expect(screen.queryByText('Open original')).toBeNull();
+  });
 });
 
 describe('image block — present / read-only hides edit chrome', () => {

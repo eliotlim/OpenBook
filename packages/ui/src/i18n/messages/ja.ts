@@ -725,6 +725,12 @@ export const ja: PartialMessages = {
       error: 'このコンテンツを表示できませんでした。',
     },
     image: {
+      copy: '画像をコピー',
+      saveAs: '画像を別名で保存…',
+      openOriginal: '元の画像を開く',
+      setAltText: '代替テキストを設定…',
+      size: '画像サイズ',
+      deleteBlock: 'ブロックを削除',
       expand: 'フルサイズで開く',
       view: '画像をフルサイズで表示',
       viewAlt: '画像をフルサイズで表示：{alt}',
