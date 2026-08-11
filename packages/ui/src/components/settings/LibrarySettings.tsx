@@ -119,7 +119,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
             onPick={(icon) => updateLibrary(library.id, {icon})}
             fallback="📓"
             ariaLabel={t('library.icon')}
-            className="flex h-9 w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
+            className="flex h-control-sm w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
           />
         </div>
         <div className="flex flex-1 flex-col gap-1.5">
@@ -127,6 +127,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
             {t('library.name')}
           </Label>
           <Input
+            inputSize="sm"
             id={`lib-name-${library.id}`}
             value={nameDraft}
             placeholder={t('library.namePlaceholder')}
@@ -164,6 +165,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
         ) : (
           <>
             <Input
+              inputSize="sm"
               id={`lib-url-${library.id}`}
               value={urlDraft}
               placeholder={t('library.urlPlaceholder')}
@@ -189,6 +191,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
         <>
           <SettingsField label={t('connection.accessToken')} htmlFor={`lib-token-${library.id}`}>
             <Input
+              inputSize="sm"
               id={`lib-token-${library.id}`}
               type="password"
               value={tokenDraft}
@@ -257,7 +260,7 @@ function AddLibraryRow() {
             onPick={setIcon}
             fallback="📓"
             ariaLabel={t('library.icon')}
-            className="flex h-9 w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
+            className="flex h-control-sm w-11 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
           />
         </div>
         <div className="flex flex-1 flex-col gap-1.5">
@@ -265,6 +268,7 @@ function AddLibraryRow() {
             {t('library.name')}
           </Label>
           <Input
+            inputSize="sm"
             id="lib-add-name"
             value={name}
             placeholder={t('library.namePlaceholder')}
@@ -274,6 +278,7 @@ function AddLibraryRow() {
       </div>
       <SettingsField label={t('library.serverUrl')} htmlFor="lib-add-url">
         <Input
+          inputSize="sm"
           id="lib-add-url"
           value={url}
           placeholder={t('library.urlPlaceholder')}

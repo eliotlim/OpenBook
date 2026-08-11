@@ -345,6 +345,7 @@ const StoreSection: React.FC<{
         }}
       >
         <Input
+          inputSize="sm"
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
@@ -353,9 +354,9 @@ const StoreSection: React.FC<{
           placeholder={t('extensions.storeUrl')}
           aria-label={t('extensions.storeUrl')}
           data-store-url
-          className="h-8 min-w-64 flex-1 font-mono text-xs"
+          className="min-w-64 flex-1 font-mono text-xs"
         />
-        <Button type="submit" size="sm" variant="outline" disabled={!url.trim()} data-store-connect>
+        <Button type="submit" size="xs" variant="outline" disabled={!url.trim()} data-store-connect>
           {t('extensions.storeConnect')}
         </Button>
       </form>
@@ -403,15 +404,16 @@ const StoreSection: React.FC<{
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
               <Input
+                inputSize="sm"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('extensions.storeSearch')}
                 aria-label={t('extensions.storeSearch')}
                 data-store-search
-                className="h-8 pl-8 text-sm"
+                className="pl-8 text-sm"
               />
             </div>
-            <Button type="submit" size="sm" variant="outline" disabled={browsing} data-store-browse>
+            <Button type="submit" size="xs" variant="outline" disabled={browsing} data-store-browse>
               {t('extensions.storeBrowse')}
             </Button>
           </form>
@@ -649,15 +651,17 @@ const TrustedRegistries: React.FC = () => {
         }}
       >
         <Input
+          inputSize="sm"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('extensions.registryName')}
           aria-label={t('extensions.registryName')}
           data-registry-name
-          className="h-8 w-44 text-sm"
+          className="w-44 text-sm"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <Input
+            inputSize="sm"
             value={publicKey}
             onChange={(e) => {
               setPublicKey(e.target.value);
@@ -666,7 +670,7 @@ const TrustedRegistries: React.FC = () => {
             placeholder={t('extensions.registryKey')}
             aria-label={t('extensions.registryKey')}
             data-registry-key
-            className={cn('h-8 min-w-44 font-mono text-xs', keyError && 'border-destructive')}
+            className={cn('min-w-44 font-mono text-xs', keyError && 'border-destructive')}
           />
           {keyError && (
             <p className="text-xs text-destructive" data-registry-key-error>
@@ -674,7 +678,7 @@ const TrustedRegistries: React.FC = () => {
             </p>
           )}
         </div>
-        <Button type="submit" size="sm" variant="outline" disabled={!name.trim() || !publicKey.trim()} data-registry-add>
+        <Button type="submit" size="xs" variant="outline" disabled={!name.trim() || !publicKey.trim()} data-registry-add>
           {t('extensions.addRegistry')}
         </Button>
       </form>
