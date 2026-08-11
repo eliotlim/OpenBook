@@ -266,7 +266,15 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
                           ? t('forwarding.status.connecting')
                           : t('forwarding.status.offline')
                 }
-                tone={forwarding.enabled ? (forwarding.status === 'online' ? 'ok' : 'warn') : 'muted'}
+                tone={
+                  forwarding.enabled
+                    ? forwarding.status === 'online'
+                      ? 'ok'
+                      : forwarding.status === 'stalled'
+                        ? 'bad'
+                        : 'warn'
+                    : 'muted'
+                }
                 detail={forwarding.host ? `https://${forwarding.host}` : undefined}
               />
               <DiagnosticRow

@@ -8,6 +8,7 @@ import {
   type TunnelStatus,
 } from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
+import {useHud} from './HudProvider';
 import {usePlatformCapabilities} from './PlatformCapabilitiesProvider';
 import {
   ensureClaimedForForwarding,
@@ -175,6 +176,7 @@ const writeEnabled = (on: boolean): void => {
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformCapabilities();
+  const {setHud} = useHud();
   const {connected, token, accountUrl, status: accountStatus, signIn, remintIdentity, identityIssuance} =
     useAccount();
   const data = useData();
@@ -526,9 +528,25 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     if (!enabled || outageToastShownRef.current || (status !== 'offline' && status !== 'stalled')) return;
     if (!terminalStartErrorRef.current && outageFailureCountRef.current < 2) return;
     outageToastShownRef.current = true;
-    const key = status === 'stalled' ? 'forwarding.stalledToast' : 'forwarding.offlineToast';
-    showToast({message: t(key, {error: error ?? t('forwarding.status.offline')})});
-  }, [enabled, status, error]);
+    if (status === 'stalled') {
+      showToast({
+        message: t('forwarding.stalledToast'),
+        actionLabel: t('forwarding.stalledAction'),
+        onAction: () =>
+          setHud((draft) => {
+            draft.settings.open = true;
+            draft.settings.tab = 'sharing';
+            draft.settings.section = null;
+            return draft;
+          }),
+        durationMs: 15_000,
+      });
+      return;
+    }
+    showToast({
+      message: error ? t('forwarding.offlineToastDetail', {error}) : t('forwarding.offlineToast'),
+    });
+  }, [enabled, status, error, setHud]);
 
   const disable = useCallback(() => {
     cancelStartRetry();

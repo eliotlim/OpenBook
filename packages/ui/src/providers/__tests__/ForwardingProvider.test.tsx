@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   clientStop: vi.fn(),
   clientCallbacks: {} as {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void},
   showToastSpy: vi.fn(),
+  setHud: vi.fn(),
 }));
 
 vi.mock('../AccountProvider', () => ({useAccount: () => h.account}));
@@ -89,6 +90,7 @@ vi.mock('@book.dev/sdk', () => ({
 }));
 vi.mock('@/components/ui/toast', () => ({showToast: h.showToastSpy}));
 vi.mock('@/lib/pageActions', () => ({setShareLinkOrigin: vi.fn()}));
+vi.mock('../HudProvider', () => ({useHud: () => ({setHud: h.setHud})}));
 
 import {ForwardingApiError, SiteReattachError} from '@book.dev/sdk';
 import {list as listErrors} from '@/lib/errorLog';
@@ -119,6 +121,7 @@ beforeEach(() => {
   h.clientStop.mockClear();
   h.clientCallbacks = {};
   h.showToastSpy.mockClear();
+  h.setHud.mockClear();
 });
 
 afterEach(() => {
@@ -322,8 +325,20 @@ describe('ForwardingProvider — stalled dial diagnostics (TUN-3)', () => {
     expect(result.current.status).toBe('stalled');
     expect(result.current.error).toContain('403');
     expect(h.showToastSpy).toHaveBeenCalledTimes(1);
-    expect(h.showToastSpy).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('403')}));
+    const toast = h.showToastSpy.mock.calls[0][0];
+    expect(toast).toMatchObject({
+      message: 'Publishing can\'t reconnect — your library isn\'t reachable online right now.',
+      actionLabel: 'Open sharing settings',
+      durationMs: 15_000,
+    });
+    expect(toast.message).not.toContain('403');
     expect(listErrors()[0]).toMatchObject({subsystem: 'forwarding', code: '403'});
+
+    act(() => toast.onAction?.());
+    const openSettings = h.setHud.mock.calls[0][0];
+    const draft = {settings: {open: false, tab: 'general', section: 'stale'}};
+    openSettings(draft);
+    expect(draft.settings).toEqual({open: true, tab: 'sharing', section: null});
 
     act(() => {
       h.clientCallbacks.onDialError?.(forbidden);

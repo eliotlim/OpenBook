@@ -30,15 +30,15 @@ import {useSharingCapability} from '@/components/ShareDialog';
 function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
   const {t} = useTranslation();
   if (status === 'online') {
-    return <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">● {t('forwarding.status.live')}</span>;
+    return <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400"><span aria-hidden="true">●</span> {t('forwarding.status.live')}</span>;
   }
   if (status === 'connecting' || status === 'reconnecting') {
-    return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">○ {t('forwarding.status.connecting')}</span>;
+    return <span className="text-xs font-medium text-amber-600 dark:text-amber-400"><span aria-hidden="true">○</span> {t('forwarding.status.connecting')}</span>;
   }
   if (status === 'stalled') {
-    return <span className="text-xs font-medium text-destructive">● {t('forwarding.status.stalled')}</span>;
+    return <span className="text-xs font-medium text-red-600 dark:text-red-400"><span aria-hidden="true">●</span> {t('forwarding.status.stalled')}</span>;
   }
-  return <span className="text-xs text-muted-foreground">○ {t('forwarding.status.offline')}</span>;
+  return <span className="text-xs text-muted-foreground"><span aria-hidden="true">○</span> {t('forwarding.status.offline')}</span>;
 }
 
 /**
@@ -145,7 +145,14 @@ function ForwardingSection() {
           the Share dialog surfaces the same control + an actionable notice when a
           page is public but the address isn't). Renders only while online + owned. */}
       {canManage && <SiteVisibilityControl />}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <div className="text-destructive">
+          <p className="text-sm">
+            {t(status === 'stalled' ? 'forwarding.reconnectFailed' : 'forwarding.failed')}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground font-mono">{error}</p>
+        </div>
+      )}
       {/* Severity-aware, like `claimRefusal` above: `partialUnscoped`/`ensureRescope`
           are benign partial outcomes (the tunnel is up, nothing is broken — only the
           strict audience hardening is incomplete), so render them muted; reserve the

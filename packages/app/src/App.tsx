@@ -264,13 +264,13 @@ function App() {
                 <NavigationProvider>
                   <LibraryProvider>
                     <AccountProvider>
-                      <ForwardingProvider>
-                        <HudProvider>
+                      <HudProvider>
+                        <ForwardingProvider>
                           <DefaultLayout>
                             <DocumentArea />
                           </DefaultLayout>
-                        </HudProvider>
-                      </ForwardingProvider>
+                        </ForwardingProvider>
+                      </HudProvider>
                     </AccountProvider>
                   </LibraryProvider>
                 </NavigationProvider>
