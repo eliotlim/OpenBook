@@ -16,6 +16,8 @@ import {HttpDataClient, defaultDatabaseSchema} from '@book.dev/sdk';
 import {startServer} from '@book.dev/server';
 
 const DATA_DIR = '/tmp/openbook-mcp-e2e';
+const FORM_KEY = 'abcdefghijklmnopqrstuv';
+const FORM_MARKER = 'sys_form_submission';
 
 let passed = 0;
 function check(label: string, cond: boolean): void {
@@ -53,6 +55,36 @@ async function main(): Promise<void> {
   const dbHost = await seed.savePage({name: 'Tasks board', data: {editorjs: {blocks: []}, values: [], names: []}});
   const database = await seed.createDatabase({pageId: dbHost.id, name: 'Tasks', schema: defaultDatabaseSchema()});
   const seededRow = await seed.createRow(database.id, {name: 'Write the report'});
+  const formSchema = {
+    formId: 'task-intake',
+    submissionKey: FORM_KEY,
+    enabled: true,
+    databaseId: database.id,
+    fields: [{id: 'request', kind: 'text', label: 'Request', required: true}],
+    confirmation: {message: 'Recorded'},
+  };
+  await seed.savePage({
+    id: dbHost.id,
+    name: dbHost.name,
+    data: {
+      editor: 'blocks',
+      blockdoc: {blocks: [{id: 'task-form-block', type: 'form', props: {
+        formId: formSchema.formId,
+        submissionKey: FORM_KEY,
+        enabled: true,
+        databaseId: database.id,
+        label: 'Task intake',
+        schema: formSchema,
+      }}]},
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+    },
+  });
+  const formSubmission = await seed.createRow(database.id, {
+    name: 'Submitted task',
+    properties: {request: 'Ship FORM-7', [FORM_MARKER]: {formId: formSchema.formId, submittedAt: '2026-08-12T00:00:00.000Z'}},
+  });
 
   // Connect to the stdio binary as a real MCP client.
   const transport = new StdioClientTransport({
@@ -225,6 +257,48 @@ async function main(): Promise<void> {
   check('set_db_cell recorded a set-cell suggestion', cellSuggs.some((s) => s.kind === 'set-cell'));
   const setCellMissing = await client.callTool({name: 'set_db_cell', arguments: {pageId: dbHost.id, rowId: seededRow.id, propertyId: 'nope', value: 'x'}});
   check('set_db_cell rejects an unknown property', setCellMissing.isError === true);
+
+  console.log('\nForm tools (FORM-7) — redacted reads, suggest then direct');
+  const forms = await client.callTool({name: 'list_forms', arguments: {}});
+  check('list_forms finds the seeded form with summary metadata',
+    resultText(forms).includes('task-intake') && resultText(forms).includes('Task intake') && resultText(forms).includes(database.id));
+  check('list_forms does not expose the submission key', !resultText(forms).includes(FORM_KEY) && !resultText(forms).includes('submissionKey'));
+
+  const formRead = await client.callTool({name: 'get_form_schema', arguments: {pageId: dbHost.id, formId: 'task-intake'}});
+  check('get_form_schema returns the field and binding', resultText(formRead).includes('request') && resultText(formRead).includes(database.id));
+  check('get_form_schema redacts both key copies', !resultText(formRead).includes(FORM_KEY) && !resultText(formRead).includes('submissionKey'));
+  const formTree = await client.callTool({name: 'inspect_page_structure', arguments: {pageId: dbHost.id}});
+  check('inspect_page_structure redacts form capabilities', resultText(formTree).includes('task-form-block') && !resultText(formTree).includes(FORM_KEY) && !resultText(formTree).includes('submissionKey'));
+
+  const submissions = await client.callTool({name: 'list_form_submissions', arguments: {pageId: dbHost.id, formId: 'task-intake', limit: 10}});
+  check('list_form_submissions returns only the sys_form_submission-marked row',
+    resultText(submissions).includes(formSubmission.id) && resultText(submissions).includes('Submitted task') && !resultText(submissions).includes(seededRow.id));
+
+  const suggestedFormEdit = await client.callTool({
+    name: 'update_form_field',
+    arguments: {pageId: dbHost.id, formId: 'task-intake', op: {type: 'add', field: {id: 'details', kind: 'longtext', label: 'Details', required: false}}},
+  });
+  check('update_form_field queues a suggestion under the default policy', resultText(suggestedFormEdit).includes('Suggested for review'));
+  const formAfterSuggestion = await client.callTool({name: 'get_form_schema', arguments: {pageId: dbHost.id, formId: 'task-intake'}});
+  check('suggest-mode update_form_field leaves the form unchanged', !resultText(formAfterSuggestion).includes('details'));
+  const formSuggestions = await seed.listSuggestions(dbHost.id);
+  check('the form edit is a set_block_props suggestion targeting the form block', formSuggestions.some((suggestion) =>
+    suggestion.target.blockId === 'task-form-block' && (suggestion.payload as {applyKind?: string}).applyKind === 'set_block_props'));
+
+  await seed.setPageAgentEdits(dbHost.id, 'direct');
+  const directFormEdit = await client.callTool({
+    name: 'update_form_field',
+    arguments: {pageId: dbHost.id, formId: 'task-intake', op: {type: 'add', field: {id: 'priority', kind: 'select', label: 'Priority', required: false, options: [{id: 'high', label: 'High'}]}}},
+  });
+  check('update_form_field applies directly under a page direct override', resultText(directFormEdit).includes('applied directly'));
+  const directSettings = await client.callTool({
+    name: 'set_form_settings',
+    arguments: {pageId: dbHost.id, formId: 'task-intake', patch: {submitLabel: 'Create task', confirmation: {message: 'Task created'}, maxSubmissions: 25}},
+  });
+  check('set_form_settings applies directly', resultText(directSettings).includes('applied directly'));
+  const formAfterDirect = await client.callTool({name: 'get_form_schema', arguments: {pageId: dbHost.id, formId: 'task-intake'}});
+  check('direct field and settings edits are readable and still redacted',
+    resultText(formAfterDirect).includes('priority') && resultText(formAfterDirect).includes('Create task') && resultText(formAfterDirect).includes('25') && !resultText(formAfterDirect).includes(FORM_KEY));
 
   await client.close();
   await server.close();
