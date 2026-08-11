@@ -129,7 +129,14 @@ export function mount(container: HTMLElement, source: ViewerSource, opts?: Viewe
   }
   const uninstallAssets = opts?.assets && Object.keys(opts.assets).length > 0 ? installAssetPayload(opts.assets) : null;
   const root = createRoot(container);
-  root.render(<ViewerApp source={source} initialPage={opts?.page} staticBlocks={opts?.staticBlocks} />);
+  root.render(
+    <ViewerApp
+      source={source}
+      initialPage={opts?.page}
+      staticBlocks={opts?.staticBlocks}
+      formOrigins={opts?.formOrigins}
+    />,
+  );
   return {
     unmount(): void {
       root.unmount();

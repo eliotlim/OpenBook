@@ -992,6 +992,7 @@ export const en = {
   formBlock: {
     label: 'Form',
     untitledField: 'Untitled field',
+    required: 'required',
     noFields: 'No fields yet.',
     openBuilder: 'Open builder',
     submit: 'Submit',

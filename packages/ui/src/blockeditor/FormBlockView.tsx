@@ -2,28 +2,16 @@ import React, {createContext, useContext, useEffect, useState} from 'react';
 import type {FormField, FormFieldKind, FormSchema} from '@book.dev/sdk';
 import {useOptionalData} from '@/data';
 import {t} from '@/i18n';
-import {pageLinkUrl} from '@/lib/pageActions';
 import {blockProp} from './model';
 import {registerCustomBlock, type CustomBlockProps} from './registry';
 import {ConfigField, KitFrame, NameDescriptionFields} from './kit/KitFrame';
 import {useKitLock} from './kit/lock';
 import {formSchemaFromProps, makeFormBlock} from './formBlock';
 
+export {formOriginUrl} from './formBlock';
+
 /** The live-page destination used by frozen form previews, when one is known. */
 export const FormOriginContext = createContext<string | null>(null);
-
-/** A shareable page URL, excluding local/file/desktop-only locations. */
-export function formOriginUrl(pageId: string | null | undefined): string | null {
-  if (!pageId || typeof window === 'undefined') return null;
-  const url = pageLinkUrl(pageId);
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-}
 
 function propsRecord(block: CustomBlockProps['block']): Record<string, unknown> {
   const schema = blockProp<unknown>(block, 'schema');

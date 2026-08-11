@@ -25,7 +25,8 @@
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {assetsIslandScript, isSafeHref, pageIslandScript, libraryIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
-import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {formToStaticHtml, projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {formOriginUrl, formSchemaFromProps} from '../blockeditor/formBlock';
 import {describeUnknownBlock} from '../blockeditor/unknownBlock';
 import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
@@ -180,6 +181,8 @@ interface RenderCtx {
   chartSeq: {n: number};
   /** Prefix making this page's heading anchors unique within the document. */
   anchorPrefix: string;
+  /** Canonical live page URL used by frozen forms when this export can know it. */
+  originPageUrl?: string | null;
   /** True when a referenced page is in the bundle (so the link can navigate). */
   pageExists: (id: string) => boolean;
   titleOf: (id: string) => string;
@@ -497,6 +500,13 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       );
       break;
     }
+    case 'form': {
+      const props = d.props && typeof d.props === 'object' && !Array.isArray(d.props)
+        ? (d.props as Record<string, unknown>)
+        : d;
+      html.push(formToStaticHtml(formSchemaFromProps(props), ctx.originPageUrl));
+      break;
+    }
     case 'htmlArtifact': {
       // Static first-paint: a captioned placeholder figure, NEVER a live
       // iframe — the artifact only runs once the vendored viewer hydrates it
@@ -793,10 +803,22 @@ const VIEWER_BOOT = `
     var bid = el.getAttribute('data-block-id');
     if (bid && !keep[bid]) keep[bid] = el.cloneNode(true);
   });
+  // Preserve each frozen form's canonical live-page target across hydration.
+  // A file:// viewer cannot infer that target after the static body is swapped.
+  var formOrigins = {};
+  main.querySelectorAll('section.page[data-page]').forEach(function(section){
+    var pid = section.getAttribute('data-page');
+    var link = section.querySelector('a.ob-form-live[href]');
+    if (pid && link) formOrigins[pid] = link.getAttribute('href');
+  });
+  if (!bundle && source.id) {
+    var singleLink = main.querySelector('a.ob-form-live[href]');
+    if (singleLink) formOrigins[source.id] = singleLink.getAttribute('href');
+  }
   var host = document.createElement('div');
   host.id = 'ob-viewer-host';
   main.parentNode.replaceChild(host, main);
-  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets, staticBlocks: keep}); }
+  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets, staticBlocks: keep, formOrigins: formOrigins}); }
   catch (e) { if (host.parentNode) host.parentNode.replaceChild(main, host); }
 })();
 `;
@@ -962,6 +984,7 @@ export function toHtml(
     assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
+    originPageUrl: formOriginUrl(meta.id ?? ''),
     pageExists: () => false,
     titleOf: (id) => id,
     iconOf: () => '',
@@ -1065,6 +1088,7 @@ export function toSlideDeck(
     assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
+    originPageUrl: formOriginUrl(meta.id ?? ''),
     pageExists: () => false,
     titleOf: (id) => id,
     iconOf: () => '',
@@ -1157,6 +1181,7 @@ export function toHtmlSite(
   const sections = bundle.pages
     .map((page, i) => {
       ctx.anchorPrefix = `p${i}-`;
+      ctx.originPageUrl = page.originUrl ?? formOriginUrl(page.id);
       const blocks = (page.snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
       const bodyHtml = renderBlocks(blocks, ctx);
       const dbHtml = page.database ? renderDatabaseTable(page.database, ctx) : '';
@@ -1294,6 +1319,14 @@ figure.ob-image { margin: 1.2em 0; }
 figure.ob-image img { max-width: 100%; height: auto; border-radius: 8px; display: block; }
 figure.ob-image figcaption { margin-top: 6px; text-align: center; font-size: .88rem; opacity: .7; }
 figure.ob-image .ob-image-alt { padding: 24px; text-align: center; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; opacity: .6; font-size: .9rem; }
+.ob-form { display: grid; gap: 12px; margin: 1.2em 0; padding: 16px; border: 1px solid rgba(127,127,127,.22); border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
+.ob-form-field { display: grid; gap: 5px; font-size: .9rem; font-weight: 600; }
+.ob-form-field input:not([type=checkbox]):not([type=range]), .ob-form-field textarea, .ob-form-field select { width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid rgba(127,127,127,.3); border-radius: 7px; background: rgba(127,127,127,.04); color: inherit; font: inherit; }
+.ob-form-field input[type=checkbox] { width: 17px; height: 17px; }
+.ob-form-field input[type=range] { width: 60%; }
+.ob-form > button { justify-self: start; padding: 7px 16px; border: 1px solid rgba(127,127,127,.3); border-radius: 7px; background: rgba(127,127,127,.12); color: inherit; font: inherit; font-weight: 600; }
+.ob-form-empty { margin: 0; opacity: .65; font-size: .9rem; }
+.ob-form-live { font-size: .86rem; color: inherit; opacity: .75; }
 figure.ob-artifact { margin: 1.2em 0; }
 .ob-artifact-placeholder { display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; }
 .ob-artifact-label { font-weight: 600; }

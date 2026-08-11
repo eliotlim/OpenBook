@@ -538,6 +538,7 @@ export const de: PartialMessages = {
   formBlock: {
     label: 'Formular',
     untitledField: 'Unbenanntes Feld',
+    required: 'erforderlich',
     noFields: 'Noch keine Felder.',
     openBuilder: 'Builder öffnen',
     submit: 'Absenden',

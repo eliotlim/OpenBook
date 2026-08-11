@@ -533,6 +533,7 @@ export const ja: PartialMessages = {
   formBlock: {
     label: 'フォーム',
     untitledField: '無題のフィールド',
+    required: '必須',
     noFields: 'フィールドはまだありません。',
     openBuilder: 'ビルダーを開く',
     submit: '送信',

@@ -19,6 +19,7 @@ import {
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {resolveDbChartSeries, snapshotBlocks} from '../blockeditor/kit/chartData';
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
+import {formOriginUrl} from '@/blockeditor/formBlock';
 
 /** A database hosted by a page, projected for static rendering. */
 export interface SiteDatabase {
@@ -32,6 +33,8 @@ export interface SitePage {
   title: string;
   icon: string;
   snapshot: PageSnapshot;
+  /** Canonical app/web URL used by frozen forms in the standalone site. */
+  originUrl?: string;
   /** Present when this page hosts a database (its rows are also pages in the bundle). */
   database?: SiteDatabase;
 }
@@ -210,7 +213,14 @@ export async function gatherSite(
     // Prefer the icon stored on the page record (it travels in properties now);
     // fall back to the in-memory cache / default for the unsaved root.
     const storedIcon = (stored?.properties[ICON_PROPERTY_ID] as string | undefined) || '';
-    const page: SitePage = {id, title, icon: isRoot ? root.icon : storedIcon || readPageIcon(id) || DEFAULT_PAGE_ICON, snapshot};
+    const originUrl = formOriginUrl(id);
+    const page: SitePage = {
+      id,
+      title,
+      icon: isRoot ? root.icon : storedIcon || readPageIcon(id) || DEFAULT_PAGE_ICON,
+      snapshot,
+      ...(originUrl ? {originUrl} : {}),
+    };
     pages.set(id, page);
 
     // The island carries the raw record. For the root, override `data` with the

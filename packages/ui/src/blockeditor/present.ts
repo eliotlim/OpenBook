@@ -25,10 +25,21 @@ export function splitSlides(doc: Y.Doc): Slide[] {
     cur = {content: [], notes: []};
   };
   for (const block of rootBlocks(doc)) {
-    const type = blockType(block);
-    if (type === 'divider') flush();
-    else if (type === 'notes') cur.notes.push(block);
-    else cur.content.push(block);
+    const type = String(blockType(block));
+    switch (type) {
+    case 'divider':
+      flush();
+      break;
+    case 'notes':
+      cur.notes.push(block);
+      break;
+    case 'form':
+      // Forms stay in the audience stream; PresentBlocks' kit lock freezes them.
+      cur.content.push(block);
+      break;
+    default:
+      cur.content.push(block);
+    }
   }
   flush();
   return slides.length ? slides : [{content: [], notes: []}];

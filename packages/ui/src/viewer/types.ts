@@ -76,6 +76,8 @@ export interface ViewerMountOptions {
   page?: string;
   /** Pre-resolved asset bytes by assetId (see {@link ViewerAssetEntry}). */
   assets?: Record<string, ViewerAssetEntry>;
+  /** Canonical live-page URL by page id for frozen forms in offline exports. */
+  formOrigins?: Record<string, string>;
   /**
    * Static block renders the HOST DOCUMENT already produced, by block id
    * (LX-5). For a block the viewer has no renderer for, the supplied node is

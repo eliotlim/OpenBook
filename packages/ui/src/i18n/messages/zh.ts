@@ -531,6 +531,7 @@ export const zh: PartialMessages = {
   formBlock: {
     label: '表单',
     untitledField: '未命名字段',
+    required: '必填',
     noFields: '尚无字段。',
     openBuilder: '打开构建器',
     submit: '提交',
