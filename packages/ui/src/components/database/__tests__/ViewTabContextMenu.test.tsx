@@ -75,6 +75,15 @@ function openInactiveTabMenu(): void {
 }
 
 describe('view-tab context menu', () => {
+  it('opens the database menu from toolbar whitespace', () => {
+    const db = makeDb();
+    const {container} = render(<Harness db={db} />);
+
+    fireEvent.contextMenu(container.querySelector('[data-database-toolbar]') as HTMLElement);
+
+    expect(screen.getByText('Outer database menu')).toBeTruthy();
+  });
+
   it('renames the inactive tab rather than the active view and stops the outer database menu', () => {
     const db = makeDb();
     render(<Harness db={db} />);

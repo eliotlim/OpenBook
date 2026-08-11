@@ -1126,12 +1126,14 @@ export const ViewTabContextMenu: React.FC<{
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
-        <ContextMenuSeparator />
         {canDeleteView && (
-          <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            {t('database.viewMenu.delete')}
-          </ContextMenuItem>
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t('database.viewMenu.delete')}
+            </ContextMenuItem>
+          </>
         )}
       </ContextMenuContent>
     </ContextMenu>

@@ -1547,6 +1547,7 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView; onEdit: (
     void db.updateView(view.id, {sorts: sorts.map((s, j) => (j === i ? {...s, direction: s.direction === 'asc' ? 'desc' : 'asc'} : s))});
   const remove = (i: number): void => void db.updateView(view.id, {sorts: sorts.filter((_, j) => j !== i)});
   const move = (i: number, delta: -1 | 1): void => {
+    if (i + delta < 0 || i + delta >= sorts.length) return;
     const next = [...sorts];
     const [moved] = next.splice(i, 1);
     next.splice(i + delta, 0, moved);

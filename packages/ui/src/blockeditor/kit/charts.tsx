@@ -1220,7 +1220,8 @@ const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; s
  * How a datum's mark presents + behaves:
  * - `'menu'` (default, in-doc charts): a `role="button"` with
  *   `aria-haspopup="menu"`; right-click / keyboard opens the shared context menu
- *   (Copy value + `menuExtra`). Byte-identical to the pre-extraction wiring.
+ *   (Copy value + `menuExtra`). The shared `openMenu` stops propagation in every
+ *   mode so an ancestor's context menu does not open too.
  * - `'action'` (DB bar): a `role="button"` whose click / Enter runs `onSelect`
  *   (drill-down). Right-click still opens Copy value without changing the
  *   mark's button semantics.
