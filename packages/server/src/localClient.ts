@@ -840,6 +840,8 @@ export class LocalDataClient implements DataClient {
           lastRun: last,
           nextDue: last ? new Date(Date.parse(last) + BACKUP_CADENCE_MS[cadence]).toISOString() : null,
           count: 0,
+          lastSkippedCount: config.lastSkippedCount[cadence] ?? null,
+          lastError: config.failures[cadence] ?? null,
         };
       }),
     };

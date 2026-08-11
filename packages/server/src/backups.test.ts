@@ -1,7 +1,7 @@
 import {readdir, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {BACKUP_CADENCE_MS, BACKUP_VERSION, type LibraryBackup, type StoredPage} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
@@ -40,6 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await store.close();
   await rm(dataDir, {recursive: true, force: true});
   await rm(backupDir, {recursive: true, force: true});
@@ -273,6 +274,123 @@ describe('BackupScheduler', () => {
       },
     });
     await expect(store.exportAll()).rejects.toThrow(`referenced asset ${missing} has no stored bytes`);
+  });
+
+  it('scheduled backup skips and records a dangling ref plus a hash-mismatched asset', async () => {
+    const missing = 'a'.repeat(64);
+    const originalBytes = Uint8Array.from([1, 2, 3, 4]);
+    const {id: mismatched} = await store.putAsset(originalBytes, 'image/png');
+    const page = await store.upsertPage({
+      name: `skipped-assets-${seq}`,
+      data: {
+        ...snapshot(),
+        blockdoc: {
+          v: 1,
+          update: '',
+          blocks: [
+            {id: 'missing', type: 'image', props: {assetId: missing}},
+            {id: 'mismatch', type: 'image', props: {assetId: mismatched}},
+          ],
+        },
+      },
+    });
+    const db = (store as unknown as {db: {query(sql: string, params?: unknown[]): Promise<unknown>}}).db;
+    await db.query('UPDATE assets SET bytes = $2, size = $3 WHERE id = $1', [
+      mismatched,
+      Buffer.from([4, 3, 2, 1]),
+      originalBytes.byteLength,
+    ]);
+
+    const s = scheduler();
+    const run = await s.runNow('daily');
+    expect(run?.skippedCount).toBe(2);
+    const bundle = JSON.parse(await readFile(join(backupDir, 'daily', run!.file), 'utf8')) as LibraryBackup;
+    expect(bundle.assets).toEqual([]);
+    expect(bundle.skipped).toEqual(expect.arrayContaining([
+      {id: missing, refs: [page.id], reason: 'missing-bytes'},
+      {id: mismatched, refs: [page.id], reason: 'hash-mismatch'},
+    ]));
+
+    const restoreDir = join(tmpdir(), `ob-backup-skipped-restore-${process.pid}-${seq}`);
+    const restored = new PageStore(await PgliteDb.create(restoreDir));
+    await restored.migrate();
+    try {
+      const result = await restored.importBundle({...bundle, mode: 'copy', installForeignPageAccess: true});
+      expect(result.created).toBe(1);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({code: 'partial-restore', missing: ['scheduled-backup-skips']}),
+      ]);
+    } finally {
+      await restored.close();
+      await rm(restoreDir, {recursive: true, force: true});
+    }
+
+    const app = createApp(store, undefined, new PageHub(), {backups: s});
+    const status = await (await app.request('/api/backups')).json();
+    expect(status.cadences.find((item: {cadence: string}) => item.cadence === 'daily')).toEqual(
+      expect.objectContaining({lastSkippedCount: 2, lastError: null}),
+    );
+  });
+
+  it('records a persistent page-set race and restores the affected page restricted', async () => {
+    const page = await store.upsertPage({name: `page-race-${seq}`, data: snapshot()});
+    await store.setPageVisibility(page.id, 'public');
+    const db = (store as unknown as {db: {query(sql: string, params?: unknown[]): Promise<unknown[]>}}).db;
+    const query = db.query.bind(db);
+    vi.spyOn(db, 'query').mockImplementation((sql, params) => {
+      if (sql.includes('SELECT id, visibility, agent_edits FROM pages')) return Promise.resolve([]);
+      return query(sql, params);
+    });
+
+    const run = await scheduler().runNow('daily');
+    expect(run?.skippedCount).toBe(1);
+    const bundle = JSON.parse(await readFile(join(backupDir, 'daily', run!.file), 'utf8')) as LibraryBackup;
+    expect(bundle.pageAccess).toEqual([]);
+    expect(bundle.skipped).toEqual([
+      {id: 'page-access', pages: [page.id], reason: 'page-set-changed'},
+    ]);
+
+    const restoreDir = join(tmpdir(), `ob-backup-race-restore-${process.pid}-${seq}`);
+    const restored = new PageStore(await PgliteDb.create(restoreDir));
+    await restored.migrate();
+    try {
+      const result = await restored.importBundle({...bundle, mode: 'copy', installForeignPageAccess: true});
+      const restoredId = result.idMap[page.id];
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({code: 'partial-restore', missing: ['scheduled-backup-skips']}),
+      ]);
+      expect(await restored.getPageVisibility(restoredId)).toBe('restricted');
+      expect(await restored.getPageAgentEdits(restoredId)).toBe('suggest');
+    } finally {
+      await restored.close();
+      await rm(restoreDir, {recursive: true, force: true});
+    }
+  });
+
+  it('persists exponential failure backoff so the next tick does not repeat the full scan', async () => {
+    await store.updateBackupConfig({
+      cadences: {daily: true, weekly: false, monthly: false, yearly: false},
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exported = vi.spyOn(store, 'exportAllTo').mockRejectedValue(new Error('injected scheduled failure'));
+    const s = scheduler();
+
+    await s.tick();
+    expect(exported).toHaveBeenCalledTimes(1);
+    const first = (await store.getBackupConfig()).failures.daily!;
+    expect(first.attempts).toBe(1);
+    expect(Date.parse(first.retryAt) - nowMs).toBe(60 * 60 * 1000);
+
+    nowMs += 30 * 60 * 1000;
+    await s.tick();
+    expect(exported).toHaveBeenCalledTimes(1);
+
+    const app = createApp(store, undefined, new PageHub(), {backups: s});
+    const payload = await (await app.request('/api/backups')).json();
+    expect(payload.cadences.find((item: {cadence: string}) => item.cadence === 'daily').lastError).toEqual(
+      expect.objectContaining({attempts: 1, message: 'injected scheduled failure'}),
+    );
+    expect(errorLog).toHaveBeenCalledTimes(1);
   });
 
   it('keeps backup reachability aligned with GC for future asset URL shapes', async () => {

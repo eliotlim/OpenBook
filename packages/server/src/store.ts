@@ -12,6 +12,7 @@ import type {
   BackupPageAccess,
   BackupPageAcl,
   BackupRestoreDiagnostic,
+  BackupSkippedItem,
   CommentInput,
   CommentRun,
   DatabaseInput,
@@ -377,6 +378,7 @@ async function bundleKey(req: ImportRequest): Promise<string> {
     ledger: req.ledger ?? null,
     assets: req.assets ?? null,
     pageAccess: req.pageAccess ?? null,
+    skipped: req.skipped ?? null,
     instanceId: req.instanceId ?? null,
     ownerSubject: req.ownerSubject ?? null,
     installForeignPageAccess: req.installForeignPageAccess === true,
@@ -519,6 +521,15 @@ function foreignPageAccessDiagnostic(sourceInstanceId: string | undefined, targe
   };
 }
 
+function skippedBackupDiagnostic(skipped: BackupSkippedItem[]): BackupRestoreDiagnostic {
+  return {
+    code: 'partial-restore',
+    version: 3,
+    missing: ['scheduled-backup-skips'],
+    message: `partial restore from scheduled backup: ${skipped.length} inconsistent item(s) were skipped and recorded`,
+  };
+}
+
 const MAX_BACKUP_IDENTITY_LENGTH = 2048;
 
 function validBackupIdentity(value: unknown): value is string | null {
@@ -533,12 +544,16 @@ function validBackupIdentity(value: unknown): value is string | null {
 async function preflightBackup(
   req: ImportRequest,
   targetInstanceId: string,
-): Promise<{diagnostics: BackupRestoreDiagnostic[]; installPageAccess: boolean}> {
+): Promise<{
+  diagnostics: BackupRestoreDiagnostic[];
+  installPageAccess: boolean;
+  skippedPageAccessIds: Set<string>;
+}> {
   if (req.version == null) {
-    if (req.assets != null || req.pageAccess != null) {
-      throw new BackupFormatError('invalid import: v3 assets/pageAccess require an explicit backup format version');
+    if (req.assets != null || req.pageAccess != null || req.skipped != null) {
+      throw new BackupFormatError('invalid import: v3 assets/pageAccess/skipped require an explicit backup format version');
     }
-    return {diagnostics: [], installPageAccess: false}; // ordinary content import, not a backup reader
+    return {diagnostics: [], installPageAccess: false, skippedPageAccessIds: new Set()}; // ordinary content import, not a backup reader
   }
   if (!Number.isSafeInteger(req.version) || req.version < 1) {
     throw new BackupFormatError(`invalid backup format version ${String(req.version)}`);
@@ -549,10 +564,10 @@ async function preflightBackup(
     );
   }
   if (req.version === 1 || req.version === 2) {
-    if (req.assets != null || req.pageAccess != null) {
-      throw new BackupFormatError(`invalid backup v${req.version}: v3 assets/pageAccess fields are not allowed`);
+    if (req.assets != null || req.pageAccess != null || req.skipped != null) {
+      throw new BackupFormatError(`invalid backup v${req.version}: v3 assets/pageAccess/skipped fields are not allowed`);
     }
-    return {diagnostics: [partialRestoreDiagnostic(req.version)], installPageAccess: false};
+    return {diagnostics: [partialRestoreDiagnostic(req.version)], installPageAccess: false, skippedPageAccessIds: new Set()};
   }
   if (!Array.isArray(req.assets) || !Array.isArray(req.pageAccess)) {
     throw new BackupFormatError('invalid backup v3: assets and pageAccess manifests are required');
@@ -576,6 +591,47 @@ async function preflightBackup(
       throw new BackupFormatError(`invalid backup v3: duplicate or malformed page id ${JSON.stringify(page?.id)}`);
     }
     pageIds.add(page.id);
+  }
+
+  if (req.skipped != null && !Array.isArray(req.skipped)) {
+    throw new BackupFormatError('invalid backup v3: skipped manifest must be an array');
+  }
+  const skipped = req.skipped ?? [];
+  const skippedAssets = new Map<string, BackupSkippedItem>();
+  const skippedPageAccessIds = new Set<string>();
+  let sawPageAccessSkip = false;
+  for (const item of skipped) {
+    if (!item || typeof item.id !== 'string' || typeof item.reason !== 'string') {
+      throw new BackupFormatError('invalid backup v3: malformed skipped manifest entry');
+    }
+    const hasRefs = Array.isArray(item.refs);
+    const hasPages = Array.isArray(item.pages);
+    if (hasRefs === hasPages) {
+      throw new BackupFormatError(`invalid backup v3: skipped item ${JSON.stringify(item.id)} must carry refs or pages`);
+    }
+    const ids = hasRefs ? item.refs! : item.pages!;
+    if (ids.length === 0 || ids.some((id) => typeof id !== 'string') || new Set(ids).size !== ids.length) {
+      throw new BackupFormatError(`invalid backup v3: skipped item ${JSON.stringify(item.id)} has malformed page ids`);
+    }
+    if (hasPages) {
+      if (item.id !== 'page-access' || item.reason !== 'page-set-changed' || sawPageAccessSkip) {
+        throw new BackupFormatError('invalid backup v3: malformed or duplicate page-access skip');
+      }
+      sawPageAccessSkip = true;
+      for (const id of ids) {
+        if (pageIds.has(id)) skippedPageAccessIds.add(id);
+      }
+      continue;
+    }
+    if (
+      !ASSET_ID_RE.test(item.id) ||
+      (item.reason !== 'missing-bytes' && item.reason !== 'hash-mismatch' && item.reason !== 'size-mismatch') ||
+      skippedAssets.has(item.id) ||
+      ids.some((id) => !pageIds.has(id))
+    ) {
+      throw new BackupFormatError(`invalid backup v3: malformed or duplicate skipped asset ${JSON.stringify(item.id)}`);
+    }
+    skippedAssets.set(item.id, item);
   }
 
   const accessIds = new Set<string>();
@@ -628,7 +684,10 @@ async function preflightBackup(
   }
   if (accessIds.size !== pageIds.size) {
     const missing = [...pageIds].filter((id) => !accessIds.has(id));
-    throw new BackupFormatError(`invalid backup v3: pageAccess is missing page(s): ${missing.join(', ')}`);
+    const unrecorded = missing.filter((id) => !skippedPageAccessIds.has(id));
+    if (unrecorded.length > 0) {
+      throw new BackupFormatError(`invalid backup v3: pageAccess is missing page(s): ${unrecorded.join(', ')}`);
+    }
   }
 
   const manifestIds = new Set<string>();
@@ -638,7 +697,10 @@ async function preflightBackup(
     }
     manifestIds.add(asset.id);
   }
-  const expectedRefs = referencedAssets(req.pages, manifestIds);
+  for (const id of skippedAssets.keys()) {
+    if (manifestIds.has(id)) throw new BackupFormatError(`invalid backup v3: asset ${id} is both present and skipped`);
+  }
+  const expectedRefs = referencedAssets(req.pages, [...manifestIds, ...skippedAssets.keys()]);
   for (const asset of req.assets) {
     if (typeof asset.mime !== 'string' || typeof asset.bytesBase64 !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0) {
       throw new BackupFormatError(`invalid backup v3: asset ${asset.id} has malformed bytes metadata`);
@@ -674,15 +736,30 @@ async function preflightBackup(
       );
     }
   }
+  for (const [id, item] of skippedAssets) {
+    const expected = expectedRefs.get(id);
+    if (!expected) throw new BackupFormatError(`invalid backup v3: skipped asset ${id} is not referenced by a selected page`);
+    const actual = new Set(item.refs!);
+    const missingRefs = [...expected].filter((pageId) => !actual.has(pageId));
+    const extraRefs = [...actual].filter((pageId) => !expected.has(pageId));
+    if (missingRefs.length > 0 || extraRefs.length > 0) {
+      throw new BackupFormatError(`invalid backup v3: skipped asset ${id} ref manifest differs from page state`);
+    }
+  }
   const missingAssets = [...expectedRefs.keys()].filter((id) => !manifestIds.has(id));
-  if (missingAssets.length > 0) {
-    throw new BackupFormatError(`invalid backup v3: referenced asset bytes are missing: ${missingAssets.join(', ')}`);
+  const unrecordedAssets = missingAssets.filter((id) => !skippedAssets.has(id));
+  if (unrecordedAssets.length > 0) {
+    throw new BackupFormatError(`invalid backup v3: referenced asset bytes are missing: ${unrecordedAssets.join(', ')}`);
   }
   const sameOrigin = req.instanceId !== undefined && req.instanceId === targetInstanceId;
   const installPageAccess = sameOrigin || req.installForeignPageAccess === true;
+  const diagnostics: BackupRestoreDiagnostic[] = [];
+  if (skipped.length > 0) diagnostics.push(skippedBackupDiagnostic(skipped));
+  if (!installPageAccess) diagnostics.push(foreignPageAccessDiagnostic(req.instanceId, targetInstanceId));
   return {
-    diagnostics: installPageAccess ? [] : [foreignPageAccessDiagnostic(req.instanceId, targetInstanceId)],
+    diagnostics,
     installPageAccess,
+    skippedPageAccessIds,
   };
 }
 
@@ -1015,8 +1092,11 @@ export class PageStore {
   async exportAllTo(
     write: (chunk: string) => Promise<unknown>,
     exportedAt: string = new Date().toISOString(),
-  ): Promise<void> {
+    opts: {skipInconsistent?: boolean} = {},
+  ): Promise<{skipped: BackupSkippedItem[]}> {
     const snapshot = await this.captureBackupSnapshot(exportedAt);
+    const skipped: BackupSkippedItem[] = [];
+    const skippedManifest = opts.skipInconsistent ? skipped : undefined;
     const writeArray = async <T>(items: Iterable<T> | AsyncIterable<T>): Promise<void> => {
       await write('[');
       let first = true;
@@ -1036,14 +1116,19 @@ export class PageStore {
     await write(',"databases":');
     await writeArray(snapshot.databases);
     await write(',"assets":');
-    await writeArray(this.exportAssetEntries(snapshot.pages));
-    const pageAccess = await this.exportPageAccess(snapshot.pages.map((page) => page.id));
+    await writeArray(this.exportAssetEntries(snapshot.pages, skippedManifest));
+    const pageAccess = await this.exportPageAccess(snapshot.pages.map((page) => page.id), skippedManifest);
     await write(',"pageAccess":');
     await writeArray(pageAccess);
+    if (skipped.length > 0) {
+      await write(',"skipped":');
+      await writeArray(skipped);
+    }
     if (snapshot.ledger) {
       await write(`,"ledger":${JSON.stringify(snapshot.ledger)}`);
     }
     await write('}');
+    return {skipped};
   }
 
   private async captureBackupSnapshot(exportedAt: string): Promise<{
@@ -1086,7 +1171,10 @@ export class PageStore {
   }
 
   /** Yield one verified asset at a time so scheduled writers stay bounded. */
-  private async *exportAssetEntries(pages: StoredPage[]): AsyncGenerator<BackupAsset> {
+  private async *exportAssetEntries(
+    pages: StoredPage[],
+    skipped?: BackupSkippedItem[],
+  ): AsyncGenerator<BackupAsset> {
     // Seed the document scanner with every actually stored id. This makes the
     // backup liveness set a superset of the GC's `position(a.id IN ...::text)`
     // predicate without treating unrelated 64-hex document hashes as assets.
@@ -1094,21 +1182,34 @@ export class PageStore {
     const wanted = referencedAssets(pages, stored.map((asset) => asset.id));
     let captured = 0;
     for (const id of [...wanted.keys()].sort()) {
+      const refs = [...wanted.get(id)!].sort();
       const rows = await this.db.query<{id: string; mime: string; size: number | string; bytes: Uint8Array | string}>(
         'SELECT id, mime, size, bytes FROM assets WHERE id = $1',
         [id],
       );
       if (rows.length === 0) {
+        if (skipped) {
+          skipped.push({id, refs, reason: 'missing-bytes'});
+          continue;
+        }
         throw new BackupFormatError(
-          `backup incomplete: referenced asset ${id} has no stored bytes (pages: ${[...wanted.get(id)!].sort().join(', ')})`,
+          `backup incomplete: referenced asset ${id} has no stored bytes (pages: ${refs.join(', ')})`,
         );
       }
       const bytes = byteaToBytes(rows[0].bytes);
       const actual = await assetHash(bytes);
       if (actual !== id) {
+        if (skipped) {
+          skipped.push({id, refs, reason: 'hash-mismatch'});
+          continue;
+        }
         throw new BackupFormatError(`backup incomplete: asset ${id} bytes hash to ${actual}`);
       }
       if (Number(rows[0].size) !== bytes.byteLength) {
+        if (skipped) {
+          skipped.push({id, refs, reason: 'size-mismatch'});
+          continue;
+        }
         throw new BackupFormatError(
           `backup incomplete: asset ${id} stores size ${String(rows[0].size)} but contains ${bytes.byteLength} bytes`,
         );
@@ -1118,25 +1219,43 @@ export class PageStore {
         mime: rows[0].mime,
         size: bytes.byteLength,
         bytesBase64: Buffer.from(bytes).toString('base64'),
-        refs: [...wanted.get(id)!].sort(),
+        refs,
       };
       captured += 1;
     }
     // Deliberately redundant with the missing-row throw: keep the writer's
     // completeness invariant obvious if the loop is later batched/streamed.
-    if (captured !== wanted.size) {
-      throw new BackupFormatError(`backup incomplete: captured ${captured} of ${wanted.size} referenced assets`);
+    const accounted = captured + (skipped?.filter((item) => item.refs).length ?? 0);
+    if (accounted !== wanted.size) {
+      throw new BackupFormatError(`backup incomplete: accounted for ${accounted} of ${wanted.size} referenced assets`);
     }
   }
 
   /** Export exactly one access-state record per live exported page. */
-  private async exportPageAccess(pageIds: string[]): Promise<BackupPageAccess[]> {
-    const rows = await this.db.query<{id: string; visibility: string; agent_edits: string}>(
+  private async exportPageAccess(pageIds: string[], skipped?: BackupSkippedItem[]): Promise<BackupPageAccess[]> {
+    const expected = new Set(pageIds);
+    const readRows = () => this.db.query<{id: string; visibility: string; agent_edits: string}>(
       'SELECT id, visibility, agent_edits FROM pages WHERE deleted_at IS NULL ORDER BY created_at ASC',
     );
-    const expected = new Set(pageIds);
-    if (rows.length !== expected.size || rows.some((row) => !expected.has(row.id))) {
-      throw new BackupFormatError('backup incomplete: page access state changed while the page snapshot was captured');
+    let rows = await readRows();
+    const coherent = (): boolean => rows.length === expected.size && rows.every((row) => expected.has(row.id));
+    if (!coherent()) {
+      if (!skipped) {
+        throw new BackupFormatError('backup incomplete: page access state changed while the page snapshot was captured');
+      }
+      // A fast retry handles a page mutation that committed between the two
+      // snapshot queries. If the set is still different, preserve access for
+      // the intersection and record the race instead of failing the backup.
+      rows = await readRows();
+      if (!coherent()) {
+        const current = new Set(rows.map((row) => row.id));
+        const changed = [
+          ...pageIds.filter((id) => !current.has(id)),
+          ...rows.map((row) => row.id).filter((id) => !expected.has(id)),
+        ].sort();
+        skipped.push({id: 'page-access', pages: changed, reason: 'page-set-changed'});
+        rows = rows.filter((row) => expected.has(row.id));
+      }
     }
     const aclRows = await this.db.query<AclRow>(
       `SELECT ${ACL_COLS} FROM page_acl
@@ -1200,7 +1319,7 @@ export class PageStore {
    */
   async importBundle(req: ImportRequest, opts: {actor?: Principal; assetBudgetBytes?: number} = {}): Promise<ImportResult> {
     const targetInstanceId = await this.ensureInstanceId();
-    const {diagnostics, installPageAccess} = await preflightBackup(req, targetInstanceId);
+    const {diagnostics, installPageAccess, skippedPageAccessIds} = await preflightBackup(req, targetInstanceId);
     // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
@@ -1296,6 +1415,9 @@ export class PageStore {
         if (installPageAccess) await this.restorePageAccessTx(tx, req.pageAccess, result.idMap);
         else await this.restrictRestoredPageAccessTx(tx, req.pageAccess, result.idMap);
       }
+      if (skippedPageAccessIds.size > 0) {
+        await this.restrictRestoredPageIdsTx(tx, skippedPageAccessIds, result.idMap);
+      }
       if (diagnostics.length > 0) result = {...result, diagnostics};
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
@@ -1305,7 +1427,7 @@ export class PageStore {
       await tx.query('UPDATE import_log SET result = $2::jsonb WHERE key = $1', [key, JSON.stringify(result)]);
       return result;
     });
-    if (!imported.deduped && req.pageAccess && req.pageAccess.length > 0) this.bumpAccess();
+    if (!imported.deduped && ((req.pageAccess?.length ?? 0) > 0 || skippedPageAccessIds.size > 0)) this.bumpAccess();
     return imported;
   }
 
@@ -1549,6 +1671,23 @@ export class PageStore {
   ): Promise<void> {
     for (const access of manifest) {
       const targetPageId = idMap[access.pageId];
+      if (!targetPageId) continue; // a managed target stripped by the import guard
+      await tx.query(
+        'UPDATE pages SET visibility = \'restricted\', agent_edits = \'suggest\' WHERE id = $1',
+        [targetPageId],
+      );
+      await tx.query('DELETE FROM page_acl WHERE page_id = $1', [targetPageId]);
+    }
+  }
+
+  /** Safe baseline for pages whose access row could not be captured consistently. */
+  private async restrictRestoredPageIdsTx(
+    tx: Db,
+    sourcePageIds: Iterable<string>,
+    idMap: Record<string, string>,
+  ): Promise<void> {
+    for (const sourcePageId of sourcePageIds) {
+      const targetPageId = idMap[sourcePageId];
       if (!targetPageId) continue; // a managed target stripped by the import guard
       await tx.query(
         'UPDATE pages SET visibility = \'restricted\', agent_edits = \'suggest\' WHERE id = $1',
@@ -3495,6 +3634,8 @@ export class PageStore {
       cadences: {...DEFAULT_BACKUP_CONFIG.cadences, ...stored.cadences},
       keep: {...DEFAULT_BACKUP_CONFIG.keep, ...stored.keep},
       lastRun: {...stored.lastRun},
+      lastSkippedCount: {...stored.lastSkippedCount},
+      failures: {...stored.failures},
     };
     // Default-on (opt-out): backups now default enabled. The `backups` settings row
     // is written at a single site — `updateBackupConfig` (owner-gated PUT /api/backups
@@ -3516,6 +3657,10 @@ export class PageStore {
       cadences: {...current.cadences, ...patch.cadences},
       keep: {...current.keep, ...patch.keep},
       lastRun: {...current.lastRun, ...patch.lastRun},
+      lastSkippedCount: {...current.lastSkippedCount, ...patch.lastSkippedCount},
+      // Internal scheduler writes pass the complete failure map so a successful
+      // cadence can remove its entry instead of a nested merge resurrecting it.
+      failures: patch.failures === undefined ? {...current.failures} : {...patch.failures},
       // The moment the user sets the master switch, record that so the default-on
       // migration above never overrides their choice on the next read. Non-switch
       // patches (e.g. the scheduler recording `lastRun`) don't flip the marker.

@@ -5,6 +5,7 @@ import {
   BACKUP_CADENCE_MS,
   type BackupCadence,
   type BackupConfig,
+  type BackupFailure,
   type BackupStatus,
 } from '@book.dev/sdk';
 import type {PageStore} from './store';
@@ -29,6 +30,10 @@ export interface BackupSchedulerOptions {
   intervalMs?: number;
   /** Idle delay before the first catch-up check (ms). Default 15 sec. */
   catchUpDelayMs?: number;
+  /** Initial persisted failure backoff (ms). Default 1 hour. */
+  failureBackoffBaseMs?: number;
+  /** Maximum persisted failure backoff (ms). Default 24 hours. */
+  failureBackoffMaxMs?: number;
   /** Clock injection (tests). */
   now?: () => number;
 }
@@ -36,7 +41,7 @@ export interface BackupSchedulerOptions {
 /** The subset the HTTP app needs (so `createApp` doesn't depend on the class). */
 export interface BackupController {
   status(): Promise<BackupStatus>;
-  runNow(cadence?: BackupCadence): Promise<{file: string; dir: string} | null>;
+  runNow(cadence?: BackupCadence): Promise<{file: string; dir: string; skippedCount: number} | null>;
 }
 
 /** Make an ISO timestamp safe + lexically sortable as a filename segment. */
@@ -103,9 +108,17 @@ export class BackupScheduler implements BackupController {
       if (!dir) return;
       for (const cadence of BACKUP_CADENCES) {
         if (!config.cadences[cadence]) continue;
+        const failure = config.failures[cadence];
+        if (failure && this.now() < Date.parse(failure.retryAt)) continue;
         const last = config.lastRun[cadence];
         const due = !last || this.now() - Date.parse(last) >= BACKUP_CADENCE_MS[cadence];
-        if (due) await this.runCadence(cadence, dir);
+        if (!due) continue;
+        try {
+          await this.runCadence(cadence, dir);
+        } catch (err) {
+          await this.recordFailure(cadence, err);
+          console.error('OpenBook scheduled backup failed:', err);
+        }
       }
     } catch (err) {
       console.error('OpenBook scheduled backup failed:', err);
@@ -113,12 +126,12 @@ export class BackupScheduler implements BackupController {
   }
 
   /** Force a snapshot for one cadence now (the "Back up now" action). */
-  async runNow(cadence: BackupCadence = 'daily'): Promise<{file: string; dir: string} | null> {
+  async runNow(cadence: BackupCadence = 'daily'): Promise<{file: string; dir: string; skippedCount: number} | null> {
     const config = await this.store.getBackupConfig();
     const dir = this.resolvedDir(config);
     if (!dir) return null;
-    const file = await this.runCadence(cadence, dir);
-    return {file, dir};
+    const result = await this.runCadence(cadence, dir);
+    return {...result, dir};
   }
 
   async status(): Promise<BackupStatus> {
@@ -127,23 +140,40 @@ export class BackupScheduler implements BackupController {
     const cadences = await Promise.all(
       BACKUP_CADENCES.map(async (cadence) => {
         const last = config.lastRun[cadence] ?? null;
-        const nextDue = last ? new Date(Date.parse(last) + BACKUP_CADENCE_MS[cadence]).toISOString() : null;
+        const lastError = config.failures[cadence] ?? null;
+        const nextDue = lastError?.retryAt ?? (last ? new Date(Date.parse(last) + BACKUP_CADENCE_MS[cadence]).toISOString() : null);
         const count = dir ? (await this.listSnapshots(join(dir, cadence))).length : 0;
-        return {cadence, enabled: config.cadences[cadence], lastRun: last, nextDue, count};
+        return {
+          cadence,
+          enabled: config.cadences[cadence],
+          lastRun: last,
+          nextDue,
+          count,
+          lastSkippedCount: config.lastSkippedCount[cadence] ?? null,
+          lastError,
+        };
       }),
     );
     return {config, resolvedDir: dir, cadences};
   }
 
-  private async runCadence(cadence: BackupCadence, dir: string): Promise<string> {
-    const file = await this.writeBackup(cadence, dir);
+  private async runCadence(cadence: BackupCadence, dir: string): Promise<{file: string; skippedCount: number}> {
+    const result = await this.writeBackup(cadence, dir);
     await this.prune(cadence, dir);
-    // Record the run last, so a failed write doesn't advance the clock.
-    await this.store.updateBackupConfig({lastRun: {[cadence]: this.nowIso()}});
-    return file;
+    // Record the run last, so a failed write doesn't advance the clock. A
+    // successful retry clears the active error/backoff for this cadence.
+    const config = await this.store.getBackupConfig();
+    const failures = {...config.failures};
+    delete failures[cadence];
+    await this.store.updateBackupConfig({
+      lastRun: {[cadence]: this.nowIso()},
+      lastSkippedCount: {[cadence]: result.skippedCount},
+      failures,
+    });
+    return result;
   }
 
-  private async writeBackup(cadence: BackupCadence, dir: string): Promise<string> {
+  private async writeBackup(cadence: BackupCadence, dir: string): Promise<{file: string; skippedCount: number}> {
     const cadenceDir = join(dir, cadence);
     await mkdir(cadenceDir, {recursive: true});
     const name = `openbook-backup-${fileStamp(this.nowIso())}.openbook.json`;
@@ -154,10 +184,12 @@ export class BackupScheduler implements BackupController {
     // writer nor the store accumulates the raw/base64/JSON asset corpus.
     const handle = await open(tmp, 'w');
     let isOpen = true;
+    let skippedCount = 0;
     try {
-      await this.store.exportAllTo(async (chunk) => {
+      const result = await this.store.exportAllTo(async (chunk) => {
         await handle.writeFile(chunk, {encoding: 'utf8'});
-      }, this.nowIso());
+      }, this.nowIso(), {skipInconsistent: true});
+      skippedCount = result.skipped.length;
       await handle.close();
       isOpen = false;
       await rename(tmp, abs);
@@ -166,7 +198,22 @@ export class BackupScheduler implements BackupController {
       await rm(tmp, {force: true}).catch(() => undefined);
       throw err;
     }
-    return name;
+    return {file: name, skippedCount};
+  }
+
+  private async recordFailure(cadence: BackupCadence, err: unknown): Promise<void> {
+    const config = await this.store.getBackupConfig();
+    const attempts = (config.failures[cadence]?.attempts ?? 0) + 1;
+    const base = Math.max(1, this.opts.failureBackoffBaseMs ?? 60 * 60 * 1000);
+    const cap = Math.max(base, this.opts.failureBackoffMaxMs ?? 24 * 60 * 60 * 1000);
+    const delay = Math.min(cap, base * (2 ** Math.min(attempts - 1, 20)));
+    const failure: BackupFailure = {
+      failedAt: this.nowIso(),
+      retryAt: new Date(this.now() + delay).toISOString(),
+      attempts,
+      message: (err instanceof Error ? err.message : String(err)).slice(0, 4096),
+    };
+    await this.store.updateBackupConfig({failures: {...config.failures, [cadence]: failure}});
   }
 
   /** Keep the newest `keep[cadence]` snapshots; delete the older ones. */
