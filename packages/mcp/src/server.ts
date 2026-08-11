@@ -9,6 +9,7 @@ import {
   blockTreeError,
   CONTAINER_BLOCK_TYPES,
   findUnknownBlockType,
+  FORM_FIELD_KINDS,
   invalidBlockProps,
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
@@ -29,7 +30,11 @@ import {
   textSnapshot,
   type AgentEditsMode,
   type DataClient,
+  type DatabaseRow,
+  type FormField,
+  type FormSchema,
   type PageSnapshot,
+  type StoredPage,
   type SnapshotTableView,
   type StoredSuggestion,
   type SuggestionKind,
@@ -48,6 +53,25 @@ interface AnyJsonBlock {
   children?: AnyJsonBlock[];
 }
 
+type JsonRecord = Record<string, unknown>;
+
+const jsonRecord = (value: unknown): JsonRecord | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+
+/** Remove the form write capability from an arbitrary JSON value at every depth. */
+function redactSubmissionKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSubmissionKeys);
+  const source = jsonRecord(value);
+  if (!source) return value;
+  const redacted: JsonRecord = {};
+  for (const [key, entry] of Object.entries(source)) {
+    if (key !== 'submissionKey') redacted[key] = redactSubmissionKeys(entry);
+  }
+  return redacted;
+}
+
 const runText = (b: AnyJsonBlock): string => (Array.isArray(b.text) ? b.text.map((r) => r.t).join('') : '');
 
 function blockdocBlocks(data: PageSnapshot | null | undefined): AnyJsonBlock[] | null {
@@ -63,7 +87,13 @@ function blockTreeLines(data: PageSnapshot | null | undefined): string[] {
     const walk = (list: AnyJsonBlock[], depth: number): void => {
       for (const b of list) {
         const text = runText(b).slice(0, 60);
-        const props = b.props && Object.keys(b.props).length ? ` props=${JSON.stringify(b.props).slice(0, 120)}` : '';
+        // A form's submission key is a write capability. Structure inspection is a
+        // read tool, so strip the key recursively before serialising even a clipped
+        // props preview (the key may exist at both props.submissionKey and
+        // props.schema.submissionKey).
+        const props = b.props && Object.keys(b.props).length
+          ? ` props=${JSON.stringify(redactSubmissionKeys(b.props)).slice(0, 120)}`
+          : '';
         out.push(`${'  '.repeat(depth)}- [${b.id ?? '?'}] ${b.type ?? '?'}${text ? `: ${text}` : ''}${props}`);
         if (b.children) walk(b.children, depth + 1);
       }
@@ -77,6 +107,256 @@ function blockTreeLines(data: PageSnapshot | null | undefined): string[] {
     out.push(`- [${b.id ?? '?'}] ${b.type ?? '?'}${t ? `: ${t}` : ''}`);
   }
   return out;
+}
+
+// ── Form block helpers (FORM-7) ──────────────────────────────────────────────
+
+const FORM_OPTION_SCHEMA = z.object({
+  id: z.string().min(1),
+  label: z.string(),
+  color: z.string().optional(),
+  group: z.enum(['todo', 'in_progress', 'complete']).optional(),
+}).strict();
+
+const FORM_FIELD_VALIDATION_SCHEMA = z.object({
+  min: z.number().optional(),
+  max: z.number().optional(),
+  minLength: z.number().int().nonnegative().optional(),
+  maxLength: z.number().int().nonnegative().optional(),
+  pattern: z.string().optional(),
+}).strict();
+
+const FORM_FIELD_SCHEMA = z.object({
+  id: z.string().min(1),
+  kind: z.enum(FORM_FIELD_KINDS),
+  label: z.string(),
+  placeholder: z.string().optional(),
+  required: z.boolean(),
+  validation: FORM_FIELD_VALIDATION_SCHEMA.optional(),
+  options: z.array(FORM_OPTION_SCHEMA).optional(),
+  columnId: z.string().optional(),
+  honeypot: z.boolean().optional(),
+}).strict();
+
+const FORM_FIELD_PATCH_SCHEMA = z.object({
+  kind: z.enum(FORM_FIELD_KINDS).optional(),
+  label: z.string().optional(),
+  placeholder: z.string().nullable().optional(),
+  required: z.boolean().optional(),
+  validation: FORM_FIELD_VALIDATION_SCHEMA.nullable().optional(),
+  options: z.array(FORM_OPTION_SCHEMA).nullable().optional(),
+  columnId: z.string().nullable().optional(),
+  honeypot: z.boolean().optional(),
+}).strict().refine((patch) => Object.keys(patch).length > 0, 'Provide at least one field property to update.');
+
+const FORM_FIELD_OP_SCHEMA = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('add'),
+    field: FORM_FIELD_SCHEMA,
+    index: z.number().int().nonnegative().optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('update'),
+    fieldId: z.string().min(1),
+    patch: FORM_FIELD_PATCH_SCHEMA,
+  }).strict(),
+  z.object({
+    type: z.literal('remove'),
+    fieldId: z.string().min(1),
+  }).strict(),
+  z.object({
+    type: z.literal('reorder'),
+    fieldId: z.string().min(1),
+    toIndex: z.number().int().nonnegative(),
+  }).strict(),
+]);
+
+type FormFieldOp = z.infer<typeof FORM_FIELD_OP_SCHEMA>;
+
+const FORM_CONFIRMATION_SCHEMA = z.union([
+  z.object({message: z.string()}).strict(),
+  z.object({redirectUrl: z.string()}).strict(),
+]);
+
+const FORM_SETTINGS_PATCH_SCHEMA = z.object({
+  enabled: z.boolean().optional(),
+  submitLabel: z.string().nullable().optional(),
+  confirmation: FORM_CONFIRMATION_SCHEMA.optional(),
+  databaseId: z.string().min(1).nullable().optional(),
+  maxSubmissions: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+}).strict().refine((patch) => Object.keys(patch).length > 0, 'Provide at least one form setting to update.');
+
+type FormSettingsPatch = z.infer<typeof FORM_SETTINGS_PATCH_SCHEMA>;
+
+interface LocatedForm {
+  blockId: string;
+  formId: string;
+  props: JsonRecord;
+}
+
+function formIdFromProps(props: JsonRecord): string | null {
+  if (typeof props.formId === 'string') return props.formId;
+  const schema = jsonRecord(props.schema);
+  return typeof schema?.formId === 'string' ? schema.formId : null;
+}
+
+/** Every form in the authoritative blockdoc projection, including nested forms. */
+function formsInSnapshot(data: PageSnapshot | null | undefined): LocatedForm[] {
+  const roots = blockdocBlocks(data);
+  if (!roots) return [];
+  const forms: LocatedForm[] = [];
+  const walk = (blocks: AnyJsonBlock[]): void => {
+    for (const block of blocks) {
+      const props = jsonRecord(block.props);
+      if (block.type === 'form' && props && typeof block.id === 'string') {
+        const formId = formIdFromProps(props);
+        if (formId !== null) forms.push({blockId: block.id, formId, props});
+      }
+      if (block.children) walk(block.children);
+    }
+  };
+  walk(roots);
+  return forms;
+}
+
+function oneFormInSnapshot(
+  data: PageSnapshot | null | undefined,
+  formId: string,
+): {form?: LocatedForm; error?: string} {
+  const matches = formsInSnapshot(data).filter((form) => form.formId === formId);
+  if (matches.length === 0) return {error: `No form "${formId}" on that page.`};
+  if (matches.length > 1) return {error: `Form id "${formId}" is duplicated on that page; make each form id unique before editing it.`};
+  return {form: matches[0]};
+}
+
+/**
+ * Validate the stored shape needed by the MCP editors. Submission keys are only
+ * type-checked as strings — their format/length is deliberately unconstrained so
+ * both the 22- and 43-character generations remain valid.
+ */
+function schemaFromForm(form: LocatedForm): {schema?: FormSchema; error?: string} {
+  const raw = jsonRecord(form.props.schema);
+  if (!raw) return {error: `Form "${form.formId}" has no valid schema object.`};
+  const fields = z.array(FORM_FIELD_SCHEMA).safeParse(raw.fields);
+  if (!fields.success) return {error: `Form "${form.formId}" has an invalid field definition.`};
+  const confirmation = FORM_CONFIRMATION_SCHEMA.safeParse(raw.confirmation);
+  if (!confirmation.success) return {error: `Form "${form.formId}" has an invalid confirmation setting.`};
+  const submissionKey = typeof form.props.submissionKey === 'string'
+    ? form.props.submissionKey
+    : raw.submissionKey;
+  if (typeof submissionKey !== 'string') return {error: `Form "${form.formId}" has no submission capability.`};
+  const enabled = typeof form.props.enabled === 'boolean' ? form.props.enabled : raw.enabled;
+  if (typeof enabled !== 'boolean') return {error: `Form "${form.formId}" has no valid enabled setting.`};
+  const databaseId = typeof form.props.databaseId === 'string'
+    ? form.props.databaseId
+    : typeof raw.databaseId === 'string' ? raw.databaseId : undefined;
+  if (form.props.databaseId === undefined && raw.databaseId !== undefined && typeof raw.databaseId !== 'string') {
+    return {error: `Form "${form.formId}" has an invalid database binding.`};
+  }
+  if (raw.submitLabel !== undefined && typeof raw.submitLabel !== 'string') {
+    return {error: `Form "${form.formId}" has an invalid submit label.`};
+  }
+  if (
+    raw.maxSubmissions !== undefined
+    && (!Number.isSafeInteger(raw.maxSubmissions) || (raw.maxSubmissions as number) < 0)
+  ) {
+    return {error: `Form "${form.formId}" has an invalid maxSubmissions setting.`};
+  }
+  return {
+    schema: {
+      ...(raw as unknown as FormSchema),
+      formId: form.formId,
+      fields: fields.data as FormField[],
+      confirmation: confirmation.data,
+      submissionKey,
+      enabled,
+      ...(databaseId === undefined ? {} : {databaseId}),
+    },
+  };
+}
+
+function transformFormFields(fields: FormField[], op: FormFieldOp): {fields?: FormField[]; error?: string} {
+  const next = fields.map((field) => ({...field}));
+  if (op.type === 'add') {
+    if (next.some((field) => field.id === op.field.id)) {
+      return {error: `A field with id "${op.field.id}" already exists.`};
+    }
+    const index = op.index ?? next.length;
+    if (index > next.length) return {error: `Add index ${index} is outside the field list (0…${next.length}).`};
+    next.splice(index, 0, op.field as FormField);
+    return {fields: next};
+  }
+
+  const indexes = next.flatMap((field, index) => field.id === op.fieldId ? [index] : []);
+  if (indexes.length === 0) return {error: `No field "${op.fieldId}" in that form.`};
+  if (indexes.length > 1) return {error: `Field id "${op.fieldId}" is duplicated; make field ids unique before editing.`};
+  const index = indexes[0];
+
+  if (op.type === 'remove') {
+    next.splice(index, 1);
+    return {fields: next};
+  }
+  if (op.type === 'reorder') {
+    if (op.toIndex >= next.length) {
+      return {error: `Reorder index ${op.toIndex} is outside the field list (0…${next.length - 1}).`};
+    }
+    const [field] = next.splice(index, 1);
+    next.splice(op.toIndex, 0, field);
+    return {fields: next};
+  }
+
+  const updated: JsonRecord = {...next[index]};
+  for (const [key, value] of Object.entries(op.patch)) {
+    if (value === null) delete updated[key];
+    else updated[key] = value;
+  }
+  const parsed = FORM_FIELD_SCHEMA.safeParse(updated);
+  if (!parsed.success) return {error: `The update would leave field "${op.fieldId}" invalid.`};
+  next[index] = parsed.data as FormField;
+  return {fields: next};
+}
+
+function applyFormSettings(
+  schema: FormSchema,
+  patch: FormSettingsPatch,
+): {schema: FormSchema; props: JsonRecord} {
+  const next = {...schema} as FormSchema & JsonRecord;
+  const props: JsonRecord = {};
+  if (patch.enabled !== undefined) {
+    next.enabled = patch.enabled;
+    props.enabled = patch.enabled;
+  }
+  if (patch.submitLabel !== undefined) {
+    if (patch.submitLabel === null) delete next.submitLabel;
+    else next.submitLabel = patch.submitLabel;
+  }
+  if (patch.confirmation !== undefined) next.confirmation = patch.confirmation;
+  if (patch.databaseId !== undefined) {
+    if (patch.databaseId === null) delete next.databaseId;
+    else next.databaseId = patch.databaseId;
+    // Top-level gate props are authoritative. `null` uses the existing block-props
+    // merge contract to remove a binding rather than persisting JSON null.
+    props.databaseId = patch.databaseId;
+  }
+  if (patch.maxSubmissions !== undefined) {
+    if (patch.maxSubmissions === null) delete next.maxSubmissions;
+    else next.maxSubmissions = patch.maxSubmissions;
+  }
+  props.schema = next;
+  return {schema: next, props};
+}
+
+// TODO(FORM-1): import FORM_SUBMISSION_PROPERTY_ID from @book.dev/sdk after
+// FORM-1 merges into this stack.
+const FORM_SUBMISSION_PROPERTY_ID = 'sys_form_submission';
+
+function submissionMarker(row: DatabaseRow, formId: string): {formId: string; submittedAt?: string} | null {
+  const marker = jsonRecord(row.properties?.[FORM_SUBMISSION_PROPERTY_ID]);
+  if (!marker || marker.formId !== formId) return null;
+  return {
+    formId,
+    ...(typeof marker.submittedAt === 'string' ? {submittedAt: marker.submittedAt} : {}),
+  };
 }
 
 const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -567,6 +847,43 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   const suggested = (summary: string, s: StoredSuggestion) =>
     text(`Suggested for review (not applied): ${summary}. It is queued in the review pane (suggestion ${s.id}); a human must accept it before it changes the library.`);
 
+  /**
+   * Form edits are block-props edits on the form block. Keeping this seam shared
+   * makes both form write tools follow the same fail-safe policy, suggestion
+   * payload, direct-write backstop, and shallow props merge as
+   * `update_block_props`.
+   */
+  const writeFormProps = async (input: {
+    page: StoredPage;
+    form: LocatedForm;
+    props: JsonRecord;
+    summary: string;
+    before: string;
+    after: string;
+  }) => {
+    const {page, form, props, summary, before, after} = input;
+    if ((await resolveWritePolicy(page.id)) !== 'direct') {
+      const suggestion = await recordSuggestion({
+        kind: 'set_block_props',
+        pageId: page.id,
+        summary,
+        before: clip(before, 200),
+        after: clip(after, 200),
+        target: {blockId: form.blockId},
+        payload: {pageId: page.id, blockId: form.blockId, props},
+      });
+      return suggested(summary, suggestion);
+    }
+    const applied = setBlockPropsInSnapshot(page.data, form.blockId, props);
+    if (!applied) return failure(`No form block for "${form.formId}" on that page.`);
+    try {
+      await client.savePage({id: page.id, name: page.name, data: applied.data});
+    } catch (err) {
+      return failure(`Could not update the form (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return text(`${summary} — applied directly to "${page.name ?? 'Untitled'}".`);
+  };
+
   server.registerTool(
     'list_pages',
     {
@@ -856,6 +1173,205 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       return text(
         [`Title: ${row.name ?? 'Untitled'}`, `Properties: ${JSON.stringify(row.properties)}`, `Exports: ${JSON.stringify(row.exports)}`].join('\n'),
       );
+    },
+  );
+
+  // ── Forms (FORM-7) ──────────────────────────────────────────────────────────
+
+  server.registerTool(
+    'list_forms',
+    {
+      title: 'List forms',
+      description:
+        'Scan every page this caller can read and list its form blocks: page/form ids, page title, optional label/database binding, enabled state, and field count. Form submission keys are never returned.',
+      inputSchema: {},
+    },
+    async () => {
+      const metas = await client.listPages();
+      const pages = await Promise.all(metas.map(async (meta) => ({meta, page: await client.getPage(meta.id)})));
+      const forms = pages.flatMap(({meta, page}) => {
+        if (!page) return [];
+        return formsInSnapshot(page.data).map((form) => {
+          const schema = jsonRecord(form.props.schema);
+          const enabled = typeof form.props.enabled === 'boolean'
+            ? form.props.enabled
+            : schema?.enabled === true;
+          const databaseId = typeof form.props.databaseId === 'string'
+            ? form.props.databaseId
+            : typeof schema?.databaseId === 'string' ? schema.databaseId : undefined;
+          const label = typeof form.props.label === 'string' ? form.props.label : undefined;
+          return {
+            pageId: page.id,
+            pageTitle: page.name ?? meta.name ?? 'Untitled',
+            formId: form.formId,
+            ...(label === undefined ? {} : {label}),
+            enabled,
+            ...(databaseId === undefined ? {} : {databaseId}),
+            fieldCount: Array.isArray(schema?.fields) ? schema.fields.length : 0,
+          };
+        });
+      });
+      return text(JSON.stringify(forms, null, 2));
+    },
+  );
+
+  server.registerTool(
+    'get_form_schema',
+    {
+      title: 'Get a form schema',
+      description:
+        'Read one form\'s ordered field schema and its enabled/database binding. The submissionKey write capability is recursively redacted and is never returned.',
+      inputSchema: {
+        pageId: z.string().describe('The page containing the form.'),
+        formId: z.string().describe('The stable form id (from list_forms).'),
+      },
+    },
+    async ({pageId, formId}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const located = oneFormInSnapshot(page.data, formId);
+      if (!located.form) return failure(located.error!);
+      const parsed = schemaFromForm(located.form);
+      if (!parsed.schema) return failure(parsed.error!);
+      const schema = redactSubmissionKeys(parsed.schema);
+      return text(JSON.stringify({
+        schema,
+        enabled: parsed.schema.enabled,
+        ...(parsed.schema.databaseId === undefined ? {} : {databaseId: parsed.schema.databaseId}),
+      }, null, 2));
+    },
+  );
+
+  server.registerTool(
+    'update_form_field',
+    {
+      title: 'Update a form field',
+      description:
+        'Add, update, remove, or reorder one field in a form schema. `op` is discriminated by `type`: add {field,index?}, update {fieldId,patch}, remove {fieldId}, or reorder {fieldId,toIndex}. Field kinds and shapes are validated against the shared FormSchema contract; unknown kinds are rejected. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the page agent-edits policy (default: suggest).',
+      inputSchema: {
+        pageId: z.string().describe('The page containing the form.'),
+        formId: z.string().describe('The stable form id (from list_forms).'),
+        op: FORM_FIELD_OP_SCHEMA.describe('The discriminated field operation. `toIndex` is the field\'s final 0-based position.'),
+      },
+    },
+    async ({pageId, formId, op}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const located = oneFormInSnapshot(page.data, formId);
+      if (!located.form) return failure(located.error!);
+      const parsed = schemaFromForm(located.form);
+      if (!parsed.schema) return failure(parsed.error!);
+      const transformed = transformFormFields(parsed.schema.fields, op);
+      if (!transformed.fields) return failure(transformed.error!);
+      const nextSchema: FormSchema = {...parsed.schema, fields: transformed.fields};
+      const action = op.type === 'add'
+        ? `Add field ${op.field.id}`
+        : op.type === 'update'
+          ? `Update field ${op.fieldId}`
+          : op.type === 'remove'
+            ? `Remove field ${op.fieldId}`
+            : `Move field ${op.fieldId} to position ${op.toIndex}`;
+      return writeFormProps({
+        page,
+        form: located.form,
+        props: {schema: nextSchema},
+        summary: `${action} in form ${formId}`,
+        before: JSON.stringify(parsed.schema.fields),
+        after: JSON.stringify(transformed.fields),
+      });
+    },
+  );
+
+  server.registerTool(
+    'set_form_settings',
+    {
+      title: 'Set form settings',
+      description:
+        'Patch a form\'s enabled state, submit label, confirmation, database binding, or maximum submission count. Pass null for submitLabel/databaseId/maxSubmissions to clear that optional setting. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the page agent-edits policy (default: suggest). Regenerating submissionKey is deliberately not exposed through MCP; that remains an author-only UI action.',
+      inputSchema: {
+        pageId: z.string().describe('The page containing the form.'),
+        formId: z.string().describe('The stable form id (from list_forms).'),
+        patch: FORM_SETTINGS_PATCH_SCHEMA,
+      },
+    },
+    async ({pageId, formId, patch}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const located = oneFormInSnapshot(page.data, formId);
+      if (!located.form) return failure(located.error!);
+      const parsed = schemaFromForm(located.form);
+      if (!parsed.schema) return failure(parsed.error!);
+      const applied = applyFormSettings(parsed.schema, patch);
+      const before = {
+        enabled: parsed.schema.enabled,
+        submitLabel: parsed.schema.submitLabel,
+        confirmation: parsed.schema.confirmation,
+        databaseId: parsed.schema.databaseId,
+        maxSubmissions: parsed.schema.maxSubmissions,
+      };
+      const after = {
+        enabled: applied.schema.enabled,
+        submitLabel: applied.schema.submitLabel,
+        confirmation: applied.schema.confirmation,
+        databaseId: applied.schema.databaseId,
+        maxSubmissions: applied.schema.maxSubmissions,
+      };
+      return writeFormProps({
+        page,
+        form: located.form,
+        props: applied.props,
+        summary: `Update ${Object.keys(patch).join(', ')} setting(s) of form ${formId}`,
+        before: JSON.stringify(before),
+        after: JSON.stringify(after),
+      });
+    },
+  );
+
+  server.registerTool(
+    'list_form_submissions',
+    {
+      title: 'List form submissions',
+      description:
+        'List rows from the form\'s bound database that carry this form\'s sys_form_submission marker. The host page is read first, so the caller\'s ordinary page-read scope governs access. Pagination uses the last returned row id as the next cursor.',
+      inputSchema: {
+        pageId: z.string().describe('The page containing the form.'),
+        formId: z.string().describe('The stable form id (from list_forms).'),
+        limit: z.number().int().min(1).max(100).optional().describe('Maximum marked rows to return (default 50, maximum 100).'),
+        cursor: z.string().min(1).optional().describe('The last row id returned by the previous page.'),
+      },
+    },
+    async ({pageId, formId, limit, cursor}) => {
+      // Load the host page first: over the HTTP loopback this automatically
+      // enforces the caller PAT's page-read scope before touching database rows.
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const located = oneFormInSnapshot(page.data, formId);
+      if (!located.form) return failure(located.error!);
+      const parsed = schemaFromForm(located.form);
+      if (!parsed.schema) return failure(parsed.error!);
+      const databaseId = parsed.schema.databaseId;
+      if (!databaseId) return failure(`Form "${formId}" is not bound to a database.`);
+      const database = await client.getDatabase(databaseId);
+      if (!database || database.pageId !== pageId) {
+        return failure(`Form "${formId}" is not bound to a database hosted by that page.`);
+      }
+      const marked = (await client.listRows(databaseId)).flatMap((row) => {
+        const marker = submissionMarker(row, formId);
+        return marker ? [{row, marker}] : [];
+      });
+      let start = 0;
+      if (cursor !== undefined) {
+        const cursorIndex = marked.findIndex(({row}) => row.id === cursor);
+        if (cursorIndex < 0) return failure('The submission cursor is not valid for this form.');
+        start = cursorIndex + 1;
+      }
+      const take = limit ?? 50;
+      const pageRows = marked.slice(start, start + take);
+      const hasMore = start + pageRows.length < marked.length;
+      return text(JSON.stringify({
+        rows: pageRows.map(({row, marker}) => ({...row, ...marker})),
+        ...(hasMore && pageRows.length > 0 ? {nextCursor: pageRows[pageRows.length - 1].row.id} : {}),
+      }, null, 2));
     },
   );
 
