@@ -17,15 +17,21 @@
 //! persist in `host-config.json` under the app-data dir.
 
 mod ipc;
+mod sidecar_supervision;
 
+use std::collections::VecDeque;
 use std::io::Read;
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use sidecar_supervision::{
+    FailureDecision, SidecarStatePayload, SidecarSupervisor, HEALTHY_UPTIME, STDERR_TAIL_LINES,
+};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -60,7 +66,10 @@ struct HostConfig {
 
 struct AppState {
     /// The running sidecar process (always present in release; None in dev).
-    child: Mutex<Option<CommandChild>>,
+    child: Mutex<Option<ManagedSidecar>>,
+    /// Bounded-retry policy + generation gate. A deliberate stop advances the
+    /// generation before signalling the child, so its Terminated event is stale.
+    supervision: Mutex<SidecarSupervisor>,
     /// App-data directory passed to the embedded server.
     data_dir: String,
     /// Unix socket the server listens on (the portless IPC transport).
@@ -81,6 +90,11 @@ struct AppState {
     /// Whether this host manages the server lifecycle (true in release builds,
     /// where the sidecar binary is bundled). Publishing requires it.
     managed: bool,
+}
+
+struct ManagedSidecar {
+    generation: u64,
+    child: CommandChild,
 }
 
 /// Mirrors `ServerInfo` in `@book.dev/sdk`.
@@ -229,7 +243,7 @@ fn spawn_sidecar(
     socket_path: &str,
     local_secret: &str,
     cfg: &HostConfig,
-) -> Result<CommandChild, String> {
+) -> Result<(tauri::async_runtime::Receiver<CommandEvent>, CommandChild), String> {
     #[cfg(not(unix))]
     let _ = socket_path;
 
@@ -291,44 +305,274 @@ fn spawn_sidecar(
         }
     }
 
-    let (mut rx, child) = command
+    command
         .spawn()
-        .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
+        .map_err(|e| format!("failed to spawn server sidecar: {e}"))
+}
 
+/// Stop the running sidecar and spawn a fresh one from the current config — used
+/// when publishing toggles, the book folder changes, or the repair command runs.
+/// The generation advances before the old child is signalled, so its termination
+/// cannot enter the crash retry loop. The socket is rebound, so the host bridge
+/// and IPC requests reconnect across the brief gap.
+fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    let (generation, payload) = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin_forced_respawn()
+        .ok_or_else(|| "the app is shutting down".to_string())?;
+    emit_sidecar_state(app, payload);
+
+    // Take and drop the lock before BOOT-7's potentially blocking graceful stop.
+    // The generation was already invalidated, so this death is expected.
+    let old_child = state
+        .child
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    if let Some(old_child) = old_child {
+        stop_server_child(old_child.child);
+    }
+
+    match launch_sidecar(app, state, generation) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            handle_sidecar_failure(app, generation, None, vec![error.clone()]);
+            Err(error)
+        }
+    }
+}
+
+/// Spawn and install one process generation, then attach its output/termination
+/// receiver. Installation precedes receiver polling so even an immediately
+/// exiting test binary cannot race a stale child handle into `AppState`.
+fn launch_sidecar(app: &AppHandle, state: &AppState, generation: u64) -> Result<(), String> {
+    // Snapshot config without holding it across process creation. If a config IPC
+    // races this launch, its deliberate respawn invalidates this generation and
+    // replaces it using the newer snapshot.
+    let cfg = state
+        .config
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let (rx, child) = spawn_sidecar(
+        app,
+        &state.data_dir,
+        &state.socket_path,
+        &state.local_secret,
+        &cfg,
+    )?;
+
+    let running_payload = {
+        let mut supervisor = state
+            .supervision
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(payload) = supervisor.spawned(generation, Instant::now()) else {
+            // A deliberate respawn/shutdown won while process creation was in
+            // flight. Do not install this obsolete child or supervise its exit.
+            drop(supervisor);
+            stop_server_child(child);
+            return Ok(());
+        };
+        *state
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ManagedSidecar {
+            generation,
+            child,
+        });
+        payload
+    };
+    emit_sidecar_state(app, running_payload);
+    monitor_sidecar(app.clone(), generation, rx);
+    schedule_healthy_reset(app.clone(), generation);
+    Ok(())
+}
+
+fn monitor_sidecar(
+    app: AppHandle,
+    generation: u64,
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+) {
     tauri::async_runtime::spawn(async move {
+        let mut stderr_tail = VecDeque::with_capacity(STDERR_TAIL_LINES);
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
                     println!("[openbook-server] {}", String::from_utf8_lossy(&bytes).trim_end());
                 }
                 CommandEvent::Stderr(bytes) => {
-                    eprintln!("[openbook-server] {}", String::from_utf8_lossy(&bytes).trim_end());
+                    let text = String::from_utf8_lossy(&bytes);
+                    eprintln!("[openbook-server] {}", text.trim_end());
+                    for line in text.lines() {
+                        if stderr_tail.len() == STDERR_TAIL_LINES {
+                            stderr_tail.pop_front();
+                        }
+                        stderr_tail.push_back(line.to_string());
+                    }
+                }
+                CommandEvent::Terminated(terminated) => {
+                    handle_sidecar_terminated(
+                        &app,
+                        generation,
+                        terminated.code,
+                        terminated.signal,
+                        stderr_tail.into_iter().collect(),
+                    );
+                    return;
+                }
+                CommandEvent::Error(error) => {
+                    eprintln!("[openbook-server] process event error: {error}");
                 }
                 _ => {}
             }
         }
     });
-    Ok(child)
 }
 
-/// Stop the running sidecar and spawn a fresh one from the current config — used
-/// when publishing toggles or the book folder changes. The socket is rebound, so
-/// the host bridge and IPC requests reconnect across the brief gap.
-fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    // Snapshot the config and release its lock before taking `child`, keeping a
-    // single lock order (config → child) everywhere to avoid deadlock.
-    let cfg = state.config.lock().unwrap().clone();
-    let mut guard = state.child.lock().unwrap();
-    if let Some(child) = guard.take() {
-        stop_server_child(child);
+fn handle_sidecar_terminated(
+    app: &AppHandle,
+    generation: u64,
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+    stderr_tail: Vec<String>,
+) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+
+    // Remove only this generation. A replacement may already be installed by a
+    // deliberate respawn, in which case its child must remain untouched.
+    {
+        let mut child = state
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if child.as_ref().is_some_and(|live| live.generation == generation) {
+            child.take();
+        }
     }
-    *guard = Some(spawn_sidecar(app, &state.data_dir, &state.socket_path, &state.local_secret, &cfg)?);
-    Ok(())
+
+    eprintln!(
+        "[sidecar] terminated: exit_code={exit_code:?} signal={signal:?}; stderr tail ({} lines):",
+        stderr_tail.len()
+    );
+    for line in &stderr_tail {
+        eprintln!("[sidecar]   {line}");
+    }
+    handle_sidecar_failure(app, generation, exit_code, stderr_tail);
+}
+
+fn handle_sidecar_failure(
+    app: &AppHandle,
+    generation: u64,
+    exit_code: Option<i32>,
+    stderr_tail: Vec<String>,
+) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Some((payload, decision)) = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .failed(generation, Instant::now(), exit_code, stderr_tail)
+    else {
+        eprintln!("[sidecar] ignored expected/stale termination for generation {generation}");
+        return;
+    };
+    emit_sidecar_state(app, payload);
+
+    match decision {
+        FailureDecision::RetryAfter(delay) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio_sleep(delay).await;
+                retry_sidecar(&app, generation);
+            });
+        }
+        FailureDecision::Exhausted => {
+            eprintln!(
+                "[sidecar] crash-loop bound exhausted; automatic respawn stopped (use restart_sidecar to retry)"
+            );
+        }
+    }
+}
+
+async fn tokio_sleep(delay: std::time::Duration) {
+    // Tauri re-exports its Tokio runtime but not `time`; a small async-friendly
+    // blocking task keeps the backoff off both the UI and async-runtime threads.
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(delay)).await;
+}
+
+fn retry_sidecar(app: &AppHandle, expected_generation: u64) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Some(generation) = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin_retry(expected_generation)
+    else {
+        return;
+    };
+
+    if let Err(error) = launch_sidecar(app, &state, generation) {
+        eprintln!("[sidecar] respawn attempt failed: {error}");
+        handle_sidecar_failure(app, generation, None, vec![error]);
+    }
+}
+
+fn schedule_healthy_reset(app: AppHandle, generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        tokio_sleep(HEALTHY_UPTIME).await;
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
+        let payload = state
+            .supervision
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mark_healthy(generation, Instant::now());
+        if let Some(payload) = payload {
+            emit_sidecar_state(&app, payload);
+        }
+    });
+}
+
+fn emit_sidecar_state(app: &AppHandle, payload: SidecarStatePayload) {
+    eprintln!("[sidecar] state transition: {payload:?}");
+    if let Err(error) = app.emit("sidecar-state", payload) {
+        eprintln!("[sidecar] failed to emit sidecar-state: {error}");
+    }
 }
 
 #[tauri::command]
 fn server_info(state: State<AppState>) -> ServerInfo {
     build_info(&state)
+}
+
+/// Query the same stable payload emitted through the `sidecar-state` event.
+#[tauri::command]
+fn sidecar_state(state: State<AppState>) -> SidecarStatePayload {
+    state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .snapshot()
+}
+
+/// Repair entry point for the webview: invalidate pending timers/children, reset
+/// the five-attempt crash bound, and make one immediate launch attempt.
+#[tauri::command]
+fn restart_sidecar(app: AppHandle, state: State<AppState>) -> Result<SidecarStatePayload, String> {
+    if state.managed {
+        respawn(&app, &state)?;
+    }
+    Ok(sidecar_state(state))
 }
 
 /// Publish (or unpublish) this instance on the LAN. Enabling respawns the server so
@@ -722,9 +966,20 @@ fn main() {
             // sidecar via env and stamped on webview-originated IPC requests only.
             let local_secret = generate_token();
 
+            app.manage(AppState {
+                child: Mutex::new(None),
+                supervision: Mutex::new(SidecarSupervisor::new(managed)),
+                data_dir: data_dir.clone(),
+                socket_path: socket_path.clone(),
+                local_port,
+                local_secret: local_secret.clone(),
+                config: Mutex::new(config),
+                config_path,
+                managed,
+            });
+
             // Release: run the durable server over the socket and start the live
             // bridge. Dev: the webview talks to the external `pnpm dev` server.
-            let mut child = None;
             if managed {
                 let handle = app.handle().clone();
                 // Clean up a sidecar orphaned by a prior non-graceful host exit
@@ -732,27 +987,20 @@ fn main() {
                 // the single-owner PGlite/mirror lock, which our fresh spawn would
                 // otherwise collide with. Pid-reuse-guarded (see reap_orphan_sidecar).
                 reap_orphan_sidecar(&data_dir);
-                child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &local_secret, &config)?);
+                if let Err(error) = respawn(&handle, &app.state::<AppState>()) {
+                    // Keep the host alive: supervision will retry and surface a
+                    // bounded dead state instead of bricking the whole launch.
+                    eprintln!("[sidecar] initial launch failed: {error}");
+                }
                 ipc::start_live_bridge(
-                    handle.clone(),
+                    handle,
                     ipc::ConnInfo {
-                        socket_path: socket_path.clone(),
+                        socket_path,
                         local_port,
-                        local_secret: local_secret.clone(),
+                        local_secret,
                     },
                 );
             }
-
-            app.manage(AppState {
-                child: Mutex::new(child),
-                data_dir,
-                socket_path,
-                local_port,
-                local_secret,
-                config: Mutex::new(config),
-                config_path,
-                managed,
-            });
 
             // The UI draws its own title bar; macOS keeps native traffic lights
             // via an overlay titlebar, elsewhere the main window is frameless.
@@ -764,6 +1012,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             server_info,
+            sidecar_state,
+            restart_sidecar,
             publish_server,
             set_agent_local_tcp,
             choose_book_dir,
@@ -881,12 +1131,19 @@ fn stop_managed_server(app_handle: &AppHandle) {
     let Some(state) = app_handle.try_state::<AppState>() else {
         return;
     };
+    // Invalidate the receiver and every pending backoff before BOOT-7's graceful
+    // stop emits Terminated. This is the normal-quit supervision guard.
+    state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin_shutdown();
     // Take the child and DROP the lock guard before the (blocking, up to
     // SHUTDOWN_GRACE_MS) stop — holding it across the wait would block a
     // concurrent publish_server/respawn IPC on the same mutex.
     let child = state.child.lock().unwrap_or_else(|p| p.into_inner()).take();
     if let Some(child) = child {
-        stop_server_child(child);
+        stop_server_child(child.child);
     }
 }
 
