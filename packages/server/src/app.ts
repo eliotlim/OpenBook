@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {Hono, type Context} from 'hono';
 import {cors} from 'hono/cors';
 import {bodyLimit} from 'hono/body-limit';
@@ -11,6 +12,8 @@ import {
   CLIENT_HEADER,
   FORWARDED_HEADER,
   FORM_SUBMISSION_PROPERTY_ID,
+  submissionToRowInput,
+  validateSubmission,
   PAGE_VISIBILITIES,
   type AclLevel,
   type AgentEditsPolicy,
@@ -20,6 +23,7 @@ import {
   type DatabaseInput,
   type DatabaseUpdate,
   type FormSubmissionResult,
+  type FormSchema,
   type ImportRequest,
   type InstanceConfig,
   type InstanceInfo,
@@ -840,11 +844,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       );
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
+      const schema = form.schema as FormSchema;
+      const validation = validateSubmission(schema, input.values);
+      if ('honeypot' in validation) {
+        const result: FormSubmissionResult = {rowId: randomUUID(), submittedAt};
+        return c.json(result, 201);
+      }
+      if (!validation.ok) return c.json({errors: validation.errors}, 400);
+      const database = await store.getDatabase(form.databaseId);
+      if (!database) throw new HTTPException(404, {message: 'form not found'});
+      const {rowInput} = submissionToRowInput(schema, validation.coerced, database.schema);
       const {page: pageRow, created} = await store.createRow(
         form.databaseId,
         {
           properties: {
-            ...input.values,
+            ...rowInput.properties,
             [FORM_SUBMISSION_PROPERTY_ID]: {formId: form.formId, submittedAt},
           },
         },

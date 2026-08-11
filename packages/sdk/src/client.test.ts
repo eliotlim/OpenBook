@@ -363,6 +363,27 @@ describe('HttpDataClient form submissions', () => {
     });
     expect(JSON.parse(String(captured!.init!.body))).toEqual(input);
   });
+
+  it('throws a typed status and validated inline errors for rejected submissions', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () => Promise.resolve(new Response(JSON.stringify({
+        errors: [
+          {fieldId: 'email', code: 'email_format'},
+          {fieldId: 'ignored', code: 'not-a-real-code'},
+        ],
+      }), {status: 400, statusText: 'Bad Request', headers: {'content-type': 'application/json'}})),
+    });
+
+    await expect(client.submitForm('page', 'form', {
+      key: 'capability',
+      values: {email: 'bad'},
+      idempotencyKey: 'submission-1',
+    })).rejects.toMatchObject({
+      name: 'FormSubmissionError',
+      status: 400,
+      errors: [{fieldId: 'email', code: 'email_format'}],
+    });
+  });
 });
 
 /**
