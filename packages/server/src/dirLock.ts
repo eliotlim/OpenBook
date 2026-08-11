@@ -92,10 +92,17 @@ const sameIdentity = (a: DirLockInfo, b: DirLockInfo): boolean =>
  *     {@link BREAKER_STALE_MS} (see above), which terminates the recursion.
  *
  * ## Liveness + takeover policy
- * A holder on another host (a network-synced folder) can't be probed, so it is
- * assumed live and declined — there is never a cross-host takeover. Same-host: a
- * dead pid (`ESRCH`) or our own pid (an abandoned prior instance / restart replay)
- * is stale and taken over; a live foreign pid (`EPERM`/exists) is declined.
+ * Desktop data directories are single-machine state, and hostnames drift during
+ * ordinary renames/network changes, so `host` is informational: every pid is
+ * probed locally. A dead pid (`ESRCH`) or our own pid (an abandoned prior instance
+ * / restart replay) is stale and taken over; a live foreign pid (`EPERM`/exists)
+ * is declined. Residual: a recycled pid makes a dead holder read as live (decline —
+ * annoying but safe); the desktop host's reaper narrows this with an executable-name
+ * check before signalling, but never deletes a lock whose recorded pid is alive.
+ * Network-volume caveat: a directory genuinely shared by multiple machines cannot
+ * use this lock for cross-machine exclusion because pid namespaces are local. The
+ * immutable lock has no heartbeat/lease with which to add a safe freshness gate;
+ * such shared data directories are therefore unsupported.
  */
 export class DirLock {
   private held = false;
@@ -117,9 +124,6 @@ export class DirLock {
   /** Is a recorded lock held by a different, still-running process? */
   static isLive(lock: DirLockInfo): boolean {
     if (typeof lock.pid !== 'number') return false; // malformed → ignore.
-    // A lock from another machine on a network-synced folder: we can't probe its
-    // liveness, so assume live to avoid a cross-host write war (no cross-host takeover).
-    if (lock.host && lock.host !== hostname()) return true;
     // Our own pid: a prior instance in this process crashed/was abandoned (e.g. a
     // restart replay) — safe to take over.
     if (lock.pid === process.pid) return false;
@@ -196,6 +200,11 @@ export class DirLock {
         if (await this.exclusiveCreate(this.path, reclaim)) {
           this.held = true;
           this.mine = reclaim;
+          if (cur) {
+            console.warn(
+              `OpenBook dir lock: reclaimed stale lock ${this.path} left by pid ${cur.pid} on ${cur.host}`,
+            );
+          }
           return;
         }
         const won = await this.readInfo(this.path);
@@ -235,7 +244,7 @@ export class DirLock {
         await sleep(2); // mid-create / just-removed — settle then retry
         continue;
       }
-      if (DirLock.isLive(b)) return false; // a live (or cross-host) taker holds it — defer
+      if (DirLock.isLive(b)) return false; // a live taker holds it — defer
       // `b` is a leaked breaker (owner dead). Elect the SOLE recoverer of this exact
       // `b` and let only it replace the breaker.
       const outcome = await this.recoverLeakedBreaker(b);

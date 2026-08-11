@@ -1,3 +1,5 @@
+import {spawn, type ChildProcess} from 'node:child_process';
+import {once} from 'node:events';
 import {readdir, writeFile, stat} from 'node:fs/promises';
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -19,6 +21,19 @@ const snap = (text: string): PageSnapshot => ({
   values: [],
   names: [],
 });
+
+const startLiveChild = async (): Promise<ChildProcess> => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
+  await once(child, 'spawn');
+  return child;
+};
+
+const stopChild = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit');
+  child.kill();
+  await exited;
+};
 
 let store: PageStore;
 let dbDir: string;
@@ -133,18 +148,20 @@ describe('BookMirror soak — OB-241 hardening (ER-1..ER-4)', () => {
 
   it('S2: a second owner of the same dir is refused (MirrorLockedError)', async () => {
     const owner = await BookMirror.create({store, dir: bookDir, watch: false}); // owner #1 holds the lock
-
-    // Simulate a *second machine* already owning the (network-synced) folder:
-    // its liveness is unknowable, so a fresh open must decline rather than start a
-    // mutual write-through war.
-    await writeFile(
-      join(bookDir, '.openbook-mirror.lock'),
-      JSON.stringify({pid: process.pid, host: 'second-machine', startedAt: new Date().toISOString()}),
-      'utf8',
-    );
-    await expect(BookMirror.create({store, dir: bookDir, watch: false})).rejects.toBeInstanceOf(MirrorLockedError);
-
-    await owner.close();
+    const child = await startLiveChild();
+    try {
+      // Host is informational; the distinct live pid is what makes this a real
+      // second owner and must be declined even after hostname drift.
+      await writeFile(
+        join(bookDir, '.openbook-mirror.lock'),
+        JSON.stringify({pid: child.pid, host: 'second-machine', startedAt: new Date().toISOString()}),
+        'utf8',
+      );
+      await expect(BookMirror.create({store, dir: bookDir, watch: false})).rejects.toBeInstanceOf(MirrorLockedError);
+    } finally {
+      await owner.close();
+      await stopChild(child);
+    }
   });
 
   it('S3: edit↔external interleave — canonical == last app edit; one copy per distinct divergence', async () => {
