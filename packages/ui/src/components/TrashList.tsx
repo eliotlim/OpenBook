@@ -1,6 +1,7 @@
 import type {PageMeta} from '@book.dev/sdk';
 import {Database, FileText, RotateCcw, Trash2} from 'lucide-react';
 import {Button} from '@/components/ui/button';
+import {EmptyState} from '@/components/ui/empty-state';
 import {useTranslation} from '@/providers';
 import {t as bareT} from '@/i18n';
 import type {TrashController} from '@/lib/useTrash';
@@ -34,7 +35,7 @@ export default function TrashList({trash, emptyLabel}: {trash: TrashController; 
     return <p className="py-8 text-center text-sm text-muted-foreground">{t('trash.loading')}</p>;
   }
   if (items.length === 0) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">{emptyLabel ?? t('trash.empty')}</p>;
+    return <EmptyState title={emptyLabel ?? t('trash.empty')} />;
   }
   return (
     <ul className="flex flex-col gap-1 pr-2">

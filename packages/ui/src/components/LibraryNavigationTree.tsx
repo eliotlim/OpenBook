@@ -2,6 +2,7 @@ import {useEffect, useMemo, useState} from 'react';
 import type {PageMeta} from '@book.dev/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {Button} from '@/components/ui/button';
+import {EmptyState} from '@/components/ui/empty-state';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
 import {useHud, useNavigation, useTranslation} from '@/providers';
@@ -92,27 +93,31 @@ export default function LibraryNavigationTree() {
         // A brand-new (or emptied-out) library: the empty tree would just be a
         // blank gap, so lead with the same starters Home offers — a plain new
         // page and the template gallery — right where pages will appear.
-        <div className="flex flex-col gap-2 px-3 py-2" data-pages-empty>
-          <p className="text-xs text-muted-foreground">{t('nav.emptyPagesHint')}</p>
-          <div className="flex flex-col gap-1">
-            <Button
-              variant="ghost"
-              className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
-              onClick={() => void createPage()}
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              {t('nav.newPage')}
-            </Button>
-            <Button
-              variant="ghost"
-              className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
-              onClick={() => setHud((draft) => {draft.templates.open = true; return draft;})}
-            >
-              <LayoutTemplate className="h-4 w-4 shrink-0" />
-              {t('nav.templates')}
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          className="px-3"
+          data-pages-empty
+          title={t('nav.emptyPagesHint')}
+          action={
+            <div className="flex w-full flex-col gap-1">
+              <Button
+                variant="ghost"
+                className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => void createPage()}
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                {t('nav.newPage')}
+              </Button>
+              <Button
+                variant="ghost"
+                className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setHud((draft) => {draft.templates.open = true; return draft;})}
+              >
+                <LayoutTemplate className="h-4 w-4 shrink-0" />
+                {t('nav.templates')}
+              </Button>
+            </div>
+          }
+        />
       ) : (
         <Tree
           data={data}

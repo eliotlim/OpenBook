@@ -11,6 +11,7 @@ import {
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {EmptyState} from '@/components/ui/empty-state';
 import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {useData} from '@/data';
@@ -141,11 +142,12 @@ export default function ExtensionsSettings() {
 
       <SettingsSection>
         {statuses.length === 0 && (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-10 text-center">
-            <Puzzle className="h-6 w-6 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">{t('extensions.empty')}</p>
-            <p className="max-w-sm text-xs text-muted-foreground/70">{t('extensions.emptyHint')}</p>
-          </div>
+          <EmptyState
+            className="rounded-lg border border-dashed border-border"
+            icon={<Puzzle className="h-6 w-6 text-muted-foreground/50" />}
+            title={t('extensions.empty')}
+            hint={t('extensions.emptyHint')}
+          />
         )}
         <div className="flex flex-col gap-2">
           {statuses.map((status) => (
