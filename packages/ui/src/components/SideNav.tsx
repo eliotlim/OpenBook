@@ -10,6 +10,7 @@ import {SuggestedNav} from '@/components/SidebarSections';
 import LibraryNavigationTree from '@/components/LibraryNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
 import OnboardingNudge from '@/components/OnboardingNudge';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 export default function SideNav() {
   const {hud} = useHud();
@@ -23,11 +24,11 @@ export default function SideNav() {
     <Drawer open={hud.sideNav.open} docked={hud.sideNav.docked}>
       <div className="flex h-full flex-col">
         {!inWindowTabs && (
-          <div className="px-3 pt-2">
+          <div className="px-3 pt-2" onContextMenu={suppressContextMenu}>
             <LibrarySelectMenu />
           </div>
         )}
-        <div className="flex flex-col gap-0.5 px-3 pb-1.5 pt-1">
+        <div className="flex flex-col gap-0.5 px-3 pb-1.5 pt-1" onContextMenu={suppressContextMenu}>
           <HomeButton />
           <CommandToggle />
           <SettingsButton />
@@ -46,7 +47,7 @@ export default function SideNav() {
         </div>
         <OnboardingNudge />
         {!servedSameOrigin && (
-          <div className="flex items-center border-t border-border/60 px-3 py-1.5">
+          <div className="flex items-center border-t border-border/60 px-3 py-1.5" onContextMenu={suppressContextMenu}>
             <ProfileMenu />
           </div>
         )}

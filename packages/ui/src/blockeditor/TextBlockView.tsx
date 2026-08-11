@@ -1,4 +1,5 @@
-import React, {useLayoutEffect, useRef} from 'react';
+import React, {useLayoutEffect, useRef, useState} from 'react';
+import {AppWindow, Columns2, Copy, ExternalLink, Pencil, Unlink} from 'lucide-react';
 import * as Y from 'yjs';
 import {
   blockId,
@@ -15,11 +16,26 @@ import {
   tableInsertRow,
   type BlockMap,
   type BlockType,
+  type InlineAttrs,
   type NewBlock,
   type TextRun,
 } from './model';
-import {attrsAt, diffText, readSelection, runsToHtml, writeSelection} from './richtext';
+import {attrsAt, diffText, domToOffset, readSelection, runsToHtml, writeSelection} from './richtext';
 import {searchEmojis} from '@/lib/emoji';
+import {pageIconToText} from '@/lib/iconValue';
+import {copyText, pageLinkUrl} from '@/lib/pageActions';
+import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
+import {useOptionalNavigation} from '@/providers';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {MENU_WIDTH_LG} from '@/components/ui/menu-components';
+import {t} from '@/i18n';
+import {LinkPicker, LinkUrlEditor} from './LinkPicker';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
 
@@ -44,6 +60,15 @@ const PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   code: 'Code',
 };
 
+interface InlineLinkSubject {
+  kind: 'link' | 'mention';
+  target: string;
+  editValue: string;
+  start: number;
+  end: number;
+  anchorEl: HTMLAnchorElement;
+}
+
 export const TextBlockView: React.FC<{
   block: BlockMap;
   editor: BlockEditorController;
@@ -51,6 +76,11 @@ export const TextBlockView: React.FC<{
 }> = ({block, editor, ui}) => {
   const ref = useRef<HTMLDivElement>(null);
   const composing = useRef(false);
+  const linkMenuTriggerRef = useRef<HTMLSpanElement>(null);
+  const linkMenuPointRef = useRef({clientX: 0, clientY: 0});
+  const [linkMenu, setLinkMenu] = useState<InlineLinkSubject | null>(null);
+  const [linkEdit, setLinkEdit] = useState<InlineLinkSubject | null>(null);
+  const navigation = useOptionalNavigation();
   const id = blockId(block);
   const type = blockType(block);
   // Defense in depth: a legacy / malformed block that reaches the text view
@@ -102,6 +132,51 @@ export const TextBlockView: React.FC<{
   // ── Local edits ────────────────────────────────────────────────────────────
   const apply = (fn: () => void): void => {
     editor.doc.transact(fn, 'local');
+  };
+
+  const replaceMention = (subject: InlineLinkSubject, result: PageLinkResult): void => {
+    const icon = pageIconToText(result.icon);
+    const label = icon ? `${icon} ${result.label}` : result.label;
+    apply(() => {
+      text.delete(subject.start, subject.end - subject.start);
+      text.insert(subject.start, label, {m: result.id});
+    });
+    setLinkEdit(null);
+    editor.requestCaret({blockId: id, offset: subject.start + label.length});
+  };
+
+  const replaceExternalLink = (subject: InlineLinkSubject, href: string): void => {
+    apply(() => text.format(subject.start, subject.end - subject.start, {a: href, m: null}));
+    setLinkEdit(null);
+    editor.requestCaret({blockId: id, offset: subject.end});
+  };
+
+  const removeInlineLink = (subject: InlineLinkSubject): void => {
+    apply(() => text.format(subject.start, subject.end - subject.start, {a: null, m: null}));
+    editor.requestCaret({blockId: id, offset: subject.end});
+  };
+
+  const openInlineLink = (subject: InlineLinkSubject, target: 'tab' | 'window' | 'split'): void => {
+    if (subject.kind === 'mention') {
+      if (target === 'split') {
+        if (navigation) navigation.openInSplit(subject.target);
+        else pageLinks.openPage(subject.target, 'secondary');
+      } else if (navigation) {
+        navigation.openInNew(subject.target, target);
+      } else {
+        window.open(
+          pageLinkUrl(subject.target),
+          '_blank',
+          target === 'window' ? 'noopener,noreferrer,popup,width=1280,height=860' : 'noopener,noreferrer',
+        );
+      }
+      return;
+    }
+    window.open(
+      subject.target,
+      '_blank',
+      target === 'window' ? 'noopener,noreferrer,popup,width=1280,height=860' : 'noopener,noreferrer',
+    );
   };
 
   const deleteSelection = (sel: {start: number; end: number}): void => {
@@ -643,43 +718,162 @@ export const TextBlockView: React.FC<{
       return root.length === 1 && blockId(root.get(0)) === id;
     })();
 
+  const onLinkContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const root = ref.current;
+    const target = event.target;
+    if (!root || !(target instanceof Element)) return;
+    const anchor = target.closest('a.obe-link, a.obe-mention');
+    if (!(anchor instanceof HTMLAnchorElement) || !root.contains(anchor)) return;
+
+    // CTX-5 seam: a selected range keeps bubbling to the current native/block
+    // behavior. This handler owns only a caret (collapsed-selection) anchor.
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed) return;
+
+    const fragmentStart = domToOffset(root, anchor, 0);
+    const length = anchor.textContent?.length ?? 0;
+    const mentionId = anchor.dataset.pageId;
+    const href = anchor.getAttribute('href') ?? '';
+    if (fragmentStart === null || length === 0 || (!mentionId && !href)) return;
+
+    const linkAttr = mentionId ? 'm' : 'a';
+    const linkValue = mentionId || href;
+    let offset = 0;
+    const runs = (text.toDelta() as Array<{insert: string; attributes?: InlineAttrs}>).map((op) => {
+      const start = offset;
+      offset += op.insert.length;
+      return {start, end: offset, matches: op.attributes?.[linkAttr] === linkValue};
+    });
+    const clicked = runs.findIndex((run) => run.matches && run.start <= fragmentStart && fragmentStart < run.end);
+    let first = clicked;
+    let last = clicked;
+    while (first > 0 && runs[first - 1].matches) first -= 1;
+    while (last >= 0 && last + 1 < runs.length && runs[last + 1].matches) last += 1;
+    const start = clicked >= 0 ? runs[first].start : fragmentStart;
+    const end = clicked >= 0 ? runs[last].end : fragmentStart + length;
+
+    event.preventDefault();
+    event.stopPropagation();
+    linkMenuPointRef.current = {clientX: event.clientX, clientY: event.clientY};
+    setLinkMenu({
+      kind: mentionId ? 'mention' : 'link',
+      target: mentionId || anchor.href,
+      editValue: mentionId || href,
+      start,
+      end,
+      anchorEl: anchor,
+    });
+
+    // The rich-text DOM is owned imperatively, so anchors cannot each be React
+    // ContextMenuTriggers. Relay this one claimed event to a hidden Radix
+    // trigger; non-anchor events above never reach this path and keep bubbling.
+    requestAnimationFrame(() => {
+      const {clientX, clientY} = linkMenuPointRef.current;
+      linkMenuTriggerRef.current?.dispatchEvent(
+        // React delegates contextmenu handlers at the root, so this relay must
+        // bubble far enough to reach Radix's Trigger listener. Radix then
+        // preventDefaults it before the enclosing block trigger can claim it.
+        new MouseEvent('contextmenu', {bubbles: true, cancelable: true, clientX, clientY}),
+      );
+    });
+  };
+
   return (
-    <div
-      ref={ref}
-      contentEditable={!editor.readOnly}
-      suppressContentEditableWarning
-      role="textbox"
-      aria-multiline="true"
-      aria-label={ariaLabelFor(type)}
-      data-block-text={id}
-      // No placeholder on a read-only surface: an empty block must not advertise
-      // "Type / for commands…" / "Heading" to a viewer who can't type.
-      data-placeholder={editor.readOnly ? undefined : type === 'paragraph' && (editor.focusedId === id || soleRootParagraph) ? 'Type “/” for commands…' : placeholder}
-      className={`obe-text obe-text-${type}`}
-      spellCheck={ui.spellcheck && !isCode}
-      onKeyDown={onKeyDown}
-      onCompositionStart={() => {
-        composing.current = true;
-      }}
-      onCompositionEnd={() => {
-        composing.current = false;
-        reconcileDom();
-      }}
-      onFocus={() => {
-        editor.setFocusedId(id);
-        editor.clearSelection();
-      }}
-      onBlur={() => {
-        if (editor.focusedId === id) editor.setFocusedId(null);
-        if (ui.slash.open && ui.slash.blockId === id) ui.closeSlash();
-        if (ui.mention.open && ui.mention.blockId === id) ui.closeMention();
-        if (ui.emoji.open && ui.emoji.blockId === id) ui.closeEmoji();
-      }}
-      onMouseUp={() => ui.scheduleToolbar()}
-      onKeyUp={(e) => {
-        if (e.shiftKey || ['Shift', 'Meta', 'Alt'].includes(e.key)) ui.scheduleToolbar();
-      }}
-    />
+    <>
+      <div
+        ref={ref}
+        contentEditable={!editor.readOnly}
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label={ariaLabelFor(type)}
+        data-block-text={id}
+        // No placeholder on a read-only surface: an empty block must not advertise
+        // "Type / for commands…" / "Heading" to a viewer who can't type.
+        data-placeholder={editor.readOnly ? undefined : type === 'paragraph' && (editor.focusedId === id || soleRootParagraph) ? 'Type “/” for commands…' : placeholder}
+        className={`obe-text obe-text-${type}`}
+        spellCheck={ui.spellcheck && !isCode}
+        onKeyDown={onKeyDown}
+        onContextMenu={onLinkContextMenu}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={() => {
+          composing.current = false;
+          reconcileDom();
+        }}
+        onFocus={() => {
+          editor.setFocusedId(id);
+          editor.clearSelection();
+        }}
+        onBlur={() => {
+          if (editor.focusedId === id) editor.setFocusedId(null);
+          if (ui.slash.open && ui.slash.blockId === id) ui.closeSlash();
+          if (ui.mention.open && ui.mention.blockId === id) ui.closeMention();
+          if (ui.emoji.open && ui.emoji.blockId === id) ui.closeEmoji();
+        }}
+        onMouseUp={() => ui.scheduleToolbar()}
+        onKeyUp={(e) => {
+          if (e.shiftKey || ['Shift', 'Meta', 'Alt'].includes(e.key)) ui.scheduleToolbar();
+        }}
+      />
+      <ContextMenu onOpenChange={(open) => !open && setLinkMenu(null)}>
+        <ContextMenuTrigger
+          ref={linkMenuTriggerRef}
+          aria-hidden
+          className="pointer-events-none fixed h-px w-px opacity-0"
+        />
+        {linkMenu && (
+          <ContextMenuContent className={MENU_WIDTH_LG}>
+            <ContextMenuItem onSelect={() => openInlineLink(linkMenu, 'tab')}>
+              <ExternalLink className="mr-2 h-3.5 w-3.5" /> {t('link.open')}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openInlineLink(linkMenu, 'window')}>
+              <AppWindow className="mr-2 h-3.5 w-3.5" /> {t('menu.openWindow')}
+            </ContextMenuItem>
+            {linkMenu.kind === 'mention' && (
+              <ContextMenuItem onSelect={() => openInlineLink(linkMenu, 'split')}>
+                <Columns2 className="mr-2 h-3.5 w-3.5" /> {t('menu.openSplit')}
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() =>
+                void copyText(linkMenu.kind === 'mention' ? pageLinkUrl(linkMenu.target) : linkMenu.target)
+              }
+            >
+              <Copy className="mr-2 h-3.5 w-3.5" /> {t('link.copyAddress')}
+            </ContextMenuItem>
+            {!editor.readOnly && (
+              <>
+                <ContextMenuItem onSelect={() => setLinkEdit(linkMenu)}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" /> {t('link.edit')}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => removeInlineLink(linkMenu)}>
+                  <Unlink className="mr-2 h-3.5 w-3.5" /> {t('link.remove')}
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        )}
+      </ContextMenu>
+      {linkEdit?.kind === 'mention' && (
+        <LinkPicker
+          kind="page"
+          anchorEl={linkEdit.anchorEl}
+          onClose={() => setLinkEdit(null)}
+          onPick={(result) => replaceMention(linkEdit, result)}
+        />
+      )}
+      {linkEdit?.kind === 'link' && (
+        <LinkUrlEditor
+          anchorEl={linkEdit.anchorEl}
+          href={linkEdit.editValue}
+          onClose={() => setLinkEdit(null)}
+          onSave={(href) => replaceExternalLink(linkEdit, href)}
+        />
+      )}
+    </>
   );
 };
 

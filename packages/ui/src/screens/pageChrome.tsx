@@ -1,8 +1,16 @@
-import React, {useEffect, useImperativeHandle, useRef} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useRef} from 'react';
 import type {PageSnapshot} from '@book.dev/sdk';
+import {SmilePlus, Trash2} from 'lucide-react';
 import {useTranslation} from '@/providers';
 import {IconPicker} from '@/components/IconPicker';
 import {PageIcon} from '@/components/PageIcon';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {consumePendingRename, onRenamePageRequest} from '@/lib/pageActions';
 
 /**
@@ -61,6 +69,14 @@ export const PageHeader: React.FC<{
 }> = ({title, icon, pageId, readOnly = false, onTitleChange, onIconChange, onTitleActiveChange, onLeaveToEditor, focusRef}) => {
   const {t} = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const iconPickerWrapRef = useRef<HTMLSpanElement>(null);
+
+  const openIconPicker = useCallback(() => {
+    // Keep IconPicker as the only bridge to the shared emoji picker. Waiting a
+    // frame lets the context menu close before its existing trigger is clicked.
+    requestAnimationFrame(() => iconPickerWrapRef.current?.querySelector('button')?.click());
+  }, []);
+  const removeIcon = useCallback(() => onIconChange?.(''), [onIconChange]);
 
   useImperativeHandle(focusRef, () => ({
     focusEnd() {
@@ -116,12 +132,26 @@ export const PageHeader: React.FC<{
           <PageIcon value={icon} fallback="📄" />
         </span>
       ) : (
-        <IconPicker
-          value={icon}
-          onPick={(emoji) => onIconChange?.(emoji)}
-          ariaLabel={t('page.changeIcon')}
-          className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-hover"
-        />
+        <ContextMenu>
+          <ContextMenuTrigger asChild onContextMenu={(event) => event.stopPropagation()}>
+            <span ref={iconPickerWrapRef} className="contents">
+              <IconPicker
+                value={icon}
+                onPick={(emoji) => onIconChange?.(emoji)}
+                ariaLabel={t('page.changeIcon')}
+                className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-hover"
+              />
+            </span>
+          </ContextMenuTrigger>
+          <ContextMenuContent className={MENU_WIDTH_MD}>
+            <ContextMenuItem onSelect={openIconPicker}>
+              <SmilePlus className="mr-2 h-3.5 w-3.5" /> {t('page.changeIconMenu')}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={removeIcon}>
+              <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('page.removeIcon')}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       )}
       {/* A textarea (not an input) so long titles wrap instead of clipping;
           auto-grown to fit, Enter commits rather than inserting a newline. */}

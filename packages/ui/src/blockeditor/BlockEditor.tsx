@@ -113,6 +113,7 @@ import {
   MENU_WIDTH_SM,
 } from '@/components/ui/menu-components';
 import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
@@ -1480,6 +1481,21 @@ const BlockList: React.FC<RowShared & {list: Y.Array<BlockMap>}> = ({list, ...sh
   </>
 );
 
+/** Suppress the native gutter menu, then open the owning row's block menu. */
+function routeGutterContextMenu(e: React.MouseEvent<HTMLButtonElement>): void {
+  suppressContextMenu(e);
+  const row = e.currentTarget.closest<HTMLElement>('[data-block-row]');
+  if (!row) return;
+  row.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    }),
+  );
+}
+
 /** One block row: hover gutter (add + drag handle), drop targeting, dispatch. */
 export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui, drag, setDrag, performDrop, computeRegion, depth} = shared;
@@ -1583,6 +1599,7 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
               tabIndex={-1}
               aria-label="Add a block below"
               className="obe-gutter-btn"
+              onContextMenu={routeGutterContextMenu}
               onClick={() => {
                 const newId = editor.insertAfter(id, {type: 'paragraph'});
                 if (newId) ui.openSlash(newId, 0);
@@ -1607,6 +1624,7 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
               aria-expanded={handleMenu}
               className="obe-gutter-btn obe-handle"
               draggable
+              onContextMenu={routeGutterContextMenu}
               onDragStart={(e) => {
                 // A drag that starts on a SELECTED block (with others selected)
                 // moves the whole group; the ids are captured in document order.

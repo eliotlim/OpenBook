@@ -1,9 +1,12 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ImageOff, ImagePlus, Loader2, Maximize2, Upload} from 'lucide-react';
-import {t} from '@/i18n';
+import {Copy, Download, ExternalLink, ImageOff, ImagePlus, Loader2, Maximize2, Pencil, Trash2, Upload} from 'lucide-react';
+import {t, type TKey} from '@/i18n';
 import {openLightbox} from '@/lib/imageLightbox';
-import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
+import {copyText} from '@/lib/pageActions';
+import {blockId, blockProp, removeBlock, setBlockProp, type BlockMap} from './model';
 import {
+  MAX_IMAGE_DATA_URL_BYTES,
+  dataUrlByteLength,
   dataUrlMime,
   dataUrlToBytes,
   imageBlockFromFile,
@@ -13,6 +16,18 @@ import {
 } from './imageBlock';
 import {assetBridge} from '@/lib/assetBridge';
 import {getPageIdForDoc} from '@/lib/aiBridge';
+import {
+  ContextMenu,
+  ContextMenuCheckboxItem,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
 
@@ -31,11 +46,61 @@ import type {EditorUI} from './BlockEditor';
  * clean figure with no chrome.
  */
 
-const SIZE_PRESETS: Array<{label: string; title: string; width: string | undefined}> = [
-  {label: 'S', title: 'Small', width: '30%'},
-  {label: 'M', title: 'Medium', width: '60%'},
-  {label: 'L', title: 'Full width', width: undefined},
+const SIZE_PRESETS: Array<{label: string; title: TKey; width: string | undefined}> = [
+  {label: 'S', title: 'blocks.image.sizeSmall', width: '30%'},
+  {label: 'M', title: 'blocks.image.sizeMedium', width: '60%'},
+  {label: 'L', title: 'blocks.image.sizeFull', width: undefined},
 ];
+
+export type CopyImageResult = 'image' | 'url' | 'failed';
+
+/**
+ * Copy the rendered pixels when the browser exposes the binary clipboard API.
+ * WKWebView commonly omits `ClipboardItem`/`clipboard.write` (and cross-origin
+ * images can taint a canvas), so unsupported/error paths fall back to a stable
+ * image URL through the shared text-copy helper and its `execCommand` fallback.
+ * Ephemeral blob URLs and oversized inline data URLs are never copied as text.
+ */
+export async function copyRenderedImage(
+  image: HTMLImageElement,
+  src: string,
+  originalSrc: string | undefined = src,
+): Promise<CopyImageResult> {
+  try {
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error('binary clipboard unavailable');
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth || image.width || 1;
+    canvas.height = image.naturalHeight || image.height || 1;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas unavailable');
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => (value ? resolve(value) : reject(new Error('image encoding failed'))), 'image/png');
+    });
+    await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+    return 'image';
+  } catch {
+    const fallbackSrc = originalSrc ?? src;
+    if (
+      !fallbackSrc ||
+      fallbackSrc.startsWith('blob:') ||
+      (isDataUrl(fallbackSrc) && dataUrlByteLength(fallbackSrc) > MAX_IMAGE_DATA_URL_BYTES)
+    ) {
+      return 'failed';
+    }
+    return (await copyText(fallbackSrc)) ? 'url' : 'failed';
+  }
+}
+
+function saveImage(src: string, alt: string): void {
+  const anchor = document.createElement('a');
+  anchor.href = src;
+  anchor.download = `${alt.trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'image'}.png`;
+  anchor.rel = 'noreferrer';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
 
 export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorController; ui: EditorUI}> = ({
   block,
@@ -63,6 +128,8 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
   const [notice, setNotice] = useState<{message: string; soft: boolean} | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const altRef = useRef<HTMLInputElement>(null);
 
   const set = (key: string, value: unknown): void =>
     editor.doc.transact(() => setBlockProp(block, key, value), 'local');
@@ -213,6 +280,15 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
     openLightbox({src: displaySrc, alt, trigger});
   };
 
+  const focusAlt = (): void => {
+    // Let Radix restore focus to the trigger first, then move into the existing
+    // inline alt editor. This is the prompt-free "Set alt text…" flow.
+    requestAnimationFrame(() => {
+      altRef.current?.focus();
+      altRef.current?.select();
+    });
+  };
+
   // The size cap is a soft, temporary limit → muted info tone; a bad file is a
   // hard error → destructive tone. Both announce via role="alert".
   const noticeEl = notice && (
@@ -278,34 +354,89 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
   return (
     <figure className="obe-image" contentEditable={false} data-block-image={id}>
       <div ref={frameRef} className="obe-image-frame" style={width ? {width} : undefined}>
-        <img
-          className={`obe-image-img${readOnly ? ' obe-image-img-zoom' : ''}`}
-          src={displaySrc ?? ''}
-          alt={alt}
-          draggable={false}
-          onError={() => setBroken(true)}
-          onLoad={() => setBroken(false)}
-          // Read-only / present mode: a plain click (or Enter/Space, since the
-          // image is a focusable button here) opens the lightbox. In edit mode
-          // the image stays inert so selection + drag-resize are unaffected —
-          // there the Expand button in the hover toolbar is the trigger.
-          {...(readOnly
-            ? {
-              role: 'button',
-              tabIndex: 0,
-              // Fold the alt text into the accessible name when the author wrote
-              // one, so the trigger announces *which* picture it opens.
-              'aria-label': alt ? t('blocks.image.viewAlt', {alt}) : t('blocks.image.view'),
-              onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
-              onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  openView(e.currentTarget);
+        <ContextMenu>
+          <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+            <img
+              ref={imageRef}
+              className={`obe-image-img${readOnly ? ' obe-image-img-zoom' : ''}`}
+              src={displaySrc ?? ''}
+              alt={alt}
+              draggable={false}
+              onError={() => setBroken(true)}
+              onLoad={() => setBroken(false)}
+              // Read-only / present mode: a plain click (or Enter/Space, since the
+              // image is a focusable button here) opens the lightbox. In edit mode
+              // the image stays inert so selection + drag-resize are unaffected —
+              // there the Expand button in the hover toolbar is the trigger.
+              {...(readOnly
+                ? {
+                  role: 'button',
+                  tabIndex: 0,
+                  // Fold the alt text into the accessible name when the author wrote
+                  // one, so the trigger announces *which* picture it opens.
+                  'aria-label': alt ? t('blocks.image.viewAlt', {alt}) : t('blocks.image.view'),
+                  onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
+                  onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      openView(e.currentTarget);
+                    }
+                  },
                 }
-              },
-            }
-            : {})}
-        />
+                : {})}
+            />
+          </ContextMenuTrigger>
+          <ContextMenuContent className={MENU_WIDTH_MD}>
+            <ContextMenuItem
+              onSelect={() => imageRef.current && void copyRenderedImage(imageRef.current, displaySrc!, rawSrc)}
+            >
+              <Copy className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.copy')}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => saveImage(displaySrc!, alt)}>
+              <Download className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.saveAs')}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => window.open(displaySrc!, '_blank', 'noopener,noreferrer')}>
+              <ExternalLink className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.openOriginal')}
+            </ContextMenuItem>
+            {!readOnly && (
+              <>
+                <ContextMenuItem onSelect={pickFile}>
+                  <Upload className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.replace')}…
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={focusAlt}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.setAltText')}
+                </ContextMenuItem>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>{t('blocks.image.size')}</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className={MENU_WIDTH_SM}>
+                    {SIZE_PRESETS.map((preset) => {
+                      const active = (preset.width ?? undefined) === (width ?? undefined);
+                      return (
+                        <ContextMenuCheckboxItem
+                          key={preset.label}
+                          checked={active}
+                          onSelect={() => set('width', preset.width)}
+                        >
+                          {t(preset.title)}
+                        </ContextMenuCheckboxItem>
+                      );
+                    })}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className={MENU_DESTRUCTIVE_CLASS}
+                  onSelect={() => {
+                    removeBlock(editor.doc, id);
+                    editor.clearSelection();
+                  }}
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('blocks.image.deleteBlock')}
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
         {!readOnly && (
           <>
             <div className="obe-image-tools" contentEditable={false}>
@@ -318,8 +449,8 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
                       type="button"
                       className={`obe-image-size${active ? ' obe-image-size-on' : ''}`}
                       aria-pressed={active}
-                      aria-label={p.title}
-                      title={p.title}
+                      aria-label={t(p.title)}
+                      title={t(p.title)}
                       onClick={() => set('width', p.width)}
                     >
                       {p.label}
@@ -352,6 +483,7 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
       </div>
       {!readOnly && (
         <input
+          ref={altRef}
           className="obe-image-alt"
           value={alt}
           placeholder="Alt text (describe the image for accessibility)"

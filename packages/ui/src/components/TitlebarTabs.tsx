@@ -57,7 +57,6 @@ export default function TitlebarTabs() {
           clear the traffic lights; elsewhere it is ~0 (controls aren't here). */}
       <div
         data-tauri-drag-region
-        onContextMenu={suppressContextMenu}
         className="shrink-0"
         style={{width: 'var(--ob-titlebar-pad-left, 0px)'}}
       />
@@ -65,7 +64,7 @@ export default function TitlebarTabs() {
       {/* Desktop-only leading controls (before the tabs), in place of the
           sidebar / nav bar: sidebar toggle, then the library switcher, then
           back/forward. Interactive, so not drag regions. */}
-      <div className="flex shrink-0 items-center gap-0.5 pr-1" onContextMenu={suppressContextMenu}>
+      <div className="flex shrink-0 items-center gap-0.5 pr-1">
         <SideNavToggle className="px-2" />
         <LibrarySelectMenu variant="titlebar" />
         <BackForwardCluster />
@@ -181,7 +180,7 @@ export default function TitlebarTabs() {
       </div>
 
       {/* Remaining space, draggable. */}
-      <div data-tauri-drag-region onContextMenu={suppressContextMenu} className="min-w-4 flex-1" />
+      <div data-tauri-drag-region className="min-w-4 flex-1" />
     </div>
   );
 }
