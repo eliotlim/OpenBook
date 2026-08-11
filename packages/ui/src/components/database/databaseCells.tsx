@@ -653,13 +653,13 @@ const DependencyCell: React.FC<{
       ))}
       <Popover>
         <PopoverTrigger asChild>
-          <button
+          <IconButton
+            size="inline"
             type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="Add dependency"
           >
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -764,9 +764,9 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
       )}
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add file">
+          <IconButton size="inline" type="button" aria-label="Add file">
             <Plus className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-1.5">
           <div className="flex items-center gap-1">
@@ -877,7 +877,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="51.5074"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
           <label className="flex-1">
@@ -888,7 +888,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
               onBlur={commit}
               inputMode="decimal"
               placeholder="-0.1278"
-              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
             />
           </label>
         </div>
@@ -899,7 +899,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setLabel(e.target.value)}
             onBlur={commit}
             placeholder="Optional name"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
         <label className="block">
@@ -909,7 +909,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
             onChange={(e) => setAddress(e.target.value)}
             onBlur={commit}
             placeholder="Optional address"
-            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-hidden"
           />
         </label>
       </PopoverContent>
@@ -1064,13 +1064,13 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
       {(!single || ids.length === 0) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button
+            <IconButton
+              size="inline"
               type="button"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
               aria-label={`Link a ${noun}`}
             >
               <Plus className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-60 p-1">
             <input

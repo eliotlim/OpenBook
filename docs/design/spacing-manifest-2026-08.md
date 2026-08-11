@@ -36,6 +36,14 @@ follow-up adopts a utility. In control roles, `h-5`, `h-6`, `h-11`, and the edit
 toolbar's `1.7rem` are non-canonical even where a raw value happens to coincide with
 a token. Icons may retain `h-5`/`h-6`; the prohibition is about control boxes.
 
+`IconButton` has one deliberate exception: `inline` is 20px for content-lane
+contexts where a 28px row provides a 20px lane, specifically sidebar tree and
+favorites actions plus database cell chrome. This keeps those consumers aligned
+without increasing row height. Its tier names are intentionally offset from the
+control-height scale: `IconButton` `sm` is 24px (approximately control `xs`) and
+`md` is 28px (approximately control `sm`). In control roles, `h-5` remains
+non-canonical except through the scoped `IconButton` `inline` variant.
+
 ### 1.2 Canonical component recipes
 
 | Surface | Canonical recipe | Resolved padding |
@@ -138,7 +146,25 @@ in their assigned component scopes and re-run the audit after each mechanical pa
 | Radius literals | 1/2/3/5/7/10px local geometry | Shared radius utilities/tokens; preserve only deliberate pill/circle geometry | Reduced `css.radius.off_token_declarations` |
 | Arbitrary TSX layout | Bracket utilities used for token-sized controls or recipe spacing | Named height/spacing utility | Reduced category count; fixed layout constraints may remain with rationale |
 
+---
+
+## 4. SPC-2 optical exemptions
+
+SPC-2 retains only the following values outside the canonical spacing set. Each
+declaration carries a matching inline stylelint disable comment in `index.css`.
+
+| Selector / property | Value | Justification |
+|---|---:|---|
+| `.ob-desk-row[data-titlebar='true']` `margin-top` | `-1px` | The desktop sheet is pulled under the titlebar hairline so the active tab visually joins the page; 0 or 4px leaves a doubled seam. |
+| `.obe-toolbar` `gap` | `2px` | The compact inline toolbar uses the explicit half-step geometry required by SPC-2; 4px makes adjacent 28px controls read as separate menu items. |
+| `.obe-root` bottom `padding` | `30vh` | The editor's click-to-append zone must scale with the viewport; its other padding components remain grid-aligned. |
+| `.ob-present-stage` `padding` | viewport `clamp()` | Presentation gutters scale with viewport dimensions while every minimum and maximum remains on-grid. |
+
+SPC-2 deliberately adopts the 4px canon for the former 1px `.obe-image-sizes` and `.obe-tb-color` gaps and `.obe-table-tools button` padding.
+
 Progress is directional, not a zero-debt gate: a remaining fixed width, viewport
 calculation, or deliberate circle can be valid. The stable category counts make
 that residual explicit instead of conflating it with padding and control-height
 migrations.
+
+Dense rows pair `h-control-sm` fields with Button `xs`.

@@ -304,7 +304,7 @@ export function PeopleSection() {
             <>
               {/* Invite */}
               <SettingsSection subdued title={t('members.inviteLabel')} description={t('members.inviteHint')}>
-                <div className="flex items-start gap-2">
+                <div className="flex items-center gap-2">
                   <Input
                     id="member-invitee"
                     inputSize="sm"
@@ -327,7 +327,7 @@ export function PeopleSection() {
                     disabled={inviting}
                     onChange={setInviteRole}
                   />
-                  <Button size="sm" onClick={() => void submitInvite()} disabled={inviting || !invitee.trim()}>
+                  <Button size="xs" onClick={() => void submitInvite()} disabled={inviting || !invitee.trim()}>
                     {inviting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
