@@ -10,7 +10,7 @@ import {
 import {BadgeCheck, Link2, ShieldAlert, ShieldCheck} from 'lucide-react';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
-import {useNavigation, useTranslation} from '@/providers';
+import {useTranslation} from '@/providers';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,8 +22,6 @@ import {
 import {PersonChip, useIdentity} from '@/components/database/databaseCells';
 import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties';
 import {hydratePageIcons} from '@/lib/pageIcon';
-import {LINKS_PANE_ID} from '@/lib/homePage';
-import {setLinksTarget} from '@/lib/linksPane';
 import {hydratePageAppearance} from '@/lib/pageAppearance';
 import {cn} from '@/lib/utils';
 
@@ -118,7 +116,7 @@ export const OwnerEditor: React.FC<{owner: string; onChange: (value: string | nu
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover">
+        <button className="flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover">
           {owner ? <PersonChip name={owner} /> : <span className="text-muted-foreground/50">{t('properties.setOwner')}</span>}
         </button>
       </DropdownMenuTrigger>
@@ -188,7 +186,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
           <button
             type="button"
             className={cn(
-              'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
+              'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
               expired
                 ? 'bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
                 : 'bg-green-500/10 text-green-700 hover:bg-green-500/20 dark:text-green-300',
@@ -237,7 +235,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
         >
           <ShieldCheck className="h-3.5 w-3.5" />
           {t('properties.verify')}
@@ -285,16 +283,10 @@ function usePageBacklinks(pageId: string): PageMeta[] {
  * is always reachable (and it's keyboard-focusable, unlike the old muted span).
  * Lives beside owner / verification.
  */
-export const BacklinksControl: React.FC<{pageId: string}> = ({pageId}) => {
+export const BacklinksControl: React.FC<{pageId: string; onOpen: () => void}> = ({pageId, onOpen}) => {
   const {t} = useTranslation();
-  const {openInSplit} = useNavigation();
   const links = usePageBacklinks(pageId);
   const count = links.length;
-
-  const openPane = (): void => {
-    setLinksTarget(pageId);
-    openInSplit(LINKS_PANE_ID);
-  };
 
   const label =
     count === 0
@@ -306,11 +298,11 @@ export const BacklinksControl: React.FC<{pageId: string}> = ({pageId}) => {
   return (
     <button
       type="button"
-      onClick={openPane}
+      onClick={onOpen}
       aria-label={`${t('links.open')} — ${label}`}
       title={t('links.open')}
       className={cn(
-        'inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover hover:text-foreground',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover hover:text-foreground',
         count === 0 ? 'text-muted-foreground/60' : 'text-muted-foreground',
       )}
     >

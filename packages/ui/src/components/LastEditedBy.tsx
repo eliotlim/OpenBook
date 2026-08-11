@@ -3,6 +3,7 @@ import {History} from 'lucide-react';
 import type {StoredEdit} from '@book.dev/sdk';
 import {useData} from '@/data/DataProvider';
 import {useTranslation} from '@/providers';
+import {cn} from '@/lib/utils';
 
 /** Compact relative time, matching the home/trash style: "just now", Nm, Nh, Nd. */
 function ago(iso: string, justNow: string): string {
@@ -22,7 +23,15 @@ function ago(iso: string, justNow: string): string {
  * (an older build) or the page has no recorded edits yet. Refreshes when the
  * page is saved so it reflects the latest editor (including you).
  */
-export function LastEditedBy({pageId}: {pageId: string}) {
+export function LastEditedBy({
+  pageId,
+  className,
+  labelClassName,
+}: {
+  pageId: string;
+  className?: string;
+  labelClassName?: string;
+}) {
   const client = useData();
   const {t} = useTranslation();
   const [edit, setEdit] = useState<StoredEdit | null>(null);
@@ -68,9 +77,13 @@ export function LastEditedBy({pageId}: {pageId: string}) {
   const full = `${label} · ${new Date(edit.createdAt).toLocaleString()}${verified ? '' : ` · ${t('provenance.unverified')}`}`;
 
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 px-1 text-xs text-muted-foreground/80" title={full}>
+    <span
+      data-page-header-item="last-edited"
+      className={cn('inline-flex min-w-0 shrink items-center gap-1 px-1 text-xs text-muted-foreground/80', className)}
+      title={full}
+    >
       <History className="h-3.5 w-3.5" aria-hidden />
-      <span className="truncate">
+      <span className={cn('truncate whitespace-nowrap', labelClassName)}>
         {label} · {ago(edit.createdAt, t('provenance.justNow'))}
       </span>
     </span>
