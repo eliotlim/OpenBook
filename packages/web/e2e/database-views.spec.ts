@@ -31,7 +31,9 @@ test('database table: grid and toolbar visual', {tag: ['@database', '@visual']},
   const title = table.getByPlaceholder('Untitled').first();
   await title.fill('Launch plan');
   await title.blur();
-  await expect(table.getByText('Launch plan')).toBeVisible();
+  // The row title is an editable textbox (its value, not a text node) — assert
+  // via toHaveValue rather than getByText, which never matches input values.
+  await expect(title).toHaveValue('Launch plan');
   await takeSnapshot(page, testInfo); // visual: database grid + toolbar
 });
 

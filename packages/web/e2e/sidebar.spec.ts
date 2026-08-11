@@ -1,5 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {SERVER} from './seed';
+import {newPage, SERVER} from './seed';
 
 // Regression for two sidebar fixes:
 //  - rows mirror the page icon (default 📄), matching the page header;
@@ -11,10 +11,14 @@ test.describe('sidebar context menu densities', () => {
   test.use({freshWorkspace: true});
 
   for (const menuDensity of ['comfortable', 'compact'] as const) {
-    test(`sidebar context menu: ${menuDensity} density`, {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
+    test(`sidebar context menu: ${menuDensity} density`, {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
       await page.addInitScript((density) => {
         localStorage.setItem('openbook.preferences', JSON.stringify({general: {menuDensity: density}}));
       }, menuDensity);
+      // freshWorkspace wipes the tree (a deliberately empty library, for a
+      // clean single-row baseline), so seed the one page the test right-clicks.
+      // No icon is set, so the row still mirrors the default 📄 page icon.
+      await newPage(request, `Sidebar Density ${menuDensity}`);
       await page.goto('/');
 
       const row = page.getByRole('treeitem').first();
