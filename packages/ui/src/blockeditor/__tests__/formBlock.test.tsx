@@ -4,6 +4,7 @@ import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/reac
 import {DataProvider} from '@/data';
 import {getCustomBlock} from '../registry';
 import {FormOriginContext, registerFormBlock} from '../FormBlockView';
+import {insertFormField, makeFormField, moveFormField, reorderFormFields} from '../formBlock';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {KitLockContext} from '../kit/lock';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -38,6 +39,18 @@ function formHarness(over: Partial<FormSchema> = {}) {
 }
 
 describe('form block registration and wire shape', () => {
+  it('inserts and reorders palette fields without mutating the source array', () => {
+    const first = {...makeFormField('text', 'First'), id: 'first'};
+    const second = {...makeFormField('email', 'Second'), id: 'second'};
+    const third = {...makeFormField('files', 'Files'), id: 'third'};
+    const source = [first, second];
+
+    expect(insertFormField(source, third, 1).map((field) => field.id)).toEqual(['first', 'third', 'second']);
+    expect(reorderFormFields([...source, third], 'third', 0).map((field) => field.id)).toEqual(['third', 'first', 'second']);
+    expect(moveFormField([...source, third], 'first', 1).map((field) => field.id)).toEqual(['second', 'first', 'third']);
+    expect(source.map((field) => field.id)).toEqual(['first', 'second']);
+  });
+
   it('registers an interactive slash item with fresh cryptographic ids', () => {
     registerFormBlock();
     const def = getCustomBlock('form');
