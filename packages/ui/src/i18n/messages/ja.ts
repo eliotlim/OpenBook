@@ -544,6 +544,13 @@ export const ja: PartialMessages = {
     tooLarge: '回答が大きすぎて送信できません。',
     networkError: 'フォームを送信できませんでした。接続を確認して再試行してください。',
     retry: '再試行',
+    uploadingFiles: 'ファイルをアップロードしています…',
+    filesReady: '選択したファイルの準備ができました。',
+    fileTooLarge: '各ファイルは5 MiB以下にしてください。',
+    tooManyFiles: '1回の送信に添付できるファイルは5件までです。',
+    storageFull: 'ファイルストレージがいっぱいです。ファイルを削除するか、フォームの所有者に連絡してください。',
+    uploadRateLimited: 'アップロード回数が多すぎます。1分待ってから再試行してください。',
+    uploadFailed: 'ファイルをアップロードできませんでした。もう一度お試しください。',
     errors: {
       required: 'この項目は必須です。',
       type: '有効な値を入力してください。',

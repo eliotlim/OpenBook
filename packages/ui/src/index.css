@@ -2795,6 +2795,12 @@ a.obe-mention {
   font-size: 0.75rem;
   line-height: 1.3;
 }
+.obe-form-field-progress {
+  min-height: 1em;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
 .obe-form-state {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;

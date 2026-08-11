@@ -15,6 +15,7 @@ const populatedSchema = (): FormSchema => ({
   submissionKey: 'abcdefghijklmnopqrstuv',
   enabled: true,
   databaseId: 'db-contacts',
+  retention: {enabled: true, days: 30, basis: 'created'},
   fields: [
     {id: 'name', kind: 'text', label: 'Name', required: true},
     {id: 'email', kind: 'email', label: 'Email', required: false},

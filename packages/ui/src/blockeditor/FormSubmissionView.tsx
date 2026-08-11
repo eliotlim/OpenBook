@@ -1,6 +1,9 @@
 import React, {useId, useRef, useState} from 'react';
 import {
+  FORM_UPLOAD_MAX_FILE_BYTES,
+  FORM_UPLOAD_MAX_FILES,
   FormSubmissionError,
+  FormUploadError,
   isSafeHref,
   validateSubmission,
   type DataClient,
@@ -15,6 +18,10 @@ import {t, type TKey} from '@/i18n';
 type FormValues = Record<string, unknown>;
 type FormErrors = Record<string, FormValidationErrorCode>;
 type SubmitState = 'idle' | 'pending' | 'success' | 'unavailable' | 'too-large';
+type FileUploadState =
+  | {status: 'uploading'}
+  | {status: 'ready'}
+  | {status: 'error'; message: string};
 
 const ERROR_KEYS: Record<FormValidationErrorCode, TKey> = {
   required: 'formBlock.errors.required',
@@ -100,16 +107,27 @@ interface LiveFieldProps {
   error?: FormValidationErrorCode;
   onChange: (value: unknown) => void;
   onBlur: () => void;
+  uploadState?: FileUploadState;
+  onFiles?: (files: File[]) => void;
 }
 
-const LiveField: React.FC<LiveFieldProps> = ({field, value, error, onChange, onBlur}) => {
+const LiveField: React.FC<LiveFieldProps> = ({field, value, error, onChange, onBlur, uploadState, onFiles}) => {
   const reactId = useId();
   const inputId = `obe-form-${reactId}`;
   const errorId = `${inputId}-error`;
+  const uploadStatusId = `${inputId}-upload-status`;
+  const uploadMessage = uploadState?.status === 'uploading'
+    ? t('formBlock.uploadingFiles')
+    : uploadState?.status === 'ready'
+      ? t('formBlock.filesReady')
+      : uploadState?.status === 'error' ? uploadState.message : null;
+  const errorMessage = uploadState?.status === 'error'
+    ? uploadState.message
+    : error ? formValidationMessage(error) : null;
   const common = {
     id: inputId,
-    'aria-invalid': error !== undefined,
-    'aria-describedby': error ? errorId : undefined,
+    'aria-invalid': errorMessage !== null,
+    'aria-describedby': errorMessage ? errorId : uploadMessage ? uploadStatusId : undefined,
     onBlur,
   };
 
@@ -194,7 +212,12 @@ const LiveField: React.FC<LiveFieldProps> = ({field, value, error, onChange, onB
         {...common}
         type="file"
         multiple
-        onChange={(event) => onChange(Array.from(event.target.files ?? [], (file) => file.name))}
+        disabled={uploadState?.status === 'uploading'}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.currentTarget.value = '';
+          onFiles?.(files);
+        }}
       />
     );
     break;
@@ -242,8 +265,11 @@ const LiveField: React.FC<LiveFieldProps> = ({field, value, error, onChange, onB
       </label>
       {control}
       <span id={errorId} className="obe-form-field-error" aria-live="polite">
-        {error ? formValidationMessage(error) : null}
+        {errorMessage}
       </span>
+      {uploadMessage && !errorMessage ? (
+        <span id={uploadStatusId} className="obe-form-field-progress" role="status">{uploadMessage}</span>
+      ) : null}
     </div>
   );
 };
@@ -261,11 +287,13 @@ export const FormSubmissionView: React.FC<{
 }> = ({schema, pageId, client}) => {
   const [values, setValues] = useState<FormValues>(() => initialValues(schema.fields));
   const [errors, setErrors] = useState<FormErrors>({});
+  const [fileUploads, setFileUploads] = useState<Record<string, FileUploadState>>({});
   const [state, setState] = useState<SubmitState>('idle');
   const idempotencyKey = useRef<string>(mintFormIdempotencyKey());
   const pending = useRef(false);
   const localSuccess = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const uploadVersions = useRef<Record<string, number>>({});
 
   const setFieldValue = (fieldId: string, value: unknown): void => {
     setValues((current) => ({...current, [fieldId]: value}));
@@ -290,9 +318,80 @@ export const FormSubmissionView: React.FC<{
     });
   };
 
+  const uploadFiles = async (field: FormField, files: File[]): Promise<void> => {
+    if (files.length === 0) {
+      setFieldValue(field.id, []);
+      setFileUploads((current) => {
+        const next = {...current};
+        delete next[field.id];
+        return next;
+      });
+      return;
+    }
+    const otherFileCount = schema.fields.reduce((count, candidate) => {
+      if (candidate.kind !== 'files' || candidate.id === field.id) return count;
+      const selected = values[candidate.id];
+      return count + (Array.isArray(selected) ? selected.length : 0);
+    }, 0);
+    if (otherFileCount + files.length > FORM_UPLOAD_MAX_FILES) {
+      setFieldValue(field.id, []);
+      setFileUploads((current) => ({
+        ...current,
+        [field.id]: {status: 'error', message: t('formBlock.tooManyFiles')},
+      }));
+      return;
+    }
+    if (files.some((file) => file.size > FORM_UPLOAD_MAX_FILE_BYTES)) {
+      setFieldValue(field.id, []);
+      setFileUploads((current) => ({
+        ...current,
+        [field.id]: {status: 'error', message: t('formBlock.fileTooLarge')},
+      }));
+      return;
+    }
+    if (!client.uploadFormFile) {
+      setFieldValue(field.id, []);
+      setFileUploads((current) => ({
+        ...current,
+        [field.id]: {status: 'error', message: t('formBlock.uploadFailed')},
+      }));
+      return;
+    }
+
+    const version = (uploadVersions.current[field.id] ?? 0) + 1;
+    uploadVersions.current[field.id] = version;
+    setFieldValue(field.id, []);
+    setFileUploads((current) => ({...current, [field.id]: {status: 'uploading'}}));
+    try {
+      const staged = await Promise.all(files.map(async (file) => client.uploadFormFile!(pageId, schema.formId, {
+        key: schema.submissionKey,
+        fieldId: field.id,
+        name: file.name,
+        mime: file.type || 'application/octet-stream',
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      })));
+      if (uploadVersions.current[field.id] !== version) return;
+      setFieldValue(field.id, staged.map((upload) => upload.token));
+      setFileUploads((current) => ({...current, [field.id]: {status: 'ready'}}));
+    } catch (error) {
+      if (uploadVersions.current[field.id] !== version) return;
+      const message = error instanceof FormUploadError && error.status === 413
+        ? t('formBlock.fileTooLarge')
+        : error instanceof FormUploadError && error.status === 507
+          ? t('formBlock.storageFull')
+          : error instanceof FormUploadError && error.status === 429
+            ? t('formBlock.uploadRateLimited')
+            : error instanceof FormUploadError && error.status === 404
+              ? t('formBlock.unavailable')
+              : t('formBlock.uploadFailed');
+      setFileUploads((current) => ({...current, [field.id]: {status: 'error', message}}));
+    }
+  };
+
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (pending.current || state === 'success' || state === 'unavailable' || state === 'too-large') return;
+    const uploading = Object.values(fileUploads).some((upload) => upload.status === 'uploading');
+    if (pending.current || uploading || state === 'success' || state === 'unavailable' || state === 'too-large') return;
 
     const validation = validateSubmission(schema, values);
     if ('ok' in validation && !validation.ok) {
@@ -374,9 +473,15 @@ export const FormSubmissionView: React.FC<{
           error={errors[field.id]}
           onChange={(value) => setFieldValue(field.id, value)}
           onBlur={() => validateField(field.id)}
+          uploadState={fileUploads[field.id]}
+          onFiles={field.kind === 'files' ? (files) => void uploadFiles(field, files) : undefined}
         />
       ))}
-      <button type="submit" className="obe-kit-action" disabled={state === 'pending'}>
+      <button
+        type="submit"
+        className="obe-kit-action"
+        disabled={state === 'pending' || Object.values(fileUploads).some((upload) => upload.status === 'uploading')}
+      >
         {state === 'pending' ? t('formBlock.pending') : schema.submitLabel || t('formBlock.submit')}
       </button>
     </form>

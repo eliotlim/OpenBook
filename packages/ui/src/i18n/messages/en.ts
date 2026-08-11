@@ -1003,6 +1003,13 @@ export const en = {
     tooLarge: 'This response is too large to submit.',
     networkError: 'The form could not be submitted. Check your connection and try again.',
     retry: 'Retry',
+    uploadingFiles: 'Uploading files…',
+    filesReady: 'Selected files are ready.',
+    fileTooLarge: 'Each file must be 5 MiB or smaller.',
+    tooManyFiles: 'Attach no more than 5 files per submission.',
+    storageFull: 'File storage is full. Remove a file or contact the form owner.',
+    uploadRateLimited: 'Too many upload attempts. Wait a minute and try again.',
+    uploadFailed: 'A file could not be uploaded. Try again.',
     errors: {
       required: 'This field is required.',
       type: 'Enter a valid value.',

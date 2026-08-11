@@ -1,7 +1,9 @@
 import {act} from 'react';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
+  FORM_UPLOAD_MAX_FILE_BYTES,
   FormSubmissionError,
+  FormUploadError,
   type DataClient,
   type FormField,
   type FormSchema,
@@ -41,10 +43,22 @@ const schemaWith = (fields: FormField[], confirmation: FormSchema['confirmation'
 });
 
 type SubmitForm = NonNullable<DataClient['submitForm']>;
+type UploadForm = NonNullable<DataClient['uploadFormFile']>;
 
 const submitClient = (submitForm: SubmitForm): DataClient & Required<Pick<DataClient, 'submitForm'>> => ({
   submitForm,
 } as unknown as DataClient & Required<Pick<DataClient, 'submitForm'>>);
+
+const uploadClient = (
+  uploadFormFile: UploadForm,
+  submitForm: SubmitForm = vi.fn<SubmitForm>().mockResolvedValue({
+    rowId: 'row-1',
+    submittedAt: '2026-08-12T00:00:00.000Z',
+  }),
+): DataClient & Required<Pick<DataClient, 'submitForm' | 'uploadFormFile'>> => ({
+  submitForm,
+  uploadFormFile,
+} as unknown as DataClient & Required<Pick<DataClient, 'submitForm' | 'uploadFormFile'>>);
 
 describe('FormSubmissionView fields and validation', () => {
   it('renders every field kind as a live control and hides the skipped honeypot', () => {
@@ -125,6 +139,81 @@ describe('FormSubmissionView fields and validation', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
     expect(await screen.findByText('The response is too long.')).toBeTruthy();
     expect(screen.getByRole('textbox', {name: 'Email'}).getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('shows upload progress, stores opaque tokens, then submits those tokens', async () => {
+    let finishUpload!: (value: {token: string; name: string; size: number}) => void;
+    const uploadFormFile = vi.fn<UploadForm>(() => new Promise((resolve) => {
+      finishUpload = resolve;
+    }));
+    const submitForm = vi.fn<SubmitForm>().mockResolvedValue({
+      rowId: 'row-1',
+      submittedAt: '2026-08-12T00:00:00.000Z',
+    });
+    const {container} = render(
+      <FormSubmissionView
+        schema={schemaWith([makeField('files', {id: 'documents', label: 'Documents'})])}
+        pageId="page-1"
+        client={uploadClient(uploadFormFile, submitForm)}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {target: {files: [new File(['hello'], 'hello.txt', {type: 'text/plain'})]}});
+
+    expect(await screen.findByText('Uploading files…')).toBeTruthy();
+    expect(input.disabled).toBe(true);
+    expect(screen.getByRole('button', {name: 'Submit'}).getAttribute('disabled')).not.toBeNull();
+    await waitFor(() => expect(uploadFormFile).toHaveBeenCalledTimes(1));
+    await act(async () => finishUpload({token: 'opaque-upload-token', name: 'hello.txt', size: 5}));
+    expect(await screen.findByText('Selected files are ready.')).toBeTruthy();
+    expect(input.disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+    await waitFor(() => expect(submitForm).toHaveBeenCalledTimes(1));
+    expect(submitForm.mock.calls[0][2].values).toEqual({documents: ['opaque-upload-token']});
+    expect(uploadFormFile.mock.calls[0]).toMatchObject([
+      'page-1',
+      'contact',
+      {key: 'short-and-long-keys-are-both-accepted', fieldId: 'documents', name: 'hello.txt', mime: 'text/plain'},
+    ]);
+  });
+
+  it('rejects oversized and over-count selections before transport', async () => {
+    const uploadFormFile = vi.fn<UploadForm>();
+    const {container} = render(
+      <FormSubmissionView
+        schema={schemaWith([makeField('files', {id: 'documents', label: 'Documents'})])}
+        pageId="page-1"
+        client={uploadClient(uploadFormFile)}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: {files: [new File([new Uint8Array(FORM_UPLOAD_MAX_FILE_BYTES + 1)], 'large.bin')]},
+    });
+    expect(await screen.findByText('Each file must be 5 MiB or smaller.')).toBeTruthy();
+    expect(uploadFormFile).not.toHaveBeenCalled();
+
+    fireEvent.change(input, {
+      target: {files: Array.from({length: 6}, (_, index) => new File(['x'], `${index}.txt`))},
+    });
+    expect(await screen.findByText('Attach no more than 5 files per submission.')).toBeTruthy();
+    expect(uploadFormFile).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a localized clean error when staged asset storage returns 507', async () => {
+    const uploadFormFile = vi.fn<UploadForm>().mockRejectedValue(new FormUploadError(507));
+    const {container} = render(
+      <FormSubmissionView
+        schema={schemaWith([makeField('files', {id: 'documents', label: 'Documents'})])}
+        pageId="page-1"
+        client={uploadClient(uploadFormFile)}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {target: {files: [new File(['hello'], 'hello.txt')]}});
+    expect(await screen.findByText('File storage is full. Remove a file or contact the form owner.')).toBeTruthy();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
   });
 });
 
