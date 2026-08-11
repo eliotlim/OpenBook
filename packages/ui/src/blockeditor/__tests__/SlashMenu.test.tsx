@@ -4,12 +4,14 @@ import {renderHook} from '@testing-library/react';
 import {createDoc} from '../model';
 import {useBlockEditor} from '../useBlockEditor';
 import {registerReactiveBlocks} from '../reactiveBlocks';
+import {registerFormBlock} from '../FormBlockView';
 import {SlashMenu} from '../SlashMenu';
 
 afterEach(() => cleanup());
 
 function renderMenu(pageId?: string, onLink?: () => void) {
   registerReactiveBlocks(); // gives the menu an "interactive" item (the slider)
+  registerFormBlock();
   const doc = createDoc([{id: 'x', type: 'paragraph'}]);
   const {result} = renderHook(() => useBlockEditor(doc));
   return render(
@@ -31,6 +33,7 @@ describe('SlashMenu grouping', () => {
     expect(screen.getByText('Pages')).toBeTruthy();
     expect(screen.getByText('Basic blocks')).toBeTruthy();
     expect(screen.getByText('Interactive blocks')).toBeTruthy();
+    expect(screen.getByText('Form')).toBeTruthy();
     // #5: the page/database insert commands.
     expect(screen.getByText('New page')).toBeTruthy();
     expect(screen.getByText('New database')).toBeTruthy();

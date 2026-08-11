@@ -15,6 +15,7 @@ export const en = {
     untitled: 'Untitled',
     undo: 'Undo',
     settings: 'Settings',
+    noOptions: 'No options',
   },
   errorBoundary: {
     title: 'Something went wrong',
@@ -997,6 +998,23 @@ export const en = {
     noPages: 'No pages found',
     noDatabases: 'No databases found',
   },
+  formBlock: {
+    label: 'Form',
+    untitledField: 'Untitled field',
+    required: 'required',
+    noFields: 'No fields yet.',
+    openBuilder: 'Open builder',
+    submit: 'Submit',
+    liveLink: 'Fill this form on the live site',
+    formId: 'Form ID',
+    destination: 'Submission database',
+    noDatabase: 'No database bound',
+    database: 'Database',
+    databaseUnavailable: 'Database unavailable',
+    databaseId: 'Database {id}',
+    loadingDatabase: 'Loading database…',
+    databaseSummary: '{name} · {count} rows',
+  },
   slash: {
     group: {
       pages: 'Pages',
@@ -1043,6 +1061,7 @@ export const en = {
       statuslight: {label: 'Status light', hint: 'Green / amber / red from a live value'},
       tooltipcard: {label: 'Tooltip', hint: 'A term that explains itself on hover'},
       linkcard: {label: 'Link card', hint: 'A titled card that opens a URL'},
+      form: {label: 'Form', hint: 'Collect structured responses into a database'},
     },
   },
   extensions: {
@@ -1931,6 +1950,11 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    empty: {
+      noGroups: 'No groups yet.',
+      noConditions: 'No conditions yet.',
+      noSorts: 'No sorts yet.',
+    },
     autoExpiry: {
       saveError: 'Couldn’t save auto-expiry settings. Try again.',
     },
@@ -1947,6 +1971,16 @@ export const en = {
       group: 'Group',
       fields: 'Fields',
       removeGrouping: 'Remove grouping',
+    },
+    viewMenu: {
+      rename: 'Rename view',
+      duplicate: 'Duplicate view',
+      changeType: 'Change type',
+      delete: 'Delete view',
+    },
+    chipMenu: {
+      edit: 'Edit…',
+      remove: 'Remove',
     },
     rowMenu: {
       open: 'Open',

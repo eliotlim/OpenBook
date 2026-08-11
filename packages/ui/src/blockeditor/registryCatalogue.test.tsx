@@ -29,6 +29,7 @@ import {registerReactiveBlocks} from './reactiveBlocks';
 import {INPUT_TYPES} from './kit/scope';
 import {CONTAINER_BLOCKS, TEXT_BLOCKS} from './model';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
+import {registerFormBlock} from './FormBlockView';
 import {BUNDLED_PLUGINS} from '@/plugins/bundled.gen';
 
 describe('registry ↔ catalogue drift guard', () => {
@@ -36,6 +37,7 @@ describe('registry ↔ catalogue drift guard', () => {
     registerArtifactKit();
     registerReactiveBlocks();
     registerDatabaseBlock();
+    registerFormBlock();
     const registered = new Set(registeredBlockTypes().filter((t) => !t.includes('/')));
     const catalogued = new Set(BLOCK_TYPE_CATALOGUE.filter((e) => e.category === 'kit').map((e) => e.type));
     // Registered but not catalogued → the agent/MCP would REJECT a block the
@@ -50,6 +52,7 @@ describe('registry ↔ catalogue drift guard', () => {
     registerArtifactKit();
     registerReactiveBlocks();
     registerDatabaseBlock();
+    registerFormBlock();
     for (const t of registeredBlockTypes()) {
       expect(BLOCK_TYPE_CATALOGUE.find((e) => e.type === t)?.category, t).not.toBe('core');
     }

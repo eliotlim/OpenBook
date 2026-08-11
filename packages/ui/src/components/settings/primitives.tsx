@@ -1,5 +1,6 @@
 import {useState, type ReactNode, type Ref} from 'react';
 import {ChevronDown, ChevronRight} from 'lucide-react';
+import {inputVariants} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
@@ -10,8 +11,7 @@ import {cn} from '@/lib/utils';
  *  `fieldClass` consts that had drifted (`AiSettings`, `McpSettings`). Prefer the
  *  `Input` primitive where a plain text field will do; use this for textareas and
  *  the handful of native controls that can't. */
-export const SETTINGS_CONTROL_CLASS =
-  'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring';
+export const SETTINGS_CONTROL_CLASS = inputVariants({inputSize: 'sm'});
 
 /** Where a setting takes effect: only this browser/device, the whole library
  *  (server-side, shared by everyone), or your account across devices. */

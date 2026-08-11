@@ -11,6 +11,7 @@ import {
   type StoredSuggestion,
 } from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
+import {Input, inputVariants} from '@/components/ui/input';
 import {Markdown} from '@/components/ui/markdown';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useData} from '@/data';
@@ -643,7 +644,7 @@ export function AgentPanel() {
           }}
           placeholder={t('agent.placeholder')}
           aria-label={t('agent.placeholder')}
-          className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
+          className={cn(inputVariants(), '!h-auto min-h-control-md resize-none')}
         />
         <div className="flex items-center gap-2">
           {providerOptions.length > 0 && (
@@ -654,7 +655,7 @@ export function AgentPanel() {
                   data-agent-modelbar
                   aria-label={t('agent.modelSettings')}
                   title={t('agent.modelSettings')}
-                  className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+                  className="inline-flex h-control-sm min-w-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                 >
                   <Sparkles className="size-3.5 shrink-0" aria-hidden />
                   <span className="truncate">{barSummary}</span>
@@ -702,13 +703,14 @@ export function AgentPanel() {
                   <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     {presets ? t('agent.modelCustom') : t('agent.model')}
                   </p>
-                  <input
+                  <Input
+                    inputSize="sm"
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     placeholder={t('agent.modelPlaceholder')}
                     data-agent-model
                     aria-label={t('agent.model')}
-                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs outline-hidden focus:border-ring"
+                    className="text-xs"
                   />
                 </div>
                 <div className="mt-2 flex flex-col gap-1">
@@ -720,7 +722,7 @@ export function AgentPanel() {
                         type="button"
                         onClick={() => setEffort(e.value)}
                         className={cn(
-                          'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+                          'h-control-sm flex-1 rounded-md border px-2.5 py-1.5 text-xs transition-colors',
                           effort === e.value ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
                         )}
                       >
@@ -735,7 +737,7 @@ export function AgentPanel() {
                   aria-pressed={thinking}
                   onClick={() => setThinking((v) => !v)}
                   className={cn(
-                    'mt-2 flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors',
+                    'mt-2 flex h-control-sm w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors',
                     thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
                   )}
                 >
@@ -868,7 +870,7 @@ function InterviewCard({
           onChange={(e) => setTexts((prev) => ({...prev, [step.id]: e.target.value}))}
           placeholder={t('agent.interviewPlaceholder')}
           aria-label={step.question}
-          className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
+          className={cn(inputVariants(), '!h-auto min-h-control-md resize-none')}
         />
       )}
       <div className="flex items-center justify-between gap-2">

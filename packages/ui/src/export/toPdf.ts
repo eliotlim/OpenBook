@@ -99,6 +99,23 @@ function staticizeSliders(root: Element): void {
   }
 }
 
+/** Replace frozen form controls with their plain field inventory for PDF. */
+export function staticizeForms(root: Element): void {
+  const doc = root.ownerDocument;
+  for (const form of Array.from(root.querySelectorAll('[data-ob-form]'))) {
+    for (const field of Array.from(form.querySelectorAll('[data-ob-form-field]'))) {
+      const label = field.querySelector(':scope > span')?.textContent?.trim() ?? '';
+      const kind = field.getAttribute('data-form-kind') ?? '';
+      const row = doc.createElement('div');
+      row.className = 'ob-form-field';
+      row.textContent = `${label}${kind ? ` (${kind})` : ''}`;
+      field.replaceWith(row);
+    }
+    form.querySelectorAll('input,textarea,select,button,a.ob-form-live').forEach((node) => node.remove());
+    form.setAttribute('data-pdf-form', '');
+  }
+}
+
 /**
  * Wait for every `<img>` under `root` to finish decoding before the SVG snapshot.
  *
@@ -172,6 +189,7 @@ async function layout(html: string): Promise<{frame: HTMLIFrameElement; el: Elem
   await awaitImages(el); // images must be decoded or dom-to-svg snapshots blank boxes
   deEmoji(el);
   staticizeSliders(el);
+  staticizeForms(el);
   return {frame, el};
 }
 

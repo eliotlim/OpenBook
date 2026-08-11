@@ -205,6 +205,7 @@ export function UpdatesSection() {
     <SettingsSection title={t('updates.section')} description={t('updates.sectionHint')}>
       <SettingsField label={t('updates.cadence')} hint={t('updates.cadenceHint')} htmlFor="ob-update-cadence">
         <Select
+          inputSize="sm"
           id="ob-update-cadence"
           wrapperClassName="max-w-xs"
           value={cadence}

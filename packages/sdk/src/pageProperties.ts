@@ -23,6 +23,8 @@ export const OWNER_PROPERTY_ID = 'sys_owner';
 export const VERIFICATION_PROPERTY_ID = 'sys_verification';
 /** Reserved, stable id for the Backlinks (computed) property. */
 export const BACKLINKS_PROPERTY_ID = 'sys_backlinks';
+/** Reserved provenance marker attached to rows created by a form submission. */
+export const FORM_SUBMISSION_PROPERTY_ID = 'sys_form_submission';
 
 /**
  * Reserved ids for a page's **appearance**, stored on `page.properties` so a

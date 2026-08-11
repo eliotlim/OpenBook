@@ -30,6 +30,7 @@ import {RemoteCursors} from '@/components/presence/RemoteCursors';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
+import {FormOriginContext, formOriginUrl, registerFormBlock} from '@/blockeditor/FormBlockView';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {ExportBooksDialog, type ExportBooksChoice} from '@/components/ExportBooksDialog';
 import {PageProperties} from '@/components/PageProperties';
@@ -68,6 +69,7 @@ import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageCh
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
 registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
 registerDatabaseBlock(); // inline database-view embeds ("Link to database")
+registerFormBlock(); // provider-aware form shell (database summary + frozen preview)
 
 /**
  * Honour a pending `blockAnchor` (a search pick, a copied block link, or
@@ -628,18 +630,20 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         <div className={columnClass}>
           <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'relative pt-2')}>
             {doc && (
-              <BlockEditor
-                doc={doc}
-                readOnly={!canWrite}
-                ariaLabel={title || 'Page content'}
-                fullWidth={fullWidth}
-                compact={hasDatabase}
-                spellcheck={preferences.general.spellcheck}
-                pageId={pageId}
-                focusRef={editorRef}
-                onLeaveToTitle={leaveToTitle}
-                onSelectionChange={handleLocalSelection}
-              />
+              <FormOriginContext.Provider value={formOriginUrl(pageId)}>
+                <BlockEditor
+                  doc={doc}
+                  readOnly={!canWrite}
+                  ariaLabel={title || 'Page content'}
+                  fullWidth={fullWidth}
+                  compact={hasDatabase}
+                  spellcheck={preferences.general.spellcheck}
+                  pageId={pageId}
+                  focusRef={editorRef}
+                  onLeaveToTitle={leaveToTitle}
+                  onSelectionChange={handleLocalSelection}
+                />
+              </FormOriginContext.Provider>
             )}
             {/* Inline review affordances (provider-aware, portaled into the
                 editor wrapper since the editor's own root is provider-less). */}
