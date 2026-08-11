@@ -199,7 +199,7 @@ function isEmptyForField(field: FormField, value: unknown): boolean {
   if (isStringKind(field.kind) && typeof value === 'string') return value.trim().length === 0;
   if ((field.kind === 'multiselect' || field.kind === 'files') && Array.isArray(value)) return value.length === 0;
   // Required checkboxes model an acknowledgement/consent gate.
-  return field.kind === 'checkbox' && value === false;
+  return field.kind === 'checkbox' && field.required && value === false;
 }
 
 function hasHoneypotValue(value: unknown): boolean {
