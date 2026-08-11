@@ -101,3 +101,67 @@ test('narrow database: toolbar stays compact and horizontally scrollable', {tag:
   expect(box!.height).toBeLessThan(44);
   expect(await toolbar.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
 });
+
+test('page header controls collapse by pane width without wrapping or overlap', {tag: ['@editor']}, async ({page, request}) => {
+  await page.setViewportSize({width: 900, height: 800});
+  const pageResponse = await request.post(`${SERVER}/api/pages`, {
+    data: {name: 'Responsive header controls', data: emptySnapshot},
+  });
+  expect(pageResponse.ok()).toBeTruthy();
+  const pageId = ((await pageResponse.json()) as {id: string}).id;
+
+  await page.goto(`/?page=${pageId}`);
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+
+  const bar = page.locator('[data-page-header-controls]');
+  const assertSingleRow = async (): Promise<void> => {
+    await page.getByLabel('Page title').hover();
+    const barBox = await bar.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(barBox!.height).toBeLessThanOrEqual(32);
+    expect(await bar.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+    const boxes = await bar.locator('[data-page-header-item]:visible').evaluateAll((items) =>
+      items.map((item) => {
+        const box = item.getBoundingClientRect();
+        return {left: box.left, right: box.right, top: box.top, bottom: box.bottom};
+      }),
+    );
+    for (const box of boxes) {
+      expect(box.left).toBeGreaterThanOrEqual(barBox!.x - 1);
+      expect(box.right).toBeLessThanOrEqual(barBox!.x + barBox!.width + 1);
+      expect(box.top).toBeGreaterThanOrEqual(barBox!.y - 1);
+      expect(box.bottom).toBeLessThanOrEqual(barBox!.y + barBox!.height + 1);
+    }
+    const ordered = boxes.sort((a, b) => a.left - b.left);
+    for (let index = 1; index < ordered.length; index += 1) {
+      expect(ordered[index].left).toBeGreaterThanOrEqual(ordered[index - 1].right - 1);
+    }
+  };
+
+  await assertSingleRow();
+  await expect(bar.locator('[data-page-header-item="backlinks"]')).toBeVisible();
+  await expect(bar.locator('[data-page-header-item="add-cover"]')).toBeVisible();
+  await expect(bar.getByRole('button', {name: 'More actions'})).toBeHidden();
+
+  await page.setViewportSize({width: 570, height: 800});
+  await assertSingleRow();
+  await expect(bar.locator('[data-page-header-item="backlinks"]')).toBeVisible();
+  await expect(bar.locator('[data-page-header-item="add-cover"]')).toBeHidden();
+  await bar.getByRole('button', {name: 'More actions'}).click();
+  await expect(page.getByRole('menuitem', {name: 'Add cover'})).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.setViewportSize({width: 360, height: 800});
+  await assertSingleRow();
+  await expect(bar.locator('[data-page-header-item="backlinks"]')).toBeHidden();
+  await bar.getByRole('button', {name: 'More actions'}).click();
+  await expect(page.getByRole('menuitem', {name: 'Linked references'})).toBeVisible();
+  await expect(page.getByRole('menuitem', {name: 'Add cover'})).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.evaluate(() => localStorage.setItem('theme', 'dark'));
+  await page.reload();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await assertSingleRow();
+});
