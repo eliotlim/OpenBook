@@ -97,11 +97,14 @@ describe('viewer', () => {
       name: 'Survey',
       data: {editor: 'blocks', blockdoc: encodeSnapshot(doc)},
     };
-    const {container} = render(<ViewerApp source={island} />);
+    const {container} = render(
+      <ViewerApp source={island} formOrigins={{'form-page': 'https://published.example/?page=form-page'}} />,
+    );
     const preview = container.querySelector<HTMLElement>('[data-form-mode="readonly"]')!;
     expect(preview).toBeTruthy();
     expect(preview.querySelector('textarea')?.disabled).toBe(true);
     expect(preview.querySelector('button')?.disabled).toBe(true);
+    expect(preview.querySelector('a')?.href).toBe('https://published.example/?page=form-page');
     expect(container.querySelector('[data-custom-type="form"]')).toBeTruthy();
   });
 
