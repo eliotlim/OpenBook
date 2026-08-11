@@ -7,25 +7,29 @@ import {SERVER} from './seed';
 //    which requires the tree row to forward the ContextMenuTrigger's handlers.
 // Both persisted menu densities get their own Chromatic baseline: the density
 // lives in openbook.preferences, exactly as it does after changing Appearance.
-for (const menuDensity of ['comfortable', 'compact'] as const) {
-  test(`sidebar context menu: ${menuDensity} density`, {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
-    await page.addInitScript((density) => {
-      localStorage.setItem('openbook.preferences', JSON.stringify({general: {menuDensity: density}}));
-    }, menuDensity);
-    await page.goto('/');
+test.describe('sidebar context menu densities', () => {
+  test.use({freshWorkspace: true});
 
-    const row = page.getByRole('treeitem').first();
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('📄'); // default page icon, mirrored from the page
+  for (const menuDensity of ['comfortable', 'compact'] as const) {
+    test(`sidebar context menu: ${menuDensity} density`, {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
+      await page.addInitScript((density) => {
+        localStorage.setItem('openbook.preferences', JSON.stringify({general: {menuDensity: density}}));
+      }, menuDensity);
+      await page.goto('/');
 
-    await row.click({button: 'right'});
-    const addSubpage = page.getByRole('menuitem', {name: 'Add subpage'});
-    await expect(addSubpage).toBeVisible();
-    await expect(addSubpage).toHaveClass(menuDensity === 'compact' ? /\btext-xs\b/ : /\btext-sm\b/);
-    await expect(page.getByRole('menuitem', {name: 'Move to trash'})).toBeVisible();
-    await takeSnapshot(page, testInfo); // visual: sidebar context menu at the persisted density
-  });
-}
+      const row = page.getByRole('treeitem').first();
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('📄'); // default page icon, mirrored from the page
+
+      await row.click({button: 'right'});
+      const addSubpage = page.getByRole('menuitem', {name: 'Add subpage'});
+      await expect(addSubpage).toBeVisible();
+      await expect(addSubpage).toHaveClass(menuDensity === 'compact' ? /\btext-xs\b/ : /\btext-sm\b/);
+      await expect(page.getByRole('menuitem', {name: 'Move to trash'})).toBeVisible();
+      await takeSnapshot(page, testInfo); // visual: sidebar context menu at the persisted density
+    });
+  }
+});
 
 // The restructured sidebar chrome: trash is a nav row under Settings, the
 // color mode lives in the profile menu, and the Suggested section appears

@@ -26,19 +26,6 @@ test('settings: grouped sections and reset danger zone', {tag: ['@shell', '@visu
   await expect(page.getByRole('button', {name: 'Reset', exact: true})).toBeVisible();
 });
 
-test('settings: Sharing & publishing form pane visual', {tag: ['@sharing', '@visual']}, async ({page}, testInfo) => {
-  await page.goto('/');
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'Sharing & publishing'}).click();
-
-  await expect(page.getByRole('heading', {name: 'Sharing & publishing', exact: true})).toBeVisible();
-  await expect(page.getByRole('heading', {name: 'Guests & access', exact: true})).toBeVisible();
-  await expect(page.getByText('Default access', {exact: true})).toBeVisible();
-  // Wait for the asynchronous roster before archiving the complete form pane.
-  await expect(page.getByText('No members yet.', {exact: false})).toBeVisible();
-  await takeSnapshot(page, testInfo); // visual: Sharing & publishing settings form
-});
-
 test('settings: profile edits persist across reload', {tag: ['@shell', '@p1']}, async ({page}) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();

@@ -1,23 +1,34 @@
 /**
  * Custom ESLint rule: `tailwind/no-arbitrary-spacing`.
  *
- * Product spacing stays on Tailwind's shared scale. Arbitrary bracket values
- * for padding, margin, and gap utilities are forbidden in JSX className
- * strings; arbitrary values for non-spacing properties remain available.
+ * Product spacing stays on Tailwind's shared scale. Arbitrary values for
+ * padding, margin, gap, space, and scroll-spacing utilities are forbidden in
+ * JSX className strings and conventionally named hoisted class/style values;
+ * arbitrary values for non-spacing properties remain available.
  */
 
-const ARBITRARY_SPACING = /(?:^|:)!?-?(?:p[trblxyse]?|m[trblxyse]?|gap(?:-[xy])?)-\[[^\]\s]+\]$/;
+const ARBITRARY_SPACING =
+  /(?:^|:)-?(?:p[trblxyse]?|m[trblxyse]?|gap(?:-[xy])?|space-[xy]|scroll-[pm][trblxyse]?)-(?:\[[^\]\s]+\]|\(--[^)\s]+\))!?$/;
+const CLASS_VALUE_KEY = /class(Name)?|CLASS|styles?/i;
 
-function enclosingClassName(node) {
+function keyName(node) {
+  if (node.type === 'Identifier') return node.name;
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value;
+  return null;
+}
+
+function hasClassValueContext(node) {
   let current = node.parent;
   while (current) {
     if (current.type === 'JSXAttribute') {
-      return current.name.type === 'JSXIdentifier' && current.name.name === 'className' ? current : null;
+      return current.name.type === 'JSXIdentifier' && current.name.name === 'className';
     }
-    if (current.type === 'JSXElement' || current.type === 'JSXFragment') return null;
+    if (current.type === 'JSXElement' || current.type === 'JSXFragment') return false;
+    if (current.type === 'VariableDeclarator' && keyName(current.id)?.match(CLASS_VALUE_KEY)) return true;
+    if (current.type === 'Property' && keyName(current.key)?.match(CLASS_VALUE_KEY)) return true;
     current = current.parent;
   }
-  return null;
+  return false;
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -25,19 +36,19 @@ export const noArbitrarySpacing = {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Disallow arbitrary Tailwind padding, margin, and gap values in className.',
+      description: 'Disallow arbitrary Tailwind spacing values in className and named class/style values.',
     },
     schema: [],
     messages: {
       arbitrary:
-        'Spacing utility {{className}} uses an arbitrary value. Use the nearest Tailwind spacing-scale utility instead.',
+        'Spacing utility {{className}} uses an arbitrary value. Use the nearest Tailwind spacing-scale utility instead. If no scale utility fits, add an eslint-disable comment with a reason.',
     },
   },
   create(context) {
     function check(node, value) {
-      if (!enclosingClassName(node)) return;
+      if (!hasClassValueContext(node)) return;
       for (const className of value.split(/\s+/).filter(Boolean)) {
-        if (ARBITRARY_SPACING.test(className)) {
+        if (!className.includes('env(') && ARBITRARY_SPACING.test(className)) {
           context.report({node, messageId: 'arbitrary', data: {className}});
         }
       }
