@@ -89,6 +89,14 @@
 
   --container-content: 46rem;
 
+  /* ── Spacing + control-height scale ──────────────────────────────────────
+     The 4px grid is the only legal spacing grid for new work. Control heights
+     use this semantic scale so components do not introduce one-off sizes. */
+  --height-control-xs: 24px;
+  --height-control-sm: 28px;
+  --height-control-md: 32px;
+  --height-control-lg: 36px;
+
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
