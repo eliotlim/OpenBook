@@ -33,10 +33,6 @@ export function splitSlides(doc: Y.Doc): Slide[] {
     case 'notes':
       cur.notes.push(block);
       break;
-    case 'form':
-      // Forms stay in the audience stream; PresentBlocks' kit lock freezes them.
-      cur.content.push(block);
-      break;
     default:
       cur.content.push(block);
     }

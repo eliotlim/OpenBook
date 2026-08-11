@@ -72,7 +72,9 @@ export function formToMarkdown(schema: FormSchema): string {
   if (schema.fields.length === 0) return `${title}\n\n- ${escapeMd(t('formBlock.noFields'))}`;
   return `${title}\n\n${schema.fields.map((field) => {
     const label = escapeMd(field.label || t('formBlock.untitledField'));
-    return `- ${label} (${field.kind}${field.required ? `, ${t('formBlock.required')}` : ''})`;
+    const kind = escapeMd(field.kind);
+    const required = field.required ? `, ${escapeMd(t('formBlock.required'))}` : '';
+    return `- ${label} (${kind}${required})`;
   }).join('\n')}`;
 }
 
