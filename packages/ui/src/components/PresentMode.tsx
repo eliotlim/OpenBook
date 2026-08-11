@@ -10,6 +10,7 @@ import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
 import {splitSlides} from '@/blockeditor/present';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
 import type {PresentMode as PresentModeKind} from '@/lib/hud';
+import {suppressContextMenu} from '@/lib/suppressContextMenu';
 
 /**
  * Present mode: a page rendered as a slide deck (split at every `divider`),
@@ -31,6 +32,7 @@ export default function PresentMode() {
       <DialogPortal>
         <DialogPrimitive.Content
           aria-label="Present"
+          onContextMenu={suppressContextMenu}
           className="fixed inset-0 z-50 outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0"
         >
           <DialogPrimitive.Title className="sr-only">Present</DialogPrimitive.Title>
