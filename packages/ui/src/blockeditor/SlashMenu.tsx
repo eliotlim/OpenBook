@@ -9,6 +9,7 @@ import {
   Code2,
   Columns2,
   Columns3,
+  ClipboardList,
   Database,
   ExternalLink,
   FilePlus2,
@@ -125,6 +126,7 @@ const TYPE_ICONS: Record<string, IconComp> = {
   // June-2026 additions
   choicecards: GalleryHorizontalEnd, longtext: AlignLeft, richtext: TextQuote,
   searchselect: Search, tagfield: Tag, progressbar: Activity,
+  form: ClipboardList,
 };
 const GROUP_ICON: Record<SlashGroup, IconComp> = {
   pages: FileText, basic: Type, interactive: Boxes, extensions: Puzzle, ai: Sparkles,

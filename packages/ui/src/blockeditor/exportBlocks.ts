@@ -1,4 +1,5 @@
-import {isSafeHref} from '@book.dev/sdk';
+import {isSafeHref, type FormField, type FormSchema} from '@book.dev/sdk';
+import {t} from '@/i18n';
 import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
 import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
 import {describeUnknownBlock} from './unknownBlock';
@@ -6,6 +7,7 @@ import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
 import {statusOf, type ExportCell} from './kit/scope';
 import type {DbChartSeriesMap} from './kit/chartData';
+import {formSchemaFromProps} from './formBlock';
 
 // TextRun is referenced in the kit emit cases below.
 
@@ -18,6 +20,63 @@ import type {DbChartSeriesMap} from './kit/chartData';
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const formFieldControlHtml = (field: FormField): string => {
+  const label = escapeHtml(field.label || t('formBlock.untitledField'));
+  const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
+  switch (field.kind) {
+  case 'longtext':
+    return `<textarea rows="3" disabled aria-label="${label}"${placeholder}></textarea>`;
+  case 'select':
+  case 'multiselect': {
+    const empty = field.kind === 'select' ? '<option value="">—</option>' : '';
+    const options = (field.options ?? [])
+      .map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`)
+      .join('');
+    return `<select disabled aria-label="${label}"${field.kind === 'multiselect' ? ' multiple' : ''}>${empty}${options}</select>`;
+  }
+  case 'checkbox':
+    return `<input type="checkbox" disabled aria-label="${label}">`;
+  case 'rating':
+    return `<input type="range" min="1" max="5" value="1" disabled aria-label="${label}">`;
+  case 'files':
+    return `<input type="file" disabled aria-label="${label}">`;
+  default: {
+    const type = field.kind === 'phone' ? 'tel' : field.kind;
+    return `<input type="${type}" disabled aria-label="${label}"${placeholder}>`;
+  }
+  }
+};
+
+/** A frozen, non-submitting form for clipboard/static HTML and PDF first paint. */
+export function formToStaticHtml(schema: FormSchema, originPageUrl?: string | null): string {
+  const fields = schema.fields.length === 0
+    ? `<p class="ob-form-empty">${escapeHtml(t('formBlock.noFields'))}</p>`
+    : schema.fields.map((field) => {
+      const label = escapeHtml(field.label || t('formBlock.untitledField'));
+      return `<label class="ob-form-field" data-ob-form-field="${escapeHtml(field.id)}" data-form-kind="${escapeHtml(field.kind)}">` +
+        `<span>${label}${field.required ? ' <span aria-hidden="true">*</span>' : ''}</span>` +
+        formFieldControlHtml(field) +
+        '</label>';
+    }).join('');
+  const submit = escapeHtml(schema.submitLabel || t('formBlock.submit'));
+  const live = originPageUrl && isSafeHref(originPageUrl)
+    ? `<a class="ob-form-live" href="${escapeHtml(originPageUrl)}">${escapeHtml(t('formBlock.liveLink'))}</a>`
+    : '';
+  return `<section class="ob-form" data-ob-form data-form-id="${escapeHtml(schema.formId)}">${fields}<button type="button" disabled>${submit}</button>${live}</section>`;
+}
+
+/** Plain field inventory used by Markdown and the PDF staticization pass. */
+export function formToMarkdown(schema: FormSchema): string {
+  const title = `**${escapeMd(t('formBlock.label'))}**`;
+  if (schema.fields.length === 0) return `${title}\n\n- ${escapeMd(t('formBlock.noFields'))}`;
+  return `${title}\n\n${schema.fields.map((field) => {
+    const label = escapeMd(field.label || t('formBlock.untitledField'));
+    const kind = escapeMd(field.kind);
+    const required = field.required ? `, ${escapeMd(t('formBlock.required'))}` : '';
+    return `- ${label} (${kind}${required})`;
+  }).join('\n')}`;
+}
 
 function runToHtml(run: TextRun): string {
   let out = escapeHtml(run.t).replace(/\n/g, '<br>');
@@ -169,7 +228,7 @@ function kitInputMd(b: BlockJSON): string {
 }
 
 /** Render block JSON to clean semantic HTML (one string, no wrapper). */
-export function blocksToHtml(blocks: BlockJSON[]): string {
+export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string | null} = {}): string {
   const parts: string[] = [];
   let i = 0;
   while (i < blocks.length) {
@@ -283,6 +342,10 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       parts.push(
         `<p><a class="ob-mention" data-page-id="${escapeHtml(String(b.props?.pageId ?? ''))}">🗃 ${escapeHtml(String(b.props?.name ?? 'Database'))}</a></p>`,
       );
+      i += 1;
+      break;
+    case 'form':
+      parts.push(formToStaticHtml(formSchemaFromProps(b.props), opts.originPageUrl));
       i += 1;
       break;
     case 'group': {
@@ -444,6 +507,9 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     }
     case 'dbview':
       out.push(`**🗃 ${String(b.props?.name ?? 'Database')}**`);
+      break;
+    case 'form':
+      out.push(formToMarkdown(formSchemaFromProps(b.props)));
       break;
     case 'group': {
       const name = String(b.props?.name ?? '').trim();
@@ -935,6 +1001,14 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         });
         i += 1;
         break;
+      case 'form': {
+        // Keep the exact durable props under `data.props` for FORM-1/FORM-5,
+        // while mirroring them at `data.*` for the static export renderers.
+        const props = b.props ?? {};
+        sink.push({id: b.id, type: 'form', data: {...props, props}});
+        i += 1;
+        break;
+      }
       default: {
         // Core text-only types (a bare `paragraph`, or an orphaned container
         // child) project as paragraphs — they have no props worth carrying.

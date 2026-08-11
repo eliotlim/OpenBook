@@ -26,7 +26,7 @@ import {diffBlocks, type BlockDiffEntry, type WordRun} from '@/lib/blockDiff';
  */
 
 /** A readable label for a non-text / structural block type in an opaque change. */
-function blockTypeLabel(type: string): string {
+export function blockTypeLabel(type: string): string {
   const map: Record<string, string> = {
     image: 'Image',
     htmlArtifact: 'HTML embed',
@@ -38,6 +38,7 @@ function blockTypeLabel(type: string): string {
     accordion: 'Accordion',
     chart: 'Chart',
     dbview: 'Database view',
+    form: 'Form',
     slider: 'Slider',
     formula: 'Formula',
     status: 'Status',

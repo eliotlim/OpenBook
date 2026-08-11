@@ -16,7 +16,8 @@
  *    Re-importing into the same space therefore creates a sibling copy, never
  *    overwrites the original. The CRDT `update` is deliberately NOT carried — a
  *    copy gets a fresh CRDT identity; the JSON block projection is the
- *    structural source and round-trips ids/types/props/order losslessly.
+ *    structural source and round-trips ids/types/props/order losslessly. Form
+ *    write keys intentionally stripped at export are minted anew for the copy.
  *  - a **space island** (`toHtmlSite` exports) lands through the copy-mode
  *    bundle path (`importLibrary`, the same path the book-folder restore uses):
  *    the server re-keys every page/database id, rewrites internal links and
@@ -55,6 +56,7 @@ import {
   type LibraryIsland,
   type StoredPage,
 } from '@book.dev/sdk';
+import {mintMissingFormSubmissionKeys} from '@/blockeditor/formBlock';
 
 /** What an island scan found in an HTML file (discriminated by island kind). */
 export type HtmlIsland =
@@ -286,8 +288,9 @@ export async function runIslandImport(
   if (found.kind === 'page') {
     const {record} = found;
     for (const assetId of snapshotAssetIds(record.data)) assetToIslandPage.set(assetId, record.id);
-    const blockdoc = record.data.blockdoc as {blocks?: ImportedBlock[]} | undefined;
-    if (record.data.editor === 'blocks' && Array.isArray(blockdoc?.blocks)) {
+    const importedData = mintMissingFormSubmissionKeys(record.data);
+    const blockdoc = importedData.blockdoc as {blocks?: ImportedBlock[]} | undefined;
+    if (importedData.editor === 'blocks' && Array.isArray(blockdoc?.blocks)) {
       // The canonical path: the island's block JSON IS the IR (same shape), so
       // importDoc lands it via the create strategy — fresh id, faithful blocks.
       const result = await importDoc(client, {
@@ -303,7 +306,7 @@ export async function runIslandImport(
     } else {
       // Not block-editor shaped (legacy EditorJS island): land the RAW snapshot
       // through the copy-mode bundle so nothing is projected away.
-      const page = pageRecordAsStoredPage(record);
+      const page = pageRecordAsStoredPage({...record, data: importedData});
       const imported = await client.importLibrary({pages: [page], databases: [], mode: 'copy'});
       pageIds = Object.values(imported.idMap);
     }
@@ -318,7 +321,8 @@ export async function runIslandImport(
     }
     // The book-folder restore path: server-side re-key + link rewrite keeps
     // nesting, mentions, and database membership intact — as a copy.
-    const imported = await client.importLibrary({pages: space.pages, databases: space.databases, mode: 'copy'});
+    const pages = space.pages.map((page) => ({...page, data: mintMissingFormSubmissionKeys(page.data)}));
+    const imported = await client.importLibrary({pages, databases: space.databases, mode: 'copy'});
     const idMap = imported.idMap;
     pageIds = Object.values(idMap);
     landedIdOf = (id) => idMap[id];

@@ -2706,6 +2706,106 @@ a.obe-mention {
 }
 .obe-kit-check input { accent-color: hsl(var(--primary)); }
 
+/* Form block shell (FORM-3). The builder and submission state arrive in the
+   next stacked tasks; this slice keeps a stable chrome/preview boundary. */
+.obe-kit-form {
+  align-items: stretch;
+  display: block;
+  padding: 0.65rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+}
+.obe-kit-form > .obe-kit-head { margin-bottom: 0.65rem; }
+.obe-form-edit,
+.obe-form-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  width: 100%;
+}
+.obe-form-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.obe-form-field-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+  padding: 0.35rem 0.1rem;
+  font-size: 0.88rem;
+}
+.obe-form-kind {
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.55);
+  padding: 0.08rem 0.45rem;
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+}
+.obe-form-builder {
+  align-self: flex-start;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 7px;
+  background: transparent;
+  padding: 0.32rem 0.7rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+}
+.obe-form-empty {
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+  text-align: center;
+}
+.obe-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+.obe-form-field-label { font-weight: 550; }
+.obe-form-field :is(input:not([type='checkbox']):not([type='range']), textarea, select) {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.28);
+  padding: 0.4rem 0.55rem;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  opacity: 1;
+}
+.obe-form-field textarea { resize: none; }
+.obe-form-field input[type='checkbox'] { align-self: flex-start; accent-color: hsl(var(--primary)); }
+.obe-form-field input[type='range'] { width: min(16rem, 100%); accent-color: hsl(var(--primary)); }
+.obe-form-preview .obe-kit-action:disabled { align-self: flex-start; cursor: default; opacity: 0.62; }
+.obe-form-live-link {
+  align-self: flex-start;
+  color: hsl(var(--primary));
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.obe-form-id {
+  overflow-wrap: anywhere;
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  background: hsl(var(--muted) / 0.45);
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+}
+
 /* Full-width option variants: options become stacked, card-like rows that
    read as a form — same classes in the editor and the HTML export. */
 .obe-kit.obe-kit-wide { flex-wrap: wrap; }

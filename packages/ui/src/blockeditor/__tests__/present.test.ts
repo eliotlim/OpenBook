@@ -23,10 +23,14 @@ describe('splitSlides', () => {
   });
 
   it('a divider-less doc is a single slide', () => {
-    const doc = createDoc([{id: 'a', type: 'paragraph'}, {id: 'b', type: 'paragraph'}]);
+    const doc = createDoc([
+      {id: 'a', type: 'paragraph'},
+      {id: 'form', type: 'form', props: {formId: 'survey'}},
+      {id: 'b', type: 'paragraph'},
+    ]);
     const slides = splitSlides(doc);
     expect(slides).toHaveLength(1);
-    expect(ids(slides[0].content)).toEqual(['a', 'b']);
+    expect(ids(slides[0].content)).toEqual(['a', 'form', 'b']);
   });
 
   it('leading / trailing / doubled dividers never yield empty slides', () => {
