@@ -1095,6 +1095,12 @@ export const zh: PartialMessages = {
       fields: '字段',
       removeGrouping: '移除分组',
     },
+    viewMenu: {
+      rename: '重命名视图',
+      duplicate: '复制视图',
+      changeType: '更改类型',
+      delete: '删除视图',
+    },
     rowMenu: {
       open: '打开',
       openTab: '在新标签页中打开',

@@ -1108,6 +1108,12 @@ export const de: PartialMessages = {
       fields: 'Felder',
       removeGrouping: 'Gruppierung entfernen',
     },
+    viewMenu: {
+      rename: 'Ansicht umbenennen',
+      duplicate: 'Ansicht duplizieren',
+      changeType: 'Typ ändern',
+      delete: 'Ansicht löschen',
+    },
     rowMenu: {
       open: 'Öffnen',
       openTab: 'In neuem Tab öffnen',

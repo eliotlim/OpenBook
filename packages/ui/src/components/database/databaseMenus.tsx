@@ -2139,7 +2139,7 @@ export const ViewOptionsMenu: React.FC<{
 };
 
 /** Build the patch for switching a view's layout, defaulting layout-specific config. */
-function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
+export function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
   if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
     // Mirror defaultView: only a categorical property (select/status/relation)

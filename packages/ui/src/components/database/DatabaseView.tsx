@@ -53,7 +53,7 @@ import {downloadText, safeFilename} from '@/lib/download';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {addQuickFilter, ColumnMenuItems, RowMenuItems, type RowMenuBulk} from './databaseMenuItems';
 import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
+import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, viewTypePatch, VIEW_TYPES} from './databaseMenus';
 import type {PropertyMenuHandle} from './databaseMenus';
 import {
   BoardView,
@@ -1081,7 +1081,64 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
   );
 };
 
-const Toolbar: React.FC<{
+/**
+ * A view tab's own right-click menu. Keeping this nested trigger on the tab
+ * prevents the database-level menu from resolving every action through the
+ * active view when the pointer is actually over an inactive tab.
+ */
+export const ViewTabContextMenu: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  onRename: () => void;
+  children: React.ReactNode;
+}> = ({db, view, onRename, children}) => {
+  const {t} = useTranslation();
+  const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className={MENU_WIDTH_MD}>
+        <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={onRename}>
+          <Pencil className="mr-2 h-4 w-4" />
+          {t('database.viewMenu.rename')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateView(view.id)}>
+          <Copy className="mr-2 h-4 w-4" />
+          {t('database.viewMenu.duplicate')}
+        </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Rows3 className="mr-2 h-4 w-4" />
+            {t('database.viewMenu.changeType')}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_WIDTH_SM}>
+            {VIEW_TYPES.map(({value, label, Icon}) => (
+              <ContextMenuItem
+                key={value}
+                onSelect={() => void db.updateView(view.id, viewTypePatch(value, view, db.database!.schema.properties))}
+              >
+                <Icon className="mr-2 h-4 w-4" />
+                {label}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSeparator />
+        {canDeleteView && (
+          <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {t('database.viewMenu.delete')}
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
+export const Toolbar: React.FC<{
   db: UseDatabase;
   view: DbView;
   renamingId: string | null;
@@ -1128,38 +1185,39 @@ const Toolbar: React.FC<{
             );
           }
           return (
-            <button
-              key={v.id}
-              data-view-tab={v.id}
-              draggable
-              onDoubleClick={() => setRenamingId(v.id)}
-              onDragStart={() => setDragView(v.id)}
-              onDragEnd={() => {
-                setDragView(null);
-                setOverView(null);
-              }}
-              onDragOver={(e) => {
-                if (dragView && dragView !== v.id) {
-                  e.preventDefault();
-                  setOverView(v.id);
-                }
-              }}
-              onDrop={() => {
-                if (dragView && dragView !== v.id) void db.reorderView(dragView, v.id);
-                setDragView(null);
-                setOverView(null);
-              }}
-              onClick={() => db.setActiveViewId(v.id)}
-              className={cn(
-                'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-                active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
-                dragView === v.id && 'opacity-40',
-                overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {v.name}
-            </button>
+            <ViewTabContextMenu key={v.id} db={db} view={v} onRename={() => setRenamingId(v.id)}>
+              <button
+                data-view-tab={v.id}
+                draggable
+                onDoubleClick={() => setRenamingId(v.id)}
+                onDragStart={() => setDragView(v.id)}
+                onDragEnd={() => {
+                  setDragView(null);
+                  setOverView(null);
+                }}
+                onDragOver={(e) => {
+                  if (dragView && dragView !== v.id) {
+                    e.preventDefault();
+                    setOverView(v.id);
+                  }
+                }}
+                onDrop={() => {
+                  if (dragView && dragView !== v.id) void db.reorderView(dragView, v.id);
+                  setDragView(null);
+                  setOverView(null);
+                }}
+                onClick={() => db.setActiveViewId(v.id)}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
+                  active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
+                  dragView === v.id && 'opacity-40',
+                  overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {v.name}
+              </button>
+            </ViewTabContextMenu>
           );
         })}
         <AddViewMenu onAdd={onAddView} />
@@ -1204,6 +1262,7 @@ const DatabaseContextMenu: React.FC<{
   onAddView: (type: DatabaseViewType) => void;
   children: React.ReactNode;
 }> = ({db, onRenameView, onConfigureExpiry, onAddView, children}) => {
+  const {t} = useTranslation();
   const view = db.activeView!;
   const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
   return (
@@ -1213,16 +1272,16 @@ const DatabaseContextMenu: React.FC<{
         <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
         <ContextMenuItem onSelect={onRenameView}>
           <Pencil className="mr-2 h-4 w-4" />
-          Rename view
+          {t('database.viewMenu.rename')}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void db.duplicateView(view.id)}>
           <Copy className="mr-2 h-4 w-4" />
-          Duplicate view
+          {t('database.viewMenu.duplicate')}
         </ContextMenuItem>
         {canDeleteView && (
           <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
             <Trash2 className="mr-2 h-4 w-4" />
-            Delete view
+            {t('database.viewMenu.delete')}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
