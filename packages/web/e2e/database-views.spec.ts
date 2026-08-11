@@ -17,6 +17,24 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
 }
 
+test('database table: grid and toolbar visual', {tag: ['@database', '@visual']}, async ({page}, testInfo) => {
+  await newDatabase(page);
+
+  const toolbar = page.locator('[data-database-toolbar]');
+  const table = page.getByRole('table');
+  await expect(toolbar).toBeVisible();
+  await expect(table).toBeVisible();
+
+  // Give the grid one representative row so the baseline covers cells as well
+  // as the empty-state table chrome and the complete toolbar above it.
+  await page.getByRole('button', {name: 'New row'}).click();
+  const title = table.getByPlaceholder('Untitled').first();
+  await title.fill('Launch plan');
+  await title.blur();
+  await expect(table.getByText('Launch plan')).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: database grid + toolbar
+});
+
 // A formula column computes from another property (here the row title) — the
 // headline "simple expression formula" feature, end to end.
 test('database formula: a formula column computes from other properties', {tag: ['@database', '@visual', '@p1']}, async ({page}, testInfo) => {
