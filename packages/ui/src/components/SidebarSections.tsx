@@ -56,6 +56,7 @@ export function SidebarSection({id, label, children}: {id: string; label: string
       <button
         type="button"
         onClick={toggle}
+        onContextMenu={(event) => event.preventDefault()}
         aria-expanded={open}
         className="group/section flex w-full cursor-pointer items-center gap-1 px-3 pb-1 pt-1 text-left"
       >
