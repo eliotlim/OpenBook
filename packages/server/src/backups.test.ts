@@ -1,4 +1,4 @@
-import {readdir, readFile, rm} from 'node:fs/promises';
+import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
@@ -130,12 +130,17 @@ describe('BackupScheduler', () => {
   it('prunes to the retention count, keeping the newest', async () => {
     await store.updateBackupConfig({keep: {daily: 2, weekly: 5, monthly: 12, yearly: 3}});
     const s = scheduler();
+    const cadenceDir = join(backupDir, 'daily');
+    const orphan = 'openbook-backup-orphan.openbook.json.tmp';
+    await mkdir(cadenceDir, {recursive: true});
+    await writeFile(join(cadenceDir, orphan), 'incomplete');
     for (let i = 0; i < 4; i += 1) {
       nowMs += DAY; // distinct, sortable filenames
       await s.runNow('daily');
     }
     const remaining = (await listSnapshots('daily')).sort();
     expect(remaining).toHaveLength(2);
+    expect(await readdir(cadenceDir)).not.toContain(orphan);
     // The two kept are the most recent (lexically largest ISO-stamped names).
   });
 

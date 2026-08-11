@@ -125,7 +125,9 @@ export class BackupScheduler implements BackupController {
     }
   }
 
-  /** Force a snapshot for one cadence now (the "Back up now" action). */
+  /** Force a snapshot for one cadence now (the "Back up now" action).
+   *  Manual runs deliberately use the scheduled writer's skip-and-record
+   *  semantics, so one inconsistent item does not abort the snapshot. */
   async runNow(cadence: BackupCadence = 'daily'): Promise<{file: string; dir: string; skippedCount: number} | null> {
     const config = await this.store.getBackupConfig();
     const dir = this.resolvedDir(config);
@@ -190,6 +192,7 @@ export class BackupScheduler implements BackupController {
         await handle.writeFile(chunk, {encoding: 'utf8'});
       }, this.nowIso(), {skipInconsistent: true});
       skippedCount = result.skipped.length;
+      await handle.sync();
       await handle.close();
       isOpen = false;
       await rename(tmp, abs);
@@ -222,9 +225,13 @@ export class BackupScheduler implements BackupController {
     const keep = Math.max(1, Math.trunc(config.keep[cadence] ?? 1));
     const cadenceDir = join(dir, cadence);
     // Filenames embed a sortable ISO stamp, so lexical sort is chronological.
-    const files = (await this.listSnapshots(cadenceDir)).sort().reverse();
+    const entries = await readdir(cadenceDir);
+    const files = entries.filter((entry) => entry.endsWith('.openbook.json')).sort().reverse();
     for (const f of files.slice(keep)) {
       await rm(join(cadenceDir, f), {force: true});
+    }
+    for (const orphan of entries.filter((entry) => entry.endsWith('.openbook.json.tmp'))) {
+      await rm(join(cadenceDir, orphan), {force: true});
     }
   }
 
