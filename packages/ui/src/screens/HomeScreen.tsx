@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 import {useData} from '@/data';
 import {useHud, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
@@ -245,7 +246,7 @@ export default function HomeScreen() {
                 <SlidersHorizontal className="h-4 w-4" />
               </IconButton>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className={MENU_WIDTH_MD}>
               <DropdownMenuLabel>{t('home.customize')}</DropdownMenuLabel>
               {WIDGET_LABELS.map(({key, label}) => (
                 <DropdownMenuCheckboxItem
