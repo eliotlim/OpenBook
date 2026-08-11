@@ -79,6 +79,7 @@ export default function ProfileSettings() {
 
         <SettingsField label={t('profile.name')} hint={t('profile.nameHint')} htmlFor="ob-profile-name">
           <Input
+            inputSize="sm"
             id="ob-profile-name"
             value={name}
             placeholder={t('profile.namePlaceholder')}
@@ -89,6 +90,7 @@ export default function ProfileSettings() {
 
         <SettingsField label={t('profile.displayName')} hint={t('profile.displayNameHint')} htmlFor="ob-profile-display">
           <Input
+            inputSize="sm"
             id="ob-profile-display"
             value={displayName}
             placeholder={t('profile.displayNamePlaceholder')}
@@ -103,7 +105,7 @@ export default function ProfileSettings() {
             value={bio}
             rows={3}
             placeholder={t('profile.bioPlaceholder')}
-            className={cn(inputVariants(), 'min-h-[72px] resize-y px-3 py-2')}
+            className={cn(inputVariants({inputSize: 'sm'}), '!h-auto min-h-[72px] resize-y')}
             onChange={(e) => update({profile: {bio: e.target.value}})}
           />
         </SettingsField>

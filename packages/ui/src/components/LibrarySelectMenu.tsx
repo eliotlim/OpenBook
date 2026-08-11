@@ -320,7 +320,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
                   onPick={setIcon}
                   fallback="📓"
                   ariaLabel={t('library.icon')}
-                  className="flex h-9 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
+                  className="flex h-control-md items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">

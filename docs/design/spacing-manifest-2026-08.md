@@ -142,3 +142,5 @@ Progress is directional, not a zero-debt gate: a remaining fixed width, viewport
 calculation, or deliberate circle can be valid. The stable category counts make
 that residual explicit instead of conflating it with padding and control-height
 migrations.
+
+Dense rows pair `h-control-sm` fields with Button `xs`.

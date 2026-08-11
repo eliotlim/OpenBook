@@ -340,6 +340,31 @@ describe('HttpDataClient assets (base64-JSON is byte-exact on the http path)', (
   });
 });
 
+describe('HttpDataClient form submissions', () => {
+  it('POSTs the capability request to the page-scoped form route', async () => {
+    let captured: {url: string; init?: RequestInit} | null = null;
+    const result = {rowId: 'row-1', submittedAt: '2026-08-12T00:00:00.000Z'};
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: (url, init) => {
+        captured = {url, init};
+        return Promise.resolve(
+          new Response(JSON.stringify(result), {status: 201, headers: {'content-type': 'application/json'}}),
+        );
+      },
+    });
+    const input = {key: 'capability', values: {email: 'reader@example.com'}, idempotencyKey: 'submission-1'};
+
+    await expect(client.submitForm('page/id', 'form id', input)).resolves.toEqual(result);
+    expect(captured!.url).toBe('https://x/api/pages/page%2Fid/forms/form%20id/submissions');
+    expect(captured!.init!.method).toBe('POST');
+    expect(captured!.init!.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      'X-OpenBook-Client': '1',
+    });
+    expect(JSON.parse(String(captured!.init!.body))).toEqual(input);
+  });
+});
+
 /**
  * The live nav stream bakes the identity into its EventSource URL when it opens
  * (an EventSource can't send headers, so the JWS rides `?identity=`) and can never

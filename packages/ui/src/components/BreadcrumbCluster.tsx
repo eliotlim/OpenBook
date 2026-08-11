@@ -12,6 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {PageMenuItems} from '@/components/PageContextMenu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 /**
  * Past this many crumbs the middle of the chain collapses to a "…" menu
@@ -110,7 +113,7 @@ export default function BreadcrumbCluster() {
 
   const renderCrumb = (id: string, last: boolean): React.ReactElement => {
     const menu = crumbMenu(id);
-    return (
+    const crumb = (
       // A crumb is a hover group: the navigate button plus (when the page has
       // siblings or subpages) a chevron that opens the jump menu. The chevron
       // always reserves its width so hover-reveal never shifts the row.
@@ -158,6 +161,15 @@ export default function BreadcrumbCluster() {
           </DropdownMenu>
         )}
       </span>
+    );
+    if (!byId.has(id)) return crumb;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{crumb}</ContextMenuTrigger>
+        <ContextMenuContent className={MENU_WIDTH_MD}>
+          <PageMenuItems pageId={id} surface="row" menu="context" />
+        </ContextMenuContent>
+      </ContextMenu>
     );
   };
 

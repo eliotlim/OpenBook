@@ -11,6 +11,9 @@ import {useNavigation, useTranslation} from '@/providers';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {filterUnlinkedMentions, toSnippet, type MentionRow} from './linksFilter';
+import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
+import {PageMenuItems} from '@/components/PageContextMenu';
+import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
 
 /** A backlink row: the linking page plus a short text preview of its content. */
 interface BacklinkRow {
@@ -282,19 +285,25 @@ export function LinksPaneBody() {
               <p className="px-0.5 text-xs text-muted-foreground">{t('links.noBacklinks')}</p>
             )}
             {backlinks.map(({page, snippet}) => (
-              <button
-                key={page.id}
-                type="button"
-                onClick={() => openBacklink(page.id)}
-                className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
-                title={page.name?.trim() || pageLabel(page.id)}
-              >
-                <span className="flex items-center gap-1.5 text-sm">
-                  <PageIcon value={readPageIcon(page.id)} className="leading-none" />
-                  <span className="truncate">{page.name?.trim() || pageLabel(page.id)}</span>
-                </span>
-                {snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{snippet}</span>}
-              </button>
+              <ContextMenu key={page.id}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => openBacklink(page.id)}
+                    className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+                    title={page.name?.trim() || pageLabel(page.id)}
+                  >
+                    <span className="flex items-center gap-1.5 text-sm">
+                      <PageIcon value={readPageIcon(page.id)} className="leading-none" />
+                      <span className="truncate">{page.name?.trim() || pageLabel(page.id)}</span>
+                    </span>
+                    {snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{snippet}</span>}
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className={MENU_WIDTH_MD}>
+                  <PageMenuItems pageId={page.id} surface="row" menu="context" />
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
           </section>
         )}
@@ -317,19 +326,25 @@ export function LinksPaneBody() {
               </p>
             )}
             {mentions.map((row) => (
-              <button
-                key={row.pageId}
-                type="button"
-                onClick={() => openMention(row)}
-                className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
-                title={row.title || pageLabel(row.pageId)}
-              >
-                <span className="flex items-center gap-1.5 text-sm">
-                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate">{row.title || pageLabel(row.pageId)}</span>
-                </span>
-                {row.snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{row.snippet}</span>}
-              </button>
+              <ContextMenu key={row.pageId}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => openMention(row)}
+                    className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+                    title={row.title || pageLabel(row.pageId)}
+                  >
+                    <span className="flex items-center gap-1.5 text-sm">
+                      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      <span className="truncate">{row.title || pageLabel(row.pageId)}</span>
+                    </span>
+                    {row.snippet && <span className="truncate pl-[1.375rem] text-xs text-muted-foreground">{row.snippet}</span>}
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className={MENU_WIDTH_MD}>
+                  <PageMenuItems pageId={row.pageId} surface="row" menu="context" />
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
           </section>
         )}
