@@ -49,6 +49,7 @@ import {setHistoryTarget} from '@/lib/historyPane';
 import {requestShareDialog} from '@/lib/shareDialog';
 import {useSharingCapability} from '@/components/ShareDialog';
 import type {TKey} from '@/i18n';
+import {passEditableContextMenuToBrowser} from '@/blockeditor/nativeContextMenu';
 
 /** Menu copy + icon per export format, in display order. Exported so the command
  *  palette renders the same set (one source of export truth for both surfaces). */
@@ -413,7 +414,7 @@ export function PageMenuItems({
 export function PageContextMenu({pageId, children}: {pageId: string; children: React.ReactNode}) {
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild onContextMenuCapture={passEditableContextMenuToBrowser}>
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
       <ContextMenuContent className={MENU_WIDTH_LG}>

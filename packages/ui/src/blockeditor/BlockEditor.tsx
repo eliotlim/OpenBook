@@ -134,6 +134,7 @@ import type {InlineAttrs} from './model';
 import {getPageIdForDoc} from '@/lib/aiBridge';
 import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/suggestBridge';
 import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelection, type SelectionReporter} from './localSelection';
+import {passEditableContextMenuToBrowser} from './nativeContextMenu';
 
 // Re-exported so the page host can type its onSelectionChange handler. Collab T5.
 export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
@@ -1684,7 +1685,15 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   if (editor.readOnly) return rowEl;
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{rowEl}</ContextMenuTrigger>
+      <ContextMenuTrigger
+        asChild
+        // CTX-4 seam: its collapsed anchor/link menu check belongs immediately
+        // before this general editable-selection passthrough, so anchors can
+        // claim their dedicated menu first when the branches are merged.
+        onContextMenuCapture={passEditableContextMenuToBrowser}
+      >
+        {rowEl}
+      </ContextMenuTrigger>
       <BlockRowMenu block={block} editor={editor} />
     </ContextMenu>
   );
