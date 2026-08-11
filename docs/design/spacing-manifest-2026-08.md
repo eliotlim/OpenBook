@@ -152,6 +152,8 @@ declaration carries a matching inline stylelint disable comment in `index.css`.
 | `.obe-root` bottom `padding` | `30vh` | The editor's click-to-append zone must scale with the viewport; its other padding components remain grid-aligned. |
 | `.ob-present-stage` `padding` | viewport `clamp()` | Presentation gutters scale with viewport dimensions while every minimum and maximum remains on-grid. |
 
+SPC-2 deliberately adopts the 4px canon for the former 1px `.obe-image-sizes` and `.obe-tb-color` gaps and `.obe-table-tools button` padding.
+
 Progress is directional, not a zero-debt gate: a remaining fixed width, viewport
 calculation, or deliberate circle can be valid. The stable category counts make
 that residual explicit instead of conflating it with padding and control-height

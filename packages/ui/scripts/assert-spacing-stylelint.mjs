@@ -10,14 +10,26 @@ async function warningsFor(code) {
   return result.results.flatMap(({warnings}) => warnings);
 }
 
-const validWarnings = await warningsFor('.spc2-positive-control { padding: 4px; }');
-if (validWarnings.length !== 0) {
-  throw new Error(`SPC-2 stylelint positive control failed: ${JSON.stringify(validWarnings)}`);
+async function assertAllowed(declaration) {
+  const warnings = await warningsFor(`.spc2-positive-control { ${declaration}; }`);
+  if (warnings.length !== 0) {
+    throw new Error(`SPC-2 stylelint positive control failed for ${declaration}: ${JSON.stringify(warnings)}`);
+  }
 }
 
-const invalidWarnings = await warningsFor('.spc2-negative-control { padding: 3px; }');
-if (!invalidWarnings.some((warning) => warning.rule === rule)) {
-  throw new Error('SPC-2 stylelint negative control did not reject padding: 3px');
+async function assertRejected(declaration) {
+  const warnings = await warningsFor(`.spc2-negative-control { ${declaration}; }`);
+  if (!warnings.some((warning) => warning.rule === rule)) {
+    throw new Error(`SPC-2 stylelint negative control did not reject ${declaration}`);
+  }
 }
 
-console.log('SPC-2 stylelint negative control rejected padding: 3px');
+await assertAllowed('padding: 4px');
+await assertAllowed('padding: calc(var(--x) + 4px)');
+
+await assertRejected('padding: 3px');
+await assertRejected('padding: calc(7px + var(--x))');
+await assertRejected('border-radius: calc(var(--radius) + 3px)');
+await assertRejected('PADDING: 7PX');
+
+console.log('SPC-2 stylelint controls passed (2 positive, 4 negative)');

@@ -895,6 +895,7 @@
    chrome, hover-revealed gutters, 8px radii, the document is the hero. */
 
 .obe-root {
+  --obe-indent-step: 1.5rem;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
      up with the title and icon on both edges — the drag gutter floats in the
@@ -957,17 +958,16 @@
   box-shadow: 0 2px 8px hsl(var(--foreground) / 0.25);
   white-space: nowrap;
 }
-.obe-indent-1 { margin-left: 1.5rem; }
-.obe-indent-2 { margin-left: 3rem; }
-.obe-indent-3 { margin-left: 5rem; }
-.obe-indent-4 { margin-left: 6rem; }
+.obe-indent-1 { margin-left: calc(var(--obe-indent-step) * 1); }
+.obe-indent-2 { margin-left: calc(var(--obe-indent-step) * 2); }
+.obe-indent-3 { margin-left: calc(var(--obe-indent-step) * 3); }
+.obe-indent-4 { margin-left: calc(var(--obe-indent-step) * 4); }
 
 .obe-gutter {
   position: absolute;
   left: -3.4rem;
-  /* Center the controls on the row's first 15px × 1.6 text line so the handle,
-     add button, and text read as one line. */
-  top: 1px;
+  /* Paired with .obe-row's top padding to stay on the first text line. */
+  top: 0;
   height: 1.5rem;
   display: flex;
   align-items: center;
