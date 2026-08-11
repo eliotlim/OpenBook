@@ -305,6 +305,7 @@ export default function AgentTokensSettings() {
             <SettingsSection title={t('agents.createTitle')} description={t('agents.capNote')}>
               <SettingsField label={t('agents.nameLabel')}>
                 <Input
+                  inputSize="sm"
                   value={name}
                   placeholder={t('agents.namePlaceholder')}
                   onChange={(e) => setName(e.target.value)}
@@ -314,6 +315,7 @@ export default function AgentTokensSettings() {
               <div className="flex flex-wrap gap-3">
                 <SettingsField label={t('agents.scopeLabel')} className="min-w-[220px] flex-1">
                   <Select
+                    inputSize="sm"
                     value={scope}
                     aria-label={t('agents.scopeLabel')}
                     onChange={(e) => setScope(e.target.value as AgentTokenScope)}
@@ -325,6 +327,7 @@ export default function AgentTokensSettings() {
                 </SettingsField>
                 <SettingsField label={t('agents.expiryLabel')} className="min-w-[140px]">
                   <Select
+                    inputSize="sm"
                     value={remote && expiry === 'never' ? '30' : expiry}
                     aria-label={t('agents.expiryLabel')}
                     onChange={(e) => setExpiry(e.target.value as Expiry)}
@@ -339,6 +342,7 @@ export default function AgentTokensSettings() {
                 {remoteEnabled && (
                   <SettingsField label={t('agents.remoteScopeLabel')} className="min-w-[180px]">
                     <Select
+                      inputSize="sm"
                       value={remote ? 'remote' : 'local'}
                       aria-label={t('agents.remoteScopeLabel')}
                       onChange={(e) => {

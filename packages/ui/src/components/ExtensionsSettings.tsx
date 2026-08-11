@@ -309,7 +309,7 @@ const StoreSection: React.FC<{
       {stores.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {stores.map((store) => (
-            <div key={store.baseUrl} data-store={store.baseUrl} className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+            <div key={store.baseUrl} data-store={store.baseUrl} className="flex items-center gap-3 rounded-md border border-border px-2.5 py-1.5">
               <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <span className="text-sm font-medium">{store.name}</span>
@@ -343,6 +343,7 @@ const StoreSection: React.FC<{
         }}
       >
         <Input
+          inputSize="sm"
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
@@ -351,7 +352,7 @@ const StoreSection: React.FC<{
           placeholder={t('extensions.storeUrl')}
           aria-label={t('extensions.storeUrl')}
           data-store-url
-          className="h-8 min-w-64 flex-1 font-mono text-xs"
+          className="min-w-64 flex-1 font-mono text-xs"
         />
         <Button type="submit" size="sm" variant="outline" disabled={!url.trim()} data-store-connect>
           {t('extensions.storeConnect')}
@@ -401,12 +402,13 @@ const StoreSection: React.FC<{
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
               <Input
+                inputSize="sm"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('extensions.storeSearch')}
                 aria-label={t('extensions.storeSearch')}
                 data-store-search
-                className="h-8 pl-8 text-sm"
+                className="pl-8 text-sm"
               />
             </div>
             <Button type="submit" size="sm" variant="outline" disabled={browsing} data-store-browse>
@@ -425,7 +427,7 @@ const StoreSection: React.FC<{
               const update = updates.get(row.entry.id);
               const claimsFirstParty = !!row.store.registryPublicKey && registryEntryPinnedKeys(row.entry).includes(row.store.registryPublicKey);
               return (
-                <div key={`${row.store.baseUrl}:${row.entry.id}`} data-store-result={row.entry.id} className="flex items-start gap-3 rounded-md border border-border px-3 py-2">
+                <div key={`${row.store.baseUrl}:${row.entry.id}`} data-store-result={row.entry.id} className="flex items-start gap-3 rounded-md border border-border px-2.5 py-1.5">
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/50 text-lg" aria-hidden>
                     {row.entry.icon || '🧩'}
                   </span>
@@ -610,7 +612,7 @@ const TrustedRegistries: React.FC = () => {
             <div
               key={registry.publicKey}
               data-registry={registry.name}
-              className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
+              className="flex items-center gap-3 rounded-md border border-border px-2.5 py-1.5"
             >
               <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
@@ -647,15 +649,17 @@ const TrustedRegistries: React.FC = () => {
         }}
       >
         <Input
+          inputSize="sm"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('extensions.registryName')}
           aria-label={t('extensions.registryName')}
           data-registry-name
-          className="h-8 w-44 text-sm"
+          className="w-44 text-sm"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <Input
+            inputSize="sm"
             value={publicKey}
             onChange={(e) => {
               setPublicKey(e.target.value);
@@ -664,7 +668,7 @@ const TrustedRegistries: React.FC = () => {
             placeholder={t('extensions.registryKey')}
             aria-label={t('extensions.registryKey')}
             data-registry-key
-            className={cn('h-8 min-w-44 font-mono text-xs', keyError && 'border-destructive')}
+            className={cn('min-w-44 font-mono text-xs', keyError && 'border-destructive')}
           />
           {keyError && (
             <p className="text-xs text-destructive" data-registry-key-error>

@@ -3,6 +3,7 @@ import type {InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {cleanError, isInstanceOwner} from '@/components/settings/adminGate';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
@@ -94,15 +95,16 @@ export default function LedgerAutoExportSettings() {
         </SettingsField>
         <SettingsField label={t('ledgerAutoExport.pathLabel')} hint={t('ledgerAutoExport.pathHint')}>
           <div className="flex items-center gap-2">
-            <input
+            <Input
               type="text"
+              inputSize="sm"
               value={path}
               disabled={busy || !isOwner}
               onChange={(e) => setPath(e.target.value)}
               placeholder={t('ledgerAutoExport.pathPlaceholder')}
               aria-label={t('ledgerAutoExport.pathLabel')}
               aria-describedby={isOwner ? undefined : OWNER_LOCKED_ID}
-              className="w-[340px] max-w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
+              className="w-[340px] max-w-full"
             />
             {enabled && dirty && (
               <Button size="sm" disabled={busy || !isOwner || path.trim() === ''} onClick={() => void save(path.trim())}>
