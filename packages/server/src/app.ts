@@ -10,6 +10,7 @@ import {
   ASSET_IMAGE_MIMES,
   CLIENT_HEADER,
   FORWARDED_HEADER,
+  FORM_SUBMISSION_PROPERTY_ID,
   PAGE_VISIBILITIES,
   type AclLevel,
   type AgentEditsPolicy,
@@ -86,7 +87,6 @@ import type {McpClientManager} from './ai/mcpClients';
 import type {AiUsageLog} from './ai/usage';
 import {
   FORM_SUBMISSION_MAX_BODY_BYTES,
-  FORM_SUBMISSION_PROVENANCE_PROPERTY,
   formSubmissionKey,
   requireFormSubmissionAccess,
   validateFormSubmissionRequest,
@@ -840,12 +840,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       );
       const input = validateFormSubmissionRequest(body);
       const submittedAt = new Date().toISOString();
-      const pageRow = await store.createRow(
+      const {page: pageRow, created} = await store.createRow(
         form.databaseId,
         {
           properties: {
             ...input.values,
-            [FORM_SUBMISSION_PROVENANCE_PROPERTY]: {formId: form.formId, submittedAt},
+            [FORM_SUBMISSION_PROPERTY_ID]: {formId: form.formId, submittedAt},
           },
         },
         c.get('principal'),
@@ -856,7 +856,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           },
         },
       );
-      const marker = pageRow.properties[FORM_SUBMISSION_PROVENANCE_PROPERTY];
+      const marker = pageRow.properties[FORM_SUBMISSION_PROPERTY_ID];
       const originalSubmittedAt =
         typeof marker === 'object' &&
         marker !== null &&
@@ -866,9 +866,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           : submittedAt;
 
       // A replay returns the original row/result and emits no duplicate durable
-      // edit-log entry. A same-millisecond replay may repeat only an ephemeral
-      // live notification; the write_keys transaction still prevents a row dup.
-      if (originalSubmittedAt === submittedAt) {
+      // or live side effects. The atomic write-key claim is the source of truth;
+      // wall-clock equality is not a reliable create/replay discriminator.
+      if (created) {
         hub.publishPage(pageRow);
         await broadcastRows(form.databaseId);
         logEdit(c, pageRow.id, 'form.submit', form.formId);

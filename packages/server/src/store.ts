@@ -211,6 +211,13 @@ export interface CreateRowOptions {
   };
 }
 
+/** Result of a row create that atomically claims an idempotency key. */
+export interface CreateRowResult {
+  page: StoredPage;
+  /** True only when this call won the key claim; false for every replay. */
+  created: boolean;
+}
+
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -365,6 +372,39 @@ const PAGE_COLUMNS =
   'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.position, p.created_at, p.updated_at, ' +
   'd.id AS hosted_database_id';
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
+
+/**
+ * Atomically claim one `(scope, key)` and create under its stable page id.
+ * Replays return the stored page; a hard-purged target is recreated under the
+ * recorded id but remains a replay (`created:false`) because this call did not
+ * win the claim.
+ */
+async function claimKeyedCreate(
+  tx: Db,
+  scope: string,
+  key: string,
+  create: (id: string) => Promise<StoredPage>,
+): Promise<CreateRowResult> {
+  const newId = randomUUID();
+  const claim = await tx.query<{page_id: string}>(
+    `INSERT INTO write_keys (author_subject, client_key, page_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (author_subject, client_key) DO NOTHING
+     RETURNING page_id`,
+    [scope, key, newId],
+  );
+  const created = claim.length > 0;
+  if (created) return {page: await create(newId), created};
+
+  const keyed = await tx.query<{page_id: string}>(
+    'SELECT page_id FROM write_keys WHERE author_subject = $1 AND client_key = $2',
+    [scope, key],
+  );
+  const keyedId = keyed[0]?.page_id ?? newId;
+  const rows = await tx.query<PageRow>(`SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`, [keyedId]);
+  if (rows.length > 0) return {page: pageFromRow(rows[0]), created};
+  return {page: await create(keyedId), created};
+}
 
 /**
  * Stable content hash of an import bundle (ER-6). Re-applying a byte-identical
@@ -895,6 +935,12 @@ export class PageStore {
       databaseId === ids.postings ||
       databaseId === ids.reconciliations
     );
+  }
+
+  /** True for an authoritative server-managed database (AI usage or ledger). */
+  async isManagedDatabase(databaseId: string): Promise<boolean> {
+    const usage = await this.getSetting<{databaseId?: string}>(USAGE_DB_SETTING_KEY);
+    return usage?.databaseId === databaseId || this.isLedgerDatabase(databaseId);
   }
 
   /**
@@ -2215,30 +2261,10 @@ export class PageStore {
     const subject = author?.subject;
     if (!input.id && clientKey && subject) {
       return this.db.begin(async (tx) => {
-        const newId = randomUUID();
-        const claim = await tx.query<{page_id: string}>(
-          `INSERT INTO write_keys (author_subject, client_key, page_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (author_subject, client_key) DO NOTHING
-           RETURNING page_id`,
-          [subject, clientKey, newId],
+        const result = await claimKeyedCreate(tx, subject, clientKey, (id) =>
+          this.upsertPageTx(tx, id, input, author, undefined, captureMode),
         );
-        // The key was already claimed by an earlier create from THIS principal →
-        // this is a replay. Return the page that create minted (whatever its
-        // current state), so the replay never produces a second page.
-        if (claim.length === 0) {
-          const keyed = await tx.query<{page_id: string}>(
-            'SELECT page_id FROM write_keys WHERE author_subject = $1 AND client_key = $2',
-            [subject, clientKey],
-          );
-          const keyedId = keyed[0]?.page_id ?? newId;
-          const rows = await tx.query<PageRow>(`SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`, [keyedId]);
-          if (rows.length > 0) return pageFromRow(rows[0]);
-          // The keyed page was hard-purged — re-create it under its recorded id so
-          // the key stays consistent across any further replays (rare edge).
-          return this.upsertPageTx(tx, keyedId, input, author, undefined, captureMode);
-        }
-        return this.upsertPageTx(tx, newId, input, author, undefined, captureMode);
+        return result.page;
       });
     }
     const id = input.id ?? randomUUID();
@@ -2875,6 +2901,15 @@ export class PageStore {
     return rows.length > 0 ? databaseFromRow(rows[0]) : null;
   }
 
+  /** Count non-deleted rows in one database (FORM-1 submission ceiling). */
+  async countActiveRows(databaseId: string): Promise<number> {
+    const rows = await this.db.query<{n: number | string}>(
+      'SELECT count(*) AS n FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
+      [databaseId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
   /** Update a database's name and/or schema. Only provided fields change. */
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase | null> {
     await this.assertNotLedgerDatabase(id); // LGR-3: the seeded schemas are enforcement-relevant
@@ -2926,10 +2961,21 @@ export class PageStore {
    */
   async createRow(
     databaseId: string,
+    input?: RowInput,
+    author?: Principal,
+  ): Promise<StoredPage>;
+  async createRow(
+    databaseId: string,
+    input: RowInput,
+    author: Principal | undefined,
+    opts: CreateRowOptions & {idempotency: NonNullable<CreateRowOptions['idempotency']>},
+  ): Promise<CreateRowResult>;
+  async createRow(
+    databaseId: string,
     input: RowInput = {},
     author?: Principal,
     opts?: CreateRowOptions,
-  ): Promise<StoredPage> {
+  ): Promise<StoredPage | CreateRowResult> {
     // LGR-3: ledger rows are minted only by `LedgerStore` (which writes inside
     // its own transaction, never through here) — every other caller is rejected,
     // in server AND browser-local mode alike.
@@ -2937,29 +2983,9 @@ export class PageStore {
     const scope = opts?.idempotency?.scope.trim();
     const clientKey = opts?.idempotency?.key.trim();
     if (scope && clientKey) {
-      return this.db.begin(async (tx) => {
-        const newId = randomUUID();
-        const claim = await tx.query<{page_id: string}>(
-          `INSERT INTO write_keys (author_subject, client_key, page_id)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (author_subject, client_key) DO NOTHING
-           RETURNING page_id`,
-          [scope, clientKey, newId],
-        );
-        if (claim.length === 0) {
-          const keyed = await tx.query<{page_id: string}>(
-            'SELECT page_id FROM write_keys WHERE author_subject = $1 AND client_key = $2',
-            [scope, clientKey],
-          );
-          const keyedId = keyed[0]?.page_id ?? newId;
-          const rows = await tx.query<PageRow>(`SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`, [keyedId]);
-          if (rows.length > 0) return pageFromRow(rows[0]);
-          // Match the page-create ledger's rare hard-purge posture: recreate under
-          // the recorded id so all later replays remain stable.
-          return this.createRowTx(tx, keyedId, databaseId, input, author);
-        }
-        return this.createRowTx(tx, newId, databaseId, input, author);
-      });
+      return this.db.begin((tx) =>
+        claimKeyedCreate(tx, scope, clientKey, (id) => this.createRowTx(tx, id, databaseId, input, author)),
+      );
     }
     return this.db.begin((tx) => this.createRowTx(tx, randomUUID(), databaseId, input, author));
   }
