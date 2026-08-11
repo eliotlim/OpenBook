@@ -22,8 +22,8 @@ const populatedSchema = (): FormSchema => ({
   confirmation: {message: 'Received'},
 });
 
-function formHarness() {
-  const schema = populatedSchema();
+function formHarness(over: Partial<FormSchema> = {}) {
+  const schema = {...populatedSchema(), ...over};
   const doc = createDoc([{id: 'form-block', type: 'form', props: {
     formId: schema.formId,
     submissionKey: schema.submissionKey,
@@ -112,6 +112,63 @@ describe('form block registration and wire shape', () => {
       </KitLockContext.Provider>,
     );
     expect(view.container.querySelector('[data-form-mode="readonly"]')).toBeTruthy();
+  });
+
+  it('renders a live form on an operable read-only page and freezes an interactive opt-out', () => {
+    const {Render, block, editor} = formHarness();
+    const client = {submitForm: vi.fn()} as unknown as DataClient;
+    const view = render(
+      <DataProvider client={client}>
+        <FormOriginContext.Provider value="https://example.test/?page=contact">
+          <Render block={block} editor={editor} pageReadOnly />
+        </FormOriginContext.Provider>
+      </DataProvider>,
+    );
+    expect(view.container.querySelector('[data-form-mode="live"]')).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Submit'}).hasAttribute('disabled')).toBe(false);
+
+    view.rerender(
+      <DataProvider client={client}>
+        <FormOriginContext.Provider value="https://example.test/?page=contact">
+          <Render block={block} editor={{...editor, readOnly: true}} pageReadOnly />
+        </FormOriginContext.Provider>
+      </DataProvider>,
+    );
+    expect(view.container.querySelector('[data-form-mode="readonly"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-mode="live"]')).toBeNull();
+  });
+
+  it('keeps a group-locked form frozen on an editable page when live prerequisites exist', () => {
+    const {Render, block, editor} = formHarness();
+    const client = {submitForm: vi.fn()} as unknown as DataClient;
+    const {container} = render(
+      <DataProvider client={client}>
+        <FormOriginContext.Provider value="https://example.test/?page=contact">
+          <KitLockContext.Provider value={{locked: true}}>
+            <Render block={block} editor={editor} pageReadOnly={false} />
+          </KitLockContext.Provider>
+        </FormOriginContext.Provider>
+      </DataProvider>,
+    );
+
+    expect(container.querySelector('[data-form-mode="readonly"]')).toBeTruthy();
+  });
+
+  it.each([
+    ['disabled', {enabled: false}],
+    ['zero-cap', {maxSubmissions: 0}],
+  ] as const)('renders the closed state for a %s live form', (_name, over) => {
+    const {Render, block, editor} = formHarness(over);
+    const client = {submitForm: vi.fn()} as unknown as DataClient;
+    const {container} = render(
+      <DataProvider client={client}>
+        <FormOriginContext.Provider value="https://example.test/?page=contact">
+          <Render block={block} editor={editor} pageReadOnly />
+        </FormOriginContext.Provider>
+      </DataProvider>,
+    );
+    expect(container.querySelector('[data-form-state="closed"]')?.textContent).toBe('This form is closed.');
+    expect(client.submitForm).not.toHaveBeenCalled();
   });
 
   it('resolves the bound database name and row count through the data client', async () => {

@@ -20,7 +20,8 @@ import type {
 } from './ai';
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
-import type {FormSubmissionRequest, FormSubmissionResult} from './forms';
+import {FormSubmissionError, type FormSubmissionRequest, type FormSubmissionResult} from './forms';
+import {FORM_VALIDATION_ERROR_CODES, type FormValidationError} from './formSchema';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
@@ -118,6 +119,12 @@ export interface DataClient {
   getPage(id: string): Promise<StoredPage | null>;
   /** Create or update a page (upsert keyed on `input.id`). */
   savePage(input: PageInput): Promise<StoredPage>;
+  /** Public capability-gated form submission (remote HTTP clients only). */
+  submitForm?(
+    pageId: string,
+    formId: string,
+    input: FormSubmissionRequest,
+  ): Promise<FormSubmissionResult>;
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /**
@@ -1189,7 +1196,39 @@ export class HttpDataClient implements DataClient {
     formId: string,
     input: FormSubmissionRequest,
   ): Promise<FormSubmissionResult> {
-    return this.request<FormSubmissionResult>('POST', API.formSubmissions(pageId, formId), input);
+    const res = await this.authFetch(`${this.baseUrl}${API.formSubmissions(pageId, formId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      let errors: FormValidationError[] = [];
+      try {
+        const payload = (await res.json()) as {errors?: unknown};
+        const codes = new Set<string>(FORM_VALIDATION_ERROR_CODES);
+        if (Array.isArray(payload.errors)) {
+          errors = payload.errors.flatMap((value) => {
+            if (
+              value &&
+              typeof value === 'object' &&
+              'fieldId' in value &&
+              typeof value.fieldId === 'string' &&
+              'code' in value &&
+              typeof value.code === 'string' &&
+              codes.has(value.code)
+            ) {
+              return [{fieldId: value.fieldId, code: value.code as FormValidationError['code']}];
+            }
+            return [];
+          });
+        }
+      } catch {
+        // Status is sufficient for unavailable/too-large handling.
+      }
+      throw new FormSubmissionError(res.status, errors);
+    }
+    return (await res.json()) as FormSubmissionResult;
   }
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {

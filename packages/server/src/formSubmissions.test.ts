@@ -8,6 +8,8 @@ import {
   generateSubmissionKey,
   mintIdentityKeypair,
   signIdentity,
+  type DatabaseSchema,
+  type FormField,
   type IdentityClaims,
   type IdentityKeypair,
   type Jwks,
@@ -83,17 +85,39 @@ afterEach(async () => {
 
 const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
 
-async function seedForm(over: {enabled?: boolean; visibility?: 'public' | 'members' | 'restricted'; maxSubmissions?: number} = {}) {
+async function seedForm(over: {
+  enabled?: boolean;
+  visibility?: 'public' | 'members' | 'restricted';
+  maxSubmissions?: number;
+  fields?: FormField[];
+  databaseSchema?: DatabaseSchema;
+} = {}) {
   const page = await store.upsertPage({name: `form-host-${seq}`, data: emptySnapshot()});
-  const database = await store.createDatabase({pageId: page.id, name: 'Submissions'});
+  const database = await store.createDatabase({
+    pageId: page.id,
+    name: 'Submissions',
+    schema: over.databaseSchema ?? {
+      properties: [{id: 'email', name: 'Email', type: 'email'}],
+      views: [],
+    },
+  });
   const formId = `contact-${seq}`;
   const submissionKey = generateSubmissionKey();
+  const enabled = over.enabled ?? true;
   const props = {
     formId,
     submissionKey,
-    enabled: over.enabled ?? true,
+    enabled,
     databaseId: database.id,
-    schema: {fields: [], ...(over.maxSubmissions === undefined ? {} : {maxSubmissions: over.maxSubmissions})},
+    schema: {
+      formId,
+      submissionKey,
+      enabled,
+      databaseId: database.id,
+      fields: over.fields ?? [{id: 'email', kind: 'email', label: 'Email', required: false, columnId: 'email'}],
+      confirmation: {message: 'Received'},
+      ...(over.maxSubmissions === undefined ? {} : {maxSubmissions: over.maxSubmissions}),
+    },
   };
   await store.upsertPage({
     id: page.id,
@@ -149,6 +173,120 @@ describe('POST /api/pages/:pageId/forms/:formId/submissions', () => {
       formId: seeded.formId,
       submittedAt: result.submittedAt,
     });
+  });
+
+  it('returns schema field errors only after the capability gate passes', async () => {
+    const seeded = await seedForm();
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `invalid-${seq}`, {email: 'not-an-email'}),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({errors: [{fieldId: 'email', code: 'email_format'}]});
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
+
+    const denied = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody('wrong-key', `invalid-denied-${seq}`, {email: 'not-an-email'}),
+    );
+    expect(`${denied.status}\n${await denied.text()}`).toBe('404\n{"error":"form not found"}');
+  });
+
+  it('silently fake-succeeds a tripped honeypot without creating a row', async () => {
+    const seeded = await seedForm({
+      fields: [
+        {id: 'email', kind: 'email', label: 'Email', required: false, columnId: 'email'},
+        {id: 'website', kind: 'text', label: 'Website', required: false, honeypot: true},
+      ],
+    });
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `honeypot-${seq}`, {
+        email: 'bot@example.com',
+        website: 'https://spam.example',
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const result = (await response.json()) as {rowId: string; submittedAt: string};
+    expect(result.rowId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(Number.isFinite(Date.parse(result.submittedAt))).toBe(true);
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
+  });
+
+  it('projects validated field values onto bound database property ids', async () => {
+    const seeded = await seedForm({
+      fields: [{id: 'contactEmail', kind: 'email', label: 'Email', required: true, columnId: 'email'}],
+    });
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `projected-${seq}`, {contactEmail: 'ada@example.com'}),
+    );
+
+    expect(response.status).toBe(201);
+    const rows = await store.listRows(seeded.databaseId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].properties.email).toBe('ada@example.com');
+    expect(rows[0].properties).not.toHaveProperty('contactEmail');
+  });
+
+  it('logs discarded projection warnings without changing the success response', async () => {
+    const seeded = await seedForm({
+      fields: [
+        {id: 'unbound', kind: 'text', label: 'Unbound', required: false},
+        {id: 'missing', kind: 'text', label: 'Missing', required: false, columnId: 'missing'},
+        {id: 'mismatch', kind: 'text', label: 'Mismatch', required: false, columnId: 'email'},
+      ],
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await submit(
+      app(),
+      seeded.pageId,
+      seeded.formId,
+      submissionBody(seeded.submissionKey, `warnings-${seq}`, {
+        unbound: 'one',
+        missing: 'two',
+        mismatch: 'three',
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const result = await response.json() as Record<string, unknown>;
+    expect(Object.keys(result).sort()).toEqual(['rowId', 'submittedAt']);
+    expect(warn).toHaveBeenCalledWith('OpenBook form submission projection discarded fields:', {
+      pageId: seeded.pageId,
+      formId: seeded.formId,
+      warnings: [
+        {fieldId: 'unbound', code: 'unbound_field'},
+        {fieldId: 'missing', code: 'column_not_found'},
+        {fieldId: 'mismatch', code: 'column_type_mismatch'},
+      ],
+    });
+  });
+
+  it.each([
+    ['non-object schema', null],
+    ['non-array fields', {fields: {}}],
+  ] as const)('uniformly denies a persisted %s', async (_name, schema) => {
+    const seeded = await seedForm();
+    await store.upsertPage({
+      id: seeded.pageId,
+      name: `form-host-${seq}`,
+      data: formSnapshot({...seeded.props, schema}),
+    });
+
+    const response = await submit(app(), seeded.pageId, seeded.formId, submissionBody(seeded.submissionKey));
+    expect(`${response.status}\n${await response.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.listRows(seeded.databaseId)).toHaveLength(0);
   });
 
   it('returns byte-identical denials for every existence/capability/read failure', async () => {

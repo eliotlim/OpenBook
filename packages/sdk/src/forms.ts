@@ -1,3 +1,5 @@
+import type {FormValidationError} from './formSchema';
+
 /** Payload accepted by the anonymous form-submission endpoint. */
 export interface FormSubmissionRequest {
   /** Per-form capability carried by the form block's persisted props. */
@@ -12,6 +14,17 @@ export interface FormSubmissionRequest {
 export interface FormSubmissionResult {
   rowId: string;
   submittedAt: string;
+}
+
+/** Typed non-success response from the public form-submission endpoint. */
+export class FormSubmissionError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly errors: FormValidationError[] = [],
+  ) {
+    super(`Form submission failed (${status})`);
+    this.name = 'FormSubmissionError';
+  }
 }
 
 /**
