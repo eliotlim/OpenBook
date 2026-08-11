@@ -5,6 +5,7 @@
  */
 import type {DocBlock, DocModel, InlineRun, ListItem} from './documentModel';
 import {describeUnknownBlock} from '@/blockeditor/unknownBlock';
+import {t} from '@/i18n';
 import {formatValue} from './format';
 import {pageIconToText} from '@/lib/iconValue';
 
@@ -181,6 +182,10 @@ function blockToMd(block: DocBlock): string {
     const body = block.src ? `![${alt}](${block.src})` : `_${alt || 'Image'}_`;
     return block.caption ? `${body}\n\n*${escapeMd(block.caption)}*` : body;
   }
+  case 'form':
+    return block.fields.length === 0
+      ? `**${escapeMd(t('formBlock.label'))}**\n\n- ${escapeMd(t('formBlock.noFields'))}`
+      : `**${escapeMd(t('formBlock.label'))}**\n\n${block.fields.map((field) => `- ${escapeMd(field.label || t('formBlock.untitledField'))} (${escapeMd(field.kind)}${field.required ? `, ${escapeMd(t('formBlock.required'))}` : ''})`).join('\n')}`;
   case 'unknown': {
     // A plugin / newer-version block: a labelled blockquote (same words the app
     // and the HTML export use), plus any text the block carried.

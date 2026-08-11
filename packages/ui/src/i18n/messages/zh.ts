@@ -11,6 +11,7 @@ export const zh: PartialMessages = {
     untitled: '无标题',
     undo: '撤销',
     settings: '设置',
+    noOptions: '没有选项',
   },
   settings: {
     title: '设置',
@@ -544,6 +545,23 @@ export const zh: PartialMessages = {
     remove: '移除链接',
     urlLabel: '链接地址',
   },
+  formBlock: {
+    label: '表单',
+    untitledField: '未命名字段',
+    required: '必填',
+    noFields: '尚无字段。',
+    openBuilder: '打开构建器',
+    submit: '提交',
+    liveLink: '在在线站点填写此表单',
+    formId: '表单 ID',
+    destination: '提交数据库',
+    noDatabase: '未绑定数据库',
+    database: '数据库',
+    databaseUnavailable: '数据库不可用',
+    databaseId: '数据库 {id}',
+    loadingDatabase: '正在加载数据库…',
+    databaseSummary: '{name} · {count} 行',
+  },
   slash: {
     text: {label: '文本', hint: '普通段落'},
     h1: {label: '标题 1', hint: '大节标题'},
@@ -579,6 +597,7 @@ export const zh: PartialMessages = {
       statuslight: {label: '状态灯', hint: '由实时值得出绿 / 黄 / 红'},
       tooltipcard: {label: '工具提示', hint: '悬停即可自我解释的术语'},
       linkcard: {label: '链接卡片', hint: '带标题、可打开 URL 的卡片'},
+      form: {label: '表单', hint: '将结构化回复收集到数据库'},
     },
   },
   extensions: {
@@ -1111,10 +1130,25 @@ export const zh: PartialMessages = {
     emptyHint: '用 @ 从其他页面提及此页面，否则它的名称会作为未链接的提及显示在这里。',
   },
   database: {
+    empty: {
+      noGroups: '还没有分组。',
+      noConditions: '还没有筛选条件。',
+      noSorts: '还没有排序。',
+    },
     toolbar: {
       group: '分组',
       fields: '字段',
       removeGrouping: '移除分组',
+    },
+    viewMenu: {
+      rename: '重命名视图',
+      duplicate: '复制视图',
+      changeType: '更改类型',
+      delete: '删除视图',
+    },
+    chipMenu: {
+      edit: '编辑…',
+      remove: '移除',
     },
     rowMenu: {
       open: '打开',

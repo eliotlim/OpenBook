@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
+import {FormOriginContext, formOriginUrl} from '@/blockeditor/FormBlockView';
 import {decodeSnapshot, rootBlocks, type BlockDocSnapshot} from '@/blockeditor/model';
 import {KitPageLockContext} from '@/blockeditor/kit/lock';
 import {StaticKeepContext, type StaticKeepNodes} from '@/blockeditor/staticKeep';
@@ -51,7 +52,7 @@ const hashPageId = (): string | null => {
 };
 
 /** One page, rendered read-only with live widgets. */
-const PageView: React.FC<{page: ViewerPage}> = ({page}) => {
+const PageView: React.FC<{page: ViewerPage; originUrl?: string}> = ({page, originUrl}) => {
   // The Y.Doc is rebuilt per page from the island snapshot (base64 update,
   // falling back to the JSON blocks projection) and lives only in memory.
   const doc = useMemo(() => decodeSnapshot(blockdocOf(page.data)), [page]);
@@ -67,15 +68,23 @@ const PageView: React.FC<{page: ViewerPage}> = ({page}) => {
         )}
         {title}
       </h1>
-      <PresentBlocks doc={doc} blocks={blocks} />
+      <FormOriginContext.Provider value={originUrl ?? formOriginUrl(page.id)}>
+        <PresentBlocks doc={doc} blocks={blocks} />
+      </FormOriginContext.Provider>
     </article>
   );
 };
 
-export const ViewerApp: React.FC<{source: ViewerSource; initialPage?: string; staticBlocks?: StaticKeepNodes}> = ({
+export const ViewerApp: React.FC<{
+  source: ViewerSource;
+  initialPage?: string;
+  staticBlocks?: StaticKeepNodes;
+  formOrigins?: Record<string, string>;
+}> = ({
   source,
   initialPage,
   staticBlocks,
+  formOrigins,
 }) => {
   const pages = useMemo(() => pagesOf(source), [source]);
 
@@ -149,7 +158,7 @@ export const ViewerApp: React.FC<{source: ViewerSource; initialPage?: string; st
                   ))}
                 </nav>
               )}
-              <PageView key={active.id} page={active} />
+              <PageView key={active.id} page={active} originUrl={formOrigins?.[active.id]} />
             </div>
           </SandboxCspContext.Provider>
         </KitPageLockContext.Provider>

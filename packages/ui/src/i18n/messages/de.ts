@@ -11,6 +11,7 @@ export const de: PartialMessages = {
     untitled: 'Unbenannt',
     undo: 'Rückgängig',
     settings: 'Einstellungen',
+    noOptions: 'Keine Optionen',
   },
   settings: {
     title: 'Einstellungen',
@@ -551,6 +552,23 @@ export const de: PartialMessages = {
     remove: 'Link entfernen',
     urlLabel: 'Link-URL',
   },
+  formBlock: {
+    label: 'Formular',
+    untitledField: 'Unbenanntes Feld',
+    required: 'erforderlich',
+    noFields: 'Noch keine Felder.',
+    openBuilder: 'Builder öffnen',
+    submit: 'Absenden',
+    liveLink: 'Dieses Formular auf der Live-Seite ausfüllen',
+    formId: 'Formular-ID',
+    destination: 'Datenbank für Einreichungen',
+    noDatabase: 'Keine Datenbank verknüpft',
+    database: 'Datenbank',
+    databaseUnavailable: 'Datenbank nicht verfügbar',
+    databaseId: 'Datenbank {id}',
+    loadingDatabase: 'Datenbank wird geladen…',
+    databaseSummary: '{name} · {count} Zeilen',
+  },
   slash: {
     text: {label: 'Text', hint: 'Einfacher Absatz'},
     h1: {label: 'Überschrift 1', hint: 'Große Abschnittsüberschrift'},
@@ -586,6 +604,7 @@ export const de: PartialMessages = {
       statuslight: {label: 'Statusleuchte', hint: 'Grün / Gelb / Rot aus einem Live-Wert'},
       tooltipcard: {label: 'Tooltip', hint: 'Ein Begriff, der sich beim Überfahren erklärt'},
       linkcard: {label: 'Link-Karte', hint: 'Eine betitelte Karte, die eine URL öffnet'},
+      form: {label: 'Formular', hint: 'Strukturierte Antworten in einer Datenbank sammeln'},
     },
   },
   extensions: {
@@ -1124,10 +1143,25 @@ export const de: PartialMessages = {
     emptyHint: 'Erwähne diese Seite von einer anderen mit @, sonst erscheint ihr Name hier als unverknüpfte Erwähnung.',
   },
   database: {
+    empty: {
+      noGroups: 'Noch keine Gruppen.',
+      noConditions: 'Noch keine Bedingungen.',
+      noSorts: 'Noch keine Sortierungen.',
+    },
     toolbar: {
       group: 'Gruppieren',
       fields: 'Felder',
       removeGrouping: 'Gruppierung entfernen',
+    },
+    viewMenu: {
+      rename: 'Ansicht umbenennen',
+      duplicate: 'Ansicht duplizieren',
+      changeType: 'Typ ändern',
+      delete: 'Ansicht löschen',
+    },
+    chipMenu: {
+      edit: 'Bearbeiten…',
+      remove: 'Entfernen',
     },
     rowMenu: {
       open: 'Öffnen',

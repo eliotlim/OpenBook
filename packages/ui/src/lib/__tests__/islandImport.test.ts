@@ -9,6 +9,7 @@ import type {
   PageSnapshot,
   StoredPage,
 } from '@book.dev/sdk';
+import {mintMissingFormSubmissionKeys} from '../../blockeditor/formBlock';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {toHtml, toHtmlSite} from '../../export/toHtml';
@@ -128,6 +129,99 @@ describe('single-page export → island-first import (round trip)', () => {
     // The landed block-doc deep-equals the original (ids included) — the island
     // carried the source, not the rendered HTML.
     expect(blocksOf(saved[0].data)).toEqual(blocksOf(snapshot));
+  });
+
+  it('mints a fresh form submission key when a sanitized export is imported', async () => {
+    const sourceKey = 'Qx7_vN2kL9pR4tY8mC3sJw';
+    const formId = 'form-contact';
+    const schema = {
+      formId,
+      submissionKey: sourceKey,
+      enabled: true,
+      fields: [],
+      confirmation: {message: 'Received'},
+    };
+    const snapshot = projectSnapshotForExport(blockSnapshot([{
+      id: 'form-block',
+      type: 'form',
+      props: {formId, submissionKey: sourceKey, enabled: true, schema},
+    }]));
+    const html = toHtml(snapshot, 'Contact', '', new Map(), {id: 'contact'});
+    expect(html).not.toContain(sourceKey);
+
+    const parsed = parseHtmlImport(html);
+    expect(parsed.kind).toBe('island');
+    if (parsed.kind !== 'island') return;
+    const {client, saved} = mockClient();
+    await runIslandImport(client, parsed.island, parsed.assets);
+
+    const imported = (blocksOf(saved[0].data) as Array<{props: Record<string, unknown>}>)[0].props;
+    const importedSchema = imported.schema as Record<string, unknown>;
+    expect(imported.formId).toBe(formId);
+    expect(importedSchema.formId).toBe(formId);
+    expect(imported.submissionKey).toMatch(/^[A-Za-z0-9_-]{22,}$/);
+    expect(imported.submissionKey).not.toBe(sourceKey);
+    expect(importedSchema.submissionKey).toBe(imported.submissionKey);
+  });
+
+  it('mints a fresh form submission key inside a columns layout on import', async () => {
+    const sourceKey = 'Qx7_vN2kL9pR4tY8mC3sJw';
+    const formId = 'form-columns-contact';
+    const schema = {
+      formId,
+      submissionKey: sourceKey,
+      enabled: true,
+      fields: [],
+      confirmation: {message: 'Received'},
+    };
+    const snapshot = projectSnapshotForExport(blockSnapshot([{
+      id: 'columns-block',
+      type: 'columns',
+      children: [{
+        id: 'form-column',
+        type: 'column',
+        children: [{
+          id: 'nested-form-block',
+          type: 'form',
+          props: {formId, submissionKey: sourceKey, enabled: true, schema},
+        }],
+      }],
+    }]));
+    const html = toHtml(snapshot, 'Contact columns', '', new Map(), {id: 'contact-columns'});
+    expect(html.split(sourceKey).length - 1).toBe(0);
+
+    const parsed = parseHtmlImport(html);
+    expect(parsed.kind).toBe('island');
+    if (parsed.kind !== 'island') return;
+    expect(parsed.island.kind).toBe('page');
+    if (parsed.island.kind !== 'page') return;
+
+    const reminted = mintMissingFormSubmissionKeys(parsed.island.record.data);
+    const remintedRoot = (reminted.editorjs as {
+      blocks: Array<{data: {columns: Array<Array<{data: Record<string, unknown>}>>}}>;
+    }).blocks[0];
+    const remintedProjected = remintedRoot.data.columns[0][0].data;
+    const remintedProps = remintedProjected.props as Record<string, unknown>;
+    expect(remintedProjected.submissionKey).toMatch(/^[A-Za-z0-9_-]{22,}$/);
+    expect(remintedProjected.submissionKey).not.toBe(sourceKey);
+    expect((remintedProjected.schema as Record<string, unknown>).submissionKey)
+      .toBe(remintedProjected.submissionKey);
+    expect(remintedProps.submissionKey).toBe(remintedProjected.submissionKey);
+    expect((remintedProps.schema as Record<string, unknown>).submissionKey)
+      .toBe(remintedProjected.submissionKey);
+
+    const {client, saved} = mockClient();
+    await runIslandImport(client, parsed.island, parsed.assets);
+
+    const importedRoot = (blocksOf(saved[0].data) as Array<{
+      children: Array<{children: Array<{props: Record<string, unknown>}>}>;
+    }>)[0];
+    const imported = importedRoot.children[0].children[0].props;
+    const importedSchema = imported.schema as Record<string, unknown>;
+    expect(imported.formId).toBe(formId);
+    expect(imported.submissionKey).toMatch(/^[A-Za-z0-9_-]{22,}$/);
+    expect(imported.submissionKey).not.toBe(sourceKey);
+    expect(importedSchema.submissionKey).toBe(imported.submissionKey);
   });
 
   it('restores asset bytes byte-identically — content addressing yields the SAME id', async () => {

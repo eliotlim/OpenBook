@@ -23,11 +23,11 @@ export default function SideNav() {
     <Drawer open={hud.sideNav.open} docked={hud.sideNav.docked}>
       <div className="flex h-full flex-col">
         {!inWindowTabs && (
-          <div className="px-2 pt-2">
+          <div className="px-3 pt-2">
             <LibrarySelectMenu />
           </div>
         )}
-        <div className="flex flex-col gap-0.5 px-2 pb-1.5 pt-1">
+        <div className="flex flex-col gap-0.5 px-3 pb-1.5 pt-1">
           <HomeButton />
           <CommandToggle />
           <SettingsButton />
@@ -46,7 +46,7 @@ export default function SideNav() {
         </div>
         <OnboardingNudge />
         {!servedSameOrigin && (
-          <div className="flex items-center border-t border-border/60 px-2 py-1.5">
+          <div className="flex items-center border-t border-border/60 px-3 py-1.5">
             <ProfileMenu />
           </div>
         )}

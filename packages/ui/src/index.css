@@ -89,6 +89,14 @@
 
   --container-content: 46rem;
 
+  /* ── Spacing + control-height scale ──────────────────────────────────────
+     The 4px grid is the only legal spacing grid for new work. Control heights
+     use this semantic scale so components do not introduce one-off sizes. */
+  --height-control-xs: 24px;
+  --height-control-sm: 28px;
+  --height-control-md: 32px;
+  --height-control-lg: 36px;
+
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -544,6 +552,7 @@
    line all stay intact. Web keeps its top inset, so `data-titlebar` is absent
    there and the sheets sit fully framed on the cover. */
 .ob-desk-row[data-titlebar='true'] {
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- SPC-2: optical 1px sheet/titlebar seam; manifest section 4. */
   margin-top: -1px;
 }
 /* Split view: the two pages meet at a central seam (the book's spine). No gap;
@@ -636,7 +645,7 @@
 .ob-mention {
   cursor: pointer;
   white-space: nowrap;
-  padding: 0 0.15em;
+  padding: 0 4px;
   border-radius: calc(var(--radius) - 2px);
   color: inherit;
   font-weight: 500;
@@ -652,14 +661,14 @@
 /* Give the interactive blocks a little breathing room within the document
    flow so they read as distinct cards rather than crowding adjacent text. */
 .reactive-block {
-  margin: 0.35rem 0;
+  margin: 0.25rem 0;
 }
 /* @cell references inside an expression render as inline chips: monospace,
    tinted with the brand color, non-editable as a single atomic token. */
 .cell-token {
   display: inline-block;
-  padding: 0 0.3em;
-  margin: 0 0.05em;
+  padding: 0 4px;
+  margin: 0;
   border-radius: calc(var(--radius) - 2px);
   background-color: hsl(var(--brand-subtle));
   color: hsl(var(--brand));
@@ -693,9 +702,9 @@
 .block-callout {
   --callout: 217 91% 60%; /* info */
   display: flex;
-  gap: 0.6rem;
-  margin: 0.4rem 0;
-  padding: 0.7rem 0.85rem;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.75rem;
   border: 1px solid hsl(var(--callout) / 0.35);
   border-radius: var(--radius);
   background: hsl(var(--callout) / 0.08);
@@ -721,15 +730,15 @@
 
 /* Accordion — collapsible summary + body with a rotating chevron. */
 .block-accordion {
-  margin: 0.4rem 0;
+  margin: 0.5rem 0;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  padding: 0.2rem 0.75rem;
+  padding: 0.25rem 0.75rem;
 }
 .block-accordion__header {
   display: flex;
   align-items: flex-start;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 .block-accordion__chevron {
   flex: none;
@@ -738,7 +747,7 @@
   border: 0;
   background: transparent;
   color: hsl(var(--muted-foreground));
-  padding: 0.35rem 0.1rem;
+  padding: 0.25rem 0;
   transition: transform 0.15s ease;
 }
 .block-accordion[data-open='true'] .block-accordion__chevron {
@@ -747,12 +756,12 @@
 .block-accordion__title {
   flex: 1;
   font-weight: 600;
-  padding: 0.3rem 0;
+  padding: 0.25rem 0;
   line-height: 1.5;
   outline: none;
 }
 .block-accordion__content {
-  padding: 0 0 0.5rem 1.4rem;
+  padding: 0 0 0.5rem 1.5rem;
   line-height: 1.6;
   outline: none;
 }
@@ -764,7 +773,7 @@
 .block-divider {
   display: flex;
   align-items: center;
-  margin: 0.9rem 0;
+  margin: 1rem 0;
 }
 .block-divider::before {
   content: '';
@@ -813,7 +822,7 @@
   border-radius: calc(var(--radius) - 2px);
   background: transparent;
   color: hsl(var(--foreground));
-  padding: 0.35rem 0.6rem;
+  padding: 0.375rem 0.625rem;
   font-size: 0.85rem;
   outline: none;
 }
@@ -826,7 +835,7 @@
   display: inline-block;
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
-  padding: 0.45rem 1.1rem;
+  padding: 0.5rem 1rem;
   border-radius: var(--radius);
   font-weight: 600;
   font-size: 0.9rem;
@@ -842,11 +851,11 @@
 /* Table of contents. */
 .block-toc {
   margin: 0.5rem 0;
-  padding: 0.4rem 0.85rem;
+  padding: 0.5rem 0.75rem;
   border-left: 3px solid hsl(var(--border));
 }
 .block-toc__label {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.25rem;
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -864,7 +873,7 @@
   padding: 0;
 }
 .block-toc__item {
-  margin: 0.1rem 0;
+  margin: 0;
 }
 .block-toc__link {
   border: 0;
@@ -873,7 +882,7 @@
   text-align: left;
   color: hsl(var(--muted-foreground));
   font-size: 0.875rem;
-  padding: 0.1rem 0;
+  padding: 0;
 }
 .block-toc__link:hover {
   color: hsl(var(--foreground));
@@ -886,12 +895,14 @@
    chrome, hover-revealed gutters, 8px radii, the document is the hero. */
 
 .obe-root {
+  --obe-indent-step: 1.5rem;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
      up with the title and icon on both edges — the drag gutter floats in the
      left margin. Full-width mode (.obe-full) drops the cap entirely. */
   max-width: var(--container-content, 46rem);
   margin-inline: auto;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- SPC-2: viewport-relative append zone; manifest section 4. */
   padding: 0.25rem 0 30vh;
   font-size: 15px;
   line-height: 1.65;
@@ -912,7 +923,7 @@
   display: flex;
   align-items: flex-start;
   border-radius: 8px;
-  padding: 1px 0;
+  padding: 0;
 }
 .obe-row-selected {
   background: hsl(var(--accent) / 0.55);
@@ -938,7 +949,7 @@
 .obe-drag-ghost {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 13px;
   font-weight: 600;
   color: hsl(var(--primary-foreground));
@@ -947,21 +958,20 @@
   box-shadow: 0 2px 8px hsl(var(--foreground) / 0.25);
   white-space: nowrap;
 }
-.obe-indent-1 { margin-left: 1.6rem; }
-.obe-indent-2 { margin-left: 3.2rem; }
-.obe-indent-3 { margin-left: 4.8rem; }
-.obe-indent-4 { margin-left: 6.4rem; }
+.obe-indent-1 { margin-left: calc(var(--obe-indent-step) * 1); }
+.obe-indent-2 { margin-left: calc(var(--obe-indent-step) * 2); }
+.obe-indent-3 { margin-left: calc(var(--obe-indent-step) * 3); }
+.obe-indent-4 { margin-left: calc(var(--obe-indent-step) * 4); }
 
 .obe-gutter {
   position: absolute;
   left: -3.4rem;
-  /* Center the controls on the row's FIRST text line (15px x 1.6 = 1.5rem,
-     + the row's 1px padding) so handle, +, and text read as one line. */
-  top: 1px;
+  /* Paired with .obe-row's top padding to stay on the first text line. */
+  top: 0;
   height: 1.5rem;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -991,10 +1001,9 @@
 .obe-row[data-block-type='heading'][data-block-level='2'] > .obe-gutter { top: 0.7rem; }
 .obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
 .obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
-/* Code top: 1px row pad + 2px margin + 1px border + .75rem block pad +
-   25px actions + .3rem pad + 1px border + .4rem margin. At a 16px rem base,
-   centering the 1.5rem gutter on the .85rem × 1.55 line yields 3.23rem. */
-.obe-row[data-block-type='code'] > .obe-gutter { top: 3.23rem; }
+/* Code top: border + .75rem block pad + the actions row and its grid-aligned
+   divider spacing. Centre the 1.5rem gutter on the .85rem × 1.55 code line. */
+.obe-row[data-block-type='code'] > .obe-gutter { top: 3rem; }
 .obe-row:hover > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
@@ -1052,7 +1061,7 @@
   flex: 1;
   min-width: 0;
   outline: none;
-  padding: 2px 2px;
+  padding: 0;
   white-space: pre-wrap;
   word-break: break-word;
   caret-color: hsl(var(--primary));
@@ -1064,16 +1073,16 @@
   pointer-events: none;
 }
 .obe-heading { flex: 1; min-width: 0; font-weight: 650; }
-.obe-h1 .obe-text { font-size: 1.7rem; line-height: 1.25; margin-top: 0.8rem; }
-.obe-h2 .obe-text { font-size: 1.35rem; line-height: 1.3; margin-top: 0.55rem; }
-.obe-h3 .obe-text { font-size: 1.12rem; line-height: 1.35; margin-top: 0.35rem; }
+.obe-h1 .obe-text { font-size: 1.7rem; line-height: 1.25; margin-top: 0.75rem; }
+.obe-h2 .obe-text { font-size: 1.35rem; line-height: 1.3; margin-top: 0.5rem; }
+.obe-h3 .obe-text { font-size: 1.12rem; line-height: 1.35; margin-top: 0.25rem; }
 
 .obe-code, code.obe-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
   background: hsl(var(--muted) / 0.7);
   border-radius: 4px;
-  padding: 0.08em 0.3em;
+  padding: 0 4px;
   color: hsl(var(--foreground));
 }
 a.obe-link {
@@ -1087,7 +1096,7 @@ a.obe-link:hover { text-decoration-color: hsl(var(--foreground)); }
 a.obe-mention {
   background: hsl(var(--accent) / 0.8);
   border-radius: 4px;
-  padding: 0 0.25em;
+  padding: 0 4px;
   text-decoration: none;
   cursor: pointer;
 }
@@ -1100,13 +1109,13 @@ a.obe-mention {
   text-align: center;
   user-select: none;
   color: hsl(var(--foreground) / 0.8);
-  padding-top: 2px;
+  padding-top: 0;
   font-variant-numeric: tabular-nums;
 }
 .obe-todo { flex: 1; display: flex; min-width: 0; align-items: flex-start; }
 .obe-todo-box {
   flex: none;
-  margin: 0.45rem 0.5rem 0 0.25rem;
+  margin: 0.5rem 0.5rem 0 0.25rem;
   width: 0.95rem;
   height: 0.95rem;
   accent-color: hsl(var(--primary));
@@ -1124,7 +1133,7 @@ a.obe-mention {
   min-width: 0;
   margin: 0;
   border-left: 3px solid hsl(var(--foreground) / 0.85);
-  padding-left: 0.85rem;
+  padding-left: 0.75rem;
 }
 .obe-callout {
   flex: 1;
@@ -1133,8 +1142,8 @@ a.obe-mention {
   gap: 0.5rem;
   background: hsl(var(--muted) / 0.55);
   border-radius: 8px;
-  padding: 0.7rem 0.85rem;
-  margin: 2px 0;
+  padding: 0.75rem;
+  margin: 0;
 }
 .obe-callout-warn { background: hsl(40 90% 55% / 0.12); }
 .obe-callout-success { background: hsl(140 60% 45% / 0.1); }
@@ -1145,14 +1154,14 @@ a.obe-mention {
   line-height: 1.5;
   cursor: pointer;
   border-radius: 6px;
-  padding: 0 2px;
+  padding: 0;
 }
 .obe-callout-icon:hover { background: var(--hover); }
 .obe-divider {
   flex: 1;
   border: 0;
   border-top: 1px solid hsl(var(--border));
-  margin: 0.8rem 0;
+  margin: 0.75rem 0;
 }
 /* Speaker note: quietly marked on the page; hidden from the audience deck and
    every export, surfaced only in the presenter view. */
@@ -1163,14 +1172,14 @@ a.obe-mention {
   background: hsl(var(--primary) / 0.05);
   border-radius: 0 8px 8px 0;
   padding: 0.5rem 0.75rem;
-  margin: 2px 0;
+  margin: 0;
   color: hsl(var(--muted-foreground));
   font-size: 0.9rem;
 }
 .obe-notes-tag {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
   margin-bottom: 0.25rem;
   font-size: 0.68rem;
   font-weight: 600;
@@ -1188,10 +1197,10 @@ a.obe-mention {
 .obe-image {
   flex: 1;
   min-width: 0;
-  margin: 0.35rem 0;
+  margin: 0.25rem 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 .obe-image-frame {
   position: relative;
@@ -1215,8 +1224,8 @@ a.obe-mention {
   right: 0.4rem;
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem;
+  gap: 0.25rem;
+  padding: 0.25rem;
   border-radius: 8px;
   background: hsl(var(--background) / 0.86);
   box-shadow: 0 1px 4px hsl(0 0% 0% / 0.16);
@@ -1226,14 +1235,14 @@ a.obe-mention {
 }
 .obe-image-frame:hover .obe-image-tools,
 .obe-image-tools:focus-within { opacity: 1; }
-.obe-image-sizes { display: flex; gap: 1px; }
+.obe-image-sizes { display: flex; gap: 4px; }
 .obe-image-size {
   min-width: 1.4rem;
-  padding: 0.1rem 0.3rem;
+  padding: 0 0.25rem;
   font-size: 0.7rem;
   font-weight: 600;
   color: hsl(var(--muted-foreground));
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 .obe-image-size:hover { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-image-size-on { background: hsl(var(--primary) / 0.14); color: hsl(var(--primary)); }
@@ -1241,8 +1250,8 @@ a.obe-mention {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.2rem;
-  border-radius: 5px;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
   color: hsl(var(--muted-foreground));
 }
 .obe-image-tool:hover { background: var(--hover); color: hsl(var(--foreground)); }
@@ -1278,7 +1287,7 @@ a.obe-mention {
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 0.1rem 0;
+  padding: 0;
   color: hsl(var(--muted-foreground));
   font-size: 0.82rem;
 }
@@ -1296,9 +1305,9 @@ a.obe-mention {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
   width: 100%;
-  padding: 1.6rem 1rem;
+  padding: 1.5rem 1rem;
   border: 1px dashed hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--muted) / 0.35);
@@ -1318,14 +1327,14 @@ a.obe-mention {
 .obe-image-error {
   font-size: 0.78rem;
   color: hsl(var(--destructive, 0 75% 55%));
-  padding: 0.15rem 0;
+  padding: 0.25rem 0;
 }
 /* A soft, temporary phase-1 limit (the >1 MiB size cap) — muted/info, not a
    destructive failure. */
 .obe-image-notice {
   font-size: 0.78rem;
   color: hsl(var(--muted-foreground));
-  padding: 0.15rem 0;
+  padding: 0.25rem 0;
 }
 /* External image drag hovering the editor — subtle drop-target confirmation so
    a drop reads as intentional (pairs with the drag/drop handlers). */
@@ -1412,7 +1421,7 @@ a.obe-mention {
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: hsl(0 0% 0% / 0.45);
   backdrop-filter: blur(6px);
   box-shadow: 0 4px 16px hsl(0 0% 0% / 0.4);
@@ -1423,7 +1432,7 @@ a.obe-mention {
   justify-content: center;
   width: 1.9rem;
   height: 1.9rem;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   color: hsl(0 0% 100% / 0.85);
   background: transparent;
   cursor: pointer;
@@ -1443,7 +1452,7 @@ a.obe-mention {
 }
 .obe-lightbox-zoomvalue {
   min-width: 3.5rem;
-  padding: 0 0.35rem;
+  padding: 0 0.25rem;
   color: hsl(0 0% 100% / 0.9);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
@@ -1483,15 +1492,15 @@ a.obe-mention {
 .obe-artifact {
   flex: 1;
   min-width: 0;
-  margin: 0.35rem 0;
+  margin: 0.25rem 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 .obe-artifact-bar {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-height: 1.5rem;
   color: hsl(var(--muted-foreground));
 }
@@ -1501,7 +1510,7 @@ a.obe-mention {
   min-width: 0;
   border: 0;
   background: transparent;
-  padding: 0.1rem 0;
+  padding: 0;
   color: hsl(var(--foreground));
   font-size: 0.82rem;
   font-weight: 500;
@@ -1520,8 +1529,8 @@ a.obe-mention {
   align-items: center;
   justify-content: center;
   flex: none;
-  padding: 0.2rem;
-  border-radius: 5px;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
   color: hsl(var(--muted-foreground));
   cursor: pointer;
 }
@@ -1567,7 +1576,7 @@ a.obe-mention {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.3rem;
+  padding: 0.25rem;
   border-radius: 6px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.85);
@@ -1604,11 +1613,11 @@ a.obe-mention {
   max-width: 34vw;
   flex: none;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.75rem;
   overflow-y: auto;
   border-left: 1px solid hsl(var(--border));
   background: hsl(var(--background));
-  padding: 0.75rem 0.95rem 1.1rem;
+  padding: 0.75rem 1rem 1rem;
 }
 
 /* The stage scrolls; the slide is a centred sheet that animates in as a whole. */
@@ -1619,6 +1628,7 @@ a.obe-mention {
   justify-content: center;
   overflow-y: auto;
   overflow-x: hidden;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- SPC-2: fluid presentation-stage gutters with grid-aligned bounds; manifest section 4. */
   padding: clamp(1.5rem, 5vh, 4rem) clamp(1rem, 4vw, 3rem);
 }
 .ob-slide {
@@ -1632,7 +1642,7 @@ a.obe-mention {
   from { opacity: 0; transform: translateY(18px); }
   to { opacity: 1; transform: none; }
 }
-.ob-slide-title { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+.ob-slide-title { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
 .ob-slide-title-icon { font-size: 2.5rem; line-height: 1; }
 .ob-slide-title h1 { margin: 0; font-size: 2.2rem; font-weight: 700; letter-spacing: -0.01em; }
 
@@ -1674,7 +1684,7 @@ a.obe-mention {
 .obe-root.obe-readonly .obe-group-btn { display: none; }
 
 /* Top-right exit / view toggle — auto-hidden in full screen until hover. */
-.ob-present-topbar { display: flex; gap: 0.35rem; }
+.ob-present-topbar { display: flex; gap: 0.25rem; }
 .ob-present-full .ob-present-topbar {
   position: absolute;
   top: 0.75rem;
@@ -1737,7 +1747,7 @@ a.obe-mention {
 /* Presenter console pieces. */
 .ob-present-timer { text-align: center; font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ob-present-aside h2 {
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.5rem;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1769,8 +1779,8 @@ a.obe-mention {
   background: hsl(var(--muted) / 0.6);
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: 8px;
-  padding: 0.75rem 0.9rem;
-  margin: 2px 0;
+  padding: 0.75rem 1rem;
+  margin: 0;
 }
 .obe-codeblock .obe-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1809,9 +1819,9 @@ a.obe-mention {
   flex: 1;
   min-width: 0;
   border: 1px solid hsl(var(--border) / 0.8);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: hsl(var(--muted) / 0.25);
-  margin: 0.2rem 0;
+  margin: 0.25rem 0;
 }
 .obe-group-locked {
   background: hsl(var(--muted) / 0.45);
@@ -1820,8 +1830,8 @@ a.obe-mention {
 .obe-group-head {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.5rem 0.35rem 0.6rem;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
   border-bottom: 1px solid hsl(var(--border) / 0.6);
 }
 .obe-group-icon {
@@ -1840,7 +1850,7 @@ a.obe-mention {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.22rem;
+  padding: 0.25rem;
   border-radius: 6px;
   color: hsl(var(--muted-foreground));
   transition: color 120ms, background 120ms;
@@ -1848,20 +1858,20 @@ a.obe-mention {
 .obe-group-btn:hover:not(:disabled) { color: hsl(var(--foreground)); background: var(--hover); }
 .obe-group-btn-on { color: hsl(var(--primary)); }
 .obe-group-btn:disabled { opacity: 0.4; cursor: default; }
-.obe-group-body { padding: 0.35rem 0.6rem; }
+.obe-group-body { padding: 0.25rem 0.5rem; }
 /* Exported groups (static HTML). */
-.obe-x-group { border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
-.obe-x-group-name { margin: 0 0 0.35rem; font-size: 0.9rem; }
+.obe-x-group { border: 1px solid #e5e7eb; border-radius: var(--radius-lg); padding: 0.5rem 1rem; margin: 0.75rem 0; }
+.obe-x-group-name { margin: 0 0 0.25rem; font-size: 0.9rem; }
 /* Exported plugin-block placeholder (LX-1): a block whose plugin the reader
    doesn't have. Readable unstyled too (bold label + hint), since a paste target
    rarely carries this sheet. */
-.obe-x-plugin { border: 1px dashed #d4d4d8; border-radius: 10px; padding: 0.6rem 0.9rem; margin: 0.75rem 0; }
+.obe-x-plugin { border: 1px dashed #d4d4d8; border-radius: var(--radius-lg); padding: 0.5rem 1rem; margin: 0.75rem 0; }
 .obe-x-plugin > p { margin: 0; }
 .obe-x-plugin > p.obe-x-plugin-hint { font-size: 0.85rem; opacity: 0.65; }
-.obe-x-plugin > p.obe-x-plugin-text { margin-top: 0.4rem; }
+.obe-x-plugin > p.obe-x-plugin-text { margin-top: 0.5rem; }
 
 /* Tables */
-.obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 2px 1.4rem 1.4rem 0; }
+.obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 0 24px 24px 0; }
 .obe-table {
   width: 100%;
   border-collapse: collapse;
@@ -1873,10 +1883,11 @@ a.obe-mention {
   vertical-align: top;
   min-width: 4rem;
 }
-.obe-table td .obe-text { padding: 0.35rem 0.5rem; }
+.obe-table td .obe-text { padding: 4px 8px; }
 .obe-table-header td {
   font-weight: 600;
 }
+.obe-table-header td .obe-text { padding-block: 6px; }
 /* Header fill only where the cell has no row/column tint (TBL-4) — a tinted
    header cell shows its `obe-bg-*` colour instead, staying bold. */
 .obe-table-header td:not([class*='obe-bg-']) {
@@ -1923,23 +1934,27 @@ a.obe-mention {
 }
 .obe-table-wrap:hover .obe-table-add { opacity: 1; }
 .obe-table-add:hover { background: var(--hover); color: hsl(var(--foreground)); }
-.obe-table-add-row { left: 0; right: 1.4rem; bottom: 0.1rem; height: 1.1rem; }
-.obe-table-add-col { top: 2px; bottom: 1.4rem; right: 0.1rem; width: 1.1rem; }
+.obe-table-add-row { left: 0; right: 1.5rem; bottom: 0; height: 1rem; }
+.obe-table-add-col { top: 0; bottom: 1.5rem; right: 0; width: 1rem; }
 .obe-table-tools {
   position: absolute;
   top: -1.7rem;
   right: 0;
-  display: none;
+  display: flex;
   gap: 4px;
   font-size: 11px;
   color: hsl(var(--muted-foreground));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
 }
-.obe-table-wrap:hover .obe-table-tools { display: flex; }
+.obe-table-wrap:hover .obe-table-tools,
+.obe-table-tools:focus-within { opacity: 1; pointer-events: auto; }
 .obe-table-tools button {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   border-radius: 6px;
-  padding: 1px 7px;
+  padding: 4px 8px;
   cursor: pointer;
 }
 .obe-table-tools button:hover { background: var(--hover); }
@@ -1949,9 +1964,9 @@ a.obe-mention {
    handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
    are the positioning context for column grips. Every row gets a zero-width
    header-cell host so a rowspan covering column 0 cannot swallow its grip. */
-.obe-table-wrap.obe-has-grips { padding-top: 1.3rem; padding-left: 1.3rem; }
-.obe-has-grips .obe-table-add-col { top: 1.3rem; }
-.obe-has-grips .obe-table-add-row { left: 1.3rem; }
+.obe-table-wrap.obe-has-grips { padding-top: 1.25rem; padding-left: 1.25rem; }
+.obe-has-grips .obe-table-add-col { top: 1.25rem; }
+.obe-has-grips .obe-table-add-row { left: 1.25rem; }
 .obe-table td { position: relative; }
 .obe-table .obe-table-row-grip-host {
   position: relative;
@@ -1966,7 +1981,7 @@ a.obe-mention {
   display: grid;
   place-items: center;
   color: hsl(var(--muted-foreground) / 0.7);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   opacity: 0;
   transition: opacity 120ms ease, background 120ms ease;
   cursor: grab; /* explicit for WKWebView — desktop clicks need a pointer cursor */
@@ -1974,8 +1989,8 @@ a.obe-mention {
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
-.obe-table-row-grip { left: -1.3rem; top: 0; bottom: 0; width: 1.3rem; }
-.obe-table-col-grip { top: -1.3rem; left: 0; right: 0; height: 1.3rem; }
+.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; }
+.obe-table-col-grip { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
 .obe-table tr:hover .obe-table-row-grip { opacity: 0.55; }
 .obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }
 .obe-table-row-grip:hover,
@@ -2001,18 +2016,18 @@ a.obe-mention {
   overscroll-behavior: contain;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   /* Quiet elevation: a hairline ring + a soft, tight shadow. */
   box-shadow: var(--shadow-menu);
-  padding: 0.3rem;
+  padding: 0.25rem;
 }
 .obe-slash-item {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 7px;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
   overflow: hidden;
@@ -2036,7 +2051,7 @@ a.obe-mention {
 }
 /* Category headers between groups of slash commands. */
 .obe-slash-group {
-  padding: 0.45rem 0.6rem 0.2rem;
+  padding: 0.5rem 0.5rem 0.25rem;
   font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -2044,11 +2059,11 @@ a.obe-mention {
   color: hsl(var(--muted-foreground) / 0.7);
   user-select: none;
 }
-.obe-slash-group:first-child { padding-top: 0.2rem; }
+.obe-slash-group:first-child { padding-top: 0.25rem; }
 /* The ":" picker's awaiting-a-query prompt: muted + sentence case, NOT the
    uppercase category-header look of .obe-slash-group. */
 .obe-slash-empty {
-  padding: 0.4rem 0.6rem;
+  padding: 0.375rem 0.5rem;
   font-size: 0.85rem;
   color: hsl(var(--muted-foreground));
   user-select: none;
@@ -2091,24 +2106,24 @@ a.obe-mention {
   z-index: var(--z-index-menu);
   display: flex;
   align-items: center;
-  gap: 1px;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- SPC-2: explicit compact-toolbar half-step; manifest section 4. */
+  gap: 2px;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  /* concentric: child radius (--radius-md) + 3px padding */
-  border-radius: calc(var(--radius-md) + 3px);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-menu);
-  padding: 3px;
+  padding: 4px;
 }
 .obe-tb-btn {
-  min-width: 1.7rem;
-  height: 1.7rem;
+  min-width: var(--height-control-sm);
+  height: var(--height-control-sm);
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);
   font-size: 0.82rem;
   color: hsl(var(--foreground) / 0.85);
   cursor: pointer;
-  padding: 0 0.35rem;
+  padding: 0 0.25rem;
 }
 .obe-tb-btn:hover { background: var(--hover); }
 .obe-tb-on { background: hsl(var(--accent)); color: hsl(var(--primary)); }
@@ -2116,7 +2131,7 @@ a.obe-mention {
 .obe-tb-italic { font-style: italic; }
 .obe-tb-underline { text-decoration: underline; }
 .obe-tb-strike { text-decoration: line-through; }
-.obe-tb-sep { width: 1px; height: 1.1rem; background: hsl(var(--border)); margin: 0 3px; }
+.obe-tb-sep { width: 1px; height: 1.1rem; background: hsl(var(--border)); margin: 0 4px; }
 
 /* ── Editor colour palette ───────────────────────────────────────────────────
    Per-block colours (bg/fg props) and inline colours (hl/tc attrs) store a
@@ -2127,7 +2142,7 @@ a.obe-mention {
    while the text stays aligned with untinted blocks. */
 .obe-blockbody[class*='obe-bg-'] {
   border-radius: 8px;
-  padding: 0.12rem 0.5rem;
+  padding: 0.25rem 0.5rem;
   margin-inline: -0.5rem;
 }
 /* A tinted section shows the tint instead of a group's default panel fill. */
@@ -2174,7 +2189,7 @@ a.obe-mention {
 .dark .obe-bg-red { background-color: hsl(0 65% 55% / 0.2); }
 
 /* Inline highlights (stronger, with their own radius/padding). */
-[class*='obe-hl-'] { border-radius: 3px; padding: 0 0.12em; }
+[class*='obe-hl-'] { border-radius: var(--radius-sm); padding: 0 4px; }
 .obe-hl-gray { background-color: hsl(0 0% 55% / 0.28); }
 .obe-hl-brown { background-color: hsl(25 50% 50% / 0.3); }
 .obe-hl-orange { background-color: hsl(30 90% 55% / 0.32); }
@@ -2230,12 +2245,12 @@ a.obe-mention {
 .obe-mi-sw-reset { background: transparent; }
 
 /* Inline toolbar colour panel. */
-.obe-tb-color { flex-direction: column; gap: 1px; line-height: 1; }
+.obe-tb-color { flex-direction: column; gap: 4px; line-height: 1; }
 .obe-tb-color-bar {
   display: block;
   width: 0.9em;
   height: 3px;
-  border-radius: 2px;
+  border-radius: 999px;
   background: linear-gradient(90deg, hsl(0 70% 55%), hsl(45 90% 55%), hsl(210 80% 55%));
 }
 .obe-tb-colors {
@@ -2255,12 +2270,12 @@ a.obe-mention {
 .obe-tb-colors-label {
   font-size: 0.65rem;
   color: hsl(var(--muted-foreground));
-  margin: 0.15rem 0.1rem;
+  margin: 0.25rem 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .obe-tb-colors-row { display: grid; grid-template-columns: repeat(10, 1.5rem); gap: 0.25rem; }
-.obe-tb-colors-row + .obe-tb-colors-label { margin-top: 0.45rem; }
+.obe-tb-colors-row + .obe-tb-colors-label { margin-top: 0.5rem; }
 
 /* Touch: gutters are always visible (no hover on touch screens) */
 @media (hover: none) {
@@ -2295,13 +2310,13 @@ a.obe-mention {
 /* Block editor: reactive custom blocks (slider + formula) */
 .obe-custom { flex: 1; min-width: 0; }
 /* Inline database embed ("Link to database"): a live DatabaseView as a block. */
-.obe-dbview { margin: 0.6rem 0; }
+.obe-dbview { margin: 0.5rem 0; }
 /* The slider's control surface (its config — name, min/max/step, layout — lives
    behind the shared ⚙, like every other kit input). */
 .obe-kit-range {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   flex: 1;
   min-width: 8rem;
 }
@@ -2322,7 +2337,7 @@ a.obe-mention {
   background: hsl(var(--muted) / 0.5);
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: 8px;
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem;
 }
 .obe-formula-src {
   flex: 1;
@@ -2346,7 +2361,7 @@ a.obe-mention {
   font-size: 0.85rem;
   border: 1px dashed hsl(var(--border));
   border-radius: 8px;
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem;
 }
 
 /* ── Missing-plugin install prompt ──────────────────────────────────────────
@@ -2360,7 +2375,7 @@ a.obe-mention {
   gap: 0.75rem;
   border: 1px dashed hsl(var(--border));
   border-radius: 8px;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   user-select: none;
 }
 .obe-missing-plugin-icon {
@@ -2388,7 +2403,7 @@ a.obe-mention {
   font-size: 0.7rem;
   color: hsl(var(--muted-foreground) / 0.7);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  margin-top: 0.1rem;
+  margin-top: 0;
 }
 .obe-missing-plugin-error {
   font-size: 0.7rem;
@@ -2398,9 +2413,9 @@ a.obe-mention {
 .obe-missing-plugin-install {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   flex-shrink: 0;
-  padding: 0.3rem 0.65rem;
+  padding: 0.25rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
   border-radius: 6px;
@@ -2430,7 +2445,7 @@ a.obe-mention {
 .obe-missing-plugin-trust {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.375rem;
+  gap: 0.25rem;
   margin: 0.25rem 0 0;
 }
 
@@ -2440,7 +2455,7 @@ a.obe-mention {
   gap: 0.25rem;
   border-radius: 9999px;
   background: hsl(var(--accent) / 0.6);
-  padding: 0.125rem 0.5rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.675rem;
   font-weight: 500;
   color: hsl(var(--muted-foreground));
@@ -2458,8 +2473,8 @@ a.obe-mention {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  padding: 0.3rem 0.2rem;
+  gap: 0.5rem;
+  padding: 0.25rem;
   position: relative;
 }
 .obe-kit-label {
@@ -2473,7 +2488,7 @@ a.obe-mention {
 .obe-kit-head {
   display: flex;
   flex-direction: column;
-  gap: 0.05rem;
+  gap: 0;
   min-width: 4.5rem;
 }
 .obe-kit-head .obe-kit-label {
@@ -2497,8 +2512,8 @@ a.obe-mention {
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  padding: 0 2px;
-  margin: 0 -2px;
+  padding: 0;
+  margin: 0;
   cursor: text;
   transition: border-color 120ms, background 120ms;
 }
@@ -2519,7 +2534,7 @@ a.obe-mention {
 .obe-kit-symbol-hint {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   align-self: flex-start;
   font-size: 0.7rem;
   color: hsl(var(--muted-foreground) / 0.85);
@@ -2531,8 +2546,8 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted) / 0.6);
   border: 1px solid hsl(var(--border) / 0.6);
-  border-radius: 5px;
-  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-sm);
+  padding: 0 0.25rem;
 }
 .obe-kit-symbol-edit {
   color: hsl(var(--primary));
@@ -2555,7 +2570,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border) / 0.7);
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
-  padding: 0.22rem;
+  padding: 0.25rem;
   border-radius: var(--radius-md);
   cursor: pointer;
   opacity: 0;
@@ -2580,16 +2595,16 @@ a.obe-mention {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.8rem;
+  gap: 0.5rem 0.75rem;
   border: 1px solid hsl(var(--border) / 0.7);
   background: hsl(var(--muted) / 0.4);
   border-radius: 8px;
-  padding: 0.45rem 0.6rem;
+  padding: 0.5rem 0.75rem;
 }
 .obe-kit-field {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   font-size: 0.72rem;
   color: hsl(var(--muted-foreground));
 }
@@ -2599,7 +2614,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 6px;
   background: hsl(var(--card));
-  padding: 0.15rem 0.5rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.78rem;
   color: hsl(var(--foreground));
 }
@@ -2645,7 +2660,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.3rem 0.6rem;
+  padding: 0.375rem 0.625rem;
   font-size: 0.9rem;
 }
 .obe-kit-textinput:focus { outline: none; border-color: hsl(var(--ring)); }
@@ -2667,16 +2682,16 @@ a.obe-mention {
 .obe-kit-mini:hover { color: hsl(var(--foreground)); border-color: hsl(var(--ring)); }
 
 /* Radio pills + checklist */
-.obe-kit-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.obe-kit-pills { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .obe-kit-pill {
   border: 1px solid hsl(var(--border));
   border-radius: 999px;
   background: hsl(var(--card));
-  padding: 0.2rem 0.75rem;
+  padding: 0.25rem 0.75rem;
   font-size: 0.82rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms, border-color 120ms;
 }
 .obe-kit-pill:hover:not(:disabled) { border-color: hsl(var(--ring)); color: hsl(var(--foreground)); }
 .obe-kit-pill-on {
@@ -2684,15 +2699,115 @@ a.obe-mention {
   border-color: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
 }
-.obe-kit-checks { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; }
+.obe-kit-checks { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
 .obe-kit-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   font-size: 0.88rem;
   cursor: pointer;
 }
 .obe-kit-check input { accent-color: hsl(var(--primary)); }
+
+/* Form block shell (FORM-3). The builder and submission state arrive in the
+   next stacked tasks; this slice keeps a stable chrome/preview boundary. */
+.obe-kit-form {
+  align-items: stretch;
+  display: block;
+  padding: 0.625rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-lg);
+  background: hsl(var(--card));
+}
+.obe-kit-form > .obe-kit-head { margin-bottom: 0.625rem; }
+.obe-form-edit,
+.obe-form-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+  width: 100%;
+}
+.obe-form-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.obe-form-field-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+  padding: 0.375rem 0;
+  font-size: 0.88rem;
+}
+.obe-form-kind {
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.55);
+  padding: 0 0.5rem;
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+}
+.obe-form-builder {
+  align-self: flex-start;
+  border: 1px dashed hsl(var(--border));
+  border-radius: var(--radius-md);
+  background: transparent;
+  padding: 0.375rem 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+}
+.obe-form-empty {
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+  text-align: center;
+}
+.obe-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+.obe-form-field-label { font-weight: 550; }
+.obe-form-field :is(input:not([type='checkbox']):not([type='range']), textarea, select) {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.28);
+  padding: 0.375rem 0.5rem;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  opacity: 1;
+}
+.obe-form-field textarea { resize: none; }
+.obe-form-field input[type='checkbox'] { align-self: flex-start; accent-color: hsl(var(--primary)); }
+.obe-form-field input[type='range'] { width: min(16rem, 100%); accent-color: hsl(var(--primary)); }
+.obe-form-preview .obe-kit-action:disabled { align-self: flex-start; cursor: default; opacity: 0.62; }
+.obe-form-live-link {
+  align-self: flex-start;
+  color: hsl(var(--primary));
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.obe-form-id {
+  overflow-wrap: anywhere;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--muted) / 0.45);
+  padding: 0.25rem 0.375rem;
+  font-size: 0.7rem;
+}
 
 /* Full-width option variants: options become stacked, card-like rows that
    read as a form — same classes in the editor and the HTML export. */
@@ -2702,18 +2817,18 @@ a.obe-mention {
 .obe-kit-wide .obe-kit-pills, .obe-kit-wide .obe-kit-checks {
   flex-direction: column;
   flex-wrap: nowrap;
-  gap: 0.35rem;
+  gap: 0.25rem;
   width: 100%;
 }
 .obe-kit-wide .obe-kit-pill, .obe-kit-wide .obe-kit-check {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.5rem 0.8rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.88rem;
   transition: border-color 120ms, background 120ms;
 }
@@ -2739,7 +2854,7 @@ a.obe-mention {
 .obe-kit-dropdown-select { min-width: 9rem; }
 .obe-kit-wide .obe-kit-dropdown-select {
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.88rem;
 }
 
@@ -2774,7 +2889,7 @@ a.obe-mention {
   border-radius: 8px;
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
-  padding: 0.32rem 1rem;
+  padding: 0.25rem 1rem;
   font-size: 0.88rem;
   font-weight: 550;
   cursor: pointer;
@@ -2787,14 +2902,14 @@ a.obe-mention {
 
 /* Chart */
 .obe-kit-chart { display: block; margin: 0.25rem 0; }
-.obe-kit-chart-head { display: flex; flex-direction: column; align-items: flex-start; gap: 0.05rem; min-height: 1.4rem; }
+.obe-kit-chart-head { display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-height: 1.4rem; }
 .obe-kit-chart-title { font-size: 0.82rem; font-weight: 550; color: hsl(var(--muted-foreground)); }
 .obe-chart-svg {
   display: block;
   width: 100%;
   height: auto;
   border: 1px solid hsl(var(--border) / 0.6);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: hsl(var(--card) / 0.5);
 }
 /* Borderless plot: the DB chart-views wrap the plot in their own readout card,
@@ -2857,8 +2972,8 @@ a.obe-mention {
   transform: translate(-50%, calc(-100% - 10px));
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.2rem 0.45rem;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-md);
   background: hsl(var(--popover));
@@ -2901,7 +3016,7 @@ a.obe-mention {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   font-size: 0.9rem;
   font-weight: 550;
   border-bottom: 1px dotted hsl(var(--muted-foreground));
@@ -2931,7 +3046,7 @@ a.obe-mention {
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.8rem;
   font-weight: 400;
   line-height: 1.45;
@@ -2948,11 +3063,11 @@ a.obe-mention {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.25rem;
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: hsl(var(--card));
-  padding: 0.6rem 0.85rem;
+  padding: 0.5rem 0.75rem;
   text-decoration: none;
   color: inherit;
   transition: border-color 120ms, box-shadow 120ms;
@@ -2979,10 +3094,10 @@ a.obe-mention {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.4rem;
+  gap: 0.25rem;
+  padding: 0.5rem;
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: hsl(var(--card));
   cursor: pointer;
   text-align: left;
@@ -3030,7 +3145,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.45rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   font: inherit;
   font-size: 0.9rem;
   line-height: 1.5;
@@ -3039,8 +3154,8 @@ a.obe-mention {
 .obe-kit-longtext:focus { outline: none; border-color: hsl(var(--ring)); }
 
 /* Rich text: a contentEditable surface with a tiny formatting bar. */
-.obe-kit-richtext { width: 100%; display: flex; flex-direction: column; gap: 0.3rem; }
-.obe-kit-richtext-bar { display: flex; gap: 0.2rem; }
+.obe-kit-richtext { width: 100%; display: flex; flex-direction: column; gap: 0.25rem; }
+.obe-kit-richtext-bar { display: flex; gap: 0.25rem; }
 .obe-kit-richtext-btn {
   width: 1.6rem;
   height: 1.6rem;
@@ -3050,7 +3165,7 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   font-size: 0.82rem;
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, border-color 120ms;
 }
 .obe-kit-richtext-btn:hover { border-color: hsl(var(--ring)); color: hsl(var(--foreground)); }
 .obe-kit-richtext-b { font-weight: 700; }
@@ -3061,7 +3176,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.45rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.9rem;
   line-height: 1.5;
   outline: none;
@@ -3096,7 +3211,7 @@ a.obe-mention {
 /* A range highlight: the peer colour at a calm opacity so text stays readable. */
 .obe-rcursor-sel {
   position: absolute;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   opacity: 0.18;
   pointer-events: none;
 }
@@ -3104,7 +3219,7 @@ a.obe-mention {
 .obe-rcursor-caret {
   position: absolute;
   width: 2px;
-  border-radius: 1px;
+  border-radius: 999px;
   pointer-events: none;
 }
 /* A small nub at the caret top so a peer stays locatable after the label fades. */
@@ -3123,9 +3238,9 @@ a.obe-mention {
   position: absolute;
   bottom: 100%;
   left: -2px;
-  margin-bottom: 2px;
-  padding: 1px 5px;
-  border-radius: 5px 5px 5px 0;
+  margin-bottom: 0;
+  padding: 0 4px;
+  border-radius: var(--radius-sm) var(--radius-sm) var(--radius-sm) 0;
   white-space: nowrap;
   font-size: 11px;
   line-height: 1.35;
@@ -3154,7 +3269,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.3rem 0.6rem;
+  padding: 0.375rem 0.625rem;
   font-size: 0.88rem;
   color: hsl(var(--foreground));
   cursor: pointer;
@@ -3169,21 +3284,21 @@ a.obe-mention {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
   width: 100%;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
-  padding: 0.3rem 0.4rem;
+  padding: 0.25rem 0.5rem;
   min-height: 2rem;
 }
 .obe-kit-tag {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.25rem;
   border-radius: 999px;
   background: hsl(var(--muted) / 0.7);
-  padding: 0.1rem 0.2rem 0.1rem 0.55rem;
+  padding: 0 0.25rem 0 0.5rem;
   font-size: 0.8rem;
 }
 .obe-kit-tag-x {
@@ -3208,7 +3323,7 @@ a.obe-mention {
 .obe-kit-tag-input::placeholder { color: hsl(var(--muted-foreground) / 0.6); }
 
 /* Progress bar (display, no published value). */
-.obe-kit-progress { flex-direction: column; align-items: stretch; gap: 0.3rem; }
+.obe-kit-progress { flex-direction: column; align-items: stretch; gap: 0.25rem; }
 .obe-kit-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
 .obe-kit-progress-label { font-size: 0.85rem; font-weight: 550; }
 .obe-kit-progress-value {
@@ -3235,47 +3350,47 @@ a.obe-mention {
 .obe-cnt {
   display: block;
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   margin: 0.25rem 0;
   overflow: hidden;
 }
 .obe-cnt-head {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.5rem;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
   background: hsl(var(--muted) / 0.4);
   border-bottom: 1px solid hsl(var(--border) / 0.7);
 }
 .obe-cnt-spacer { flex: 1; }
-.obe-cnt-panel { padding: 0.4rem 0.6rem; }
+.obe-cnt-panel { padding: 0.5rem; }
 .obe-cnt-panel.obe-cnt-locked, .obe-acc-section.obe-cnt-locked { opacity: 0.7; }
 .obe-cnt-add {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   border-radius: 6px;
-  padding: 0.2rem 0.4rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.78rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms;
 }
 .obe-cnt-add:hover { color: hsl(var(--foreground)); background: var(--hover); }
 
-.obe-tabs-strip { display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap; flex: 1; }
+.obe-tabs-strip { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; flex: 1; }
 .obe-tab {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: transparent;
-  padding: 0.2rem 0.55rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.84rem;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: all 120ms;
+  transition: color 120ms, background-color 120ms, border-color 120ms;
 }
 .obe-tab:hover:not(:disabled) { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-tab-on {
@@ -3292,22 +3407,22 @@ a.obe-mention {
 .obe-acc-head {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.5rem;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
 }
 .obe-acc-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: hsl(var(--muted-foreground));
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .obe-acc-toggle:hover:not(:disabled) { color: hsl(var(--foreground)); background: var(--hover); }
 .obe-acc-toggle:disabled { opacity: 0.5; cursor: default; }
 .obe-acc-label { font-size: 0.9rem; font-weight: 550; }
-.obe-acc-body { padding: 0.1rem 0.6rem 0.5rem 1.7rem; }
-.obe-acc-foot { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem; }
+.obe-acc-body { padding: 0 0.5rem 0.5rem 1.75rem; }
+.obe-acc-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem; }
 
 /* Completion chip shared by tabs + accordion. */
 .obe-cnt-badge {
@@ -3316,7 +3431,7 @@ a.obe-mention {
   justify-content: center;
   min-width: 1.1rem;
   height: 1.1rem;
-  padding: 0 0.3rem;
+  padding: 0 0.25rem;
   border-radius: 999px;
   background: hsl(var(--muted) / 0.8);
   color: hsl(var(--muted-foreground));
@@ -3330,9 +3445,9 @@ a.obe-mention {
 .obe-code-actions {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  margin-bottom: 0.4rem;
-  padding-bottom: 0.3rem;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
   border-bottom: 1px solid hsl(var(--border) / 0.5);
 }
 .obe-code-lang-badge {
@@ -3353,8 +3468,8 @@ a.obe-mention {
   border: 1px solid transparent;
   background: transparent;
   color: hsl(var(--muted-foreground));
-  padding: 0.22rem;
-  border-radius: 7px;
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: color 120ms, background 120ms, border-color 120ms;
 }
@@ -3383,12 +3498,12 @@ a.obe-mention {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 0.1rem 0;
+  padding: 0;
 }
 .obe-code-collapsed:hover { color: hsl(var(--foreground)); }
 .obe-code-out {
   display: block;
-  padding: 0.35rem 0.75rem;
+  padding: 0.25rem 0.75rem;
   border-top: 1px solid hsl(var(--border) / 0.5);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
@@ -3412,7 +3527,7 @@ a.obe-mention {
   bottom: 0;
   width: 0.6rem;
   cursor: col-resize;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .obe-col-divider:hover,
 .obe-col-divider:active {

@@ -305,6 +305,7 @@ export default function AgentTokensSettings() {
             <SettingsSection title={t('agents.createTitle')} description={t('agents.capNote')}>
               <SettingsField label={t('agents.nameLabel')}>
                 <Input
+                  inputSize="sm"
                   value={name}
                   placeholder={t('agents.namePlaceholder')}
                   onChange={(e) => setName(e.target.value)}
@@ -314,6 +315,7 @@ export default function AgentTokensSettings() {
               <div className="flex flex-wrap gap-3">
                 <SettingsField label={t('agents.scopeLabel')} className="min-w-[220px] flex-1">
                   <Select
+                    inputSize="sm"
                     value={scope}
                     aria-label={t('agents.scopeLabel')}
                     onChange={(e) => setScope(e.target.value as AgentTokenScope)}
@@ -325,6 +327,7 @@ export default function AgentTokensSettings() {
                 </SettingsField>
                 <SettingsField label={t('agents.expiryLabel')} className="min-w-[140px]">
                   <Select
+                    inputSize="sm"
                     value={remote && expiry === 'never' ? '30' : expiry}
                     aria-label={t('agents.expiryLabel')}
                     onChange={(e) => setExpiry(e.target.value as Expiry)}
@@ -339,6 +342,7 @@ export default function AgentTokensSettings() {
                 {remoteEnabled && (
                   <SettingsField label={t('agents.remoteScopeLabel')} className="min-w-[180px]">
                     <Select
+                      inputSize="sm"
                       value={remote ? 'remote' : 'local'}
                       aria-label={t('agents.remoteScopeLabel')}
                       onChange={(e) => {
@@ -369,7 +373,7 @@ export default function AgentTokensSettings() {
                   <span className="text-sm font-medium">{t('agents.revealTitle')}</span>
                   <span className="text-xs text-muted-foreground">{t('agents.revealHint')}</span>
                   <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-background px-2 py-1.5 font-mono text-xs">
+                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-background px-2.5 py-1.5 font-mono text-xs">
                       {created.token}
                     </code>
                     <Button variant="secondary" size="sm" onClick={() => void copy()}>

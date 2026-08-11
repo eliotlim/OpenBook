@@ -42,6 +42,7 @@ export default function GeneralSettings() {
           {t('general.language')}
         </label>
         <Select
+          inputSize="sm"
           id="ob-language"
           wrapperClassName="mt-1 max-w-xs"
           value={locale}
