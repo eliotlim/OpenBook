@@ -53,7 +53,7 @@ import {downloadText, safeFilename} from '@/lib/download';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {addQuickFilter, ColumnMenuItems, RowMenuItems, type RowMenuBulk} from './databaseMenuItems';
 import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
+import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, viewTypePatch, VIEW_TYPES} from './databaseMenus';
 import type {PropertyMenuHandle} from './databaseMenus';
 import {
   BoardView,
@@ -1082,18 +1082,81 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
   );
 };
 
-const Toolbar: React.FC<{
+/**
+ * A view tab's own right-click menu. Keeping this nested trigger on the tab
+ * prevents the database-level menu from resolving every action through the
+ * active view when the pointer is actually over an inactive tab.
+ */
+export const ViewTabContextMenu: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  onRename: () => void;
+  children: React.ReactNode;
+}> = ({db, view, onRename, children}) => {
+  const {t} = useTranslation();
+  const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className={MENU_WIDTH_MD}>
+        <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={onRename}>
+          <Pencil className="mr-2 h-4 w-4" />
+          {t('database.viewMenu.rename')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateView(view.id)}>
+          <Copy className="mr-2 h-4 w-4" />
+          {t('database.viewMenu.duplicate')}
+        </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Rows3 className="mr-2 h-4 w-4" />
+            {t('database.viewMenu.changeType')}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_WIDTH_SM}>
+            {VIEW_TYPES.map(({value, label, Icon}) => (
+              <ContextMenuItem
+                key={value}
+                onSelect={() => void db.updateView(view.id, viewTypePatch(value, view, db.database!.schema.properties))}
+              >
+                <Icon className="mr-2 h-4 w-4" />
+                {label}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        {canDeleteView && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t('database.viewMenu.delete')}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
+export const Toolbar: React.FC<{
   db: UseDatabase;
   view: DbView;
   renamingId: string | null;
   setRenamingId: (id: string | null) => void;
   onAddView: (type: DatabaseViewType) => void;
+  chipEditor?: 'filter' | 'sort' | 'group' | null;
+  onChipEditorChange?: (editor: 'filter' | 'sort' | 'group' | null) => void;
 }> = ({
   db,
   view,
   renamingId,
   setRenamingId,
   onAddView,
+  chipEditor,
+  onChipEditorChange,
 }) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
@@ -1129,38 +1192,39 @@ const Toolbar: React.FC<{
             );
           }
           return (
-            <button
-              key={v.id}
-              data-view-tab={v.id}
-              draggable
-              onDoubleClick={() => setRenamingId(v.id)}
-              onDragStart={() => setDragView(v.id)}
-              onDragEnd={() => {
-                setDragView(null);
-                setOverView(null);
-              }}
-              onDragOver={(e) => {
-                if (dragView && dragView !== v.id) {
-                  e.preventDefault();
-                  setOverView(v.id);
-                }
-              }}
-              onDrop={() => {
-                if (dragView && dragView !== v.id) void db.reorderView(dragView, v.id);
-                setDragView(null);
-                setOverView(null);
-              }}
-              onClick={() => db.setActiveViewId(v.id)}
-              className={cn(
-                'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-                active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
-                dragView === v.id && 'opacity-40',
-                overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {v.name}
-            </button>
+            <ViewTabContextMenu key={v.id} db={db} view={v} onRename={() => setRenamingId(v.id)}>
+              <button
+                data-view-tab={v.id}
+                draggable
+                onDoubleClick={() => setRenamingId(v.id)}
+                onDragStart={() => setDragView(v.id)}
+                onDragEnd={() => {
+                  setDragView(null);
+                  setOverView(null);
+                }}
+                onDragOver={(e) => {
+                  if (dragView && dragView !== v.id) {
+                    e.preventDefault();
+                    setOverView(v.id);
+                  }
+                }}
+                onDrop={() => {
+                  if (dragView && dragView !== v.id) void db.reorderView(dragView, v.id);
+                  setDragView(null);
+                  setOverView(null);
+                }}
+                onClick={() => db.setActiveViewId(v.id)}
+                className={cn(
+                  'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
+                  active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
+                  dragView === v.id && 'opacity-40',
+                  overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {v.name}
+              </button>
+            </ViewTabContextMenu>
           );
         })}
         <AddViewMenu onAdd={onAddView} />
@@ -1168,9 +1232,26 @@ const Toolbar: React.FC<{
       <div className="flex shrink-0 items-center gap-1 sm:shrink sm:flex-wrap">
         <NewRowMenu db={db} />
         <SearchBox db={db} />
-        <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-        <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-        <GroupMenu db={db} view={view} />
+        <FilterMenu
+          database={db.database!}
+          view={view}
+          onChange={(patch) => void db.updateView(view.id, patch)}
+          open={chipEditor === undefined ? undefined : chipEditor === 'filter'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'filter' : null) : undefined}
+        />
+        <SortMenu
+          database={db.database!}
+          view={view}
+          onChange={(patch) => void db.updateView(view.id, patch)}
+          open={chipEditor === undefined ? undefined : chipEditor === 'sort'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'sort' : null) : undefined}
+        />
+        <GroupMenu
+          db={db}
+          view={view}
+          open={chipEditor === undefined ? undefined : chipEditor === 'group'}
+          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'group' : null) : undefined}
+        />
         <FieldsMenu db={db} view={view} />
         <ViewOptionsMenu db={db} view={view} />
         <span className="px-1 text-xs text-muted-foreground/70">
@@ -1205,6 +1286,7 @@ const DatabaseContextMenu: React.FC<{
   onAddView: (type: DatabaseViewType) => void;
   children: React.ReactNode;
 }> = ({db, onRenameView, onConfigureExpiry, onAddView, children}) => {
+  const {t} = useTranslation();
   const view = db.activeView!;
   const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
   return (
@@ -1214,16 +1296,16 @@ const DatabaseContextMenu: React.FC<{
         <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
         <ContextMenuItem onSelect={onRenameView}>
           <Pencil className="mr-2 h-4 w-4" />
-          Rename view
+          {t('database.viewMenu.rename')}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void db.duplicateView(view.id)}>
           <Copy className="mr-2 h-4 w-4" />
-          Duplicate view
+          {t('database.viewMenu.duplicate')}
         </ContextMenuItem>
         {canDeleteView && (
           <ContextMenuItem className={MENU_DESTRUCTIVE_CLASS} onSelect={() => void db.deleteView(view.id)}>
             <Trash2 className="mr-2 h-4 w-4" />
-            Delete view
+            {t('database.viewMenu.delete')}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
@@ -1481,6 +1563,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   const anchorRootRef = useRef<HTMLDivElement>(null);
   useDatabaseAnchor(pageId, inline, db.loading, anchorRootRef);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [chipEditor, setChipEditor] = useState<'filter' | 'sort' | 'group' | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
   // Add a view. When its layout still needs a property picked (fresh DB with no
   // date/location/dependency/group-by column), the in-body ViewSetupCard offers
@@ -1528,11 +1611,13 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
             renamingId={renamingViewId}
             setRenamingId={setRenamingViewId}
             onAddView={addView}
+            chipEditor={chipEditor}
+            onChipEditorChange={setChipEditor}
           />
           <div className="flex flex-wrap items-center gap-x-3">
-            <FilterChips db={db} view={view} />
-            <SortChips db={db} view={view} />
-            <GroupChips db={db} view={view} />
+            <FilterChips db={db} view={view} onEdit={() => setChipEditor('filter')} />
+            <SortChips db={db} view={view} onEdit={() => setChipEditor('sort')} />
+            <GroupChips db={db} view={view} onEdit={() => setChipEditor('group')} />
           </div>
           <MetricsBar db={db} view={view} />
           <ViewBody db={db} view={view} columns={columns} schema={schema} />

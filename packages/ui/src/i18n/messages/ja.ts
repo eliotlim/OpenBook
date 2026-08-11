@@ -1125,6 +1125,16 @@ export const ja: PartialMessages = {
       fields: 'フィールド',
       removeGrouping: 'グループ化を解除',
     },
+    viewMenu: {
+      rename: 'ビュー名を変更',
+      duplicate: 'ビューを複製',
+      changeType: '種類を変更',
+      delete: 'ビューを削除',
+    },
+    chipMenu: {
+      edit: '編集…',
+      remove: '削除',
+    },
     rowMenu: {
       open: '開く',
       openTab: '新しいタブで開く',

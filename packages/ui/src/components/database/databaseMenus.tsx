@@ -1,9 +1,11 @@
 import React, {useImperativeHandle, useMemo, useState} from 'react';
 import {Select} from '@/components/ui/select';
 import {
+  ArrowDown,
   ArrowDownAZ,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   ArrowUpAZ,
   BarChart3,
   Calendar,
@@ -20,6 +22,7 @@ import {
   ListFilter,
   MapPin,
   MoreHorizontal,
+  Pencil,
   PieChart,
   Plus,
   Settings2,
@@ -69,7 +72,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {EmptyState} from '@/components/ui/empty-state';
 import {cn} from '@/lib/utils';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
@@ -918,6 +929,9 @@ interface MenuProps {
   database: StoredDatabase;
   view: DatabaseView;
   onChange: (patch: Partial<DatabaseView>) => void;
+  /** Optional controlled state lets a chip's Edit action open this toolbar popover. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** Property picker options including the reserved Title pseudo-property. */
@@ -1063,12 +1077,12 @@ const GroupEditor: React.FC<{
 };
 
 /** Filter editor: a nested and/or tree of conditions applied to the current view. */
-export const FilterMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
+export const FilterMenu: React.FC<MenuProps> = ({database, view, onChange, open, onOpenChange}) => {
   const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
   const count = countConditions(root);
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button className={cn(toolButtonClass, count > 0 && 'text-foreground')}>
           <Filter className="h-3.5 w-3.5" />
@@ -1089,7 +1103,7 @@ export const FilterMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
 };
 
 /** Sort editor: ordered sort keys applied to the current view. */
-export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
+export const SortMenu: React.FC<MenuProps> = ({database, view, onChange, open, onOpenChange}) => {
   const {t} = useTranslation();
   const choices = propertyChoices(database);
   const sorts = view.sorts ?? [];
@@ -1100,7 +1114,7 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
   const removeSort = (index: number) => onChange({sorts: sorts.filter((_, i) => i !== index)});
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button className={cn(toolButtonClass, sorts.length > 0 && 'text-foreground')}>
           <ListFilter className="h-3.5 w-3.5" />
@@ -1425,13 +1439,64 @@ function filterChipText(filter: DatabaseFilter, properties: DatabaseProperty[]):
   return `${name} ${op} ${value ?? ''}`.trim();
 }
 
+/** The shared right-click actions every active filter/sort/group chip exposes. */
+const ChipContextMenu: React.FC<{
+  onEdit: () => void;
+  onRemove: () => void;
+  reorder?: {
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
+  };
+  children: React.ReactNode;
+}> = ({onEdit, onRemove, reorder, children}) => {
+  const {t} = useTranslation();
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className={MENU_WIDTH_SM}>
+        <ContextMenuItem
+          onSelect={() => {
+            // Let the ContextMenu dismiss before opening the toolbar Popover;
+            // opening both primitives in the same event races their focus traps.
+            setTimeout(onEdit, 0);
+          }}
+        >
+          <Pencil className="mr-2 h-4 w-4" />
+          {t('database.chipMenu.edit')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onRemove}>
+          <X className="mr-2 h-4 w-4" />
+          {t('database.chipMenu.remove')}
+        </ContextMenuItem>
+        {reorder && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!reorder.canMoveUp} onSelect={reorder.onMoveUp}>
+              <ArrowUp className="mr-2 h-4 w-4" />
+              {t('menu.block.moveUp')}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!reorder.canMoveDown} onSelect={reorder.onMoveDown}>
+              <ArrowDown className="mr-2 h-4 w-4" />
+              {t('menu.block.moveDown')}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
 /**
  * Active-filter chips: each top-level condition of the view's filter as a small
  * removable pill, so the filters added from the toolbar or a cell's right-click
  * menu are visible at a glance and one click to drop. Nested filter groups stay
  * managed in the Filter menu (a single "advanced" pill stands in for them).
  */
-export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView; onEdit: () => void}> = ({db, view, onEdit}) => {
   const properties = db.database!.schema.properties;
   const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
   const leaves = root.filters.filter((n): n is DatabaseFilter => !isFilterGroup(n));
@@ -1440,6 +1505,8 @@ export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db
 
   const removeLeaf = (id: string): void =>
     void db.updateView(view.id, {filterRoot: {...root, filters: root.filters.filter((n) => isFilterGroup(n) || n.id !== id)}, filters: []});
+  const removeGroups = (): void =>
+    void db.updateView(view.id, {filterRoot: {...root, filters: root.filters.filter((n) => !isFilterGroup(n))}, filters: []});
   const clearAll = (): void => void db.updateView(view.id, {filterRoot: {...root, filters: []}, filters: []});
 
   return (
@@ -1447,19 +1514,23 @@ export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db
       {leaves.map((f, i) => (
         <React.Fragment key={f.id}>
           {i > 0 && <span className="text-[11px] uppercase text-muted-foreground/60">{root.conjunction}</span>}
-          <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs">
-            <Filter className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="max-w-[16rem] truncate text-muted-foreground" title={filterChipText(f, properties)}>
-              {filterChipText(f, properties)}
+          <ChipContextMenu onEdit={onEdit} onRemove={() => removeLeaf(f.id)}>
+            <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs">
+              <Filter className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="max-w-[16rem] truncate text-muted-foreground" title={filterChipText(f, properties)}>
+                {filterChipText(f, properties)}
+              </span>
+              <button onClick={() => removeLeaf(f.id)} aria-label="Remove filter" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
             </span>
-            <button onClick={() => removeLeaf(f.id)} aria-label="Remove filter" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
-              <X className="h-3 w-3" />
-            </button>
-          </span>
+          </ChipContextMenu>
         </React.Fragment>
       ))}
       {groups > 0 && (
-        <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">+{groups} advanced</span>
+        <ChipContextMenu onEdit={onEdit} onRemove={removeGroups}>
+          <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">+{groups} advanced</span>
+        </ChipContextMenu>
       )}
       {leaves.length + groups > 1 && (
         <button onClick={clearAll} className="ml-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
@@ -1475,7 +1546,7 @@ export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db
  * its direction, the × to drop it. Mirrors {@link FilterChips} so the otherwise
  * hidden sort state is visible and editable at a glance.
  */
-export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView; onEdit: () => void}> = ({db, view, onEdit}) => {
   const properties = db.database!.schema.properties;
   const sorts = view.sorts ?? [];
   if (sorts.length === 0) return null;
@@ -1483,19 +1554,42 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, 
   const flip = (i: number): void =>
     void db.updateView(view.id, {sorts: sorts.map((s, j) => (j === i ? {...s, direction: s.direction === 'asc' ? 'desc' : 'asc'} : s))});
   const remove = (i: number): void => void db.updateView(view.id, {sorts: sorts.filter((_, j) => j !== i)});
+  const move = (i: number, delta: -1 | 1): void => {
+    if (i + delta < 0 || i + delta >= sorts.length) return;
+    const next = [...sorts];
+    const [moved] = next.splice(i, 1);
+    next.splice(i + delta, 0, moved);
+    void db.updateView(view.id, {sorts: next});
+  };
 
   return (
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
       {sorts.map((sort, i) => (
-        <span key={i} className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-xs text-muted-foreground">
-          <button onClick={() => flip(i)} className="flex items-center gap-1 transition-colors hover:text-foreground" title="Flip sort direction">
-            <span className="max-w-[12rem] truncate">{name(sort.propertyId)}</span>
-            {sort.direction === 'asc' ? <ArrowDownAZ className="h-3 w-3 shrink-0" /> : <ArrowUpAZ className="h-3 w-3 shrink-0" />}
-          </button>
-          <button onClick={() => remove(i)} aria-label="Remove sort" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
-            <X className="h-3 w-3" />
-          </button>
-        </span>
+        <ChipContextMenu
+          key={i}
+          onEdit={onEdit}
+          onRemove={() => remove(i)}
+          reorder={
+            sorts.length >= 2
+              ? {
+                canMoveUp: i > 0,
+                canMoveDown: i < sorts.length - 1,
+                onMoveUp: () => move(i, -1),
+                onMoveDown: () => move(i, 1),
+              }
+              : undefined
+          }
+        >
+          <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-xs text-muted-foreground">
+            <button onClick={() => flip(i)} className="flex items-center gap-1 transition-colors hover:text-foreground" title="Flip sort direction">
+              <span className="max-w-[12rem] truncate">{name(sort.propertyId)}</span>
+              {sort.direction === 'asc' ? <ArrowDownAZ className="h-3 w-3 shrink-0" /> : <ArrowUpAZ className="h-3 w-3 shrink-0" />}
+            </button>
+            <button onClick={() => remove(i)} aria-label="Remove sort" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        </ChipContextMenu>
       ))}
     </div>
   );
@@ -1612,18 +1706,28 @@ const FIELDABLE_VIEW_TYPES = new Set<DatabaseViewType>(['table', 'list', 'galler
  * closes the popover once the property is created and wired). Boards get the
  * swimlane sub-group here too, mirroring the View options.
  */
-export const GroupMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+export const GroupMenu: React.FC<{db: UseDatabase; view: DatabaseView; open?: boolean; onOpenChange?: (open: boolean) => void}> = ({
+  db,
+  view,
+  open,
+  onOpenChange,
+}) => {
   const {t} = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const menuOpen = open ?? internalOpen;
+  const setMenuOpen = (next: boolean): void => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   if (!GROUPABLE_VIEW_TYPES.has(view.type)) return null;
   const properties = db.database!.schema.properties;
   const createFor = (field: 'groupByPropertyId' | 'subGroupByPropertyId'): void => {
     void db.addPropertyForView(view.id, setupPropertyInput('select', properties, t), field).then((id) => {
-      if (id) setOpen(false);
+      if (id) setMenuOpen(false);
     });
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={menuOpen} onOpenChange={setMenuOpen}>
       <PopoverTrigger asChild>
         <button className={cn(toolButtonClass, view.groupByPropertyId && 'text-foreground')}>
           <Layers className="h-3.5 w-3.5" />
@@ -1708,7 +1812,7 @@ export const FieldsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db,
  * drop. Mirrors {@link FilterChips}/{@link SortChips}; clearing it also drops
  * a board's sub-group (swimlanes make no sense without the primary group).
  */
-export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView; onEdit: () => void}> = ({db, view, onEdit}) => {
   const {t} = useTranslation();
   const properties = db.database!.schema.properties;
   const id = view.groupByPropertyId;
@@ -1719,19 +1823,24 @@ export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db,
     id === PARENT_GROUP_ID ? 'Sub-items' : id === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === id)?.name ?? 'Property';
   return (
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
-      <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs text-muted-foreground">
-        <Layers className="h-3 w-3 shrink-0" />
-        <span className="max-w-[12rem] truncate" title={name}>
-          {name}
+      <ChipContextMenu
+        onEdit={onEdit}
+        onRemove={() => void db.updateView(view.id, {groupByPropertyId: undefined, subGroupByPropertyId: undefined})}
+      >
+        <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs text-muted-foreground">
+          <Layers className="h-3 w-3 shrink-0" />
+          <span className="max-w-[12rem] truncate" title={name}>
+            {name}
+          </span>
+          <button
+            onClick={() => void db.updateView(view.id, {groupByPropertyId: undefined, subGroupByPropertyId: undefined})}
+            aria-label={t('database.toolbar.removeGrouping')}
+            className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </span>
-        <button
-          onClick={() => void db.updateView(view.id, {groupByPropertyId: undefined, subGroupByPropertyId: undefined})}
-          aria-label={t('database.toolbar.removeGrouping')}
-          className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </span>
+      </ChipContextMenu>
     </div>
   );
 };
@@ -2151,7 +2260,7 @@ export const ViewOptionsMenu: React.FC<{
 };
 
 /** Build the patch for switching a view's layout, defaulting layout-specific config. */
-function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
+export function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
   if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
     // Mirror defaultView: only a categorical property (select/status/relation)
