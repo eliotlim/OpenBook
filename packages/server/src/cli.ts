@@ -136,8 +136,7 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
       }
       const report = await verifyLedger(db);
       // NEVER process.exit() here: it skips the `finally` below (leaking the
-      // PGlite dir lock — which dirLock refuses to take over cross-host, so a
-      // verify run on a synced folder would permanently block another machine)
+      // PGlite dir lock and forcing the next start through stale-lock recovery)
       // and can truncate this JSON on a pipe.
       console.log(JSON.stringify(report, null, 2));
       // SEVERITY-AWARE exit (LGR-14 Q3), keyed off the code union — never

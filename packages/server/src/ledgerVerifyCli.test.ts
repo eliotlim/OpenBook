@@ -3,9 +3,8 @@
  *
  * Pins the two failure modes that made the flag unsafe to run twice:
  *  - it must RELEASE the PGlite dir lock (a `process.exit()` inside the `try`
- *    skipped the `finally`, stranding `.openbook-pglite.lock` — and `dirLock`
- *    refuses a cross-host takeover, so one verify run on a synced folder could
- *    permanently block another machine);
+ *    skipped the `finally`, stranding `.openbook-pglite.lock` and forcing the
+ *    next run through stale-lock recovery);
  *  - a data dir with no `PG_VERSION` must be REFUSED, not silently created and
  *    then reported "no ledger — trivially clean" (a typo'd `--data-dir` would
  *    otherwise return a reassuring exit 0).
@@ -72,8 +71,8 @@ describe('LGR-7 — --verify-ledger CLI', () => {
     const first = await verifyLedgerCli(dir);
     expect(first.code).toBe(0);
     expect(JSON.parse(first.stdout)).toMatchObject({initialized: true, findings: []});
-    // The lock must be gone — otherwise the NEXT run (or another machine on a
-    // synced folder) is blocked forever.
+    // The clean-exit contract removes the lock; the next run should not have to
+    // recover stale state left by this one.
     expect(existsSync(join(dir, '.openbook-pglite.lock'))).toBe(false);
 
     // Proof it is really re-runnable, which is what the leak broke.

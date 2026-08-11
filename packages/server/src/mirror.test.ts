@@ -1,3 +1,5 @@
+import {spawn, type ChildProcess} from 'node:child_process';
+import {once} from 'node:events';
 import {existsSync, readdirSync} from 'node:fs';
 import {readFile, writeFile, readdir, mkdir} from 'node:fs/promises';
 import {rmSync} from 'node:fs';
@@ -14,6 +16,19 @@ const snap = (text: string): PageSnapshot => ({
   values: [],
   names: [],
 });
+
+const startLiveChild = async (): Promise<ChildProcess> => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
+  await once(child, 'spawn');
+  return child;
+};
+
+const stopChild = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit');
+  child.kill();
+  await exited;
+};
 
 let store: PageStore;
 let dbDir: string;
@@ -297,16 +312,19 @@ describe('BookMirror re-import (disk → DB)', () => {
 describe('BookMirror single-owner lock (OB-241)', () => {
   const lockPath = (): string => join(bookDir, '.openbook-mirror.lock');
 
-  it('refuses to mirror a directory a live foreign process owns', async () => {
+  it('refuses to mirror a directory a live process owns despite a different recorded hostname', async () => {
     await mkdir(bookDir, {recursive: true});
-    // A lock from another machine (network-synced folder): liveness is unknowable,
-    // so we must assume it is live and decline rather than start a write war.
-    await writeFile(
-      lockPath(),
-      JSON.stringify({pid: process.pid, host: 'some-other-host', startedAt: new Date().toISOString()}),
-      'utf8',
-    );
-    await expect(BookMirror.create({store, dir: bookDir, watch: false})).rejects.toBeInstanceOf(MirrorLockedError);
+    const child = await startLiveChild();
+    try {
+      await writeFile(
+        lockPath(),
+        JSON.stringify({pid: child.pid, host: 'some-other-host', startedAt: new Date().toISOString()}),
+        'utf8',
+      );
+      await expect(BookMirror.create({store, dir: bookDir, watch: false})).rejects.toBeInstanceOf(MirrorLockedError);
+    } finally {
+      await stopChild(child);
+    }
   });
 
   it('takes over a stale lock whose holder is gone', async () => {
