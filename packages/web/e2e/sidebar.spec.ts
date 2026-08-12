@@ -1,21 +1,38 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {SERVER} from './seed';
+import {newPage, SERVER} from './seed';
 
 // Regression for two sidebar fixes:
 //  - rows mirror the page icon (default 📄), matching the page header;
 //  - right-clicking a row opens the page context menu (not the browser default),
 //    which requires the tree row to forward the ContextMenuTrigger's handlers.
-test('sidebar row shows the page icon and opens its context menu on right-click', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
-  await page.goto('/');
+// Both persisted menu densities get their own Chromatic baseline: the density
+// lives in openbook.preferences, exactly as it does after changing Appearance.
+test.describe('sidebar context menu densities', () => {
+  test.use({freshWorkspace: true});
 
-  const row = page.getByRole('treeitem').first();
-  await expect(row).toBeVisible();
-  await expect(row).toContainText('📄'); // default page icon, mirrored from the page
+  for (const menuDensity of ['comfortable', 'compact'] as const) {
+    test(`sidebar context menu: ${menuDensity} density`, {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
+      await page.addInitScript((density) => {
+        localStorage.setItem('openbook.preferences', JSON.stringify({general: {menuDensity: density}}));
+      }, menuDensity);
+      // freshWorkspace wipes the tree (a deliberately empty library, for a
+      // clean single-row baseline), so seed the one page the test right-clicks.
+      // No icon is set, so the row still mirrors the default 📄 page icon.
+      await newPage(request, `Sidebar Density ${menuDensity}`);
+      await page.goto('/');
 
-  await row.click({button: 'right'});
-  await expect(page.getByRole('menuitem', {name: 'Add subpage'})).toBeVisible();
-  await expect(page.getByRole('menuitem', {name: 'Move to trash'})).toBeVisible();
-  await takeSnapshot(page, testInfo); // visual: sidebar row context menu
+      const row = page.getByRole('treeitem').first();
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('📄'); // default page icon, mirrored from the page
+
+      await row.click({button: 'right'});
+      const addSubpage = page.getByRole('menuitem', {name: 'Add subpage'});
+      await expect(addSubpage).toBeVisible();
+      await expect(addSubpage).toHaveClass(menuDensity === 'compact' ? /\btext-xs\b/ : /\btext-sm\b/);
+      await expect(page.getByRole('menuitem', {name: 'Move to trash'})).toBeVisible();
+      await takeSnapshot(page, testInfo); // visual: sidebar context menu at the persisted density
+    });
+  }
 });
 
 // The restructured sidebar chrome: trash is a nav row under Settings, the

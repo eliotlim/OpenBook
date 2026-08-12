@@ -409,7 +409,9 @@ Other commands:
    and sidebar toggle) is web-invisible, so the web shell exposes a `?shell=desktop`
    preview seam (`packages/web/src/pages/index.tsx`) the snapshot drives.
    `chromatic --playwright` uploads them. Set the `CHROMATIC_PROJECT_TOKEN` repo
-   secret to enable the CI step.
+   secret to enable the CI step. Chromatic diffs, including new snapshots, now
+   fail the job. Review and accept intentional changes in the Chromatic UI,
+   then re-run the job.
 
 > **What automated tests can't cover.** WKWebView-only behavior (see §7) doesn't
 > reproduce in headless Chromium — verify those on the real desktop app.
