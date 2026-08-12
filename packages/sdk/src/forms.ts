@@ -1,5 +1,11 @@
 import type {FormValidationError} from './formSchema';
 
+/** Stable pointer used by a standalone form block to project a database view. */
+export interface DatabaseFormReference {
+  databaseId: string;
+  viewId: string;
+}
+
 /** Public form-upload limits, shared by the browser runtime and server. */
 export const FORM_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const FORM_UPLOAD_MAX_FILES = 5;
@@ -42,6 +48,16 @@ export interface FormSubmissionRequest {
   key: string;
   /** Property-id keyed values to persist on the new database row. */
   values: Record<string, unknown>;
+  /** Client-generated replay key; retries return the original result. */
+  idempotencyKey: string;
+}
+
+/** Payload for a database-backed form view submission (F-1/F-4 contract). */
+export interface DatabaseFormSubmissionRequest {
+  /** Per-view public fill capability; never accepted as general database auth. */
+  capability: string;
+  /** Database-property-id keyed values validated by `validateRowAgainstForm`. */
+  fields: Record<string, unknown>;
   /** Client-generated replay key; retries return the original result. */
   idempotencyKey: string;
 }
