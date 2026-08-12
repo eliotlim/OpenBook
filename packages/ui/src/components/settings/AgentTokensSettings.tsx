@@ -58,9 +58,6 @@ export default function AgentTokensSettings() {
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  // This library's stable id, baked into the connector config so the connector can
-  // verify it reached THIS library and refuse a foreign responder on the port.
-  const [instanceId, setInstanceId] = useState<string | null>(null);
   const [remoteEnabled, setRemoteEnabled] = useState(false);
   const [tokens, setTokens] = useState<AgentTokenMeta[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -77,14 +74,10 @@ export default function AgentTokensSettings() {
   const [toggling, setToggling] = useState(false);
   const [connectorCopied, setConnectorCopied] = useState(false);
 
-  // The MCP client registration for THIS library: the loopback endpoint plus the
-  // instance id the connector verifies before adopting the server (STAB-5). The
-  // binary path is where the connector is installed; the env vars are the load-bearing part.
+  // Register Claude Code directly against the authenticated HTTP MCP endpoint.
   const connectorConfig = [
-    'claude mcp add openbook \\',
-    '  --env OPENBOOK_URL=http://127.0.0.1:4319 \\',
-    ...(instanceId ? [`  --env OPENBOOK_INSTANCE_ID=${instanceId} \\`] : []),
-    '  -- node /path/to/openbook-mcp/dist/bin.js',
+    'claude mcp add --transport http openbook http://127.0.0.1:4319/api/mcp \\',
+    '  --header "Authorization: Bearer <token>"',
   ].join('\n');
 
   const copyConnectorConfig = async () => {
@@ -103,13 +96,6 @@ export default function AgentTokensSettings() {
       setTokens(res.tokens);
       setCanManage(true);
       setLoadError(null);
-      // Best-effort: read the library id for the connector snippet. A failure here
-      // (older server without the field) just hides the id line — never blocks the tab.
-      try {
-        setInstanceId((await client.getInstanceInfo()).instanceId ?? null);
-      } catch {
-        setInstanceId(null);
-      }
     } catch (e) {
       if (isUnavailable(e)) {
         setUnavailable(true);
@@ -284,20 +270,26 @@ export default function AgentTokensSettings() {
           )}
 
           {/* Local MCP connector setup (STAB-5). Desktop only — the host binds the
-              loopback endpoint the connector reaches. The snippet carries this exact
-              library's id so the connector refuses a foreign responder on the port. */}
-          {enabled && serverControls?.setAgentLocalTcp && (
-            <SettingsSection title={t('agents.localMcpTitle')} description={t('agents.localMcpHint')}>
-              <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
-                <code>{connectorConfig}</code>
-              </pre>
-              <p className="text-xs text-muted-foreground">{t('agents.localMcpFollowsDefault')}</p>
-              <div>
-                <Button variant="secondary" size="sm" onClick={() => void copyConnectorConfig()}>
-                  {connectorCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {connectorCopied ? t('agents.copied') : t('agents.localMcpCopy')}
-                </Button>
-              </div>
+              loopback endpoint the HTTP transport reaches. */}
+          {serverControls?.setAgentLocalTcp && (
+            <SettingsSection
+              title={t('agents.localMcpTitle')}
+              description={enabled ? t('agents.localMcpHint') : t('agents.localMcpDisabled')}
+            >
+              {enabled && (
+                <>
+                  <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
+                    <code>{connectorConfig}</code>
+                  </pre>
+                  <p className="text-xs text-muted-foreground">{t('agents.localMcpScopes')}</p>
+                  <div>
+                    <Button variant="secondary" size="sm" onClick={() => void copyConnectorConfig()}>
+                      {connectorCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      {connectorCopied ? t('agents.copied') : t('agents.localMcpCopy')}
+                    </Button>
+                  </div>
+                </>
+              )}
             </SettingsSection>
           )}
 
