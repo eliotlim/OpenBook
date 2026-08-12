@@ -386,6 +386,7 @@ export const en = {
     forms: {
       accepts: 'This page accepts public submissions',
       settings: 'Form settings',
+      notReady: 'This form isn\'t ready — bind a database to accept responses',
       reachability: {
         liveAt: 'Signed-out visitors can submit at {host}.',
         live: 'Signed-out visitors who can open this public page can submit.',
@@ -396,7 +397,7 @@ export const en = {
         checking: 'Checking whether signed-out visitors can reach the form…',
         guestBlocked: 'A public address is configured, but signed-out visitors cannot reach the form.',
       },
-      guestOffCaveat: 'Guest access is off, so signed-out visitors get a 404 even at this public address.',
+      guestOffCaveat: 'Guest access is off, so signed-out visitors get a "page not found" (404) error even at this public address.',
       manageGuestAccess: 'Manage guest access',
     },
     scopeLabel: 'Who can access',
@@ -1154,7 +1155,8 @@ export const en = {
       responsesDatabaseName: 'Form responses',
       creatingDatabase: 'Creating database…',
       databaseCreateFailed: 'Could not create a database. Try again.',
-      noDatabases: 'No databases in this library yet.',
+      noDatabases: 'This page has no database yet — create one to store responses.',
+      unavailableDatabase: 'Database {id} (unavailable)',
       submissionKey: 'Submission key',
       regenerateKey: 'Regenerate key',
       regenerateTitle: 'Regenerate the submission key?',

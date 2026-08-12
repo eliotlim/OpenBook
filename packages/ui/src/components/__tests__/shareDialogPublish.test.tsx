@@ -60,24 +60,38 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
 
 const open = () => fireEvent.click(screen.getByLabelText('Share'));
 
-const formPage = (over: {enabled?: boolean; submissionKey?: string} = {}) => ({
-  id: 'p1',
-  data: {
-    editorjs: {blocks: []},
-    values: [],
-    names: [],
-    blockdoc: {
-      blocks: [{
-        id: 'form-block',
-        type: 'form',
-        props: {
-          enabled: over.enabled ?? true,
-          submissionKey: over.submissionKey ?? 'private-capability-never-rendered',
-        },
-      }],
+const formPage = (over: {
+  enabled?: boolean;
+  submissionKey?: string;
+  databaseId?: string | null;
+  fields?: Array<Record<string, unknown>>;
+} = {}) => {
+  const databaseId = over.databaseId === undefined ? 'responses-db' : over.databaseId;
+  const fields = over.fields ?? [{id: 'name', kind: 'text', columnId: 'name-column'}];
+  return {
+    id: 'p1',
+    data: {
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+      blockdoc: {
+        blocks: [{
+          id: 'form-block',
+          type: 'form',
+          props: {
+            enabled: over.enabled ?? true,
+            submissionKey: over.submissionKey ?? 'private-capability-never-rendered',
+            ...(databaseId ? {databaseId} : {}),
+            schema: {
+              ...(databaseId ? {databaseId} : {}),
+              fields,
+            },
+          },
+        }],
+      },
     },
-  },
-}) as unknown as NonNullable<Awaited<ReturnType<DataClient['getPage']>>>;
+  } as unknown as NonNullable<Awaited<ReturnType<DataClient['getPage']>>>;
+};
 
 beforeEach(() => {
   mockHost = 'rae.book.cloud';
@@ -207,8 +221,24 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
-    expect(screen.getByText(/signed-out visitors get a 404 even at this public address/)).toBeTruthy();
+    expect(screen.getByText(/signed-out visitors get a "page not found" \(404\) error even at this public address/)).toBeTruthy();
     expect(screen.getByRole('button', {name: 'Manage guest access'})).toBeTruthy();
+  });
+
+  it.each([
+    ['no database', {databaseId: null}],
+    ['no bound field', {fields: [{id: 'name', kind: 'text'}]}],
+  ])('shows an amber not-ready state, not an affirmative signal, with %s', async (_name, over) => {
+    wrap('public', {getPage: async () => formPage(over)});
+    open();
+
+    const message = await screen.findByText('This form isn\'t ready — bind a database to accept responses');
+    expect(message.closest('[data-form-not-ready]')?.className).toContain('border-amber-500/40');
+    expect(screen.queryByText('This page accepts public submissions')).toBeNull();
+    expect(screen.queryByText(/Signed-out visitors can submit at/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Form settings'}));
+    await waitFor(() => expect(getKitPanel()).toEqual({blockId: 'form-block', title: 'Form'}));
   });
 
   it.each([

@@ -5,7 +5,14 @@ import {DataProvider} from '@/data';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
 import {getCustomBlock} from '../registry';
 import {FormOriginContext, registerFormBlock} from '../FormBlockView';
-import {enabledFormBlockId, insertFormField, makeFormField, moveFormField, reorderFormFields} from '../formBlock';
+import {
+  enabledFormBlockId,
+  formBlockReadyForSubmissions,
+  insertFormField,
+  makeFormField,
+  moveFormField,
+  reorderFormFields,
+} from '../formBlock';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {KitLockContext} from '../kit/lock';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -61,6 +68,36 @@ describe('form block registration and wire shape', () => {
     expect(enabledFormBlockId(snapshot)).toBe('enabled-form');
     expect(enabledFormBlockId({blockdoc: {blocks: snapshot.blockdoc.blocks.slice(0, 1)}})).toBeNull();
     expect(enabledFormBlockId({blockdoc: null})).toBeNull();
+  });
+
+  it('reports submission readiness separately without returning the capability', () => {
+    const ready = {
+      blockdoc: {
+        blocks: [{
+          id: 'ready-form',
+          type: 'form',
+          props: {
+            enabled: true,
+            submissionKey: 'private-capability',
+            databaseId: 'responses-db',
+            schema: {fields: [{id: 'name', columnId: 'name-column'}]},
+          },
+        }],
+      },
+    };
+    const blockId = enabledFormBlockId(ready);
+
+    expect(blockId).toBe('ready-form');
+    expect(formBlockReadyForSubmissions(ready, blockId)).toBe(true);
+    expect(formBlockReadyForSubmissions({
+      blockdoc: {
+        blocks: [{
+          ...ready.blockdoc.blocks[0],
+          props: {...ready.blockdoc.blocks[0].props, databaseId: undefined},
+        }],
+      },
+    }, blockId)).toBe(false);
+    expect(JSON.stringify(blockId)).not.toContain('private-capability');
   });
 
   it('inserts and reorders palette fields without mutating the source array', () => {

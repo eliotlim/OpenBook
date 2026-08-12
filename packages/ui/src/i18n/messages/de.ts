@@ -237,6 +237,7 @@ export const de: PartialMessages = {
     forms: {
       accepts: 'Diese Seite nimmt öffentliche Einsendungen an',
       settings: 'Formulareinstellungen',
+      notReady: 'Dieses Formular ist noch nicht bereit – binden Sie eine Datenbank an, um Antworten zu empfangen.',
       reachability: {
         liveAt: 'Nicht angemeldete Besucher können unter {host} etwas einsenden.',
         live: 'Nicht angemeldete Besucher, die diese öffentliche Seite öffnen können, können etwas einsenden.',
@@ -247,7 +248,7 @@ export const de: PartialMessages = {
         checking: 'Es wird geprüft, ob nicht angemeldete Besucher das Formular erreichen können …',
         guestBlocked: 'Eine öffentliche Adresse ist eingerichtet, aber nicht angemeldete Besucher können das Formular nicht erreichen.',
       },
-      guestOffCaveat: 'Der Gastzugriff ist deaktiviert. Nicht angemeldete Besucher erhalten daher selbst an dieser öffentlichen Adresse einen 404-Fehler.',
+      guestOffCaveat: 'Der Gastzugriff ist deaktiviert. Nicht angemeldete Besucher erhalten daher selbst an dieser öffentlichen Adresse den Fehler „Seite nicht gefunden“ (404).',
       manageGuestAccess: 'Gastzugriff verwalten',
     },
     siteGlobalHint: 'Gilt für deine gesamte Bibliothek, nicht nur für diese Seite.',
@@ -704,7 +705,8 @@ export const de: PartialMessages = {
       responsesDatabaseName: 'Formularantworten',
       creatingDatabase: 'Datenbank wird erstellt…',
       databaseCreateFailed: 'Datenbank konnte nicht erstellt werden. Versuche es erneut.',
-      noDatabases: 'In dieser Bibliothek gibt es noch keine Datenbanken.',
+      noDatabases: 'Diese Seite hat noch keine Datenbank – erstellen Sie eine, um Antworten zu speichern.',
+      unavailableDatabase: 'Datenbank {id} (nicht verfügbar)',
       submissionKey: 'Einsendungsschlüssel',
       regenerateKey: 'Schlüssel neu erzeugen',
       regenerateTitle: 'Einsendungsschlüssel neu erzeugen?',

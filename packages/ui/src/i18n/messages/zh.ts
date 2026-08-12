@@ -235,6 +235,7 @@ export const zh: PartialMessages = {
     forms: {
       accepts: '此页面接受公开提交',
       settings: '表单设置',
+      notReady: '此表单尚未准备就绪 — 绑定数据库以接收回答。',
       reachability: {
         liveAt: '未登录的访客可以在 {host} 提交。',
         live: '能够打开此公开页面的未登录访客可以提交。',
@@ -245,7 +246,7 @@ export const zh: PartialMessages = {
         checking: '正在检查未登录的访客能否访问表单…',
         guestBlocked: '已配置公开地址，但未登录的访客无法访问表单。',
       },
-      guestOffCaveat: '访客访问已关闭，因此未登录的访客即使使用此公开地址也会收到 404。',
+      guestOffCaveat: '访客访问已关闭，因此未登录的访客即使使用此公开地址也会收到“找不到页面”(404) 错误。',
       manageGuestAccess: '管理访客访问',
     },
     siteGlobalHint: '此设置适用于你的整个资料库，而不仅是此页面。',
@@ -697,7 +698,8 @@ export const zh: PartialMessages = {
       responsesDatabaseName: '表单回复',
       creatingDatabase: '正在创建数据库…',
       databaseCreateFailed: '无法创建数据库，请重试。',
-      noDatabases: '此资料库中尚无数据库。',
+      noDatabases: '此页面尚无数据库 — 创建一个以存储回答。',
+      unavailableDatabase: '数据库 {id}（不可用）',
       submissionKey: '提交密钥',
       regenerateKey: '重新生成密钥',
       regenerateTitle: '重新生成提交密钥？',

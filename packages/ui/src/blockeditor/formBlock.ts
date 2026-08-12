@@ -132,6 +132,45 @@ export function enabledFormBlockId(snapshot: Pick<PageSnapshot, 'blockdoc'>): st
   return null;
 }
 
+/**
+ * Whether an enabled form disclosure may honestly say it can accept responses.
+ * The block id comes from {@link enabledFormBlockId}; this companion selector
+ * inspects only the database/column bindings and never returns the submission
+ * capability to sharing UI.
+ */
+export function formBlockReadyForSubmissions(
+  snapshot: Pick<PageSnapshot, 'blockdoc'>,
+  blockId: string | null,
+): boolean {
+  if (!blockId) return false;
+  const blockdoc = jsonRecord(snapshot.blockdoc);
+  const roots = blockdoc && Array.isArray(blockdoc.blocks) ? blockdoc.blocks : [];
+  const stack: unknown[] = [...roots].reverse();
+  const seen = new Set<object>();
+
+  while (stack.length > 0) {
+    const value = stack.pop();
+    const block = jsonRecord(value);
+    if (!block || seen.has(block)) continue;
+    seen.add(block);
+    if (Array.isArray(block.children)) {
+      for (let i = block.children.length - 1; i >= 0; i -= 1) stack.push(block.children[i]);
+    }
+    if (block.type !== 'form' || block.id !== blockId) continue;
+    const props = jsonRecord(block.props);
+    const schema = jsonRecord(props?.schema);
+    const databaseId = typeof props?.databaseId === 'string' && props.databaseId.length > 0
+      ? props.databaseId
+      : typeof schema?.databaseId === 'string' ? schema.databaseId : '';
+    const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+    return databaseId.length > 0 && fields.some((field) => {
+      const record = jsonRecord(field);
+      return typeof record?.columnId === 'string' && record.columnId.length > 0;
+    });
+  }
+  return false;
+}
+
 const submissionKeyOf = (props: JsonRecord): string => {
   if (typeof props.submissionKey === 'string' && props.submissionKey) return props.submissionKey;
   const schema = jsonRecord(props.schema);

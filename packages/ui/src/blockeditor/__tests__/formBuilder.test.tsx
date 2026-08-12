@@ -53,6 +53,34 @@ describe('form builder canvas', () => {
     expect(read().fields.map((field) => field.kind)).toEqual(['text', 'email', 'select']);
   });
 
+  it('uses translated kind labels and keeps pointer drag grips out of the tab order', () => {
+    const schema = {
+      ...schemaFixture(),
+      fields: [{id: 'about', kind: 'longtext' as const, label: 'About', required: false}],
+    };
+    const {block, editor} = harness(schema);
+    const view = render(<FormEditView schema={schema} block={block} editor={editor} />);
+    const row = view.container.querySelector<HTMLElement>('[data-form-field-row="about"]')!;
+    const grip = screen.getByRole('button', {name: 'Drag About'});
+
+    expect(within(row).getByText('Long text', {selector: 'code'})).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Add Long text'}).querySelector('code')).toBeNull();
+    expect(grip.tabIndex).toBe(-1);
+    expect(grip.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(row.getAttribute('aria-roledescription')).toBe('Sortable form field');
+  });
+
+  it('moves focus to the previous row after removing a field', async () => {
+    const {block, editor, schema} = harness();
+    const view = render(<FormEditView schema={schema} block={block} editor={editor} />);
+    const previous = view.container.querySelector<HTMLElement>('[data-form-field-row="name"]')!;
+
+    fireEvent.click(screen.getByRole('button', {name: 'Actions for Email'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Remove field'}));
+
+    await waitFor(() => expect(document.activeElement).toBe(previous));
+  });
+
   it('reorders with an HTML5 drag and the focused-row keyboard alternative', () => {
     const {block, editor, schema, read} = harness();
     const view = render(<FormEditView schema={schema} block={block} editor={editor} />);
@@ -194,6 +222,24 @@ describe('form database binding and gates', () => {
     })));
     expect(read().databaseId).toBe('db-created');
     unregister();
+  });
+
+  it('marks an imported cross-page database binding as unavailable', () => {
+    const schema = {...schemaFixture(), databaseId: 'legacy-cross-page'};
+    const {block, editor} = harness(schema);
+    render(
+      <ConfirmProvider>
+        <FormSettings schema={schema} block={block} editor={editor} />
+      </ConfirmProvider>,
+    );
+
+    const picker = screen.getByRole('combobox', {name: 'Submission database'});
+    expect(picker.textContent).toContain('Database legacy-cross-page (unavailable)');
+    fireEvent.click(picker);
+    const fallback = screen.getByRole('option', {
+      name: 'Database legacy-cross-page (unavailable)',
+    }) as HTMLButtonElement;
+    expect(fallback.disabled).toBe(true);
   });
 
   it('regenerates the submission key only after the in-app confirmation', async () => {

@@ -21,7 +21,7 @@ import {copyPageLink} from '@/lib/pageActions';
 import {clearShareTarget, readShareTarget, shareDialogVersion, subscribeShareDialog} from '@/lib/shareDialog';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
-import {enabledFormBlockId} from '@/blockeditor/formBlock';
+import {enabledFormBlockId, formBlockReadyForSubmissions} from '@/blockeditor/formBlock';
 import {openKitPanel} from '@/blockeditor/kit/kitPanel';
 import type {TKey} from '@/i18n';
 
@@ -227,12 +227,14 @@ type FormReachability =
 /** Enabled-form disclosure: capability state, actual signed-out reachability,
  * and the two owner paths that can change those facts. */
 function FormSubmissionRow({
+  ready,
   reachability,
   guestOff,
   canManage,
   onOpenSettings,
   onManageGuestAccess,
 }: {
+  ready: boolean;
   reachability: FormReachability;
   guestOff: boolean;
   canManage: boolean;
@@ -240,6 +242,27 @@ function FormSubmissionRow({
   onManageGuestAccess: () => void;
 }) {
   const {t} = useTranslation();
+  if (!ready) {
+    return (
+      <div
+        data-form-public-submissions
+        data-form-not-ready
+        aria-live="polite"
+        className="flex items-start justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+      >
+        <span>{t('share.forms.notReady')}</span>
+        {canManage && (
+          <button
+            type="button"
+            className="shrink-0 underline underline-offset-2 hover:text-foreground"
+            onClick={onOpenSettings}
+          >
+            {t('share.forms.settings')}
+          </button>
+        )}
+      </div>
+    );
+  }
   const reachabilityText = reachability.host
     ? t(reachability.key, {host: reachability.host})
     : t(reachability.key);
@@ -441,9 +464,10 @@ export default function ShareDialog({
   // until the lookup lands, or on a pre-SHR-6 server that doesn't report it — in
   // which case the summary falls back to the guest-gate line below.
   const [defaultVisibility, setDefaultVisibility] = useState<Exclude<PageVisibility, 'inherit'> | null>(null);
-  // ID only: the helper checks the durable enabled/key aliases but never
-  // returns the submission capability itself to this UI.
-  const [formBlockId, setFormBlockId] = useState<string | null>(null);
+  // The helper returns the ID only, never the submission capability. Readiness
+  // is a separate boolean so an enabled/keyed but unbound form gets an honest
+  // amber setup state instead of an affirmative public-submission claim.
+  const [formDisclosure, setFormDisclosure] = useState<{blockId: string; ready: boolean} | null>(null);
 
   const [invitee, setInvitee] = useState('');
   const [level, setLevel] = useState<AclLevel>('read');
@@ -532,10 +556,17 @@ export default function ShareDialog({
   useEffect(() => {
     if (!open) return;
     let live = true;
-    setFormBlockId(null);
+    setFormDisclosure(null);
     client
       .getPage(pageId)
-      .then((page) => live && setFormBlockId(page ? enabledFormBlockId(page.data) : null))
+      .then((page) => {
+        if (!live || !page) return;
+        const blockId = enabledFormBlockId(page.data);
+        setFormDisclosure(blockId ? {
+          blockId,
+          ready: formBlockReadyForSubmissions(page.data, blockId),
+        } : null);
+      })
       .catch(() => {
         /* leave the form disclosure hidden — sharing remains usable */
       });
@@ -635,10 +666,10 @@ export default function ShareDialog({
                   : {key: 'share.forms.reachability.live'};
 
   const openFormSettings = useCallback(() => {
-    if (!formBlockId) return;
+    if (!formDisclosure) return;
     setOpen(false);
-    window.setTimeout(() => openKitPanel(formBlockId, t('formBlock.label')), DIALOG_EXIT_MS);
-  }, [formBlockId, setOpen, t]);
+    window.setTimeout(() => openKitPanel(formDisclosure.blockId, t('formBlock.label')), DIALOG_EXIT_MS);
+  }, [formDisclosure, setOpen, t]);
 
   const openGuestAccessSettings = useCallback(() => {
     setOpen(false);
@@ -725,8 +756,9 @@ export default function ShareDialog({
               />
             )}
 
-            {formBlockId && (
+            {formDisclosure && (
               <FormSubmissionRow
+                ready={formDisclosure.ready}
                 reachability={formReachability}
                 guestOff={showFormGuestCaveat}
                 canManage={canManage}

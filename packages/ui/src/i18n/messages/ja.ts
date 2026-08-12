@@ -236,6 +236,7 @@ export const ja: PartialMessages = {
     forms: {
       accepts: 'このページは公開フォームの回答を受け付けます',
       settings: 'フォーム設定',
+      notReady: 'このフォームはまだ準備ができていません。回答を受け付けるにはデータベースを関連付けてください。',
       reachability: {
         liveAt: 'サインインしていない訪問者も {host} から送信できます。',
         live: 'この公開ページを開けるサインインしていない訪問者は送信できます。',
@@ -246,7 +247,7 @@ export const ja: PartialMessages = {
         checking: 'サインインしていない訪問者がフォームにアクセスできるか確認中…',
         guestBlocked: '公開アドレスは設定されていますが、サインインしていない訪問者はフォームにアクセスできません。',
       },
-      guestOffCaveat: 'ゲストアクセスがオフのため、この公開アドレスでもサインインしていない訪問者には 404 が返されます。',
+      guestOffCaveat: 'ゲストアクセスがオフのため、この公開アドレスでもサインインしていない訪問者には「ページが見つかりません」(404) エラーが返されます。',
       manageGuestAccess: 'ゲストアクセスを管理',
     },
     siteGlobalHint: 'この設定はこのページだけでなく、ライブラリ全体に適用されます。',
@@ -699,7 +700,8 @@ export const ja: PartialMessages = {
       responsesDatabaseName: 'フォームの回答',
       creatingDatabase: 'データベースを作成中…',
       databaseCreateFailed: 'データベースを作成できませんでした。もう一度お試しください。',
-      noDatabases: 'このライブラリにはまだデータベースがありません。',
+      noDatabases: 'このページにはまだデータベースがありません。回答を保存するには作成してください。',
+      unavailableDatabase: 'データベース {id}（利用不可）',
       submissionKey: '送信キー',
       regenerateKey: 'キーを再生成',
       regenerateTitle: '送信キーを再生成しますか？',
