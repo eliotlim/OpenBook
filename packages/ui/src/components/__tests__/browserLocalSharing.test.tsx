@@ -35,6 +35,7 @@ const instanceInfo = {
 
 const client: Partial<DataClient> = {
   getInstanceInfo: async () => instanceInfo,
+  getPage: async () => null,
   getPageVisibility: async () => null,
   listPageAcl: async () => [],
   listMembers: async () => [],

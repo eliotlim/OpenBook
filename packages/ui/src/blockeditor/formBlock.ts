@@ -1,4 +1,4 @@
-import {FORM_FIELD_KINDS, type FormField, type FormSchema, type PageSnapshot} from '@book.dev/sdk';
+import {FORM_FIELD_KINDS, generateSubmissionKey, type FormField, type FormSchema, type PageSnapshot} from '@book.dev/sdk';
 import {pageLinkUrl} from '@/lib/pageActions';
 import {
   createDoc,
@@ -19,18 +19,62 @@ export interface FormBlockWireProps {
   schema: FormSchema;
 }
 
-/** Exactly 128 cryptographically-random bits, encoded without base64 padding. */
+/** The SDK's 256-bit form capability generator, kept behind the established UI helper. */
 export function randomSubmissionKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return generateSubmissionKey();
 }
 
 /** A fresh id for a newly inserted form. UUID is random when the host supports it. */
 export function randomFormId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return randomSubmissionKey();
+}
+
+/** Stable identity for one field. Kept separate from the form id helper so
+ * callers do not accidentally reuse a form's identity for one of its rows. */
+export function randomFormFieldId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `field_${randomSubmissionKey()}`;
+}
+
+/** Minimal valid field inserted by FORM-4's palette. */
+export function makeFormField(kind: FormField['kind'], label = ''): FormField {
+  return {
+    id: randomFormFieldId(),
+    kind,
+    label,
+    required: false,
+    ...((kind === 'select' || kind === 'multiselect') ? {options: []} : {}),
+  };
+}
+
+/** Insert a field at a canvas gap (0..length), without mutating the schema. */
+export function insertFormField(fields: FormField[], field: FormField, at = fields.length): FormField[] {
+  const index = Math.max(0, Math.min(fields.length, at));
+  return [...fields.slice(0, index), field, ...fields.slice(index)];
+}
+
+/** Reorder one field into a canvas gap (0..length), without mutation. */
+export function reorderFormFields(fields: FormField[], fieldId: string, targetGap: number): FormField[] {
+  const from = fields.findIndex((field) => field.id === fieldId);
+  if (from < 0) return fields;
+  const gap = Math.max(0, Math.min(fields.length, targetGap));
+  const remaining = fields.filter((field) => field.id !== fieldId);
+  const to = Math.max(0, Math.min(remaining.length, gap > from ? gap - 1 : gap));
+  if (to === from) return fields;
+  return [...remaining.slice(0, to), fields[from], ...remaining.slice(to)];
+}
+
+/** Keyboard/menu alternative to pointer reordering. */
+export function moveFormField(fields: FormField[], fieldId: string, delta: -1 | 1): FormField[] {
+  const from = fields.findIndex((field) => field.id === fieldId);
+  if (from < 0) return fields;
+  const to = Math.max(0, Math.min(fields.length - 1, from + delta));
+  if (to === from) return fields;
+  const next = [...fields];
+  const [field] = next.splice(from, 1);
+  next.splice(to, 0, field);
+  return next;
 }
 
 /** A shareable page URL, excluding local/file/desktop-only locations. */
@@ -52,6 +96,80 @@ const jsonRecord = (value: unknown): JsonRecord | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as JsonRecord
     : null;
+
+/**
+ * Find the first form whose durable capability aliases say it accepts
+ * submissions. This reads the same authoritative `blockdoc.blocks` projection
+ * as the server's `findFormInPage` and deliberately returns only the block id:
+ * the submission key is a write capability and never belongs in sharing UI.
+ */
+export function enabledFormBlockId(snapshot: Pick<PageSnapshot, 'blockdoc'>): string | null {
+  const blockdoc = jsonRecord(snapshot.blockdoc);
+  const roots = blockdoc && Array.isArray(blockdoc.blocks) ? blockdoc.blocks : [];
+  const stack: unknown[] = [...roots].reverse();
+  const seen = new Set<object>();
+
+  while (stack.length > 0) {
+    const value = stack.pop();
+    const block = jsonRecord(value);
+    if (!block || seen.has(block)) continue;
+    seen.add(block);
+    if (Array.isArray(block.children)) {
+      for (let i = block.children.length - 1; i >= 0; i -= 1) stack.push(block.children[i]);
+    }
+    const props = jsonRecord(block.props);
+    if (
+      block.type === 'form'
+      && typeof block.id === 'string'
+      && block.id.length > 0
+      && props?.enabled === true
+      && typeof props.submissionKey === 'string'
+      && props.submissionKey.length > 0
+    ) {
+      return block.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether an enabled form disclosure may honestly say it can accept responses.
+ * The block id comes from {@link enabledFormBlockId}; this companion selector
+ * inspects only the database/column bindings and never returns the submission
+ * capability to sharing UI.
+ */
+export function formBlockReadyForSubmissions(
+  snapshot: Pick<PageSnapshot, 'blockdoc'>,
+  blockId: string | null,
+): boolean {
+  if (!blockId) return false;
+  const blockdoc = jsonRecord(snapshot.blockdoc);
+  const roots = blockdoc && Array.isArray(blockdoc.blocks) ? blockdoc.blocks : [];
+  const stack: unknown[] = [...roots].reverse();
+  const seen = new Set<object>();
+
+  while (stack.length > 0) {
+    const value = stack.pop();
+    const block = jsonRecord(value);
+    if (!block || seen.has(block)) continue;
+    seen.add(block);
+    if (Array.isArray(block.children)) {
+      for (let i = block.children.length - 1; i >= 0; i -= 1) stack.push(block.children[i]);
+    }
+    if (block.type !== 'form' || block.id !== blockId) continue;
+    const props = jsonRecord(block.props);
+    const schema = jsonRecord(props?.schema);
+    const databaseId = typeof props?.databaseId === 'string' && props.databaseId.length > 0
+      ? props.databaseId
+      : typeof schema?.databaseId === 'string' ? schema.databaseId : '';
+    const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+    return databaseId.length > 0 && fields.some((field) => {
+      const record = jsonRecord(field);
+      return typeof record?.columnId === 'string' && record.columnId.length > 0;
+    });
+  }
+  return false;
+}
 
 const submissionKeyOf = (props: JsonRecord): string => {
   if (typeof props.submissionKey === 'string' && props.submissionKey) return props.submissionKey;

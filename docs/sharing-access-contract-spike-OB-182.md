@@ -6,6 +6,11 @@
 
 ## 9. FORM-1 — page-scoped form-submission capabilities
 
+This section is the normative capability/access amendment. See
+[`docs/forms.md`](forms.md) for the user workflow and the
+[Forms architecture section](../ARCHITECTURE.md#forms) for the implementation
+map; both point back here rather than restating the authorization contract.
+
 An anonymous form submission is authorized by a capability stored in the form
 block's persisted props: `{formId, submissionKey, enabled, databaseId, schema}`.
 The v1 endpoint is page-scoped —
@@ -50,24 +55,26 @@ and otherwise returns `403`; embed-anywhere submission is explicitly out of scop
 for v1. The request also carries a client idempotency key, atomically claimed in
 the existing `write_keys` ledger under the page+form capability namespace, so a
 replay returns the original `201` result and row rather than creating another.
-Rows record submitted values plus the reserved `sys_form_submission`
+Rows record validated/projected values plus the reserved `sys_form_submission`
 `{formId, submittedAt}` provenance marker; anonymous submissions assert no
-verified author. FORM-5 will apply the form schema semantics. FORM-1 limits only
-the JSON envelope: 100 top-level fields, depth 8, 16 KiB per value, 128 KiB total
-values, a 200-byte idempotency key after trimming, and a 160 KiB raw request body.
+verified author. The shared `FormSchema` validator applies the field semantics
+before row creation. The JSON envelope remains limited to 100 top-level fields,
+depth 8, 16 KiB per value, 128 KiB total values, a 200-byte idempotency key after
+trimming, and a 160 KiB raw request body.
 
-As an interim abuse ceiling pending FORM-6 rate limiting, the gate counts the
-target database's non-deleted rows before creation. It denies when the count is
+The gate counts the target database's non-deleted rows before creation. It denies when the count is
 greater than or equal to the form schema's non-negative integer `maxSubmissions`;
 when that field is absent, the instance default is the documented constant
 10,000 submissions per form. A malformed override fails closed. The default is
-not yet instance-configurable (FORM-6 owns that policy together with rate limits).
+not instance-configurable. FORM-6 additionally applies the shared upload+submit
+fixed-window rate limits defined in `packages/server/src/formAccess.ts`.
 
-**FORM-6 asset-upload carve-out (design only).** A future asset endpoint may accept
-the same page+form submission capability to stage files for a submission without
-granting general page/database write. It must re-run the same enabled-form,
-constant-time-key and host-page READ gate; apply explicit per-file, per-submission
-and instance storage caps plus a safe MIME policy; bind finalized asset refs only
-to the idempotently created submission row; and timestamp unclaimed uploads so a
-bounded orphan-GC job removes uploads that never become reachable. No upload route
-or storage behavior is implemented by FORM-1.
+**FORM-6 asset-upload carve-out (implemented).**
+`POST /api/pages/:pageId/forms/:formId/uploads` accepts the same page+form
+capability to stage a files-field upload without granting general page/database
+or asset write. It re-runs the enabled-form, constant-time-key and host-page READ
+gate. Opaque staged tokens are field/form-bound and become ordinary asset URLs
+only when the idempotently created submission row claims them; unclaimed uploads
+remain unreadable and are removed after the orphan TTL. The browser and server
+share the public limits in `packages/sdk/src/forms.ts` (5 MiB/file, 5 files per
+submission, 10 MiB staged and 50 MiB retained per form, 30-minute orphan TTL).

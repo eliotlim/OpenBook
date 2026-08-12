@@ -1,6 +1,10 @@
 import {afterEach, describe, it, expect} from 'vitest';
 import {PAGE_TEMPLATES} from '@book.dev/sdk';
 import {t, setLocale, resolveLocale, type TKey} from '../index';
+import {en} from '../messages/en';
+import {de} from '../messages/de';
+import {ja} from '../messages/ja';
+import {zh} from '../messages/zh';
 
 afterEach(() => setLocale('en'));
 
@@ -41,6 +45,19 @@ describe('t', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('ships every new form-builder string in all four locales', () => {
+    const leaves = (value: unknown, prefix = ''): string[] => {
+      if (typeof value === 'string') return [prefix];
+      if (!value || typeof value !== 'object') return [];
+      return Object.entries(value).flatMap(([key, child]) => leaves(child, prefix ? `${prefix}.${key}` : key));
+    };
+    const source = {builder: en.formBlock.builder, settings: en.formBlock.settings};
+    const sourceKeys = leaves(source).sort();
+    for (const locale of [de, ja, zh]) {
+      expect(leaves({builder: locale.formBlock?.builder, settings: locale.formBlock?.settings}).sort()).toEqual(sourceKeys);
+    }
   });
 });
 

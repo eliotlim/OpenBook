@@ -22,13 +22,95 @@ import {rawOptions, slugify} from './options';
  * don't pass `media`, so they stay a two-column editor.
  */
 
-interface Row {
+export interface EditableOptionRow {
   label: string;
   value: string;
+}
+
+interface Row extends EditableOptionRow {
   image?: string;
   icon?: string;
   color?: string;
 }
+
+export interface OptionsListEditorCopy {
+  fieldLabel: string;
+  hint: string;
+  labelPlaceholder: string;
+  valuePlaceholder: string;
+  add: string;
+  remove: (index: number) => string;
+}
+
+const DEFAULT_COPY: OptionsListEditorCopy = {
+  fieldLabel: 'Options',
+  hint: 'Label readers see, and the value it serialises to.',
+  labelPlaceholder: 'Label',
+  valuePlaceholder: 'value',
+  add: 'Add option',
+  remove: (index) => `Remove option ${index + 1}`,
+};
+
+/** Controlled option rows shared by kit inputs and form select fields. */
+export const OptionsListEditor: React.FC<{
+  rows: EditableOptionRow[];
+  onChange: (rows: EditableOptionRow[]) => void;
+  readOnly?: boolean;
+  copy?: OptionsListEditorCopy;
+}> = ({rows, onChange, readOnly, copy = DEFAULT_COPY}) => {
+  const update = (i: number, patch: Partial<EditableOptionRow>): void =>
+    onChange(rows.map((row, j) => (j === i ? {...row, ...patch} : row)));
+  const remove = (i: number): void => onChange(rows.filter((_, j) => j !== i));
+  const add = (): void => onChange([...rows, {label: '', value: ''}]);
+
+  return (
+    <div className="flex flex-col gap-1" role="group" aria-label={copy.fieldLabel}>
+      <span className="text-xs font-medium text-foreground/80">{copy.fieldLabel}</span>
+      <span className="-mt-0.5 text-[0.7rem] text-muted-foreground">{copy.hint}</span>
+      <div className="flex flex-col gap-1.5">
+        {rows.map((row, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <ConfigInput
+              value={row.label}
+              readOnly={readOnly}
+              aria-label={`${copy.labelPlaceholder} ${i + 1}`}
+              placeholder={copy.labelPlaceholder}
+              onChange={(e) => update(i, {label: e.target.value})}
+            />
+            <span className="text-muted-foreground/60" aria-hidden>→</span>
+            <ConfigInput
+              mono
+              value={row.value}
+              readOnly={readOnly}
+              aria-label={`${copy.valuePlaceholder} ${i + 1}`}
+              placeholder={slugify(row.label) || copy.valuePlaceholder}
+              onChange={(e) => update(i, {value: e.target.value})}
+            />
+            {!readOnly && (
+              <button
+                type="button"
+                className="cursor-pointer shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+                aria-label={copy.remove(i)}
+                onClick={() => remove(i)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ))}
+        {!readOnly && (
+          <button
+            type="button"
+            className="mt-0.5 inline-flex w-fit cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+            onClick={add}
+          >
+            <Plus className="h-3.5 w-3.5" /> {copy.add}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const readRows = (block: BlockMap): Row[] =>
   rawOptions({opts: blockProp<unknown>(block, 'opts'), options: blockProp<unknown>(block, 'options')}).map((o) => ({
@@ -76,6 +158,10 @@ export const OptionsEditor: React.FC<{block: BlockMap; editor: BlockEditorContro
   const update = (i: number, patch: Partial<Row>): void => commit(rows.map((r, j) => (j === i ? {...r, ...patch} : r)));
   const remove = (i: number): void => commit(rows.filter((_, j) => j !== i));
   const add = (): void => commit([...rows, {label: '', value: ''}]);
+
+  if (!media) {
+    return <OptionsListEditor rows={rows} readOnly={editor.readOnly} onChange={(next) => commit(next)} />;
+  }
 
   return (
     <ConfigField label="Options" hint="Label readers see, and the value it serialises to.">

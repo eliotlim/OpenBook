@@ -2,8 +2,17 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {DataClient, FormSchema} from '@book.dev/sdk';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {DataProvider} from '@/data';
+import {ConfirmProvider} from '@/providers/ConfirmProvider';
 import {getCustomBlock} from '../registry';
 import {FormOriginContext, registerFormBlock} from '../FormBlockView';
+import {
+  enabledFormBlockId,
+  formBlockReadyForSubmissions,
+  insertFormField,
+  makeFormField,
+  moveFormField,
+  reorderFormFields,
+} from '../formBlock';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {KitLockContext} from '../kit/lock';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -38,6 +47,71 @@ function formHarness(over: Partial<FormSchema> = {}) {
 }
 
 describe('form block registration and wire shape', () => {
+  it('finds only enabled keyed forms in the authoritative nested blockdoc projection', () => {
+    const key = 'do-not-return-this-submission-capability';
+    const snapshot = {
+      blockdoc: {
+        blocks: [
+          {id: 'disabled', type: 'form', props: {enabled: false, submissionKey: key}},
+          {
+            id: 'columns',
+            type: 'columns',
+            children: [
+              {id: 'keyless', type: 'form', props: {enabled: true, submissionKey: ''}},
+              {id: 'enabled-form', type: 'form', props: {enabled: true, submissionKey: key}},
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(enabledFormBlockId(snapshot)).toBe('enabled-form');
+    expect(enabledFormBlockId({blockdoc: {blocks: snapshot.blockdoc.blocks.slice(0, 1)}})).toBeNull();
+    expect(enabledFormBlockId({blockdoc: null})).toBeNull();
+  });
+
+  it('reports submission readiness separately without returning the capability', () => {
+    const ready = {
+      blockdoc: {
+        blocks: [{
+          id: 'ready-form',
+          type: 'form',
+          props: {
+            enabled: true,
+            submissionKey: 'private-capability',
+            databaseId: 'responses-db',
+            schema: {fields: [{id: 'name', columnId: 'name-column'}]},
+          },
+        }],
+      },
+    };
+    const blockId = enabledFormBlockId(ready);
+
+    expect(blockId).toBe('ready-form');
+    expect(formBlockReadyForSubmissions(ready, blockId)).toBe(true);
+    expect(formBlockReadyForSubmissions({
+      blockdoc: {
+        blocks: [{
+          ...ready.blockdoc.blocks[0],
+          props: {...ready.blockdoc.blocks[0].props, databaseId: undefined},
+        }],
+      },
+    }, blockId)).toBe(false);
+    expect(JSON.stringify(blockId)).not.toContain('private-capability');
+  });
+
+  it('inserts and reorders palette fields without mutating the source array', () => {
+    const first = {...makeFormField('text', 'First'), id: 'first'};
+    const second = {...makeFormField('email', 'Second'), id: 'second'};
+    const third = {...makeFormField('files', 'Files'), id: 'third'};
+    const source = [first, second];
+
+    expect(insertFormField(source, third, 1).map((field) => field.id)).toEqual(['first', 'third', 'second']);
+    expect(reorderFormFields([...source, third], 'third', 0).map((field) => field.id)).toEqual(['third', 'first', 'second']);
+    expect(moveFormField([...source, third], 'first', 1).map((field) => field.id)).toEqual(['second', 'first', 'third']);
+    expect(source.map((field) => field.id)).toEqual(['first', 'second']);
+  });
+
   it('registers an interactive slash item with fresh cryptographic ids', () => {
     registerFormBlock();
     const def = getCustomBlock('form');
@@ -49,9 +123,7 @@ describe('form block registration and wire shape', () => {
     expect(first.type).toBe('form');
     expect(first.props?.formId).not.toBe(second.props?.formId);
     expect(first.props?.submissionKey).not.toBe(second.props?.submissionKey);
-    // TODO(FORM-1): adopt the SDK generateSubmissionKey (256-bit,
-    // packages/sdk/src/forms.ts) once FORM-1 merges.
-    expect(first.props?.submissionKey).toMatch(/^[A-Za-z0-9_-]{22,}$/);
+    expect(first.props?.submissionKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(first.props?.schema).toMatchObject({
       formId: first.props?.formId,
       submissionKey: first.props?.submissionKey,
@@ -93,9 +165,10 @@ describe('form block registration and wire shape', () => {
     const {Render, block, editor} = formHarness();
     const view = render(<Render block={block} editor={editor} pageReadOnly={false} />);
     expect(view.container.querySelector('[data-form-mode="edit"]')).toBeTruthy();
-    expect(screen.getByText('Name')).toBeTruthy();
-    expect(screen.getByText('email')).toBeTruthy();
-    expect(screen.getByText('Open builder')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-builder]')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-field-row="name"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-form-field-row="email"]')).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Add Files'})).toBeTruthy();
 
     view.rerender(
       <FormOriginContext.Provider value="https://example.test/?page=contact">
@@ -175,12 +248,14 @@ describe('form block registration and wire shape', () => {
   it('resolves the bound database name and row count through the data client', async () => {
     const {Render, block, editor} = formHarness();
     const client = {
-      getDatabase: vi.fn().mockResolvedValue({id: 'db-contacts', name: 'Contacts'}),
+      getDatabase: vi.fn().mockResolvedValue({id: 'db-contacts', name: 'Contacts', schema: {properties: [], views: []}}),
       listRows: vi.fn().mockResolvedValue([{id: 'r1'}, {id: 'r2'}]),
     } as unknown as DataClient;
     render(
       <DataProvider client={client}>
-        <Render block={block} editor={editor} pageReadOnly={false} />
+        <ConfirmProvider>
+          <Render block={block} editor={editor} pageReadOnly={false} />
+        </ConfirmProvider>
       </DataProvider>,
     );
     fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));

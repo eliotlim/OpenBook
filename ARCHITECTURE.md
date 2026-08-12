@@ -267,6 +267,48 @@ dispatch in `ConnectedPageDocument`):
   `/editor-lab` (localStorage-persisted, cross-tab sync); e2e in
   `packages/web/e2e/block-editor.spec.ts`.
 
+### Forms
+
+Forms are native `type:'form'` blocks registered from
+`packages/ui/src/blockeditor/FormBlockView.tsx` and declared in the SDK block
+catalogue. Their durable block props mirror the server gate:
+`{formId, submissionKey, enabled, databaseId, schema}`. `FormBuilder.tsx` owns
+the drag-and-drop field canvas, same-page database binding, compatible-column
+planning, and author settings; `FormSubmissionView.tsx` revives only the form
+controls on an otherwise locked public page. The ordered field model and
+server/client validation live in `packages/sdk/src/formSchema.ts`. New
+capabilities come from the 256-bit generator in `packages/sdk/src/forms.ts`.
+
+Anonymous writes use the narrow page-scoped capability routes
+`POST /api/pages/:pageId/forms/:formId/submissions` and
+`POST /api/pages/:pageId/forms/:formId/uploads`. The gate in
+`packages/server/src/formAccess.ts` scans only the authoritative recursive
+`PageSnapshot.blockdoc.blocks`, compares the key in constant time, reuses the
+ordinary page-READ decision, and requires the bound database to be hosted by
+the same page. It returns the same 404 for every failed capability/access check;
+the key grants one row-create/upload-staging operation, never page or database
+access. The full contract is
+[§9 of the sharing/access amendment](docs/sharing-access-contract-spike-OB-182.md#9-form-1--page-scoped-form-submission-capabilities),
+and the user workflow is in [docs/forms.md](docs/forms.md).
+
+The abuse posture is layered. Upload and submit share the fixed-window rate
+limits in `packages/server/src/formAccess.ts` (30 requests per peer/form per
+minute, with a 600-request shared fallback when no trustworthy peer is
+available). The staged-upload carve-out grants no general asset write: a token
+is field/form-bound, becomes readable only when an idempotent accepted row
+claims it, and otherwise ages out. Public quotas are shared with the browser in
+`packages/sdk/src/forms.ts`: `FORM_UPLOAD_MAX_FILE_BYTES` (5 MiB),
+`FORM_UPLOAD_MAX_FILES` (5), `FORM_UPLOAD_MAX_FORM_STAGED_BYTES` (10 MiB),
+`FORM_UPLOAD_MAX_FORM_BYTES` (50 MiB), and `FORM_UPLOAD_ORPHAN_TTL_MS` (30
+minutes). The schema can additionally cap total submissions; the server default
+is 10,000 rows per form.
+
+The FORM-7 MCP surface in `packages/mcp/src/server.ts` provides `list_forms`,
+`get_form_schema`, `update_form_field`, `set_form_settings`, and
+`list_form_submissions`. Reads recursively redact `submissionKey`; writes go
+through the resolved per-page agent-edits policy (suggest by default), and key
+regeneration is intentionally author-UI-only.
+
 ### Optional local AI (`packages/server/src/ai/`)
 
 An opt-in, local-only model subsystem (Settings → AI). Pluggable engines

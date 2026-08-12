@@ -5,6 +5,7 @@ import {guestPrincipal} from '@book.dev/sdk';
 import ShareDialog from '../ShareDialog';
 import {DataProvider} from '@/data/DataProvider';
 import {I18nProvider} from '@/providers';
+import {closeKitPanel, getKitPanel} from '@/blockeditor/kit/kitPanel';
 
 // Drive the published address + its audience scope per-test (GATE-6): the Publish
 // affordance and the "Published" indicator only make sense while the library is
@@ -43,6 +44,7 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
       <DataProvider
         client={
           {
+            getPage: async () => null,
             getPageVisibility: async () => visibility,
             listPageAcl: async () => [],
             getInstanceInfo: async () => info(instance),
@@ -58,12 +60,48 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
 
 const open = () => fireEvent.click(screen.getByLabelText('Share'));
 
+const formPage = (over: {
+  enabled?: boolean;
+  submissionKey?: string;
+  databaseId?: string | null;
+  fields?: Array<Record<string, unknown>>;
+} = {}) => {
+  const databaseId = over.databaseId === undefined ? 'responses-db' : over.databaseId;
+  const fields = over.fields ?? [{id: 'name', kind: 'text', columnId: 'name-column'}];
+  return {
+    id: 'p1',
+    data: {
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+      blockdoc: {
+        blocks: [{
+          id: 'form-block',
+          type: 'form',
+          props: {
+            enabled: over.enabled ?? true,
+            submissionKey: over.submissionKey ?? 'private-capability-never-rendered',
+            ...(databaseId ? {databaseId} : {}),
+            schema: {
+              ...(databaseId ? {databaseId} : {}),
+              fields,
+            },
+          },
+        }],
+      },
+    },
+  } as unknown as NonNullable<Awaited<ReturnType<DataClient['getPage']>>>;
+};
+
 beforeEach(() => {
   mockHost = 'rae.book.cloud';
   mockSiteVisibility = 'published';
   setSiteVisibility.mockClear();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  closeKitPanel({keepPane: true});
+});
 
 describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows a "Published" indicator with the address when the page is public on a serving address', async () => {
@@ -148,5 +186,69 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     open();
     expect(await screen.findByText('Published')).toBeTruthy();
     expect(screen.queryByText(/Guest access is off/)).toBeNull();
+  });
+});
+
+describe('ShareDialog — enabled form reachability (FORM-8)', () => {
+  it('surfaces an enabled form and its effective public address without exposing the key', async () => {
+    wrap('public', {getPage: async () => formPage()});
+    open();
+
+    const line = await screen.findByText('This page accepts public submissions');
+    expect(line.parentElement?.textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
+    expect(screen.getByRole('button', {name: 'Form settings'})).toBeTruthy();
+    expect(document.body.textContent).not.toContain('private-capability-never-rendered');
+  });
+
+  it('opens the enabled form block settings from the disclosure', async () => {
+    wrap('public', {getPage: async () => formPage()});
+    open();
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Form settings'}));
+    await waitFor(() => expect(getKitPanel()).toEqual({blockId: 'form-block', title: 'Form'}));
+  });
+
+  it('reports when page access prevents signed-out visitors from reaching an enabled form', async () => {
+    wrap('restricted', {getPage: async () => formPage()});
+    open();
+
+    expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
+    expect(screen.getByText(/signed-out visitors cannot reach it until this page is public/)).toBeTruthy();
+  });
+
+  it('mirrors the guest-off 404 caveat at an otherwise public form address', async () => {
+    wrap('public', {getPage: async () => formPage()}, {guestAccess: 'off'});
+    open();
+
+    expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
+    expect(screen.getByText(/signed-out visitors get a "page not found" \(404\) error even at this public address/)).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Manage guest access'})).toBeTruthy();
+  });
+
+  it.each([
+    ['no database', {databaseId: null}],
+    ['no bound field', {fields: [{id: 'name', kind: 'text'}]}],
+  ])('shows an amber not-ready state, not an affirmative signal, with %s', async (_name, over) => {
+    wrap('public', {getPage: async () => formPage(over)});
+    open();
+
+    const message = await screen.findByText('This form isn\'t ready — bind a database to accept responses');
+    expect(message.closest('[data-form-not-ready]')?.className).toContain('border-amber-500/40');
+    expect(screen.queryByText('This page accepts public submissions')).toBeNull();
+    expect(screen.queryByText(/Signed-out visitors can submit at/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Form settings'}));
+    await waitFor(() => expect(getKitPanel()).toEqual({blockId: 'form-block', title: 'Form'}));
+  });
+
+  it.each([
+    ['disabled', {enabled: false}],
+    ['keyless', {submissionKey: ''}],
+  ])('does not surface a %s form', async (_name, over) => {
+    wrap('public', {getPage: async () => formPage(over)});
+    open();
+
+    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(screen.queryByText('This page accepts public submissions')).toBeNull();
   });
 });
