@@ -524,6 +524,14 @@ export const zh: PartialMessages = {
     indexed: '已索引 {pages} 个页面',
     notIndexed: '首次搜索时建立索引。',
   },
+  agents: {
+    localMcpTitle: '本地 MCP 连接器',
+    localMcpHint: '在下方创建令牌，然后将其粘贴到此命令的 <token> 处。',
+    localMcpScopes:
+      '只读令牌只能使用读取工具。写入需要写入权限范围；除非“智能体编辑”设为“直接”，否则更改将作为建议提交。',
+    localMcpDisabled: '启用智能体 API 后才能使用此连接器。',
+    localMcpCopy: '复制命令',
+  },
   agent: {
     title: '助手',
     hint: '询问你的笔记——助手可以搜索、阅读和创建页面。',

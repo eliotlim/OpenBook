@@ -526,6 +526,14 @@ export const ja: PartialMessages = {
     indexed: '{pages} ページをインデックス済み',
     notIndexed: '初回検索時にインデックスを作成します。',
   },
+  agents: {
+    localMcpTitle: 'ローカル MCP コネクタ',
+    localMcpHint: '下でトークンを作成し、このコマンドの <token> に貼り付けてください。',
+    localMcpScopes:
+      '読み取り専用トークンでは読み取りツールだけを使用できます。書き込みには書き込みスコープが必要で、「エージェントによる編集」が「直接」に設定されていない限り、変更は提案として保存されます。',
+    localMcpDisabled: 'コネクタを使用するには、エージェント API を有効にしてください。',
+    localMcpCopy: 'コマンドをコピー',
+  },
   agent: {
     title: 'アシスタント',
     hint: 'ノートについて質問できます。アシスタントはページの検索・閲覧・作成ができます。',

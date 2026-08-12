@@ -531,6 +531,14 @@ export const de: PartialMessages = {
     indexed: '{pages} Seiten indiziert',
     notIndexed: 'Index entsteht bei der ersten Suche.',
   },
+  agents: {
+    localMcpTitle: 'Lokaler MCP-Connector',
+    localMcpHint: 'Erstelle unten ein Token und füge es dann in diesem Befehl anstelle von <token> ein.',
+    localMcpScopes:
+      'Tokens mit Lesezugriff können nur Lesewerkzeuge verwenden. Schreibvorgänge benötigen Schreibzugriff und werden als Vorschläge erstellt, sofern Agentenbearbeitungen nicht auf „Direkt“ gesetzt sind.',
+    localMcpDisabled: 'Aktiviere die Agenten-API, um den Connector zu verwenden.',
+    localMcpCopy: 'Befehl kopieren',
+  },
   agent: {
     title: 'Assistent',
     hint: 'Frag zu deinen Notizen — der Assistent kann Seiten suchen, lesen und anlegen.',
