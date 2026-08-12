@@ -36,6 +36,8 @@ import type {
   PageSnapshot,
   PageVersionMeta,
   PageVisibility,
+  PageVisibilitySettings,
+  PageVisibilityUpdate,
   StoredPageVersion,
   Principal,
   RowInput,
@@ -163,6 +165,7 @@ interface PageRow {
   position?: number | string | null;
   // Stored access posture; selected only by the v3 manifest query.
   visibility?: string | null;
+  listed?: boolean | null;
   agent_edits?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -296,6 +299,7 @@ const agentTokenMetaFromRow = (row: AgentTokenDbRow): AgentTokenMeta => ({
 const metaFromRow = (row: PageRow): PageMeta => ({
   id: row.id,
   name: row.name,
+  listed: row.listed ?? undefined,
   icon: row.icon ?? null,
   hostedDatabaseId: row.hosted_database_id ?? null,
   parentId: row.parent_id ?? null,
@@ -1126,7 +1130,7 @@ export class PageStore {
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
               (p.properties->>'sys_icon') AS icon
        FROM ${PAGE_FROM}
        WHERE p.database_id IS NULL AND p.deleted_at IS NULL
@@ -2385,10 +2389,10 @@ export class PageStore {
       // FROM` compares the *normalized* jsonb value, so a different key order or
       // whitespace alone doesn't count as a change. A skipped update also leaves
       // `updated_at` untouched, so the mirror/watcher don't see a phantom edit.
-      `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
+      `INSERT INTO pages (id, name, data, parent_id, position, listed, updated_at)
        VALUES ($1, $2, $3::jsonb, $4,
          (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
-         now())
+         COALESCE($5, true), now())
        ON CONFLICT (id) DO UPDATE
          SET name = EXCLUDED.name,
              data = EXCLUDED.data,
@@ -2397,7 +2401,7 @@ export class PageStore {
             OR pages.name IS DISTINCT FROM EXCLUDED.name
        RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
          (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-      [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
+      [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null, input.listed ?? null],
     );
     // Empty result ⇒ the no-op `WHERE` skipped the write; the stored row is
     // already current, so return it unchanged.
@@ -4015,20 +4019,21 @@ export class PageStore {
     return this.resolveMemberRole(principal, config); // rule 4 (roster) → admin | viewer | null
   }
 
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
+  /** A page's stored audience scope plus its independent discovery posture, or
    *  `null` when the page doesn't exist. */
-  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
-    const rows = await this.db.query<{visibility: string}>(
-      'SELECT visibility FROM pages WHERE id = $1',
+  async getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null> {
+    const rows = await this.db.query<{visibility: string; listed: boolean}>(
+      'SELECT visibility, listed FROM pages WHERE id = $1',
       [pageId],
     );
-    return rows.length > 0 ? (rows[0].visibility as PageVisibility) : null;
+    return rows.length > 0 ? {visibility: rows[0].visibility as PageVisibility, listed: rows[0].listed} : null;
   }
 
   /**
-   * Set a page's visibility scope. Returns `false` when the page is missing.
-   * Deliberately does NOT touch `updated_at`: visibility is an access attribute,
-   * not document content, so it must not look like an edit to the mirror/mtimes.
+   * Update a page's audience scope and/or independent discovery posture. Returns
+   * `false` when the page is missing. Deliberately does NOT touch `updated_at`:
+   * neither setting is document content, so they must not look like an edit to
+   * the mirror/mtimes.
    *
    * SECURITY (LGR-3 F3 — "flipping the books public"). The ledger's five host
    * pages MUST stay `restricted`: every ledger ROW is `inherit`, so its read
@@ -4043,19 +4048,36 @@ export class PageStore {
    * which sets `restricted` on pages that are only becoming ledger hosts moments
    * later — it bypasses the guard, and nothing outside the store passes it.
    */
-  async setPageVisibility(pageId: string, visibility: PageVisibility, opts: {internal?: boolean} = {}): Promise<boolean> {
-    if (!opts.internal && visibility !== 'restricted' && (await this.isLedgerHostPage(pageId))) {
+  async setPageVisibility(
+    pageId: string,
+    value: PageVisibility | PageVisibilityUpdate,
+    opts: {internal?: boolean} = {},
+  ): Promise<boolean> {
+    const update: PageVisibilityUpdate = typeof value === 'string' ? {visibility: value} : value;
+    if (!opts.internal && update.visibility !== undefined && update.visibility !== 'restricted' && (await this.isLedgerHostPage(pageId))) {
       throw new LedgerError(
         'managed',
         'the ledger and its databases must stay restricted — share them with per-page ACL grants instead of changing their visibility scope',
       );
     }
-    const rows = await this.db.query(
-      'UPDATE pages SET visibility = $2 WHERE id = $1 RETURNING id',
-      [pageId, visibility],
-    );
-    if (rows.length > 0) this.bumpAccess(); // scope change alters who may read (Collab T1)
-    return rows.length > 0;
+    const changed = await this.db.begin(async (tx) => {
+      const rows = await tx.query<{visibility: string; listed: boolean}>(
+        'SELECT visibility, listed FROM pages WHERE id = $1',
+        [pageId],
+      );
+      if (rows.length === 0) return null;
+      const before = rows[0];
+      await tx.query(
+        `UPDATE pages
+         SET visibility = COALESCE($2, visibility), listed = COALESCE($3, listed)
+         WHERE id = $1`,
+        [pageId, update.visibility ?? null, update.listed ?? null],
+      );
+      return (update.visibility !== undefined && update.visibility !== before.visibility)
+        || (update.listed !== undefined && update.listed !== before.listed);
+    });
+    if (changed) this.bumpAccess(); // audience or discovery flip invalidates stream gates (UP-1 / Collab T1)
+    return changed !== null;
   }
 
   /** A page's raw agent-edits policy (AGED-1; `inherit` not yet resolved against the

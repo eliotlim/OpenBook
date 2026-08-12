@@ -63,6 +63,8 @@ import type {
   PageSubscription,
   StoredPageVersion,
   PageVisibility,
+  PageVisibilitySettings,
+  PageVisibilityUpdate,
   PluginPackage,
   RowInput,
   RowUpdate,
@@ -713,13 +715,17 @@ export class LocalDataClient implements DataClient {
   // The single-process owner manages everything; resolveInvitee normalizes the
   // free email-or-handle string exactly as the HTTP route does.
 
-  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
+  async getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null> {
     return this.store.getPageVisibility(pageId);
   }
 
-  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
-    await this.store.setPageVisibility(pageId, visibility);
-    return visibility;
+  async setPageVisibility(pageId: string, update: PageVisibilityUpdate): Promise<PageVisibilitySettings> {
+    await this.store.setPageVisibility(pageId, update);
+    if (update.listed !== undefined) await this.broadcastList();
+    return (await this.store.getPageVisibility(pageId)) ?? {
+      visibility: update.visibility ?? 'inherit',
+      listed: update.listed ?? true,
+    };
   }
 
   // Agent-edits policy (AGED-1) — mirrors the HTTP route: a missing/unset page

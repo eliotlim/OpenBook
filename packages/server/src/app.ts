@@ -37,6 +37,7 @@ import {
   type MemberStatus,
   type PageInput,
   type PageVisibility,
+  type PageVisibilityUpdate,
   type Principal,
   type RowInput,
   type SuggestionInput,
@@ -1941,7 +1942,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'read', id);
-    return c.json({visibility: (await store.getPageVisibility(id)) ?? 'inherit'});
+    return c.json((await store.getPageVisibility(id)) ?? {visibility: 'inherit', listed: true});
   });
 
   app.put(`${API.pages}/:id/visibility`, async (c) => {
@@ -1949,14 +1950,25 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
-    const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
-    if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
-      return c.json({error: 'a valid visibility scope is required'}, 400);
+    const body = await c.req.json<{visibility?: PageVisibility; listed?: boolean}>();
+    if (body.visibility === undefined && body.listed === undefined) {
+      return c.json({error: 'visibility or listed is required'}, 400);
     }
-    const ok = await store.setPageVisibility(id, visibility);
+    if (body.visibility !== undefined && !PAGE_VISIBILITIES.includes(body.visibility)) {
+      return c.json({error: 'visibility must be a valid scope'}, 400);
+    }
+    if (body.listed !== undefined && typeof body.listed !== 'boolean') {
+      return c.json({error: 'listed must be a boolean'}, 400);
+    }
+    const update: PageVisibilityUpdate = {
+      ...(body.visibility !== undefined ? {visibility: body.visibility} : {}),
+      ...(body.listed !== undefined ? {listed: body.listed} : {}),
+    } as PageVisibilityUpdate;
+    const ok = await store.setPageVisibility(id, update);
     if (!ok) return c.json({error: 'page not found'}, 404);
-    logEdit(c, id, 'page.visibility', visibility);
-    return c.json({visibility});
+    if (update.listed !== undefined) await broadcastList();
+    logEdit(c, id, 'page.visibility', JSON.stringify(update));
+    return c.json((await store.getPageVisibility(id))!);
   });
 
   // A page's agent-edits policy (AGED-1). Read is gated on reading the page (a viewer
