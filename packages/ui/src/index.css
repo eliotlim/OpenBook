@@ -973,6 +973,7 @@
   align-items: center;
   gap: 4px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
 /* Inside columns there's no page gutter — a compact, handle-only grip
@@ -1005,8 +1006,10 @@
    divider spacing. Centre the 1.5rem gutter on the .85rem × 1.55 code line. */
 .obe-row[data-block-type='code'] > .obe-gutter { top: 3rem; }
 .obe-row:hover > .obe-gutter,
+.obe-row:focus-within > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 .obe-gutter-btn {
   width: 1.5rem;
