@@ -184,6 +184,42 @@ describe('form database binding and gates', () => {
       }),
     }));
     expect(read().fields[1].columnId).toBe('form_email');
+
+    // Regression (FORM-8 CI): `autoCreate` clears the instant the save
+    // resolves (the field is now bound), which used to unmount the status
+    // message's own container in that same render — a real user (or
+    // Playwright) would NEVER see this confirmation land, only ever
+    // `updateDatabase` having been called. Pin the visible text itself.
+    expect(await screen.findByText('Database columns saved.')).toBeTruthy();
+    expect(within(screen.getByRole('status')).getByText('Database columns saved.')).toBeTruthy();
+    // The create button is scoped to a still-pending auto-create — none left.
+    expect(screen.queryByRole('button', {name: 'Save database changes'})).toBeNull();
+  });
+
+  it('surfaces the save error inline instead of silently discarding it', async () => {
+    const schema = {...schemaFixture(), databaseId: 'db-contact'};
+    const {block, editor} = harness(schema);
+    const db = database();
+    const client = {
+      getDatabase: vi.fn().mockResolvedValue(db),
+      updateDatabase: vi.fn().mockRejectedValue(new Error('offline')),
+    } as unknown as DataClient;
+    render(
+      <DataProvider client={client}>
+        <FormEditView schema={schema} block={block} editor={editor} />
+      </DataProvider>,
+    );
+    await waitFor(() => expect(client.getDatabase).toHaveBeenCalledWith('db-contact'));
+
+    fireEvent.click(screen.getByRole('button', {name: 'Settings for Email'}));
+    fireEvent.click(screen.getByRole('combobox', {name: 'Database column'}));
+    fireEvent.click(screen.getByRole('option', {name: 'Auto-create a compatible column'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Save database changes'}));
+
+    expect(await screen.findByText('Could not save database columns. Try again.')).toBeTruthy();
+    expect(within(screen.getByRole('alert')).getByText('Could not save database columns. Try again.')).toBeTruthy();
+    // A failed save leaves the field unbound, so the retry button must stay.
+    expect(screen.getByRole('button', {name: 'Save database changes'})).toBeTruthy();
   });
 
   it('applies only selected plan entries in the pure save wiring', async () => {

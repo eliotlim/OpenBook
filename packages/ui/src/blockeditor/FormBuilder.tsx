@@ -666,16 +666,24 @@ export const FormEditView: React.FC<{
             })}
           </ol>
         )}
-        {autoCreate.size > 0 && database && (
+        {(autoCreate.size > 0 || columnSave !== 'idle') && database && (
           <div className="obe-form-column-save">
-            <button
-              type="button"
-              className="obe-kit-action cursor-pointer"
-              disabled={columnSave === 'saving'}
-              onClick={() => void saveColumns()}
-            >
-              {columnSave === 'saving' ? t('formBlock.builder.savingColumns') : t('formBlock.builder.saveColumns')}
-            </button>
+            {autoCreate.size > 0 && (
+              <button
+                type="button"
+                className="obe-kit-action cursor-pointer"
+                disabled={columnSave === 'saving'}
+                onClick={() => void saveColumns()}
+              >
+                {columnSave === 'saving' ? t('formBlock.builder.savingColumns') : t('formBlock.builder.saveColumns')}
+              </button>
+            )}
+            {/* `autoCreate` clears the instant a save succeeds (columnId now
+                bound), which used to unmount this whole container — including
+                this very confirmation — in the same render as `columnSave`
+                flipping to 'saved'. Keeping the container open on any non-idle
+                `columnSave` (independent of `autoCreate.size`) lets the
+                status/error message actually reach the screen. */}
             {columnSave === 'saved' && <span role="status">{t('formBlock.builder.columnsSaved')}</span>}
             {columnSave === 'error' && <span role="alert">{t('formBlock.builder.columnsSaveFailed')}</span>}
           </div>
