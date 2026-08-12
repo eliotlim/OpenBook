@@ -692,6 +692,7 @@ export const ja: PartialMessages = {
       databasePicker: '送信先データベース',
       chooseDatabase: 'データベースを選択',
       createDatabase: '新しいデータベースを作成',
+      responsesDatabaseName: 'フォームの回答',
       creatingDatabase: 'データベースを作成中…',
       databaseCreateFailed: 'データベースを作成できませんでした。もう一度お試しください。',
       noDatabases: 'このライブラリにはまだデータベースがありません。',

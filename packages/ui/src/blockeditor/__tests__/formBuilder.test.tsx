@@ -3,6 +3,7 @@ import type {DataClient, FormSchema, StoredDatabase} from '@book.dev/sdk';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {DataProvider} from '@/data';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
+import {registerBlockEditorDoc} from '@/lib/aiBridge';
 import {
   createPlannedFormColumns,
   FormEditView,
@@ -168,6 +169,31 @@ describe('form database binding and gates', () => {
     expect(result.schema.fields[0].columnId).toBe('form_name');
     expect(result.schema.fields[1].columnId).toBeUndefined();
     expect(client.updateDatabase).toHaveBeenCalledWith('db-contact', expect.anything());
+  });
+
+  it('creates and binds the responses database on the form host page', async () => {
+    const {block, editor, schema, read} = harness();
+    const created = {...database(), id: 'db-created', pageId: 'page-contact'};
+    const client = {
+      createDatabase: vi.fn().mockResolvedValue(created),
+    } as unknown as DataClient;
+    const unregister = registerBlockEditorDoc('page-contact', editor.doc);
+
+    render(
+      <DataProvider client={client}>
+        <ConfirmProvider>
+          <FormSettings schema={schema} block={block} editor={editor} />
+        </ConfirmProvider>
+      </DataProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', {name: 'Create a new database'}));
+
+    await waitFor(() => expect(client.createDatabase).toHaveBeenCalledWith(expect.objectContaining({
+      pageId: 'page-contact',
+      name: 'Form responses',
+    })));
+    expect(read().databaseId).toBe('db-created');
+    unregister();
   });
 
   it('regenerates the submission key only after the in-app confirmation', async () => {

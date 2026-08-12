@@ -690,6 +690,7 @@ export const zh: PartialMessages = {
       databasePicker: '提交数据库',
       chooseDatabase: '选择数据库',
       createDatabase: '创建新数据库',
+      responsesDatabaseName: '表单回复',
       creatingDatabase: '正在创建数据库…',
       databaseCreateFailed: '无法创建数据库，请重试。',
       noDatabases: '此资料库中尚无数据库。',

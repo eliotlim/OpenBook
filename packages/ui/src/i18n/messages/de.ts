@@ -697,6 +697,7 @@ export const de: PartialMessages = {
       databasePicker: 'Datenbank für Einsendungen',
       chooseDatabase: 'Datenbank auswählen',
       createDatabase: 'Neue Datenbank erstellen',
+      responsesDatabaseName: 'Formularantworten',
       creatingDatabase: 'Datenbank wird erstellt…',
       databaseCreateFailed: 'Datenbank konnte nicht erstellt werden. Versuche es erneut.',
       noDatabases: 'In dieser Bibliothek gibt es noch keine Datenbanken.',

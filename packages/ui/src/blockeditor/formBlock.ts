@@ -1,4 +1,4 @@
-import {FORM_FIELD_KINDS, type FormField, type FormSchema, type PageSnapshot} from '@book.dev/sdk';
+import {FORM_FIELD_KINDS, generateSubmissionKey, type FormField, type FormSchema, type PageSnapshot} from '@book.dev/sdk';
 import {pageLinkUrl} from '@/lib/pageActions';
 import {
   createDoc,
@@ -19,12 +19,9 @@ export interface FormBlockWireProps {
   schema: FormSchema;
 }
 
-/** Exactly 128 cryptographically-random bits, encoded without base64 padding. */
+/** The SDK's 256-bit form capability generator, kept behind the established UI helper. */
 export function randomSubmissionKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return generateSubmissionKey();
 }
 
 /** A fresh id for a newly inserted form. UUID is random when the host supports it. */

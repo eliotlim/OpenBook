@@ -1147,6 +1147,7 @@ export const en = {
       databasePicker: 'Submission database',
       chooseDatabase: 'Choose a database',
       createDatabase: 'Create a new database',
+      responsesDatabaseName: 'Form responses',
       creatingDatabase: 'Creating database…',
       databaseCreateFailed: 'Could not create a database. Try again.',
       noDatabases: 'No databases in this library yet.',

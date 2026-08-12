@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  defaultDatabaseSchema,
   FORM_FIELD_KINDS,
   FORM_FIELD_PROPERTY_TYPES,
   FORM_PATTERN_MAX_LENGTH,
@@ -16,7 +17,7 @@ import {useOptionalData} from '@/data';
 import {Select} from '@/components/ui/select';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useConfirm, useOptionalNavigation} from '@/providers';
-import {pageLinks} from '@/lib/pageLinks';
+import {getPageIdForDoc} from '@/lib/aiBridge';
 import {t, type TKey} from '@/i18n';
 import {blockProp, setBlockProp, type BlockMap} from './model';
 import type {BlockEditorController} from './useBlockEditor';
@@ -678,7 +679,11 @@ export const FormSettings: React.FC<{
   const confirm = useConfirm();
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState(false);
-  const databases = nav?.pages.filter((page) => page.hostedDatabaseId) ?? [];
+  // The anonymous capability route accepts only a database hosted by the
+  // form's own page. A library-wide choice here would create a configuration
+  // the server must (and does) reject as a confused-deputy write.
+  const hostPageId = getPageIdForDoc(editor.doc) ?? nav?.primaryPageId ?? nav?.currentPageId;
+  const databases = nav?.pages.filter((page) => page.id === hostPageId && page.hostedDatabaseId) ?? [];
   const patch = (next: FormSchema): void => writeFormSchema(editor, block, next);
   const bindDatabase = (databaseId: string | undefined): void => patch({
     ...schema,
@@ -690,17 +695,18 @@ export const FormSettings: React.FC<{
     }),
   });
   const createDatabase = async (): Promise<void> => {
-    const parentId = nav?.currentPageId ?? nav?.primaryPageId;
-    if (!client || !parentId) {
+    if (!client || !hostPageId) {
       setCreateError(true);
       return;
     }
     setCreating(true);
     setCreateError(false);
     try {
-      const pageId = await pageLinks.createSubpage(parentId, 'database');
-      const database = await client.getPageDatabase(pageId);
-      if (!database) throw new Error('database was not created');
+      const database = await client.createDatabase({
+        pageId: hostPageId,
+        name: t('formBlock.settings.responsesDatabaseName'),
+        schema: defaultDatabaseSchema(),
+      });
       bindDatabase(database.id);
     } catch {
       setCreateError(true);
@@ -732,7 +738,7 @@ export const FormSettings: React.FC<{
       <button
         type="button"
         className="obe-form-settings-action"
-        disabled={creating || !client || !nav}
+        disabled={creating || !client || !hostPageId}
         onClick={() => void createDatabase()}
       >
         {creating ? t('formBlock.settings.creatingDatabase') : t('formBlock.settings.createDatabase')}

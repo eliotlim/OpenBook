@@ -86,9 +86,7 @@ describe('form block registration and wire shape', () => {
     expect(first.type).toBe('form');
     expect(first.props?.formId).not.toBe(second.props?.formId);
     expect(first.props?.submissionKey).not.toBe(second.props?.submissionKey);
-    // TODO(FORM-1): adopt the SDK generateSubmissionKey (256-bit,
-    // packages/sdk/src/forms.ts) once FORM-1 merges.
-    expect(first.props?.submissionKey).toMatch(/^[A-Za-z0-9_-]{22,}$/);
+    expect(first.props?.submissionKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(first.props?.schema).toMatchObject({
       formId: first.props?.formId,
       submissionKey: first.props?.submissionKey,
