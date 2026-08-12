@@ -336,8 +336,11 @@
 
   html,
   body,
-  #__next {
+  #__next,
+  #root {
     height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   body {
