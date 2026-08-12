@@ -161,18 +161,36 @@ describe('resolveEffectiveRole (P1-8 — youRole)', () => {
   });
 });
 
-describe('per-page visibility', () => {
-  it('defaults to inherit and round-trips a set', async () => {
+describe('per-page visibility + listing posture', () => {
+  it('defaults independently and round-trips either setting without touching the content mtime', async () => {
     const p = await newPage('vis');
-    expect(await store.getPageVisibility(p.id)).toBe('inherit');
-    expect(await store.setPageVisibility(p.id, 'members')).toBe(true);
-    expect(await store.getPageVisibility(p.id)).toBe('members');
+    expect(await store.getPageVisibility(p.id)).toEqual({visibility: 'inherit', listed: true});
+
+    const generation = store.accessGeneration();
+    expect(await store.setPageVisibility(p.id, {visibility: 'members'})).toBe(true);
+    expect(await store.getPageVisibility(p.id)).toEqual({visibility: 'members', listed: true});
+    expect(store.accessGeneration()).toBe(generation + 1);
+
+    expect(await store.setPageVisibility(p.id, {listed: false})).toBe(true);
+    expect(await store.getPageVisibility(p.id)).toEqual({visibility: 'members', listed: false});
+    expect(store.accessGeneration()).toBe(generation + 2);
+    expect((await store.getPage(p.id))?.updatedAt).toBe(p.updatedAt);
   });
 
   it('returns null / false for a missing page', async () => {
     const missing = '00000000-0000-0000-0000-000000000000';
     expect(await store.getPageVisibility(missing)).toBeNull();
-    expect(await store.setPageVisibility(missing, 'public')).toBe(false);
+    expect(await store.setPageVisibility(missing, {listed: false})).toBe(false);
+  });
+
+  it('carries unlisted metadata without filtering listPages and preserves it through trash restore', async () => {
+    const p = await store.upsertPage({name: 'unlisted', data: snapshot(), listed: false});
+    expect((await store.listPages()).find((page) => page.id === p.id)?.listed).toBe(false);
+
+    expect(await store.deletePage(p.id)).toBe(true);
+    expect(await store.restorePage(p.id)).not.toBeNull();
+    expect(await store.getPageVisibility(p.id)).toEqual({visibility: 'inherit', listed: false});
+    expect((await store.listPages()).find((page) => page.id === p.id)?.listed).toBe(false);
   });
 });
 

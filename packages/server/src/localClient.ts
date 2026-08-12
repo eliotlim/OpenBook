@@ -62,7 +62,6 @@ import type {
   PageVersionMeta,
   PageSubscription,
   StoredPageVersion,
-  PageVisibility,
   PageVisibilitySettings,
   PageVisibilityUpdate,
   PluginPackage,

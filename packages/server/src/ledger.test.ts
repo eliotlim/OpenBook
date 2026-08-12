@@ -153,14 +153,14 @@ describe('LGR-3 — setup', () => {
     // One host page only.
     const hosts = await db.query<{id: string}>('SELECT id FROM pages WHERE name = \'Ledger\' AND deleted_at IS NULL');
     expect(hosts).toHaveLength(1);
-    expect(await store.getPageVisibility(first.hostPageId as string)).toBe('restricted');
+    expect((await store.getPageVisibility(first.hostPageId as string))?.visibility).toBe('restricted');
     for (const dbId of Object.values(first.databases ?? {})) {
       const database = await store.getDatabase(dbId);
       expect(database?.schema.managed).toBe(true);
       // Each database sits on its own restricted child page under the root.
       const hostPage = await store.getPage(database!.pageId);
       expect(hostPage?.parentId).toBe(first.hostPageId);
-      expect(await store.getPageVisibility(database!.pageId)).toBe('restricted');
+      expect((await store.getPageVisibility(database!.pageId))?.visibility).toBe('restricted');
     }
     // Exactly one ledger.init audit event across both calls.
     const events = await store.ledger.listAudit();
@@ -643,7 +643,7 @@ describe('LGR-3 — store-level managed guards (local-mode parity)', () => {
     for (const hostId of [ids.hostPageId, ...Object.values(ids.hostPages)]) {
       expect(await code(store.setPageVisibility(hostId, 'public'))).toBe('managed');
       expect(await code(store.setPageVisibility(hostId, 'members'))).toBe('managed');
-      expect(await store.getPageVisibility(hostId)).toBe('restricted');
+      expect((await store.getPageVisibility(hostId))?.visibility).toBe('restricted');
       // Re-asserting `restricted` stays allowed (idempotent, no-op).
       expect(await store.setPageVisibility(hostId, 'restricted')).toBe(true);
     }
