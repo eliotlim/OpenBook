@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -73,6 +73,7 @@ import {
   setTableCellRangeColor,
   setTableColumnColor,
   setTableRowColor,
+  walkBlocks,
   TEXT_BLOCKS,
   type BlockMap,
   type BlockType,
@@ -252,18 +253,27 @@ export const BlockEditor: React.FC<{
   // root provider doesn't re-render every consumer on each doc version tick.
   const readOnlyLock = useMemo(() => ({locked: readOnly}), [readOnly]);
 
-  // Title → editor: focus the first text block (creating an empty paragraph
-  // first when the document has none), caret at its start.
+  // Give a writable, text-less document its typing row as soon as it loads.
+  // Doing this before paint keeps the row out of the title → body focus path;
+  // writing directly also avoids moving the caret before the user asks to.
+  useLayoutEffect(() => {
+    if (readOnly) return;
+    const hasTextBlock = [...walkBlocks(rootBlocks(doc))].some(
+      ({block}) => TEXT_BLOCKS.has(blockType(block)) && !!blockText(block),
+    );
+    if (!hasTextBlock) rootBlocks(doc).push([makeBlock({type: 'paragraph'})]);
+  }, [doc, readOnly]);
+
+  // Title → editor: focus the first text block, caret at its start. Writable
+  // text-less docs were seeded above, so hand-off itself never changes layout.
   useImperativeHandle(focusRef, () => ({
     focusStart() {
       // A read-only page (viewer / present) has no caret surface to hand off to —
-      // and must never mutate the doc. Guarding here covers every entry point
-      // (the locked title's Enter / ↓ still reaches this, see PageHeader), so a
-      // viewer can't seed a paragraph into a text-less doc.
+      // and must never enter an editing state. Guarding here covers every entry
+      // point even if a caller invokes the hand-off imperatively.
       if (editor.readOnly) return;
-      const ids = editor.textBlockIds();
-      if (ids.length === 0) editor.insertAfter(null, {type: 'paragraph'});
-      else editor.requestCaret({blockId: ids[0], offset: 0});
+      const first = editor.textBlockIds()[0];
+      if (first) editor.requestCaret({blockId: first, offset: 0});
     },
   }), [editor]);
 

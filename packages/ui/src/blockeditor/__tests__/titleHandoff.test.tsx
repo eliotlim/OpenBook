@@ -55,15 +55,42 @@ describe('title → editor', () => {
     expect(document.activeElement?.getAttribute('data-block-text')).toBe('a');
   });
 
-  it('focusStart() creates and focuses a paragraph when the doc is empty', () => {
+  it('seeds an empty doc before focusStart() and reuses that paragraph for hand-off', () => {
     const doc = new Y.Doc(); // no blocks at all
     const ref = React.createRef<BlockEditorHandle>();
     render(<BlockEditor doc={doc} focusRef={ref} />);
-    act(() => ref.current!.focusStart());
     const roots = rootBlocks(doc);
     expect(roots.length).toBe(1);
     expect(blockType(roots.get(0))).toBe('paragraph');
+    expect(document.activeElement?.hasAttribute('data-block-text')).toBe(false);
+
+    act(() => ref.current!.focusStart());
+    expect(roots.length).toBe(1);
     expect(document.activeElement?.getAttribute('data-block-text')).toBe(blockId(roots.get(0)));
+  });
+
+  it('clicking below a seeded empty doc focuses its paragraph without inserting twice', () => {
+    const doc = new Y.Doc();
+    const {container} = render(<BlockEditor doc={doc} />);
+    const root = container.querySelector('.obe-root') as HTMLElement;
+
+    fireEvent.click(root, {clientY: 100});
+
+    const roots = rootBlocks(doc);
+    expect(roots.length).toBe(1);
+    expect(document.activeElement?.getAttribute('data-block-text')).toBe(blockId(roots.get(0)));
+  });
+
+  it('keeps the sole empty paragraph placeholder marker across focus and blur', () => {
+    const doc = createDoc([{id: 'p', type: 'paragraph'}]);
+    const {container} = render(<BlockEditor doc={doc} compact />);
+    const paragraph = container.querySelector('[data-block-text="p"]') as HTMLElement;
+
+    expect(paragraph.dataset.placeholder).toBe('Type “/” for commands…');
+    fireEvent.focus(paragraph);
+    expect(paragraph.dataset.placeholder).toBe('Type “/” for commands…');
+    fireEvent.blur(paragraph);
+    expect(paragraph.dataset.placeholder).toBe('Type “/” for commands…');
   });
 
   it('focusStart() does NOTHING on a read-only, text-less doc (viewer cannot seed a paragraph)', () => {
