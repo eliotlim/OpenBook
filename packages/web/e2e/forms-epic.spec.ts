@@ -104,7 +104,7 @@ async function startClaimedInstance(workerIndex: number): Promise<ClaimedInstanc
       guestAccess?: string;
       defaultVisibility?: string;
     };
-    expect(policy.ownerSubject).toBe(ownerSubject);
+    expect(policy.ownerSubject).toBe(`${ISSUER}#${ownerSubject}`);
     expect(policy.guestAccess).toBe('read');
     expect(policy.defaultVisibility).toBe('members');
     return {url, ownerHeaders, stop};

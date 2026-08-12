@@ -4,18 +4,6 @@ import {SERVER} from './seed';
 test.use({freshWorkspace: true});
 
 test('form builder: palette, reorder, database binding, save, and reload persist', {tag: ['@editor', '@database']}, async ({page, request}) => {
-  const databasePageResponse = await request.post(`${SERVER}/api/pages`, {
-    data: {
-      name: 'Form responses',
-      data: {editorjs: {blocks: []}, values: [], names: []},
-    },
-  });
-  const databasePageId = ((await databasePageResponse.json()) as {id: string}).id;
-  const databaseResponse = await request.post(`${SERVER}/api/databases`, {
-    data: {pageId: databasePageId, name: 'Form responses', schema: {properties: [], views: []}},
-  });
-  const databaseId = ((await databaseResponse.json()) as {id: string}).id;
-
   const schema = {
     formId: 'form-e2e-builder',
     fields: [],
@@ -62,10 +50,25 @@ test('form builder: palette, reorder, database binding, save, and reload persist
   await expect(rows.nth(0)).toHaveAttribute('data-form-field-kind', 'email');
   await expect(rows.nth(2)).toHaveAttribute('data-form-field-kind', 'text');
 
+  // FORM-8 review restricted the picker to a database hosted by the form's OWN
+  // page (confused-deputy protection: the anonymous submission route only
+  // accepts a self-hosted database) — there is no pre-existing option to pick
+  // from another page anymore, so authoring always goes through "Create a new
+  // database", which seeds and binds one in a single step.
   await page.locator('.obe-kit-form').hover();
   await page.getByRole('button', {name: 'Block settings'}).click();
-  await page.getByRole('combobox', {name: 'Submission database'}).click();
-  await page.getByRole('option', {name: 'Form responses'}).click();
+  await page.getByRole('button', {name: 'Create a new database'}).click();
+  await expect(page.getByText('Form responses · 0 rows')).toBeVisible({timeout: 15_000});
+  await page.keyboard.press('Escape');
+
+  let databaseId: string | null = null;
+  await expect.poll(async () => {
+    const stored = (await (await request.get(`${SERVER}/api/pages/${formPageId}`)).json()) as {
+      hostedDatabaseId: string | null;
+    };
+    databaseId = stored.hostedDatabaseId;
+    return databaseId;
+  }, {timeout: 15_000}).not.toBeNull();
 
   await page.getByRole('button', {name: 'Settings for Email'}).click();
   await page.getByRole('combobox', {name: 'Database column'}).click();
@@ -75,14 +78,26 @@ test('form builder: palette, reorder, database binding, save, and reload persist
   await page.getByRole('button', {name: 'Save database changes'}).click();
   await expect(page.getByText('Database columns saved.')).toBeVisible();
 
+  interface StoredFormField {
+    kind: string;
+    columnId?: string;
+  }
+  // Field ids are client-generated UUIDs (not the literal 'email'), so the
+  // planned column id is `form_<uuid>` — assert the shape (bound, non-empty),
+  // not a specific literal.
+  let emailColumnId = '';
   await expect.poll(async () => {
-    const stored = (await (await request.get(`${SERVER}/api/pages/${formPageId}`)).json()) as {data: unknown};
-    return JSON.stringify(stored.data);
-  }, {timeout: 15_000}).toContain('form_email');
+    const stored = (await (await request.get(`${SERVER}/api/pages/${formPageId}`)).json()) as {
+      data: {blockdoc?: {blocks?: Array<{props?: {schema?: {fields?: StoredFormField[]}}}>}};
+    };
+    const fields = stored.data.blockdoc?.blocks?.[0]?.props?.schema?.fields ?? [];
+    emailColumnId = fields.find((field) => field.kind === 'email')?.columnId ?? '';
+    return emailColumnId;
+  }, {timeout: 15_000}).toMatch(/^form_/);
   const storedDatabase = (await (await request.get(`${SERVER}/api/databases/${databaseId}`)).json()) as {
-    schema: {properties: Array<{id: string}>};
+    schema: {properties: Array<{id: string; type: string}>};
   };
-  expect(storedDatabase.schema.properties.some((property) => property.id === 'form_email')).toBe(true);
+  expect(storedDatabase.schema.properties.some((property) => property.id === emailColumnId && property.type === 'email')).toBe(true);
 
   await page.reload();
   await expect(page.locator('[data-form-field-row]')).toHaveCount(5);
