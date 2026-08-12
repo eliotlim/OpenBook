@@ -8,6 +8,8 @@ export type {
   ServerInfo,
   ServerControls,
   PageVisibility,
+  PageVisibilitySettings,
+  PageVisibilityUpdate,
   Visibility,
   MemberRole,
   EffectiveRole,
