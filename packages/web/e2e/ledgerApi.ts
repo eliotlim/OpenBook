@@ -36,6 +36,31 @@ export interface EntryInput {
   postings: Array<{accountId: string; amountMinor: number; cleared?: string}>;
 }
 
+/** The names owned by the idempotent "set up books" command. Other specs may
+ * legitimately have added accounts to the worker's shared ledger already. */
+export const STARTER_ACCOUNT_NAMES = [
+  'Assets:Bank:Checking',
+  'Assets:Cash',
+  'Liabilities:CreditCard',
+  'Equity:OpeningBalances',
+  'Equity:RetainedEarnings',
+  'Income:Revenue',
+  'Expenses:Hosting',
+  'Expenses:Software',
+  'Expenses:Office',
+  'Expenses:Bank Fees',
+] as const;
+
+const STARTER_ACCOUNT_NAME_SET = new Set<string>(STARTER_ACCOUNT_NAMES);
+
+/** Preserve multiplicity so an accidental duplicate starter name still fails. */
+export function starterAccountNames(accounts: readonly Pick<ApiAccount, 'name'>[]): string[] {
+  return accounts
+    .map((account) => account.name)
+    .filter((name) => STARTER_ACCOUNT_NAME_SET.has(name))
+    .sort();
+}
+
 /** Idempotent: accounts are keyed by their hierarchical name, exactly as setup is. */
 export async function ensureAccount(request: APIRequestContext, name: string, type: string): Promise<string> {
   await request.post(`${SERVER}/api/ledger`);

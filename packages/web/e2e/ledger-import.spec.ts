@@ -1,7 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
-import {pageWithBlock, runPaletteCommand} from './ledgerApi';
+import {pageWithBlock, runPaletteCommand, STARTER_ACCOUNT_NAMES, starterAccountNames} from './ledgerApi';
 
 test.use({ownerGatedRequests: true});
 
@@ -59,10 +59,11 @@ const ledgerAccounts = async (): Promise<Array<{id: string; name: string}>> => {
 
 test('install the plugin, import a bank CSV → drafts; re-importing the SAME file creates ZERO new drafts', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
   await ensureLedgerPlugin(page);
-  await page.keyboard.press('Escape');
 
   await runPaletteCommand(page, 'Ledger: set up books');
-  await expect.poll(async () => (await ledgerAccounts()).length).toBe(10);
+  // The worker ledger is shared across specs, so unrelated accounts may exist.
+  // Assert exactly one of every canonical starter instead of total book size.
+  await expect.poll(async () => starterAccountNames(await ledgerAccounts())).toEqual([...STARTER_ACCOUNT_NAMES].sort());
 
   // Capture every draft-creating payload: the wire must carry INTEGER minor
   // units, not the formatted text the table happens to render.

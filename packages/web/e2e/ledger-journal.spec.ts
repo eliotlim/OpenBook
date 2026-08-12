@@ -1,7 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
-import {ensureAccount, pageWithBlock, runPaletteCommand} from './ledgerApi';
+import {ensureAccount, pageWithBlock, runPaletteCommand, STARTER_ACCOUNT_NAMES, starterAccountNames} from './ledgerApi';
 
 test.use({ownerGatedRequests: true});
 
@@ -36,7 +36,7 @@ test('install the real plugin, set up books (idempotent), post a 3-row compound 
 
   // "Ledger: set up books" seeds the ledger + the 10-account starter chart…
   await runPaletteCommand(page, 'Ledger: set up books');
-  await expect.poll(async () => (await ledgerAccounts()).length).toBe(10);
+  await expect.poll(async () => starterAccountNames(await ledgerAccounts())).toEqual([...STARTER_ACCOUNT_NAMES].sort());
   await expect.poll(async () => ((await (await fetch(`${SERVER}/api/ledger`)).json()) as {exists: boolean}).exists).toBe(true);
 
   // …idempotently: a second run creates nothing (no dupes). Proven

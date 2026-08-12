@@ -6,6 +6,7 @@ import react from 'eslint-plugin-react';
 import nextPlugin from '@next/eslint-plugin-next';
 import globals from 'globals';
 import e2eIsolation from './eslint-rules/e2e-workspace-isolation.mjs';
+import noArbitrarySpacing from './eslint-rules/no-arbitrary-spacing.mjs';
 import noHoverGeometry from './eslint-rules/no-hover-geometry.mjs';
 
 export default tseslint.config(
@@ -56,6 +57,12 @@ export default tseslint.config(
     // adjacent content. UI primitives remain covered by the upstream ignore.
     plugins: {'layout-shift': noHoverGeometry},
     rules: {'layout-shift/no-hover-geometry': 'error'},
+  },
+  {
+    // Product spacing follows Tailwind's shared scale; bracket-arbitrary values
+    // for padding, margin, and gaps would silently introduce one-off geometry.
+    plugins: {tailwind: noArbitrarySpacing},
+    rules: {'tailwind/no-arbitrary-spacing': 'error'},
   },
   {
     // Plain Node scripts (build helpers, etc.).

@@ -322,6 +322,10 @@ export const en = {
       linkToPage: 'Link to page',
       suggestEdit: 'Suggest edit…',
       comment: 'Comment…',
+      bulkSelected: '{count} blocks selected',
+      bulkDuplicate: 'Duplicate {count}',
+      bulkTurnInto: 'Turn into ({count})',
+      bulkDelete: 'Delete {count}',
     },
     table: {
       sectionRow: 'Row',

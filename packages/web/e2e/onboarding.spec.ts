@@ -1,10 +1,12 @@
-import {test, expect} from './fixtures';
+import {test, expect} from '@playwright/test';
 
 // First-run experience: a truly empty workspace lands on Home with the guided
 // start (welcome, starter actions) instead of auto-creating a blank page, and
 // a brand-new page teaches its own entry point (the "/" placeholder shows on
 // the sole empty paragraph without waiting for focus).
-test.use({freshWorkspace: true});
+// Use raw Playwright, as local-pglite.spec.ts does: every browser context gets
+// a new embedded store. The shared-server fixture cannot guarantee emptiness
+// after a ledger spec because ledger-managed pages deliberately reject delete.
 
 test('first run: lands on Home with the guided start', {tag: ['@shell', '@p1']}, async ({page}) => {
   await page.goto('/');

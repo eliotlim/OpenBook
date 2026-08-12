@@ -174,8 +174,12 @@ test('evidence-required blocks the post (UI + server); a receipt unblocks it; th
     .toBe(true);
   await expect(toggle).toBeChecked();
   // Put it back — accounts are shared across specs on this server.
-  await toggle.uncheck();
+  // This is a server-controlled checkbox: click first, then let the API
+  // round-trip settle. Playwright's `uncheck()` requires an immediate DOM state
+  // change and spuriously rejects the valid controlled-input transition.
+  await toggle.click();
   await expect
     .poll(async () => ((await (await fetch(`${SERVER}/api/ledger/accounts/${bankId}`)).json()) as {evidenceRequired: boolean}).evidenceRequired)
     .toBe(false);
+  await expect(toggle).not.toBeChecked();
 });
