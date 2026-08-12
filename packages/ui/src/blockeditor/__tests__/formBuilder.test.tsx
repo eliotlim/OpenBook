@@ -178,7 +178,7 @@ describe('form database binding and gates', () => {
       </ConfirmProvider>,
     );
     fireEvent.click(screen.getByRole('button', {name: 'Regenerate key'}));
-    expect(screen.getByText(/Old form links will stop working/)).toBeTruthy();
+    expect(screen.getByText(/current public link and existing embeds stop accepting submissions/)).toBeTruthy();
     expect(read().submissionKey).toBe('abcdefghijklmnopqrstuv');
     const regenerateButtons = screen.getAllByRole('button', {name: 'Regenerate key'});
     fireEvent.click(regenerateButtons[regenerateButtons.length - 1]);

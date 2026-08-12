@@ -43,6 +43,7 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
       <DataProvider
         client={
           {
+            getPage: async () => null,
             getPageVisibility: async () => visibility,
             listPageAcl: async () => [],
             getInstanceInfo: async () => info(instance),
@@ -57,6 +58,25 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
   );
 
 const open = () => fireEvent.click(screen.getByLabelText('Share'));
+
+const formPage = (over: {enabled?: boolean; submissionKey?: string} = {}) => ({
+  id: 'p1',
+  data: {
+    editorjs: {blocks: []},
+    values: [],
+    names: [],
+    blockdoc: {
+      blocks: [{
+        id: 'form-block',
+        type: 'form',
+        props: {
+          enabled: over.enabled ?? true,
+          submissionKey: over.submissionKey ?? 'private-capability-never-rendered',
+        },
+      }],
+    },
+  },
+}) as unknown as NonNullable<Awaited<ReturnType<DataClient['getPage']>>>;
 
 beforeEach(() => {
   mockHost = 'rae.book.cloud';
@@ -148,5 +168,45 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     open();
     expect(await screen.findByText('Published')).toBeTruthy();
     expect(screen.queryByText(/Guest access is off/)).toBeNull();
+  });
+});
+
+describe('ShareDialog — enabled form reachability (FORM-8)', () => {
+  it('surfaces an enabled form and its effective public address without exposing the key', async () => {
+    wrap('public', {getPage: async () => formPage()});
+    open();
+
+    const line = await screen.findByText('This page accepts public submissions');
+    expect(line.parentElement?.textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
+    expect(screen.getByRole('button', {name: 'Form settings'})).toBeTruthy();
+    expect(document.body.textContent).not.toContain('private-capability-never-rendered');
+  });
+
+  it('reports when page access prevents signed-out visitors from reaching an enabled form', async () => {
+    wrap('restricted', {getPage: async () => formPage()});
+    open();
+
+    expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
+    expect(screen.getByText(/signed-out visitors cannot reach it until this page is public/)).toBeTruthy();
+  });
+
+  it('mirrors the guest-off 404 caveat at an otherwise public form address', async () => {
+    wrap('public', {getPage: async () => formPage()}, {guestAccess: 'off'});
+    open();
+
+    expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
+    expect(screen.getByText(/signed-out visitors get a 404 even at this public address/)).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Manage guest access'})).toBeTruthy();
+  });
+
+  it.each([
+    ['disabled', {enabled: false}],
+    ['keyless', {submissionKey: ''}],
+  ])('does not surface a %s form', async (_name, over) => {
+    wrap('public', {getPage: async () => formPage(over)});
+    open();
+
+    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(screen.queryByText('This page accepts public submissions')).toBeNull();
   });
 });

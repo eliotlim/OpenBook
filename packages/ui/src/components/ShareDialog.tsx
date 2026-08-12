@@ -21,6 +21,8 @@ import {copyPageLink} from '@/lib/pageActions';
 import {clearShareTarget, readShareTarget, shareDialogVersion, subscribeShareDialog} from '@/lib/shareDialog';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
+import {enabledFormBlockId} from '@/blockeditor/formBlock';
+import {openKitPanel} from '@/blockeditor/kit/kitPanel';
 import type {TKey} from '@/i18n';
 
 /** i18n label per visibility scope (escalating privacy). `inherit` is presented
@@ -218,6 +220,74 @@ function HostHint({msg, host}: {msg: string; host: string}) {
   return <>{msg.slice(0, i)}<span className="break-all">{host}</span>{msg.slice(i + host.length)}</>;
 }
 
+type FormReachability =
+  | {key: TKey; host?: undefined}
+  | {key: 'share.forms.reachability.liveAt'; host: string};
+
+/** Enabled-form disclosure: capability state, actual signed-out reachability,
+ * and the two owner paths that can change those facts. */
+function FormSubmissionRow({
+  reachability,
+  guestOff,
+  canManage,
+  onOpenSettings,
+  onManageGuestAccess,
+}: {
+  reachability: FormReachability;
+  guestOff: boolean;
+  canManage: boolean;
+  onOpenSettings: () => void;
+  onManageGuestAccess: () => void;
+}) {
+  const {t} = useTranslation();
+  const reachabilityText = reachability.host
+    ? t(reachability.key, {host: reachability.host})
+    : t(reachability.key);
+  return (
+    <div data-form-public-submissions className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block text-xs font-medium text-foreground">{t('share.forms.accepts')}</span>
+          <span className="block text-xs text-muted-foreground">
+            {reachability.host
+              ? <HostHint msg={reachabilityText} host={reachability.host} />
+              : reachabilityText}
+          </span>
+        </span>
+        {canManage && (
+          <button
+            type="button"
+            className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+            onClick={onOpenSettings}
+          >
+            {t('share.forms.settings')}
+          </button>
+        )}
+      </div>
+      {guestOff && (
+        <div
+          aria-live="polite"
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+        >
+          {t('share.forms.guestOffCaveat')}
+          {canManage && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={onManageGuestAccess}
+              >
+                {t('share.forms.manageGuestAccess')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The per-page "Publish to the web" affordance (GATE-6). Four states, all under a
  * reachable published address:
@@ -371,6 +441,9 @@ export default function ShareDialog({
   // until the lookup lands, or on a pre-SHR-6 server that doesn't report it — in
   // which case the summary falls back to the guest-gate line below.
   const [defaultVisibility, setDefaultVisibility] = useState<Exclude<PageVisibility, 'inherit'> | null>(null);
+  // ID only: the helper checks the durable enabled/key aliases but never
+  // returns the submission capability itself to this UI.
+  const [formBlockId, setFormBlockId] = useState<string | null>(null);
 
   const [invitee, setInvitee] = useState('');
   const [level, setLevel] = useState<AclLevel>('read');
@@ -453,6 +526,24 @@ export default function ShareDialog({
     };
   }, [open, client]);
 
+  // Read the same authoritative blockdoc projection as the server capability
+  // gate. Form discovery is informational: a failed page read leaves the line
+  // hidden without breaking the rest of sharing.
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setFormBlockId(null);
+    client
+      .getPage(pageId)
+      .then((page) => live && setFormBlockId(page ? enabledFormBlockId(page.data) : null))
+      .catch(() => {
+        /* leave the form disclosure hidden — sharing remains usable */
+      });
+    return () => {
+      live = false;
+    };
+  }, [client, open, pageId]);
+
   const changeScope = useCallback(
     async (next: PageVisibility) => {
       const prev = scope;
@@ -516,6 +607,48 @@ export default function ShareDialog({
   // both (Quinn). `null` until the default resolves, in which case it can't fire.
   const effectiveScope = scope === 'inherit' ? defaultVisibility : scope;
   const publishedAddressHint = publishedHost ? t('share.linkHints.publishedAt', {host: publishedHost}) : '';
+  const siteServesPublicPages = siteVisibility === 'public' || siteVisibility === 'published';
+  const formHasPublicAddress = effectiveScope === 'public' && (
+    (publishedHost !== null && siteServesPublicPages)
+    || (canPublish === false && !browserLocal)
+  );
+  // Same guest-gate truth surfaced by SiteVisibilityControl: even a public page
+  // at an address that serves it returns 404 to signed-out visitors when the
+  // origin's guest gate is off.
+  const showFormGuestCaveat = guestAccess === 'off' && formHasPublicAddress;
+  const formReachability: FormReachability = browserLocal
+    ? {key: 'share.forms.reachability.browserLocal'}
+    : effectiveScope === null
+      ? {key: 'share.forms.reachability.checking'}
+      : effectiveScope !== 'public'
+        ? {key: 'share.forms.reachability.pageLimited'}
+        : canPublish && !publishedHost
+          ? {key: 'share.forms.reachability.unpublished'}
+          : publishedHost && siteVisibility === null
+            ? {key: 'share.forms.reachability.checking'}
+            : publishedHost && !siteServesPublicPages
+              ? {key: 'share.forms.reachability.addressLimited'}
+              : guestAccess === 'off'
+                ? {key: 'share.forms.reachability.guestBlocked'}
+                : publishedHost
+                  ? {key: 'share.forms.reachability.liveAt', host: publishedHost}
+                  : {key: 'share.forms.reachability.live'};
+
+  const openFormSettings = useCallback(() => {
+    if (!formBlockId) return;
+    setOpen(false);
+    window.setTimeout(() => openKitPanel(formBlockId, t('formBlock.label')), DIALOG_EXIT_MS);
+  }, [formBlockId, setOpen, t]);
+
+  const openGuestAccessSettings = useCallback(() => {
+    setOpen(false);
+    setHud((draft) => {
+      draft.settings.open = true;
+      draft.settings.tab = 'sharing';
+      draft.settings.section = null;
+      return draft;
+    });
+  }, [setHud, setOpen]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -589,6 +722,16 @@ export default function ShareDialog({
                 host={publishedHost}
                 busy={loading}
                 onPublish={() => void changeScope('public')}
+              />
+            )}
+
+            {formBlockId && (
+              <FormSubmissionRow
+                reachability={formReachability}
+                guestOff={showFormGuestCaveat}
+                canManage={canManage}
+                onOpenSettings={openFormSettings}
+                onManageGuestAccess={openGuestAccessSettings}
               />
             )}
 

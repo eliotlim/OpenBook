@@ -100,6 +100,41 @@ const jsonRecord = (value: unknown): JsonRecord | null =>
     ? value as JsonRecord
     : null;
 
+/**
+ * Find the first form whose durable capability aliases say it accepts
+ * submissions. This reads the same authoritative `blockdoc.blocks` projection
+ * as the server's `findFormInPage` and deliberately returns only the block id:
+ * the submission key is a write capability and never belongs in sharing UI.
+ */
+export function enabledFormBlockId(snapshot: Pick<PageSnapshot, 'blockdoc'>): string | null {
+  const blockdoc = jsonRecord(snapshot.blockdoc);
+  const roots = blockdoc && Array.isArray(blockdoc.blocks) ? blockdoc.blocks : [];
+  const stack: unknown[] = [...roots].reverse();
+  const seen = new Set<object>();
+
+  while (stack.length > 0) {
+    const value = stack.pop();
+    const block = jsonRecord(value);
+    if (!block || seen.has(block)) continue;
+    seen.add(block);
+    if (Array.isArray(block.children)) {
+      for (let i = block.children.length - 1; i >= 0; i -= 1) stack.push(block.children[i]);
+    }
+    const props = jsonRecord(block.props);
+    if (
+      block.type === 'form'
+      && typeof block.id === 'string'
+      && block.id.length > 0
+      && props?.enabled === true
+      && typeof props.submissionKey === 'string'
+      && props.submissionKey.length > 0
+    ) {
+      return block.id;
+    }
+  }
+  return null;
+}
+
 const submissionKeyOf = (props: JsonRecord): string => {
   if (typeof props.submissionKey === 'string' && props.submissionKey) return props.submissionKey;
   const schema = jsonRecord(props.schema);

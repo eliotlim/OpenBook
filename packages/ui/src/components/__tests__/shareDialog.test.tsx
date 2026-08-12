@@ -43,7 +43,7 @@ const info = (): InstanceInfo => ({
 const wrap = (client: Partial<DataClient>) =>
   render(
     <I18nProvider>
-      <DataProvider client={client as DataClient}>
+      <DataProvider client={{getPage: async () => null, ...client} as DataClient}>
         <ShareDialog pageId="p1" />
       </DataProvider>
     </I18nProvider>,

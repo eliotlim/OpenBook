@@ -5,7 +5,7 @@ import {DataProvider} from '@/data';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
 import {getCustomBlock} from '../registry';
 import {FormOriginContext, registerFormBlock} from '../FormBlockView';
-import {insertFormField, makeFormField, moveFormField, reorderFormFields} from '../formBlock';
+import {enabledFormBlockId, insertFormField, makeFormField, moveFormField, reorderFormFields} from '../formBlock';
 import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '../model';
 import {KitLockContext} from '../kit/lock';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -40,6 +40,29 @@ function formHarness(over: Partial<FormSchema> = {}) {
 }
 
 describe('form block registration and wire shape', () => {
+  it('finds only enabled keyed forms in the authoritative nested blockdoc projection', () => {
+    const key = 'do-not-return-this-submission-capability';
+    const snapshot = {
+      blockdoc: {
+        blocks: [
+          {id: 'disabled', type: 'form', props: {enabled: false, submissionKey: key}},
+          {
+            id: 'columns',
+            type: 'columns',
+            children: [
+              {id: 'keyless', type: 'form', props: {enabled: true, submissionKey: ''}},
+              {id: 'enabled-form', type: 'form', props: {enabled: true, submissionKey: key}},
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(enabledFormBlockId(snapshot)).toBe('enabled-form');
+    expect(enabledFormBlockId({blockdoc: {blocks: snapshot.blockdoc.blocks.slice(0, 1)}})).toBeNull();
+    expect(enabledFormBlockId({blockdoc: null})).toBeNull();
+  });
+
   it('inserts and reorders palette fields without mutating the source array', () => {
     const first = {...makeFormField('text', 'First'), id: 'first'};
     const second = {...makeFormField('email', 'Second'), id: 'second'};
