@@ -1,3 +1,37 @@
+## 3.12.0 (2026-08-12)
+
+### 🚀 Features
+
+- **lint,ci,web:** spacing enforcement — Chromatic fails on diffs, @visual coverage, no-arbitrary-spacing rule (SPC-6) ([#297](https://github.com/lab255/OpenBook/pull/297))
+- **mcp:** form management tools — list/get/update on the write-policy pattern (FORM-7) ([#295](https://github.com/lab255/OpenBook/pull/295))
+- **sdk:** FormSchema model + pure validation engine + row projection (FORM-2) ([#280](https://github.com/lab255/OpenBook/pull/280))
+- **sdk,server,ui,web:** live public form submissions — locked-mode runtime, validation UX, idempotent submit (FORM-5) ([#296](https://github.com/lab255/OpenBook/pull/296))
+- **sdk,server,ui,web:** file-upload fields + abuse controls — staged carve-out, rate limits, retention (FORM-6) ([#298](https://github.com/lab255/OpenBook/pull/298))
+- **sdk,ui:** form block end-to-end — catalogue, frozen renders, key-sanitized exports (FORM-3) ([#286](https://github.com/lab255/OpenBook/pull/286))
+- **server,sdk:** anonymous form-submission capability route — oracle-safe, idempotent, ceiling-capped (FORM-1) ([#284](https://github.com/lab255/OpenBook/pull/284))
+- **ui:** configurable menu density + menu infra dedup, width tokens, shortcut table (CTX-1) ([#279](https://github.com/lab255/OpenBook/pull/279))
+- **ui:** EmptyState primitive + 10-site adoption + i18n (SPC-5) ([#281](https://github.com/lab255/OpenBook/pull/281))
+- **ui:** page context menus on breadcrumbs, home, backlinks, trash + chrome suppression (CTX-2) ([#282](https://github.com/lab255/OpenBook/pull/282))
+- **ui:** one input canon — panel/dense variants, Button xs, settings + AgentPanel sweep (SPC-3) ([#285](https://github.com/lab255/OpenBook/pull/285))
+- **ui:** media + link context menus — images, links, mentions, cover, icon (CTX-4) ([#293](https://github.com/lab255/OpenBook/pull/293))
+- **ui:** panel context menus — graph, history, review, agent messages (CTX-7) ([#294](https://github.com/lab255/OpenBook/pull/294))
+- **ui:** titlebar tab context menu + window-chrome suppression (CTX-3) ([#290](https://github.com/lab255/OpenBook/pull/290))
+- **ui:** native-menu passthrough + multi-block bulk context menu (CTX-5) ([#291](https://github.com/lab255/OpenBook/pull/291))
+- **ui,docs:** spacing scale tokens + spacing manifest + audit baseline (SPC-1) ([#278](https://github.com/lab255/OpenBook/pull/278))
+- **ui,web:** native-menu suppression sweep + editable guard + e2e proof (CTX-8) ([#289](https://github.com/lab255/OpenBook/pull/289))
+- **ui,web,docs:** drag-and-drop form builder + publish surfacing + epic close-out (FORM-4 + FORM-8) ([#299](https://github.com/lab255/OpenBook/pull/299))
+
+### 🩹 Fixes
+
+- **ui:** zero layout shift on hover — opacity reveals + no-hover-geometry lint (HOV-1) ([#277](https://github.com/lab255/OpenBook/pull/277))
+- **ui:** database menu targeting — scoped view-tab menus, chip menus, chart copy (CTX-6) ([#288](https://github.com/lab255/OpenBook/pull/288))
+- **ui:** migrate form block CSS onto the spacing grid (post-merge stylelint gate) ([#292](https://github.com/lab255/OpenBook/pull/292))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 3.11.1 (2026-08-11)
 
 ### 🩹 Fixes
