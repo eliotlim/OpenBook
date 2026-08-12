@@ -5,6 +5,7 @@ import {guestPrincipal} from '@book.dev/sdk';
 import ShareDialog from '../ShareDialog';
 import {DataProvider} from '@/data/DataProvider';
 import {I18nProvider} from '@/providers';
+import {closeKitPanel, getKitPanel} from '@/blockeditor/kit/kitPanel';
 
 // Drive the published address + its audience scope per-test (GATE-6): the Publish
 // affordance and the "Published" indicator only make sense while the library is
@@ -83,7 +84,10 @@ beforeEach(() => {
   mockSiteVisibility = 'published';
   setSiteVisibility.mockClear();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  closeKitPanel({keepPane: true});
+});
 
 describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows a "Published" indicator with the address when the page is public on a serving address', async () => {
@@ -180,6 +184,14 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     expect(line.parentElement?.textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
     expect(screen.getByRole('button', {name: 'Form settings'})).toBeTruthy();
     expect(document.body.textContent).not.toContain('private-capability-never-rendered');
+  });
+
+  it('opens the enabled form block settings from the disclosure', async () => {
+    wrap('public', {getPage: async () => formPage()});
+    open();
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Form settings'}));
+    await waitFor(() => expect(getKitPanel()).toEqual({blockId: 'form-block', title: 'Form'}));
   });
 
   it('reports when page access prevents signed-out visitors from reaching an enabled form', async () => {
