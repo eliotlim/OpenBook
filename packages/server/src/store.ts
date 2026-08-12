@@ -111,6 +111,32 @@ export class AssetBudgetError extends Error {
   }
 }
 
+/** A staged upload would exceed the durable 50 MiB budget for one form. */
+export class FormAssetBudgetError extends Error {
+  constructor(
+    readonly currentBytes: number,
+    readonly assetBytes: number,
+    readonly budgetBytes: number,
+  ) {
+    super(
+      `form asset budget exceeded: storing ${assetBytes} more byte(s) would exceed the ` +
+        `${budgetBytes}-byte budget (currently ${currentBytes} byte(s) accounted)`,
+    );
+    this.name = 'FormAssetBudgetError';
+  }
+}
+
+export interface StagedFormUpload {
+  token: string;
+  assetId: string;
+  fieldId: string;
+  name: string;
+  size: number;
+  consumedBy: string | null;
+}
+
+class FormUploadClaimError extends Error {}
+
 /** A malformed, incomplete, or unsupported backup envelope. */
 export class BackupFormatError extends Error {
   constructor(message: string) {
@@ -4415,6 +4441,298 @@ export class PageStore {
   // ── Assets: content-addressed binary store (OB-ASSETS A1) ────────────────────
 
   /**
+   * Stage one capability-gated form upload in the existing asset store. The asset
+   * insert and both storage budgets are one transaction, so a rejected form budget
+   * never leaves an untracked blob behind. The returned token, not the content hash,
+   * is exposed to the anonymous caller.
+   */
+  async stageFormUpload(
+    bytes: Uint8Array,
+    mime: string,
+    input: {token: string; pageId: string; formId: string; fieldId: string; name: string},
+    budgets: {maxFormBytes: number; maxFormStagedBytes: number; maxTotalBytes?: number},
+  ): Promise<StagedFormUpload> {
+    const assetId = await assetHash(bytes);
+    const buf = Buffer.from(bytes);
+    return this.db.begin(async (tx) => {
+      // Strictly serialize the per-form budget on real Postgres too; unlike the
+      // instance's deliberately soft/bounded budget, 50 MiB is a hard form cap.
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        JSON.stringify([input.pageId, input.formId]),
+      ]);
+      let ownsAsset = false;
+      const totalBudget = budgets.maxTotalBytes;
+      if (totalBudget != null && totalBudget >= 0) {
+        const inserted = await tx.query<{id: string}>(
+          `INSERT INTO assets (id, bytes, mime, size)
+           SELECT $1, $2, $3, $4
+           WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
+              OR COALESCE((SELECT SUM(size) FROM assets), 0) + $5::bigint <= $6::bigint
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id`,
+          [assetId, buf, mime, bytes.byteLength, bytes.byteLength, totalBudget],
+        );
+        ownsAsset = inserted.length > 0;
+        if (!ownsAsset) {
+          const exists = await tx.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [assetId]);
+          if (exists.length === 0) {
+            const [{total}] = await tx.query<{total: string | number}>(
+              'SELECT COALESCE(SUM(size), 0) AS total FROM assets',
+            );
+            throw new AssetBudgetError(Number(total), bytes.byteLength, totalBudget);
+          }
+        }
+      } else {
+        const inserted = await tx.query<{id: string}>(
+          `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING RETURNING id`,
+          [assetId, buf, mime, bytes.byteLength],
+        );
+        ownsAsset = inserted.length > 0;
+      }
+
+      // Count each content-addressed asset once per form, even if a user selects
+      // the same bytes twice. Consumed mappings remain until their row is hard-
+      // purged, so the budget reflects all form-owned bytes still in retention.
+      const staged = await tx.query<{token: string}>(
+        `INSERT INTO form_uploads
+           (token, asset_id, page_id, form_id, field_id, file_name, owns_asset)
+         SELECT $1, $2, $3, $4, $5, $6, $7
+         FROM assets candidate
+         WHERE candidate.id = $2
+           AND (
+             EXISTS (
+               SELECT 1 FROM form_uploads existing
+               WHERE existing.page_id = $3 AND existing.form_id = $4 AND existing.asset_id = $2
+             )
+             OR COALESCE((
+               SELECT SUM(accounted.size) FROM assets accounted
+               WHERE EXISTS (
+                 SELECT 1 FROM form_uploads existing
+                 WHERE existing.page_id = $3
+                   AND existing.form_id = $4
+                   AND existing.asset_id = accounted.id
+               )
+             ), 0) + candidate.size <= $8::bigint
+           )
+           AND (
+             EXISTS (
+               SELECT 1 FROM form_uploads existing
+               WHERE existing.page_id = $3
+                 AND existing.form_id = $4
+                 AND existing.asset_id = $2
+                 AND existing.consumed_by IS NULL
+             )
+             OR COALESCE((
+               SELECT SUM(accounted.size) FROM assets accounted
+               WHERE EXISTS (
+                 SELECT 1 FROM form_uploads existing
+                 WHERE existing.page_id = $3
+                   AND existing.form_id = $4
+                   AND existing.asset_id = accounted.id
+                   AND existing.consumed_by IS NULL
+               )
+             ), 0) + candidate.size <= $9::bigint
+           )
+         RETURNING token`,
+        [
+          input.token,
+          assetId,
+          input.pageId,
+          input.formId,
+          input.fieldId,
+          input.name,
+          ownsAsset,
+          budgets.maxFormBytes,
+          budgets.maxFormStagedBytes,
+        ],
+      );
+      if (staged.length === 0) {
+        const [{durable_total: durableTotal, staged_total: stagedTotal}] = await tx.query<{
+          durable_total: string | number;
+          staged_total: string | number;
+        }>(
+          `SELECT
+             COALESCE(SUM(accounted.size), 0) AS durable_total,
+             COALESCE(SUM(accounted.size) FILTER (WHERE EXISTS (
+               SELECT 1 FROM form_uploads staged
+               WHERE staged.page_id = $1
+                 AND staged.form_id = $2
+                 AND staged.asset_id = accounted.id
+                 AND staged.consumed_by IS NULL
+             )), 0) AS staged_total
+           FROM assets accounted
+           WHERE EXISTS (
+             SELECT 1 FROM form_uploads existing
+             WHERE existing.page_id = $1
+               AND existing.form_id = $2
+               AND existing.asset_id = accounted.id
+           )`,
+          [input.pageId, input.formId],
+        );
+        const stagedBytes = Number(stagedTotal);
+        if (stagedBytes + bytes.byteLength > budgets.maxFormStagedBytes) {
+          throw new FormAssetBudgetError(stagedBytes, bytes.byteLength, budgets.maxFormStagedBytes);
+        }
+        throw new FormAssetBudgetError(Number(durableTotal), bytes.byteLength, budgets.maxFormBytes);
+      }
+      return {
+        token: input.token,
+        assetId,
+        fieldId: input.fieldId,
+        name: input.name,
+        size: bytes.byteLength,
+        consumedBy: null,
+      };
+    });
+  }
+
+  /**
+   * Atomically claim all upload tokens for one submission idempotency key. A retry
+   * with the same key sees the same records; a different submission cannot spend
+   * them. Field/token mismatches roll the whole claim back and return `null`.
+   */
+  async claimFormUploads(
+    pageId: string,
+    formId: string,
+    entries: Array<{fieldId: string; tokens: string[]}>,
+    idempotencyKey: string,
+    ttlMs: number,
+  ): Promise<StagedFormUpload[] | null> {
+    const expected = new Map<string, string>();
+    for (const entry of entries) {
+      for (const token of entry.tokens) {
+        if (expected.has(token)) return null;
+        expected.set(token, entry.fieldId);
+      }
+    }
+    const tokens = [...expected.keys()];
+    if (tokens.length === 0) return [];
+    try {
+      return await this.db.begin(async (tx) => {
+        const rows = await tx.query<{
+          token: string;
+          asset_id: string;
+          field_id: string;
+          file_name: string;
+          size: number | string;
+          consumed_by: string | null;
+        }>(
+          `UPDATE form_uploads uploads
+           SET claimed_by = COALESCE(uploads.claimed_by, $4)
+           FROM assets
+           WHERE uploads.token = ANY($1)
+             AND uploads.asset_id = assets.id
+             AND uploads.page_id = $2
+             AND uploads.form_id = $3
+             AND (uploads.claimed_by IS NULL OR uploads.claimed_by = $4)
+             AND (
+               uploads.consumed_by IS NOT NULL
+               OR uploads.created_at > now() - ($5::bigint * interval '1 millisecond')
+             )
+           RETURNING uploads.token, uploads.asset_id, uploads.field_id, uploads.file_name,
+             uploads.consumed_by, assets.size`,
+          [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs))],
+        );
+        if (
+          rows.length !== tokens.length
+          || rows.some((row) => expected.get(row.token) !== row.field_id)
+        ) {
+          throw new FormUploadClaimError();
+        }
+        return rows.map((row) => ({
+          token: row.token,
+          assetId: row.asset_id,
+          fieldId: row.field_id,
+          name: row.file_name,
+          size: Number(row.size),
+          consumedBy: row.consumed_by,
+        }));
+      });
+    } catch (err) {
+      if (err instanceof FormUploadClaimError) return null;
+      throw err;
+    }
+  }
+
+  /** Bind claimed upload assets to the created row and make them readable there. */
+  async consumeFormUploads(tokens: string[], idempotencyKey: string, rowId: string): Promise<void> {
+    if (tokens.length === 0) return;
+    await this.db.begin(async (tx) => {
+      const consumed = await tx.query<{asset_id: string}>(
+        `UPDATE form_uploads
+         SET consumed_by = COALESCE(consumed_by, $3)
+         WHERE token = ANY($1)
+           AND claimed_by = $2
+           AND (consumed_by IS NULL OR consumed_by = $3)
+         RETURNING asset_id`,
+        [tokens, idempotencyKey, rowId],
+      );
+      if (consumed.length !== tokens.length) {
+        console.warn('OpenBook form upload claim changed before consumption:', {
+          expected: tokens.length,
+          consumed: consumed.length,
+          rowId,
+        });
+      }
+      await tx.query(
+        `INSERT INTO asset_refs (asset_id, page_id)
+         SELECT DISTINCT asset_id, $2::uuid FROM form_uploads WHERE token = ANY($1)
+         ON CONFLICT (asset_id, page_id) DO NOTHING`,
+        [tokens, rowId],
+      );
+    });
+  }
+
+  /** Discard unconsumed tokens (honeypot path) and immediately reap blobs this stage created. */
+  async discardFormUploads(pageId: string, formId: string, tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+    await this.db.begin(async (tx) => {
+      const removed = await tx.query<{asset_id: string; owns_asset: boolean}>(
+        `DELETE FROM form_uploads
+         WHERE token = ANY($1) AND page_id = $2 AND form_id = $3 AND consumed_by IS NULL
+         RETURNING asset_id, owns_asset`,
+        [tokens, pageId, formId],
+      );
+      const ownedIds = [...new Set(removed.filter((row) => row.owns_asset).map((row) => row.asset_id))];
+      await this.deleteUnreferencedAssetIds(tx, ownedIds);
+    });
+  }
+
+  /** Activity-triggered 30-minute orphan sweep used by both public form routes. */
+  async gcExpiredFormUploads(ttlMs: number): Promise<{reaped: number; bytes: number}> {
+    return this.db.begin(async (tx) => {
+      const removed = await tx.query<{asset_id: string; owns_asset: boolean}>(
+        `DELETE FROM form_uploads
+         WHERE consumed_by IS NULL
+           AND created_at <= now() - ($1::bigint * interval '1 millisecond')
+           AND (claimed_by IS NULL OR created_at <= now() - ((2 * $1)::bigint * interval '1 millisecond'))
+         RETURNING asset_id, owns_asset`,
+        [Math.max(0, Math.trunc(ttlMs))],
+      );
+      const ids = [...new Set(removed.filter((row) => row.owns_asset).map((row) => row.asset_id))];
+      const reaped = await this.deleteUnreferencedAssetIds(tx, ids);
+      return {
+        reaped: reaped.length,
+        bytes: reaped.reduce((total, row) => total + Number(row.size), 0),
+      };
+    });
+  }
+
+  /** Delete only assets with no authoritative form-stage or reachability edge. */
+  private async deleteUnreferencedAssetIds(db: Db, ids: string[]): Promise<Array<{id: string; size: number | string}>> {
+    if (ids.length === 0) return [];
+    return db.query<{id: string; size: number | string}>(
+      `DELETE FROM assets asset
+       WHERE asset.id = ANY($1)
+         AND NOT EXISTS (SELECT 1 FROM form_uploads upload WHERE upload.asset_id = asset.id)
+         AND NOT EXISTS (SELECT 1 FROM asset_refs ref WHERE ref.asset_id = asset.id)
+       RETURNING asset.id, asset.size`,
+      [ids],
+    );
+  }
+
+  /**
    * Store binary `bytes` under their SHA-256 content hash (dedup: byte-identical
    * uploads collapse to ONE row). Returns the id. `ON CONFLICT DO NOTHING` keeps
    * the first-seen `mime`/`size` for a given content — mime is metadata *about the
@@ -4441,7 +4759,12 @@ export class PageStore {
    * generous soft budget; the periodic GC reclaims any slack. Absent/negative budget
    * ⇒ unbudgeted (legacy behavior).
    */
-  async putAsset(bytes: Uint8Array, mime: string, opts: {maxTotalBytes?: number} = {}): Promise<{id: string}> {
+  private async putAssetUsing(
+    db: Db,
+    bytes: Uint8Array,
+    mime: string,
+    opts: {maxTotalBytes?: number},
+  ): Promise<{id: string}> {
     const id = await assetHash(bytes);
     // Bind a Buffer. PGlite accepts a bare Uint8Array or a Buffer; the remote
     // postgres.js (porsager) driver serializes a Buffer to BYTEA. Buffer is the
@@ -4458,7 +4781,7 @@ export class PageStore {
       // `$5`/`$6` are a separate bigint copy of the size + the budget so the size
       // parameter ($4, the int4 `size` column) isn't deduced into the bigint SUM
       // arithmetic too (PGlite rejects a parameter with two inferred types).
-      const inserted = await this.db.query<{id: string}>(
+      const inserted = await db.query<{id: string}>(
         `INSERT INTO assets (id, bytes, mime, size)
          SELECT $1, $2, $3, $4
          WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
@@ -4470,11 +4793,11 @@ export class PageStore {
       if (inserted.length > 0) return {id}; // freshly stored within budget
       // No fresh insert: either the content was already present (dedup — fine) or
       // it's new and over budget. A present row ⇒ dedup; an absent one ⇒ reject.
-      const exists = await this.db.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [id]);
+      const exists = await db.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [id]);
       if (exists.length > 0) return {id};
-      throw new AssetBudgetError(await this.assetStorageBytes(), bytes.byteLength, budget);
+      throw new AssetBudgetError(await this.assetStorageBytesUsing(db), bytes.byteLength, budget);
     }
-    await this.db.query(
+    await db.query(
       `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
        ON CONFLICT (id) DO NOTHING`,
       [id, buf, mime, bytes.byteLength],
@@ -4482,13 +4805,39 @@ export class PageStore {
     return {id};
   }
 
-  /** Total bytes currently held in the asset store (`SUM(size)`, 0 when empty) —
-   *  the figure the A6 storage budget is measured against. */
-  async assetStorageBytes(): Promise<number> {
-    const rows = await this.db.query<{total: string | number | null}>(
+  async putAsset(bytes: Uint8Array, mime: string, opts: {maxTotalBytes?: number} = {}): Promise<{id: string}> {
+    return this.putAssetUsing(this.db, bytes, mime, opts);
+  }
+
+  /** Store an authenticated upload and create its reachability edge atomically. */
+  async putAssetAndRef(
+    bytes: Uint8Array,
+    mime: string,
+    pageId: string,
+    opts: {maxTotalBytes?: number} = {},
+  ): Promise<{id: string}> {
+    return this.db.begin(async (tx) => {
+      const stored = await this.putAssetUsing(tx, bytes, mime, opts);
+      await tx.query(
+        `INSERT INTO asset_refs (asset_id, page_id) VALUES ($1, $2)
+         ON CONFLICT (asset_id, page_id) DO NOTHING`,
+        [stored.id, pageId],
+      );
+      return stored;
+    });
+  }
+
+  private async assetStorageBytesUsing(db: Db): Promise<number> {
+    const rows = await db.query<{total: string | number | null}>(
       'SELECT COALESCE(SUM(size), 0) AS total FROM assets',
     );
     return Number(rows[0]?.total ?? 0);
+  }
+
+  /** Total bytes currently held in the asset store (`SUM(size)`, 0 when empty) —
+   *  the figure the A6 storage budget is measured against. */
+  async assetStorageBytes(): Promise<number> {
+    return this.assetStorageBytesUsing(this.db);
   }
 
   /** Fetch an asset's bytes + mime + size by content-hash id, or `null` if absent.

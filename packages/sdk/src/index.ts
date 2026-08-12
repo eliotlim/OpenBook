@@ -26,9 +26,18 @@ export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POL
 export {API, type ApiError, type CompactResult} from './routes';
 export {
   FormSubmissionError,
+  FormUploadError,
+  FORM_UPLOAD_MAX_FILE_BYTES,
+  FORM_UPLOAD_MAX_FILES,
+  FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
+  FORM_UPLOAD_MAX_FORM_BYTES,
+  FORM_UPLOAD_ORPHAN_TTL_MS,
   generateSubmissionKey,
   type FormSubmissionRequest,
   type FormSubmissionResult,
+  type FormUploadInput,
+  type FormUploadRequest,
+  type FormUploadResult,
 } from './forms';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient, IdentityRejectedError} from './client';

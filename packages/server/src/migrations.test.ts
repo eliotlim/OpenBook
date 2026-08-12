@@ -87,6 +87,30 @@ describe('migration 0011 — fresh database', () => {
   });
 });
 
+describe('migration 0024 — staged form uploads', () => {
+  it('creates the token table and orphan-sweep indexes', async () => {
+    const db = await freshDb();
+    const applied = await db.query<{name: string}>(
+      'SELECT name FROM _migrations WHERE name = \'0024_form_uploads\'',
+    );
+    expect(applied).toHaveLength(1);
+    const tables = await db.query<{table_name: string}>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'form_uploads'`,
+    );
+    expect(tables).toHaveLength(1);
+    const indexes = await db.query<{indexname: string}>(
+      'SELECT indexname FROM pg_indexes WHERE tablename = \'form_uploads\'',
+    );
+    expect(indexes.map((row) => row.indexname)).toEqual(expect.arrayContaining([
+      'form_uploads_form_idx',
+      'form_uploads_expiry_idx',
+      'form_uploads_asset_idx',
+    ]));
+    await db.close();
+  });
+});
+
 describe('migration 0011 — existing database with data', () => {
   it('back-fills visibility=inherit on pre-existing pages and is idempotent', async () => {
     // Simulate a pre-0011 workspace: a real pages table with a row, with 0001..0010

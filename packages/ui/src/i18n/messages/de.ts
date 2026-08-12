@@ -578,6 +578,13 @@ export const de: PartialMessages = {
     tooLarge: 'Diese Antwort ist zum Absenden zu groß.',
     networkError: 'Das Formular konnte nicht gesendet werden. Prüfe deine Verbindung und versuche es erneut.',
     retry: 'Erneut versuchen',
+    uploadingFiles: 'Dateien werden hochgeladen…',
+    filesReady: 'Die ausgewählten Dateien sind bereit.',
+    fileTooLarge: 'Jede Datei darf höchstens 5 MiB groß sein.',
+    tooManyFiles: 'Hänge pro Einreichung höchstens 5 Dateien an.',
+    storageFull: 'Der Dateispeicher ist voll. Entferne eine Datei oder kontaktiere den Formularinhaber.',
+    uploadRateLimited: 'Zu viele Upload-Versuche. Warte eine Minute und versuche es erneut.',
+    uploadFailed: 'Eine Datei konnte nicht hochgeladen werden. Versuche es erneut.',
     errors: {
       required: 'Dieses Feld ist erforderlich.',
       type: 'Gib einen gültigen Wert ein.',

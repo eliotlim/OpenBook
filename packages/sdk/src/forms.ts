@@ -1,5 +1,41 @@
 import type {FormValidationError} from './formSchema';
 
+/** Public form-upload limits, shared by the browser runtime and server. */
+export const FORM_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024;
+export const FORM_UPLOAD_MAX_FILES = 5;
+export const FORM_UPLOAD_MAX_FORM_STAGED_BYTES = 10 * 1024 * 1024;
+export const FORM_UPLOAD_MAX_FORM_BYTES = 50 * 1024 * 1024;
+export const FORM_UPLOAD_ORPHAN_TTL_MS = 30 * 60 * 1000;
+
+/** File bytes and metadata accepted by the SDK's staged-upload helper. */
+export interface FormUploadInput {
+  key: string;
+  fieldId: string;
+  name: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/** JSON/base64 wire envelope accepted by the staged-upload endpoint. */
+export interface FormUploadRequest extends Omit<FormUploadInput, 'bytes'> {
+  data: string;
+}
+
+/** Opaque token returned by a staged upload and submitted as a files-field value. */
+export interface FormUploadResult {
+  token: string;
+  name: string;
+  size: number;
+}
+
+/** Typed non-success response from the public staged-upload endpoint. */
+export class FormUploadError extends Error {
+  constructor(public readonly status: number) {
+    super(`Form upload failed (${status})`);
+    this.name = 'FormUploadError';
+  }
+}
+
 /** Payload accepted by the anonymous form-submission endpoint. */
 export interface FormSubmissionRequest {
   /** Per-form capability carried by the form block's persisted props. */

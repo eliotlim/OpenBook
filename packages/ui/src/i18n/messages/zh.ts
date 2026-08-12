@@ -571,6 +571,13 @@ export const zh: PartialMessages = {
     tooLarge: '此回复过大，无法提交。',
     networkError: '无法提交表单。请检查网络连接后重试。',
     retry: '重试',
+    uploadingFiles: '正在上传文件…',
+    filesReady: '所选文件已准备就绪。',
+    fileTooLarge: '每个文件不得超过 5 MiB。',
+    tooManyFiles: '每次提交最多可附加 5 个文件。',
+    storageFull: '文件存储空间已满。请移除文件或联系表单所有者。',
+    uploadRateLimited: '上传尝试次数过多。请等待一分钟后重试。',
+    uploadFailed: '文件上传失败。请重试。',
     errors: {
       required: '此字段为必填项。',
       type: '请输入有效值。',

@@ -341,6 +341,54 @@ describe('HttpDataClient assets (base64-JSON is byte-exact on the http path)', (
 });
 
 describe('HttpDataClient form submissions', () => {
+  it('stages form files as byte-exact base64 JSON and returns an opaque token', async () => {
+    let captured: {url: string; init?: RequestInit} | null = null;
+    const result = {token: 'upload-token', name: 'résumé.pdf', size: 4};
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: (url, init) => {
+        captured = {url, init};
+        return Promise.resolve(
+          new Response(JSON.stringify(result), {status: 201, headers: {'content-type': 'application/json'}}),
+        );
+      },
+    });
+
+    await expect(client.uploadFormFile('page/id', 'form id', {
+      key: 'capability',
+      fieldId: 'documents',
+      name: 'résumé.pdf',
+      mime: 'application/pdf',
+      bytes: new Uint8Array([0, 1, 2, 255]),
+    })).resolves.toEqual(result);
+
+    expect(captured!.url).toBe('https://x/api/pages/page%2Fid/forms/form%20id/uploads');
+    expect(captured!.init!.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      'X-OpenBook-Client': '1',
+    });
+    expect(JSON.parse(String(captured!.init!.body))).toEqual({
+      key: 'capability',
+      fieldId: 'documents',
+      name: 'résumé.pdf',
+      mime: 'application/pdf',
+      data: 'AAEC/w==',
+    });
+  });
+
+  it('throws a typed status for rejected staged uploads', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () => Promise.resolve(new Response(null, {status: 507})),
+    });
+
+    await expect(client.uploadFormFile('page', 'form', {
+      key: 'capability',
+      fieldId: 'documents',
+      name: 'full.bin',
+      mime: 'application/octet-stream',
+      bytes: new Uint8Array([1]),
+    })).rejects.toMatchObject({name: 'FormUploadError', status: 507});
+  });
+
   it('POSTs the capability request to the page-scoped form route', async () => {
     let captured: {url: string; init?: RequestInit} | null = null;
     const result = {rowId: 'row-1', submittedAt: '2026-08-12T00:00:00.000Z'};
