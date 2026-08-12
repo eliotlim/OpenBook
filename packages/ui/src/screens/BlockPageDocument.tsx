@@ -626,9 +626,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         </div>
       </div>
 
-      <div className="px-6 md:px-10">
+      <div className="obe-editor-pane px-6 md:px-10">
         <div className={columnClass}>
-          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'relative pt-2')}>
+          <div
+            ref={editorWrapRef}
+            className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'obe-editor-wrap relative pt-2')}
+          >
             {doc && (
               <FormOriginContext.Provider value={formOriginUrl(pageId)}>
                 <BlockEditor

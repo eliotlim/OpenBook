@@ -894,7 +894,17 @@
    editor renders identically in exported standalone HTML. Minimalist: quiet
    chrome, hover-revealed gutters, 8px radii, the document is the hero. */
 
+/* The named outer container exposes the real pane width even when the standard
+   editor column is capped at 46rem; the positioned wrapper is also a containment
+   boundary for editor overlays and future local queries. */
+.obe-editor-pane {
+  container-name: obe-editor-pane;
+  container-type: inline-size;
+}
+.obe-editor-wrap { container-type: inline-size; }
+
 .obe-root {
+  --obe-gutter-room: 3.4rem;
   --obe-indent-step: 1.5rem;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
@@ -986,12 +996,14 @@
 @media (pointer: coarse) {
   .obe-gutter { display: none; }
 }
-/* Narrow fine-pointer windows: not enough left margin for both buttons —
-   keep just the drag handle, tucked into the slim margin. The "+" is the
-   first button in the gutter (Enter covers adding blocks). */
-@media (max-width: 640px) and (pointer: fine) {
-  .obe-gutter { left: -1.6rem; }
-  .obe-gutter > button:first-child { display: none; }
+/* A standard column needs 3.4rem to show both gutter buttons. Below 47.8rem,
+   the pane's 2.5rem desktop padding plus its centring slack provides less than
+   that; phone padding is smaller still. Keep only the 1.5rem grip, tucked
+   exactly inside the minimum 1.5rem page padding. Full-width roots reserve
+   their own gutter below and therefore keep both buttons at every pane width. */
+@container obe-editor-pane (max-width: 47.8rem) {
+  .obe-root:not(.obe-full) .obe-gutter:not(.obe-gutter-nested) { left: -1.5rem; }
+  .obe-root:not(.obe-full) .obe-gutter:not(.obe-gutter-nested) > button:first-child { display: none; }
 }
 /* Align the hover gutter (drag handle + add button) with each block type's
    FIRST text line. The default `top` is tuned for a paragraph; headings push
@@ -3744,8 +3756,12 @@ a.obe-mention {
   .obe-col-divider { display: none; }
 }
 
-/* Full-width page mode widens the editor column to its container. */
-.obe-root.obe-full { max-width: none; }
+/* Full-width mode has no centring slack, so reserve the complete gutter inside
+   the root. Rows deliberately shift right of the title by this amount. */
+.obe-root.obe-full {
+  max-width: none;
+  padding-left: var(--obe-gutter-room);
+}
 
 /* Pages with content below the editor (a hosted database view) don't reserve
    the tall click-to-append zone — it would push that content below the fold. */
