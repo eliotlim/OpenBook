@@ -1,10 +1,13 @@
 import {describe, expect, it} from 'vitest';
 import {
   FORM_PROPERTY_TYPE_WRITABILITY,
+  FORM_ROW_VALIDATION_ERROR_CODES,
   KNOWN_DATABASE_VIEW_TYPES,
+  TITLE_PROPERTY_ID,
   defaultView,
   isDatabaseViewType,
   isFormWritablePropertyType,
+  projectDatabaseFormDescriptor,
   removeProperty,
   validateRowAgainstForm,
   type DatabaseProperty,
@@ -80,6 +83,96 @@ describe('database form view contract', () => {
     expect(view.visiblePropertyIds).toEqual(['name', 'email']);
     expect(view.formFields).toEqual({});
     expect(view.formConfig).toEqual({acceptingResponses: true});
+  });
+
+  it('projects a frozen public descriptor without leaking unmapped columns or options', () => {
+    const privateOptions = [{id: 'classified', label: 'Classified', color: 'red'}];
+    const publicOptions = [{id: 'general', label: 'General', color: 'blue'}];
+    const view = formView({
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'category', 'when', 'score'],
+      formFields: {
+        [TITLE_PROPERTY_ID]: {label: 'Your name', required: true, multiline: true},
+        category: {help: 'Choose one', placeholder: 'Pick', validation: {minLength: 1}},
+      },
+      formConfig: {
+        title: 'Public intake',
+        description: 'Tell us about it',
+        submitLabel: 'Send',
+        confirmation: {type: 'message', message: 'Received'},
+        acceptingResponses: false,
+        closedMessage: 'Back soon',
+        maxResponses: 25,
+      },
+    });
+    const schema = schemaWith([
+      {id: 'category', name: 'Category', type: 'select', options: publicOptions, description: 'internal column copy'},
+      {id: 'when', name: 'When', type: 'date', includeTime: true, dateRange: false, dateDisplay: 'relative'},
+      {id: 'score', name: 'Score', type: 'number', numberTarget: 100, numberFormat: 'percent'},
+      {id: 'private', name: 'Private', type: 'select', options: privateOptions},
+      {id: 'formula', name: 'Formula', type: 'formula', formula: 'prop("Private")'},
+    ], view);
+
+    const descriptor = projectDatabaseFormDescriptor(schema, view);
+    expect(descriptor).toEqual({
+      title: 'Public intake',
+      description: 'Tell us about it',
+      submitLabel: 'Send',
+      acceptingResponses: false,
+      closedMessage: 'Back soon',
+      fields: [
+        {
+          propertyId: TITLE_PROPERTY_ID,
+          type: 'text',
+          label: 'Your name',
+          help: '',
+          required: true,
+          placeholder: '',
+        },
+        {
+          propertyId: 'category',
+          type: 'select',
+          label: 'Category',
+          help: 'Choose one',
+          required: false,
+          placeholder: 'Pick',
+          options: publicOptions,
+        },
+        {
+          propertyId: 'when',
+          type: 'date',
+          label: 'When',
+          help: '',
+          required: false,
+          placeholder: '',
+          includeTime: true,
+          dateRange: false,
+        },
+        {
+          propertyId: 'score',
+          type: 'number',
+          label: 'Score',
+          help: '',
+          required: false,
+          placeholder: '',
+          numberTarget: 100,
+        },
+      ],
+    });
+    expect(JSON.stringify(descriptor)).not.toContain('Classified');
+    expect(JSON.stringify(descriptor)).not.toContain('internal column copy');
+    expect(descriptor?.fields[1].options).not.toBe(publicOptions);
+    expect(projectDatabaseFormDescriptor(schema, {...view, type: 'table'})).toBeNull();
+  });
+
+  it('omits closed copy while a form is accepting responses', () => {
+    const view = formView({formConfig: {acceptingResponses: true, closedMessage: 'Not public while open'}});
+    expect(projectDatabaseFormDescriptor(schemaWith([], view), view)).toEqual({
+      title: 'Intake',
+      description: '',
+      submitLabel: 'Submit',
+      acceptingResponses: true,
+      fields: [],
+    });
   });
 });
 
@@ -168,6 +261,98 @@ describe('validateRowAgainstForm', () => {
       ok: false,
       errors: [{propertyId: 'name', code: 'required'}],
     });
+  });
+
+  it('maps the reserved title as text and returns it separately as the row name', () => {
+    const titleView = formView({
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'notes'],
+      formFields: {[TITLE_PROPERTY_ID]: {required: true}},
+    });
+    const titleSchema = schemaWith([{id: 'notes', name: 'Notes', type: 'text'}], titleView);
+
+    expect(validateRowAgainstForm(titleSchema, titleView, {[TITLE_PROPERTY_ID]: '', notes: 'Hello'})).toEqual({
+      ok: false,
+      errors: [{propertyId: TITLE_PROPERTY_ID, code: 'required'}],
+    });
+    expect(validateRowAgainstForm(titleSchema, titleView, {[TITLE_PROPERTY_ID]: 42})).toEqual({
+      ok: false,
+      errors: [{propertyId: TITLE_PROPERTY_ID, code: 'type'}],
+    });
+    expect(validateRowAgainstForm(titleSchema, titleView, {[TITLE_PROPERTY_ID]: 'Ada', notes: 'Hello'})).toEqual({
+      ok: true,
+      name: 'Ada',
+      fields: {notes: 'Hello'},
+    });
+
+    const optionalTitleView = {...titleView, formFields: {}};
+    expect(validateRowAgainstForm(titleSchema, optionalTitleView, {})).toEqual({ok: true, name: '', fields: {}});
+    expect(validateRowAgainstForm(titleSchema, formView({visiblePropertyIds: ['notes']}), {[TITLE_PROPERTY_ID]: 'Ada'})).toEqual({
+      ok: false,
+      errors: [{propertyId: TITLE_PROPERTY_ID, code: 'unknown_field'}],
+    });
+  });
+
+  it('treats a blank string as empty for every property type before type validation', () => {
+    const blankProperties: DatabaseProperty[] = [
+      {id: 'count', name: 'Count', type: 'number'},
+      {id: 'consent', name: 'Consent', type: 'checkbox'},
+      {id: 'place', name: 'Place', type: 'location'},
+    ];
+    const blankView = formView({
+      visiblePropertyIds: blankProperties.map((property) => property.id),
+      formFields: {
+        count: {required: true},
+        consent: {required: true},
+        place: {required: true},
+      },
+    });
+    expect(validateRowAgainstForm(schemaWith(blankProperties, blankView), blankView, {
+      count: '',
+      consent: '',
+      place: '',
+    })).toEqual({
+      ok: false,
+      errors: [
+        {propertyId: 'count', code: 'required'},
+        {propertyId: 'consent', code: 'required'},
+        {propertyId: 'place', code: 'required'},
+      ],
+    });
+  });
+
+  it('enforces multiline field validation metadata server-side', () => {
+    const constrainedProperties: DatabaseProperty[] = [
+      {id: 'bio', name: 'Bio', type: 'text'},
+      {id: 'age', name: 'Age', type: 'number'},
+    ];
+    const constrainedView = formView({
+      visiblePropertyIds: ['bio', 'age'],
+      formFields: {
+        bio: {
+          multiline: true,
+          validation: {minLength: 4, maxLength: 12, pattern: '^[A-Z]'},
+        },
+        age: {validation: {min: 18, max: 120}},
+      },
+    });
+    const constrainedSchema = schemaWith(constrainedProperties, constrainedView);
+
+    expect(validateRowAgainstForm(constrainedSchema, constrainedView, {bio: 'ada', age: 121})).toEqual({
+      ok: false,
+      errors: [
+        {propertyId: 'bio', code: 'minLength'},
+        {propertyId: 'bio', code: 'pattern'},
+        {propertyId: 'age', code: 'max'},
+      ],
+    });
+    expect(validateRowAgainstForm(constrainedSchema, constrainedView, {bio: 'Ada Lovelace', age: 36})).toEqual({
+      ok: true,
+      fields: {bio: 'Ada Lovelace', age: 36},
+    });
+  });
+
+  it('exports the step-3 size-limit validation code', () => {
+    expect(FORM_ROW_VALIDATION_ERROR_CODES).toContain('too_large');
   });
 
   it('validates against the current property type after a retype', () => {

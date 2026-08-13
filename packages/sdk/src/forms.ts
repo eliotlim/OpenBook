@@ -62,6 +62,11 @@ export interface DatabaseFormSubmissionRequest {
   idempotencyKey: string;
 }
 
+/** Body for the capability-gated database form descriptor fetch. */
+export interface DatabaseFormDescriptorRequest {
+  capability: string;
+}
+
 /** Stable success response returned for both a first submission and its replay. */
 export interface FormSubmissionResult {
   rowId: string;
