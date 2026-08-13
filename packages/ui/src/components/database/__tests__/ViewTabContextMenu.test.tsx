@@ -136,3 +136,16 @@ describe('view-tab context menu', () => {
     expect(screen.queryByText('Delete view')).toBeNull();
   });
 });
+
+describe('database toolbar layout reservation', () => {
+  it('keeps the search input at its compact width on focus', () => {
+    render(<Harness db={makeDb()} />);
+    const search = screen.getByRole('textbox', {name: 'Search rows'});
+
+    expect(search.classList.contains('w-24')).toBe(true);
+    expect(search.classList.contains('focus:w-36')).toBe(false);
+    fireEvent.focus(search);
+    expect(document.activeElement).toBe(search);
+    expect(search.classList.contains('w-24')).toBe(true);
+  });
+});
