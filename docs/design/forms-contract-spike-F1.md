@@ -73,15 +73,15 @@ For a form view, `visiblePropertyIds` is deliberately stricter than its legacy
 meaning on row layouts: only explicitly listed property ids are fields, and
 their array order is display and validation order. Missing or empty means no
 fields, not all columns. `defaultView('form', ...)` writes an explicit list of
-all current v1-writable, non-reserved properties, an empty `formFields`, and
-`acceptingResponses: true`.
+`TITLE_PROPERTY_ID` first, followed by all current v1-writable, non-reserved
+properties, plus an empty `formFields` and `acceptingResponses: true`.
 
 `TITLE_PROPERTY_ID` (`'title'`) is the one virtual field: it is not present in
-`schema.properties`, but F-2 may explicitly put it in `visiblePropertyIds` and
-configure ordinary text-field metadata for it. It is not added to new form
-views by default, preserving the existing explicit property list. When mapped,
-the validator treats it as text and returns it as the row `name`; it never
-appears in the validated property record.
+`schema.properties`, but it is explicitly mapped first in new form views so
+out-of-the-box submissions create titled rows. F-2 may reorder/remove it and
+configure ordinary text-field metadata for it. When mapped, the validator
+treats it as text and returns it as the row `name`; it never appears in the
+validated property record.
 
 `formFields` is presentation/validation metadata only. An entry not present in
 `visiblePropertyIds`, not the title, not present in the current schema, or no
@@ -120,6 +120,13 @@ interface DatabaseFormDescriptor {
     help: string;
     required: boolean;
     placeholder: string;
+    multiline?: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+    };
     options?: DatabaseSelectOption[];
     includeTime?: boolean;
     dateRange?: boolean;
@@ -131,9 +138,13 @@ interface DatabaseFormDescriptor {
 `projectDatabaseFormDescriptor(schema, view)` is the only SDK projection path.
 It returns `null` for a non-form view, follows only the explicit live writable
 mapping (including the virtual title), defensively copies mapped options, and
-returns exactly the keys above. It MUST NOT serialize `DatabaseSchema`, an
+returns exactly the keys above. `multiline` lets the public renderer select a
+textarea. Only the display-safe validation subset (`min`, `max`, `minLength`,
+and `maxLength`) is projected. `pattern` remains server-enforced but is withheld
+to avoid advertising the regex; validation failures still report the stable
+`pattern` error code. The projection MUST NOT serialize `DatabaseSchema`, an
 unmapped column or its options, filters, sorts, formulas, internal column copy,
-form validation metadata, confirmation/cap state, response counts, or any other
+the server-only pattern, confirmation/cap state, response counts, or any other
 schema/view data. `closedMessage` is included only when the form is closed and
 custom closed copy exists.
 
@@ -351,6 +362,13 @@ The submission route order is normative:
    `FormSubmissionResult` (`rowId`, `submittedAt`) with `201` and does not create
    another row or restamp provenance.
 
+`FORM_SUBMISSION_PROPERTY_ID` carries two distinct marker shapes. Legacy
+standalone-form rows use `{formId, submittedAt}`; database-view form rows use the
+exported `DatabaseFormSubmissionMarker` shape
+`{submittedViaViewId, submittedAt}`. F-2's counter must accept only the latter
+with a matching `submittedViaViewId`, and F-4's writer must stamp that same SDK
+type, so legacy rows are never attributed to a database form view.
+
 Capability validation and current-schema validation occur on every request.
 The client may render a stale builder snapshot, but the server result always
 reflects the current database contract.
@@ -399,9 +417,9 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
 
 ## 9. Explicit defaults and deferrals
 
-- New form views explicitly map all current v1-writable, non-`sys_*` columns and
-  accept responses, but do not map the virtual title and are not public until
-  separately published.
+- New form views explicitly map `TITLE_PROPERTY_ID` first, followed by all
+  current v1-writable, non-`sys_*` columns, and accept responses; they are not
+  public until separately published.
 - Missing/invalid mapping, acceptance state, capability state, view type, or
   property type fails closed.
 - A missing `maxResponses` uses
@@ -425,6 +443,9 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
   covered by UI tests. Publishing MUST show an explicit review that enumerates
   every field becoming publicly writable and specifically calls out mapped
   `select`, `status`, and `checkbox` columns.
+- F-2: the builder rejects syntactically invalid or `formPatternIsUnsafe`
+  `validation.pattern` values at authoring time; respondents must never see
+  author mistakes surfaced as `pattern` errors.
 - F-2/F-3: if a mid-flight schema change produces `unknown_field`, the client
   re-fetches the capability-gated descriptor and preserves the filler's typed
   answers while reconciling the changed field mapping.
