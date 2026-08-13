@@ -1,7 +1,12 @@
 import {describe, expect, it} from 'vitest';
 import type {StoredPage} from '@book.dev/sdk';
 import generatedSnapshot from './fixtures/form-page.snapshot.json';
-import {constantTimeSubmissionKeyEqual, findFormInPage, validateFormSubmissionRequest} from './formAccess';
+import {
+  constantTimeSubmissionKeyEqual,
+  findFormInPage,
+  validateDatabaseFormSubmissionRequest,
+  validateFormSubmissionRequest,
+} from './formAccess';
 
 const pageWith = (blocks: unknown[]): Pick<StoredPage, 'data'> => ({
   data: {editorjs: {blocks: []}, values: [], names: [], blockdoc: {v: 1, update: '', blocks}},
@@ -67,5 +72,27 @@ describe('validateFormSubmissionRequest', () => {
   it('applies the idempotency byte cap after trimming', () => {
     expect(validateFormSubmissionRequest({key: 'key', values: {}, idempotencyKey: `${' '.repeat(250)}x`}).idempotencyKey).toBe('x');
     expect(() => validateFormSubmissionRequest({key: 'key', values: {}, idempotencyKey: 'x'.repeat(201)})).toThrow();
+  });
+});
+
+describe('validateDatabaseFormSubmissionRequest', () => {
+  const request = (idempotencyKey: string) => ({capability: 'capability', fields: {}, idempotencyKey});
+
+  it('accepts v4 UUID and 128-bit-shaped base64url replay keys', () => {
+    const uuid = '550e8400-e29b-41d4-a716-446655440000';
+    expect(validateDatabaseFormSubmissionRequest(request(uuid)).idempotencyKey).toBe(uuid);
+    expect(validateDatabaseFormSubmissionRequest(request('Abcdefghijklmnopqrstuv')).idempotencyKey)
+      .toBe('Abcdefghijklmnopqrstuv');
+  });
+
+  it('rejects low-entropy and malformed replay-key shapes', () => {
+    for (const key of [
+      'predictable',
+      'Abcdefghijklmnopqrstu',
+      'Abcdefghijklmnopqrstu=',
+      'x'.repeat(201),
+    ]) {
+      expect(() => validateDatabaseFormSubmissionRequest(request(key))).toThrow();
+    }
   });
 });

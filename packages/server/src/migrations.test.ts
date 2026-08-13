@@ -111,11 +111,11 @@ describe('migration 0024 — staged form uploads', () => {
   });
 });
 
-describe('migration 0025 — database form capabilities', () => {
+describe('migration 0026 — database form capabilities', () => {
   it('creates the digest-only publication table and lifecycle index', async () => {
     const db = await freshDb();
     const applied = await db.query<{name: string}>(
-      'SELECT name FROM _migrations WHERE name = \'0025_database_form_capabilities\'',
+      'SELECT name FROM _migrations WHERE name = \'0026_database_form_capabilities\'',
     );
     expect(applied).toHaveLength(1);
     const columns = await db.query<{column_name: string}>(

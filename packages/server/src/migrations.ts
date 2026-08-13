@@ -612,7 +612,7 @@ const MIGRATIONS: Migration[] = [
     // digest rotates the link and deleting the row revokes it. Database deletion
     // cascades, while schema updates explicitly remove records for deleted/retyped
     // views in PageStore.updateDatabase.
-    name: '0025_database_form_capabilities',
+    name: '0026_database_form_capabilities',
     statements: [
       // Legacy block forms leave this null. Database form views stamp their
       // publication digest so a token staged before rotation cannot be consumed
