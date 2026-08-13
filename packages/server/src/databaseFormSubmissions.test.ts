@@ -160,12 +160,13 @@ function descriptor(
   databaseId: string,
   viewId: string,
   capability: string,
+  remoteAddress?: string,
 ) {
   return a.request(API.databaseForm(databaseId, viewId), {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
     body: JSON.stringify({capability}),
-  });
+  }, remoteAddress ? {incoming: {socket: {remoteAddress}}} : undefined);
 }
 
 function submit(
@@ -174,7 +175,7 @@ function submit(
   viewId: string,
   capability: string,
   fields: Record<string, unknown>,
-  idempotencyKey = `submission-${seq}-${Math.random()}`,
+  idempotencyKey: string = crypto.randomUUID(),
   remoteAddress?: string,
 ) {
   return a.request(API.databaseFormSubmissions(databaseId, viewId), {
@@ -210,7 +211,7 @@ describe('database form-view public fill', () => {
     const seeded = await seedForm();
     const a = app({accessToken: 'instance-wide-secret'});
     const {capability} = await publish(app(), seeded.database.id, seeded.view.id);
-    const idempotencyKey = `stable-${seq}`;
+    const idempotencyKey = crypto.randomUUID();
 
     const first = await submit(
       a,
@@ -347,6 +348,22 @@ describe('database form-view public fill', () => {
     expect(await store.listRows(first.database.id)).toHaveLength(1);
   });
 
+  it('rejects low-entropy idempotency keys before claiming a shared replay scope', async () => {
+    const seeded = await seedForm();
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, seeded.view.id);
+    const response = await submit(
+      a,
+      seeded.database.id,
+      seeded.view.id,
+      capability,
+      {email: 'reader@example.com'},
+      'predictable',
+    );
+    expect(`${response.status}\n${await response.text()}`).toBe('400\n{"error":"invalid form submission"}');
+    expect(await store.listRows(seeded.database.id)).toHaveLength(0);
+  });
+
   it('enforces required/format rules and the current column type when a client is stale', async () => {
     const seeded = await seedForm();
     const a = app();
@@ -442,7 +459,7 @@ describe('database form-view public fill', () => {
 
     const a = app();
     const {capability} = await publish(a, seeded.database.id, limitedView.id);
-    const firstKey = `limited-first-${seq}`;
+    const firstKey = crypto.randomUUID();
     const first = await submit(
       a,
       seeded.database.id,
@@ -528,6 +545,26 @@ describe('database form-view public fill', () => {
     expect(await denied(wrongWhileStopped)).toBe(expected);
     expect(await denied(unknown)).toBe(expected);
     expect(await denied(managed)).toBe(expected);
+  });
+
+  it('denies submissions while the host page is trashed and accepts them after restore', async () => {
+    const seeded = await seedForm();
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, seeded.view.id);
+
+    expect(await store.deletePage(seeded.page.id)).toBe(true);
+    const trashed = await submit(a, seeded.database.id, seeded.view.id, capability, {
+      email: 'trashed@example.com',
+    });
+    expect(`${trashed.status}\n${await trashed.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(await store.listRows(seeded.database.id)).toHaveLength(0);
+
+    expect(await store.restorePage(seeded.page.id)).not.toBeNull();
+    const restored = await submit(a, seeded.database.id, seeded.view.id, capability, {
+      email: 'restored@example.com',
+    });
+    expect(restored.status).toBe(201);
+    expect(await store.listRows(seeded.database.id)).toHaveLength(1);
   });
 
   it('POSTs the fragment capability in the body and returns only the SDK descriptor projection', async () => {
@@ -808,7 +845,7 @@ describe('database form-view public fill', () => {
     expect(await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS)).toMatchObject({reaped: expect.any(Number)});
   });
 
-  it('trips independently per capability and per trusted socket IP with Retry-After', async () => {
+  it('trips per capability and isolates the trusted socket budget per database form', async () => {
     const capSeed = await seedForm();
     const capApp = app();
     const cap = await publish(capApp, capSeed.database.id, capSeed.view.id);
@@ -819,7 +856,7 @@ describe('database form-view public fill', () => {
         capSeed.view.id,
         cap.capability,
         {unmapped: 'invalid'},
-        `cap-${i}`,
+        `capability-rate-limit-key-${i}`,
         `10.0.0.${i + 1}`,
       );
       expect(response.status).toBe(400);
@@ -830,7 +867,7 @@ describe('database form-view public fill', () => {
       capSeed.view.id,
       cap.capability,
       {unmapped: 'invalid'},
-      'cap-over',
+      'capability-rate-limit-over',
       '10.0.1.1',
     );
     expect(capabilityLimited.status).toBe(429);
@@ -841,7 +878,7 @@ describe('database form-view public fill', () => {
     const ipApp = app();
     const firstCap = await publish(ipApp, first.database.id, first.view.id);
     const secondCap = await publish(ipApp, second.database.id, second.view.id);
-    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+    for (let i = 0; i <= FORM_REQUEST_RATE_LIMIT; i += 1) {
       const target = i % 2 === 0
         ? {seeded: first, capability: firstCap.capability}
         : {seeded: second, capability: secondCap.capability};
@@ -851,22 +888,120 @@ describe('database form-view public fill', () => {
         target.seeded.view.id,
         target.capability,
         {unmapped: 'invalid'},
-        `ip-${i}`,
+        `trusted-peer-rate-limit-key-${i}`,
         '10.10.10.10',
       );
       expect(response.status).toBe(400);
     }
-    const ipLimited = await submit(
-      ipApp,
-      first.database.id,
-      first.view.id,
-      firstCap.capability,
-      {unmapped: 'invalid'},
-      'ip-over',
-      '10.10.10.10',
+  });
+
+  it('meters wrong capabilities before both gates and early-429s an exhausted peer', async () => {
+    const descriptorSeed = await seedForm();
+    const descriptorApp = app();
+    const descriptorCap = await publish(descriptorApp, descriptorSeed.database.id, descriptorSeed.view.id);
+    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+      const response = await descriptor(
+        descriptorApp,
+        descriptorSeed.database.id,
+        descriptorSeed.view.id,
+        'wrong-capability',
+        '10.20.30.40',
+      );
+      expect(response.status).toBe(404);
+    }
+    const descriptorLimited = await descriptor(
+      descriptorApp,
+      descriptorSeed.database.id,
+      descriptorSeed.view.id,
+      'wrong-capability',
+      '10.20.30.40',
     );
-    expect(ipLimited.status).toBe(429);
-    expect(ipLimited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
+    expect(descriptorLimited.status).toBe(429);
+    expect(descriptorLimited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
+    expect((await descriptor(
+      descriptorApp,
+      descriptorSeed.database.id,
+      descriptorSeed.view.id,
+      descriptorCap.capability,
+      '10.20.30.40',
+    )).status).toBe(429);
+
+    const submitSeed = await seedForm();
+    const submitApp = app();
+    const submitCap = await publish(submitApp, submitSeed.database.id, submitSeed.view.id);
+    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+      const response = await submit(
+        submitApp,
+        submitSeed.database.id,
+        submitSeed.view.id,
+        'wrong-capability',
+        {email: 'reader@example.com'},
+        crypto.randomUUID(),
+        '10.20.30.41',
+      );
+      expect(response.status).toBe(404);
+    }
+    const submitLimited = await submit(
+      submitApp,
+      submitSeed.database.id,
+      submitSeed.view.id,
+      'wrong-capability',
+      {email: 'reader@example.com'},
+      crypto.randomUUID(),
+      '10.20.30.41',
+    );
+    expect(submitLimited.status).toBe(429);
+    expect(submitLimited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
+    expect((await submit(
+      submitApp,
+      submitSeed.database.id,
+      submitSeed.view.id,
+      submitCap.capability,
+      {email: 'reader@example.com'},
+      crypto.randomUUID(),
+      '10.20.30.41',
+    )).status).toBe(429);
+  });
+
+  it('uses the shared peer fallback instead of the 30-request instance-global bucket', async () => {
+    const first = await seedForm();
+    const second = await seedForm();
+    const a = app();
+    await publish(a, first.database.id, first.view.id);
+    await publish(a, second.database.id, second.view.id);
+
+    // No socket environment is supplied, so clientIpKey returns `peer`. These
+    // failed gates would trip the old instance-global 30/minute bucket; the shared
+    // fallback is both larger and namespaced to each database form.
+    for (let i = 0; i <= FORM_REQUEST_RATE_LIMIT; i += 1) {
+      const target = i % 2 === 0 ? first : second;
+      const response = await submit(
+        a,
+        target.database.id,
+        target.view.id,
+        'wrong-capability',
+        {email: 'reader@example.com'},
+      );
+      expect(response.status).toBe(404);
+    }
+  });
+
+  it('applies the post-auth capability limiter to descriptor reads', async () => {
+    const seeded = await seedForm();
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, seeded.view.id);
+    for (let i = 0; i < FORM_REQUEST_RATE_LIMIT; i += 1) {
+      expect((await descriptor(
+        a,
+        seeded.database.id,
+        seeded.view.id,
+        capability,
+        `10.30.0.${i + 1}`,
+      )).status).toBe(200);
+    }
+    const limited = await descriptor(a, seeded.database.id, seeded.view.id, capability, '10.31.0.1');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBe(String(FORM_REQUEST_RATE_WINDOW_MS / 1000));
   });
 
   it('denies PAT mint and revoke attempts at the scope gate', async () => {
