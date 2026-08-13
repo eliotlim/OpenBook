@@ -347,7 +347,7 @@ The submission route order is normative:
    body, field-count, value-size, upload, and idempotency limits plus the
    per-view `maxResponses` ceiling. An absent ceiling uses
    `FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS`; the count is derived from active
-   rows whose durable form marker names this `viewId`.
+   rows whose durable form marker names this `viewId`. Exhaustion returns `429 {"error":"response limit reached"}`.
 4. Run `validateRowAgainstForm(database.schema, view, body.fields)`. Validation
    failure returns `400` with the machine-readable errors and creates nothing.
 5. Claim/resolve file tokens, then create exactly one row with
