@@ -112,7 +112,9 @@ test(
   async ({page, request}, testInfo) => {
     await page.setViewportSize({width: 1024, height: 800});
     await page.addInitScript(() => {
-      localStorage.setItem('hud', JSON.stringify({sideNav: {open: false, docked: true}}));
+      // A docked sidebar stays in document flow even when `open` is false.
+      // Undock it so this capture really exercises a 1024px document pane.
+      localStorage.setItem('hud', JSON.stringify({sideNav: {open: false, docked: false}}));
     });
     const pageId = await pageWithBlock(request, 'BB-6 standard');
     await page.goto(`/?page=${pageId}`);
@@ -129,7 +131,7 @@ test(
   async ({page, request}, testInfo) => {
     await page.setViewportSize({width: 1440, height: 800});
     await page.addInitScript(() => {
-      localStorage.setItem('hud', JSON.stringify({sideNav: {open: false, docked: true}}));
+      localStorage.setItem('hud', JSON.stringify({sideNav: {open: false, docked: false}}));
     });
     const pageId = await pageWithBlock(request, 'BB-6 full database', true);
     await page.goto(`/?page=${pageId}`);
@@ -154,9 +156,14 @@ test(
     await expect(pane).toBeVisible();
     const box = (await pane.boundingBox())!;
     const divider = pane.getByRole('separator');
-    await divider.hover();
+    const dividerBox = (await divider.boundingBox())!;
+    const startX = dividerBox.x + dividerBox.width / 2;
+    const startY = dividerBox.y + dividerBox.height / 2;
+    await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 420, box.y + box.height / 2, {steps: 5});
+    // Move from the actual pointer-down coordinate. Targeting from the pane's
+    // left edge ignores the divider's half-width and leaves the pane ~3px wide.
+    await page.mouse.move(startX + box.width - 420, startY, {steps: 5});
     await page.mouse.up();
     await expect.poll(async () => Math.round((await pane.boundingBox())!.width)).toBe(420);
 
