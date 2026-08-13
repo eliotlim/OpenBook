@@ -1,5 +1,6 @@
 import {test, expect} from './fixtures';
 import type {APIRequestContext} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
 
 import {SERVER} from './seed';
 
@@ -78,4 +79,80 @@ test('interactive HTML export: databases render and nested pages navigate', {tag
   // The subpage link navigates to the nested child page.
   await page.getByRole('link', {name: /Child Notes/}).click();
   await expect(page.getByText('Hello from the child page.')).toBeVisible();
+});
+
+test('interactive HTML export: served bundle has no unlisted subpage, mention, or row', {tag: ['@export', '@manager-verified']}, async ({page, request}, testInfo) => {
+  const hiddenSubpage = await api(request, 'post', '/api/pages', {
+    name: 'UP4 Hidden Subpage E2E',
+    data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'UP4 hidden subpage body'}}]}, values: [], names: []},
+  });
+  const hiddenMention = await api(request, 'post', '/api/pages', {
+    name: 'UP4 Hidden Mention E2E',
+    data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'UP4 hidden mention body'}}]}, values: [], names: []},
+  });
+  const visibleChild = await api(request, 'post', '/api/pages', {
+    name: 'UP4 Visible Child E2E',
+    data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'UP4 visible child body'}}]}, values: [], names: []},
+  });
+  const root = await api(request, 'post', '/api/pages', {
+    name: 'UP4 Leak Matrix Root',
+    data: {
+      editorjs: {
+        blocks: [
+          {type: 'subpage', data: {kind: 'page', pageId: visibleChild.id}},
+          {type: 'subpage', data: {kind: 'page', pageId: hiddenSubpage.id}},
+          {
+            type: 'paragraph',
+            data: {text: `before <a class="ob-mention" data-page-id="${hiddenMention.id}">UP4 Hidden Mention E2E</a> after`},
+          },
+        ],
+      },
+      values: [],
+      names: [],
+    },
+  });
+  const db = await api(request, 'post', '/api/databases', {pageId: root.id, name: 'UP4 Matrix Rows', schema});
+  const visibleRow = await api(request, 'post', `/api/databases/${db.id}/rows`, {name: 'UP4 Visible Row E2E', properties: {}});
+  const hiddenRow = await api(request, 'post', `/api/databases/${db.id}/rows`, {name: 'UP4 Hidden Row E2E', properties: {}});
+
+  for (const id of [hiddenSubpage.id, hiddenMention.id, hiddenRow.id]) {
+    const res = await request.put(`${SERVER}/api/pages/${id}/visibility`, {data: {listed: false}});
+    expect(res.ok()).toBe(true);
+  }
+
+  await page.goto(`/?page=${root.id}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).click();
+  await page.getByRole('menuitem', {name: 'Interactive HTML'}).click();
+  const download = await downloadPromise;
+  await expect(page.getByText('3 hidden pages skipped.')).toBeVisible();
+
+  const filePath = testInfo.outputPath('unlisted-clean-export.html');
+  await download.saveAs(filePath);
+  const html = await readFile(filePath, 'utf8');
+  for (const secret of [
+    hiddenSubpage.id,
+    'UP4 Hidden Subpage E2E',
+    hiddenMention.id,
+    'UP4 Hidden Mention E2E',
+    hiddenRow.id,
+    'UP4 Hidden Row E2E',
+  ]) {
+    expect(html).not.toContain(secret);
+  }
+
+  // Serve the captured artifact over HTTP so the browser leg exercises the
+  // same hydrated viewer boundary as a hosted export, not the authoring app.
+  await page.route('http://up4-export.test/**', (route) =>
+    route.fulfill({status: 200, contentType: 'text/html', body: html}),
+  );
+  await page.goto('http://up4-export.test/export.html');
+  await expect(page.getByText('UP4 Visible Row E2E')).toBeVisible();
+  await expect(page.getByText(/UP4 Hidden/)).toHaveCount(0);
+  await expect(page.locator(`[data-page-id="${visibleRow.id}"]`)).toBeVisible();
+  await page.getByRole('link', {name: /UP4 Visible Child E2E/}).first().click();
+  await expect(page.getByText('UP4 visible child body')).toBeVisible();
 });

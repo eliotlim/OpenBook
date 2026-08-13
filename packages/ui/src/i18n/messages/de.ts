@@ -396,6 +396,7 @@ export const de: PartialMessages = {
     exportBooksConfirm: 'Exportieren',
     exportBooksConfirmInclude: 'Mit Büchern exportieren',
     exportBooksCaptureFailed: 'Deine Bücher konnten nicht aufgenommen werden — die Datensätze ließen sich nicht vollständig lesen. Die Datei wurde ohne sie exportiert.',
+    exportHiddenPagesSkipped: '{count} ausgeblendete Seiten übersprungen.',
   },
   home: {
     morning: 'Guten Morgen',

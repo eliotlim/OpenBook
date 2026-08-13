@@ -21,6 +21,8 @@ import {resolveDbChartSeries, snapshotBlocks} from '../blockeditor/kit/chartData
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 import {formOriginUrl} from '@/blockeditor/formBlock';
 
+// Future-surface fence: OG metadata, sitemaps, and RSS do not exist today; each MUST consult `listed` when built.
+
 /** A database hosted by a page, projected for static rendering. */
 export interface SiteDatabase {
   schema: DatabaseSchema;
@@ -43,12 +45,15 @@ export interface SitePage {
 export interface SiteBundle {
   rootId: string;
   pages: SitePage[];
+  /** Number of unique unlisted pages omitted by the crawl. */
+  hiddenPagesSkipped?: number;
   /**
    * The LOSSLESS source bundle — the raw {@link StoredPage}/{@link StoredDatabase}
    * records gathered during the crawl, in the `openbook.library.json` shape. This
    * is what the site export embeds as its source island (nesting + properties +
    * databases survive, which the flattened {@link SitePage}s don't carry). The
    * root uses the live in-memory snapshot so unsaved edits export faithfully.
+   * Unlisted records and references are removed before this snapshot is emitted.
    */
   space: LibrarySnapshot;
   /**
@@ -73,6 +78,68 @@ export interface SiteBundle {
 
 /** A safety cap so a densely linked library can't produce a runaway file. */
 const MAX_PAGES = 400;
+
+const OMIT_REFERENCE = Symbol('omit-page-reference');
+
+/** Remove links to skipped pages from both legacy export HTML and native block JSON. */
+function scrubSkippedReferences(snapshot: PageSnapshot, skippedIds: ReadonlySet<string>): PageSnapshot {
+  if (skippedIds.size === 0) return snapshot;
+
+  const scrubString = (value: string): string => {
+    let clean = value;
+    for (const id of skippedIds) {
+      const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      clean = clean.replace(new RegExp(`<a\\b[^>]*\\bdata-page-id=(["'])${escaped}\\1[^>]*>[\\s\\S]*?<\\/a>`, 'g'), '');
+      clean = clean.split(id).join('');
+    }
+    return clean;
+  };
+
+  const scrub = (value: unknown): unknown | typeof OMIT_REFERENCE => {
+    if (typeof value === 'string') return scrubString(value);
+    if (Array.isArray(value)) {
+      const clean: unknown[] = [];
+      for (const child of value) {
+        const next = scrub(child);
+        if (next !== OMIT_REFERENCE) clean.push(next);
+      }
+      return clean;
+    }
+    if (!value || typeof value !== 'object') return value;
+
+    const record = value as Record<string, unknown>;
+    // Native mentions carry their label and page id in one atomic text run.
+    const attrs = record.a as Record<string, unknown> | undefined;
+    if (typeof record.t === 'string' && typeof attrs?.m === 'string' && skippedIds.has(attrs.m)) {
+      return OMIT_REFERENCE;
+    }
+    // Legacy subpage/database blocks and native dbview blocks carry pageId in
+    // data/props. Drop the whole block so neither its id nor its title survives.
+    const data = record.data as Record<string, unknown> | undefined;
+    const props = record.props as Record<string, unknown> | undefined;
+    if (
+      (typeof record.pageId === 'string' && skippedIds.has(record.pageId)) ||
+      (typeof data?.pageId === 'string' && skippedIds.has(data.pageId)) ||
+      (typeof props?.pageId === 'string' && skippedIds.has(props.pageId))
+    ) {
+      return OMIT_REFERENCE;
+    }
+
+    const clean: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(record)) {
+      const next = scrub(child);
+      if (next !== OMIT_REFERENCE) clean[key] = next;
+    }
+    return clean;
+  };
+
+  const clean = scrub(snapshot) as PageSnapshot;
+  const blockdoc = clean.blockdoc as {update?: string; blocks?: unknown[]} | undefined;
+  // The CRDT update is lossless but can still encode a removed mention. Force
+  // import/viewer consumers through the scrubbed JSON projection instead.
+  if (blockdoc) clean.blockdoc = {...blockdoc, update: ''} as PageSnapshot['blockdoc'];
+  return clean;
+}
 
 /** The type prefix of every block the first-party ledger plugin registers. */
 const LEDGER_BLOCK_PREFIX = 'openbook.ledger/';
@@ -174,6 +241,8 @@ export async function gatherSite(
   const spacePages = new Map<string, StoredPage>();
   const spaceDatabases = new Map<string, StoredDatabase>();
   const queue: string[] = [rootId];
+  const visited = new Set<string>();
+  const hiddenIds = new Set<string>();
 
   const ledger = await resolveLedgerIds(client);
   /** Whether this crawled record is ledger content: the restricted root host
@@ -188,11 +257,27 @@ export async function gatherSite(
 
   while (queue.length > 0 && pages.size < MAX_PAGES) {
     const id = queue.shift()!;
-    if (pages.has(id)) continue;
+    if (visited.has(id)) continue;
+    visited.add(id);
 
-    const stored = await client.getPage(id).catch(() => null);
+    const [stored, visibility] = await Promise.all([
+      client.getPage(id).catch(() => null),
+      // Older/test clients may not implement the UP-1 settings endpoint. Only
+      // an explicit false is hidden; absent metadata retains the legacy default.
+      Promise.resolve()
+        .then(() => client.getPageVisibility(id))
+        .catch(() => null),
+    ]);
     // The root may be brand-new/unsaved; fall back to its live snapshot.
     const isRoot = id === rootId;
+    const listed = visibility?.listed ?? (stored as (StoredPage & {listed?: boolean}) | null)?.listed;
+    // `listed` controls discovery/export reachability, not direct access. The
+    // manager explicitly selected the root, so keep it; every reached unlisted
+    // page is hard-skipped without prompting.
+    if (!isRoot && listed === false) {
+      hiddenIds.add(id);
+      continue;
+    }
     // Ledger content never rides the generic crawl (see the doc comment): flag
     // it (so the export flow asks for consent) and prune it. The root itself is
     // kept — the user is exporting the page in front of them — but its managed
@@ -255,10 +340,37 @@ export async function gatherSite(
     }
   }
 
+  if (hiddenIds.size > 0) {
+    for (const page of pages.values()) {
+      page.snapshot = scrubSkippedReferences(page.snapshot, hiddenIds);
+      if (page.database) {
+        page.database.rows = page.database.rows
+          .filter((row) => !hiddenIds.has(row.id))
+          .map((row) => ({
+            ...row,
+            parentId: row.parentId && hiddenIds.has(row.parentId) ? null : row.parentId,
+          }));
+      }
+    }
+    for (const [id, page] of spacePages) {
+      spacePages.set(id, {
+        ...page,
+        data: scrubSkippedReferences(page.data, hiddenIds),
+        parentId: page.parentId && hiddenIds.has(page.parentId) ? null : page.parentId,
+      });
+    }
+  }
+
   // Root first, so it is the page shown when the file opens.
   const ordered = [pages.get(rootId)!, ...[...pages.values()].filter((p) => p.id !== rootId)].filter(Boolean);
   const space: LibrarySnapshot = {pages: [...spacePages.values()], databases: [...spaceDatabases.values()]};
-  return {rootId, pages: ordered, space, ...(ledgerReached ? {ledgerReached: true} : {})};
+  return {
+    rootId,
+    pages: ordered,
+    space,
+    ...(hiddenIds.size > 0 ? {hiddenPagesSkipped: hiddenIds.size} : {}),
+    ...(ledgerReached ? {ledgerReached: true} : {}),
+  };
 }
 
 /** The root's raw record for the island: the persisted page with its `data`

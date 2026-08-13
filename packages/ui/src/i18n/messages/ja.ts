@@ -395,6 +395,7 @@ export const ja: PartialMessages = {
     exportBooksConfirm: 'エクスポート',
     exportBooksConfirmInclude: '帳簿を含めてエクスポート',
     exportBooksCaptureFailed: '帳簿を含められませんでした——レコードを完全に読み取れなかったため、ファイルは帳簿データなしでエクスポートされました。',
+    exportHiddenPagesSkipped: '{count} 件の非表示ページをスキップしました。',
   },
   home: {
     morning: 'おはようございます',

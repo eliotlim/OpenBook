@@ -393,6 +393,7 @@ export const zh: PartialMessages = {
     exportBooksConfirm: '导出',
     exportBooksConfirmInclude: '导出并包含账簿',
     exportBooksCaptureFailed: '无法包含你的账簿——记录未能完整读取。文件已导出，但不含账簿数据。',
+    exportHiddenPagesSkipped: '已跳过 {count} 个隐藏页面。',
   },
   home: {
     morning: '早上好',
