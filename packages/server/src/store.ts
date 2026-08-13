@@ -2939,20 +2939,104 @@ export class PageStore {
   /** Update a database's name and/or schema. Only provided fields change. */
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase | null> {
     await this.assertNotLedgerDatabase(id); // LGR-3: the seeded schemas are enforcement-relevant
-    const rows = await this.db.query<DatabaseRowRecord>(
-      `UPDATE databases
-         SET name   = COALESCE($2, name),
-             schema = COALESCE($3::jsonb, schema),
-             updated_at = now()
-       WHERE id = $1
-       RETURNING id, page_id, name, schema, created_at, updated_at`,
-      [
-        id,
-        patch.name === undefined ? null : patch.name,
-        patch.schema === undefined ? null : JSON.stringify(patch.schema),
-      ],
+    return this.db.begin(async (tx) => {
+      const rows = await tx.query<DatabaseRowRecord>(
+        `UPDATE databases
+           SET name   = COALESCE($2, name),
+               schema = COALESCE($3::jsonb, schema),
+               updated_at = now()
+         WHERE id = $1
+         RETURNING id, page_id, name, schema, created_at, updated_at`,
+        [
+          id,
+          patch.name === undefined ? null : patch.name,
+          patch.schema === undefined ? null : JSON.stringify(patch.schema),
+        ],
+      );
+      if (rows.length === 0) return null;
+
+      // F-4: publication state is separate from the schema, but deleting a form
+      // view (or retyping it away from `form`) revokes that view's capability in
+      // the SAME transaction as the schema write. A duplicated view has a fresh id,
+      // so it never aliases the source view's row here.
+      if (patch.schema !== undefined) {
+        const formViewCounts = new Map<string, number>();
+        if (Array.isArray(patch.schema.views)) {
+          for (const view of patch.schema.views) {
+            if (view && typeof view === 'object' && view.type === 'form' && typeof view.id === 'string') {
+              formViewCounts.set(view.id, (formViewCounts.get(view.id) ?? 0) + 1);
+            }
+          }
+        }
+        // A duplicate id is not a stable publication binding. Revoke it now so
+        // removing one duplicate later cannot silently reactivate the old link.
+        const liveFormViewIds = [...formViewCounts]
+          .filter(([, count]) => count === 1)
+          .map(([viewId]) => viewId);
+        await tx.query(
+          `DELETE FROM database_form_capabilities capabilities
+           WHERE capabilities.database_id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM jsonb_array_elements_text($2::jsonb) live(view_id)
+               WHERE live.view_id = capabilities.view_id
+             )`,
+          [id, JSON.stringify(liveFormViewIds)],
+        );
+      }
+      return databaseFromRow(rows[0]);
+    });
+  }
+
+  /** Read the at-rest SHA-256 digest for one published database form view. */
+  async getDatabaseFormCapabilityHash(databaseId: string, viewId: string): Promise<string | null> {
+    const rows = await this.db.query<{capability_hash: string}>(
+      `SELECT capability_hash FROM database_form_capabilities
+       WHERE database_id = $1 AND view_id = $2`,
+      [databaseId, viewId],
     );
-    return rows.length > 0 ? databaseFromRow(rows[0]) : null;
+    return rows[0]?.capability_hash ?? null;
+  }
+
+  /** First-publish or rotate one database form capability digest. */
+  async setDatabaseFormCapabilityHash(databaseId: string, viewId: string, capabilityHash: string): Promise<boolean> {
+    return this.db.begin(async (tx) => {
+      // Serialize publication with updateDatabase's schema write. Without this
+      // lock, a concurrent deleteView could revoke and then lose a late INSERT,
+      // leaving a dormant capability that reactivates if the id is ever reused.
+      const rows = await tx.query<DatabaseRowRecord>(
+        `SELECT id, page_id, name, schema, created_at, updated_at
+         FROM databases WHERE id = $1 FOR UPDATE`,
+        [databaseId],
+      );
+      if (rows.length === 0) return false;
+      const database = databaseFromRow(rows[0]);
+      const matching = Array.isArray(database.schema.views)
+        ? database.schema.views.filter((view) =>
+          view && typeof view === 'object' && view.id === viewId && view.type === 'form',
+        )
+        : [];
+      if (matching.length !== 1) return false;
+
+      const stored = await tx.query<{view_id: string}>(
+        `INSERT INTO database_form_capabilities (database_id, view_id, capability_hash)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (database_id, view_id) DO UPDATE
+           SET capability_hash = EXCLUDED.capability_hash, updated_at = now()
+         RETURNING view_id`,
+        [databaseId, viewId, capabilityHash],
+      );
+      return stored.length === 1;
+    });
+  }
+
+  /** Revoke one database form capability. */
+  async revokeDatabaseFormCapability(databaseId: string, viewId: string): Promise<boolean> {
+    const rows = await this.db.query<{view_id: string}>(
+      `DELETE FROM database_form_capabilities
+       WHERE database_id = $1 AND view_id = $2 RETURNING view_id`,
+      [databaseId, viewId],
+    );
+    return rows.length > 0;
   }
 
   /** Delete a database and (by cascade) all of its row pages. */
@@ -4449,7 +4533,15 @@ export class PageStore {
   async stageFormUpload(
     bytes: Uint8Array,
     mime: string,
-    input: {token: string; pageId: string; formId: string; fieldId: string; name: string},
+    input: {
+      token: string;
+      pageId: string;
+      formId: string;
+      fieldId: string;
+      name: string;
+      /** F-4 publication binding; null/absent for legacy block forms. */
+      capabilityHash?: string | null;
+    },
     budgets: {maxFormBytes: number; maxFormStagedBytes: number; maxTotalBytes?: number},
   ): Promise<StagedFormUpload> {
     const assetId = await assetHash(bytes);
@@ -4496,8 +4588,8 @@ export class PageStore {
       // purged, so the budget reflects all form-owned bytes still in retention.
       const staged = await tx.query<{token: string}>(
         `INSERT INTO form_uploads
-           (token, asset_id, page_id, form_id, field_id, file_name, owns_asset)
-         SELECT $1, $2, $3, $4, $5, $6, $7
+           (token, asset_id, page_id, form_id, field_id, file_name, owns_asset, capability_hash)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8
          FROM assets candidate
          WHERE candidate.id = $2
            AND (
@@ -4513,7 +4605,7 @@ export class PageStore {
                    AND existing.form_id = $4
                    AND existing.asset_id = accounted.id
                )
-             ), 0) + candidate.size <= $8::bigint
+             ), 0) + candidate.size <= $9::bigint
            )
            AND (
              EXISTS (
@@ -4532,7 +4624,7 @@ export class PageStore {
                    AND existing.asset_id = accounted.id
                    AND existing.consumed_by IS NULL
                )
-             ), 0) + candidate.size <= $9::bigint
+             ), 0) + candidate.size <= $10::bigint
            )
          RETURNING token`,
         [
@@ -4543,6 +4635,7 @@ export class PageStore {
           input.fieldId,
           input.name,
           ownsAsset,
+          input.capabilityHash ?? null,
           budgets.maxFormBytes,
           budgets.maxFormStagedBytes,
         ],
@@ -4598,6 +4691,8 @@ export class PageStore {
     entries: Array<{fieldId: string; tokens: string[]}>,
     idempotencyKey: string,
     ttlMs: number,
+    /** F-4 publication binding; null for legacy block forms. */
+    capabilityHash: string | null = null,
   ): Promise<StagedFormUpload[] | null> {
     const expected = new Map<string, string>();
     for (const entry of entries) {
@@ -4625,6 +4720,7 @@ export class PageStore {
              AND uploads.asset_id = assets.id
              AND uploads.page_id = $2
              AND uploads.form_id = $3
+             AND uploads.capability_hash IS NOT DISTINCT FROM $6
              AND (uploads.claimed_by IS NULL OR uploads.claimed_by = $4)
              AND (
                uploads.consumed_by IS NOT NULL
@@ -4632,7 +4728,7 @@ export class PageStore {
              )
            RETURNING uploads.token, uploads.asset_id, uploads.field_id, uploads.file_name,
              uploads.consumed_by, assets.size`,
-          [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs))],
+          [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs)), capabilityHash],
         );
         if (
           rows.length !== tokens.length

@@ -1,4 +1,10 @@
 import type {FormValidationError} from './formSchema';
+import type {
+  DatabaseFormConfig,
+  DatabaseSelectOption,
+  FormRowValidationError,
+  FormWritablePropertyType,
+} from './database';
 
 /** Stable pointer used by a standalone form block to project a database view. */
 export interface DatabaseFormReference {
@@ -62,6 +68,30 @@ export interface DatabaseFormSubmissionRequest {
   idempotencyKey: string;
 }
 
+/** One current, mapped, publicly writable field exposed by a form descriptor. */
+export interface DatabaseFormDescriptorField {
+  id: string;
+  name: string;
+  type: FormWritablePropertyType;
+  options?: DatabaseSelectOption[];
+}
+
+/** The deliberately narrow public read surface for a published database form. */
+export interface DatabaseFormDescriptor {
+  formConfig: DatabaseFormConfig;
+  fields: DatabaseFormDescriptorField[];
+}
+
+/** A published fill URL; the raw capability appears only in its fragment. */
+export interface DatabaseFormPublication {
+  url: string;
+}
+
+/** File bytes and metadata staged for a database form-view submission. */
+export interface DatabaseFormUploadInput extends Omit<FormUploadInput, 'key'> {
+  capability: string;
+}
+
 /** Stable success response returned for both a first submission and its replay. */
 export interface FormSubmissionResult {
   rowId: string;
@@ -76,6 +106,17 @@ export class FormSubmissionError extends Error {
   ) {
     super(`Form submission failed (${status})`);
     this.name = 'FormSubmissionError';
+  }
+}
+
+/** Typed non-success response from the database form-view submission endpoint. */
+export class DatabaseFormSubmissionError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly errors: FormRowValidationError[] = [],
+  ) {
+    super(`Database form submission failed (${status})`);
+    this.name = 'DatabaseFormSubmissionError';
   }
 }
 

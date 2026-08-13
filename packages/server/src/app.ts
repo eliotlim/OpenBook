@@ -17,7 +17,10 @@ import {
   FORM_UPLOAD_MAX_FORM_BYTES,
   FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
+  generateSubmissionKey,
+  isFormWritablePropertyType,
   submissionToRowInput,
+  validateRowAgainstForm,
   validateSubmission,
   PAGE_VISIBILITIES,
   type AclLevel,
@@ -26,6 +29,9 @@ import {
   type BackupConfig,
   type CommentInput,
   type DatabaseInput,
+  type DatabaseFormConfig,
+  type DatabaseFormDescriptor,
+  type DatabaseSchema,
   type DatabaseUpdate,
   type FormSubmissionResult,
   type FormSchema,
@@ -101,10 +107,19 @@ import {
   FORM_REQUEST_RATE_WINDOW_MS,
   FORM_SHARED_RATE_LIMIT,
   FORM_UPLOAD_MAX_BODY_BYTES,
+  currentDatabaseFormView,
+  databaseFormCapability,
+  databaseFormUploadId,
   formSubmissionKey,
+  hashDatabaseFormCapability,
+  isDatabaseFormFilesField,
   isFormFilesField,
+  requireDatabaseFormSubmissionAccess,
   requireFormUploadAccess,
   requireFormSubmissionAccess,
+  requirePublishedDatabaseForm,
+  validateDatabaseFormSubmissionRequest,
+  validateDatabaseFormUploadRequest,
   validateFormUploadRequest,
   validateFormSubmissionRequest,
 } from './formAccess';
@@ -147,6 +162,11 @@ function safeEqual(a: string, b: string): boolean {
  */
 const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 const FORM_PUBLIC_WRITE_PATH = /^\/api\/pages\/[^/]+\/forms\/[^/]+\/(?:submissions|uploads)$/;
+const DATABASE_FORM_PUBLIC_PATH = /^\/api\/databases\/[^/]+\/views\/[^/]+\/(?:form|submissions|uploads)$/;
+const isDatabaseFormPublicRequest = (method: string, path: string): boolean => {
+  if (!DATABASE_FORM_PUBLIC_PATH.test(path)) return false;
+  return method === 'GET' ? path.endsWith('/form') : method === 'POST' && !path.endsWith('/form');
+};
 export function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
   // Scheme and host are case-insensitive (RFC 3986 §3.1/§6.2.2.1), so a browser MAY send
@@ -176,7 +196,9 @@ export function isAppOrigin(origin: string): boolean {
  */
 function denyPatPolicy(c: Context<AppEnv>): void {
   if (c.get('principal').verifiedVia === 'pat') {
-    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing, visibility, or agent-edits policy'});
+    throw new HTTPException(403, {
+      message: 'agent tokens cannot change page sharing, visibility, public form capabilities, or agent-edits policy',
+    });
   }
 }
 
@@ -234,6 +256,45 @@ function formFileEntries(
     }
   }
   return entries;
+}
+
+function databaseFormFileEntries(
+  schema: DatabaseSchema,
+  fields: Record<string, unknown>,
+): Array<{fieldId: string; tokens: string[]}> {
+  const entries: Array<{fieldId: string; tokens: string[]}> = [];
+  for (const property of schema.properties) {
+    if (property.type !== 'files') continue;
+    const value = fields[property.id];
+    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+      entries.push({fieldId: property.id, tokens: value as string[]});
+    }
+  }
+  return entries;
+}
+
+/** Synthetic attribution for exactly one public row create. It is deliberately
+ * non-verified, so snapshot authorship stays empty rather than faking a person. */
+function databaseFormPrincipal(viewId: string): Principal {
+  return {
+    kind: 'guest',
+    subject: `form:${viewId}`,
+    issuer: '',
+    name: 'Public form',
+    verifiedVia: 'guest',
+  };
+}
+
+function publicDatabaseFormConfig(viewName: string, raw: DatabaseFormConfig | undefined): DatabaseFormConfig {
+  return {
+    title: typeof raw?.title === 'string' ? raw.title : viewName,
+    ...(typeof raw?.description === 'string' ? {description: raw.description} : {}),
+    submitLabel: typeof raw?.submitLabel === 'string' ? raw.submitLabel : 'Submit',
+    confirmationMessage: typeof raw?.confirmationMessage === 'string'
+      ? raw.confirmationMessage
+      : 'Thanks — your response was submitted.',
+    acceptingResponses: raw?.acceptingResponses === true,
+  };
 }
 
 /**
@@ -423,6 +484,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // concurrency, rather than collapsing all public traffic into the 30-request cap.
   const formRequestLimiter = new FixedWindowLimiter(FORM_REQUEST_RATE_LIMIT, FORM_REQUEST_RATE_WINDOW_MS);
   const formSharedLimiter = new FixedWindowLimiter(FORM_SHARED_RATE_LIMIT, FORM_REQUEST_RATE_WINDOW_MS);
+  // F-4 has two independent abuse ceilings: one shared by every holder of a
+  // capability and one shared by every public-form request from a socket peer.
+  // Keys use the stored digest / trusted peer address, never the raw capability or
+  // spoofable forwarding headers.
+  const databaseFormCapabilityLimiter = new FixedWindowLimiter(
+    FORM_REQUEST_RATE_LIMIT,
+    FORM_REQUEST_RATE_WINDOW_MS,
+  );
+  const databaseFormIpLimiter = new FixedWindowLimiter(
+    FORM_REQUEST_RATE_LIMIT,
+    FORM_REQUEST_RATE_WINDOW_MS,
+  );
   const formRateBucket = (c: Context<AppEnv>, pageId: string, formId: string) => {
     const peer = clientIpKey(c);
     return peer === 'peer'
@@ -432,6 +505,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   const formRateLimited = (c: Context<AppEnv>, pageId: string, formId: string): boolean => {
     const {limiter, key} = formRateBucket(c, pageId, formId);
     if (!limiter.exceeded(key)) return false;
+    c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
+    return true;
+  };
+  const databaseFormRateLimited = (c: Context<AppEnv>, capabilityHash: string): boolean => {
+    const capabilityExceeded = databaseFormCapabilityLimiter.exceeded(`capability:${capabilityHash}`);
+    const ipExceeded = databaseFormIpLimiter.exceeded(`ip:${clientIpKey(c)}`);
+    if (!capabilityExceeded && !ipExceeded) return false;
     c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
     return true;
   };
@@ -524,6 +604,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   if (opts.accessToken) {
     const token = opts.accessToken;
     app.use('/api/*', async (c, next) => {
+      // F-4 public database forms are authenticated only by their per-view fill
+      // capability (or publication binding for the descriptor), never by the
+      // instance-wide LAN bearer. Keeping them outside this broad gate is what
+      // makes a published fill link usable by anyone who holds it.
+      if (isDatabaseFormPublicRequest(c.req.method, c.req.path)) return next();
       // An agent PAT (AGENT-6) is its OWN credential class and, when valid, satisfies
       // reachability on its own ("PAT ≥ accessToken" — an intentional LAN trust
       // change): don't measure a `Bearer obat_…` against the instance accessToken
@@ -707,7 +792,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // `guestAccess:'off'` floor, so every form denial has one oracle-safe body.
       // The separate X-OpenBook-Client CSRF middleware below still applies.
       const isFormPublicWrite = c.req.method === 'POST' && FORM_PUBLIC_WRITE_PATH.test(c.req.path);
-      const gate = isFormPublicWrite ? null : guestGate(principal, guestAccess, c.req.method);
+      const isPublicDatabaseForm = isDatabaseFormPublicRequest(c.req.method, c.req.path);
+      const gate = isFormPublicWrite || isPublicDatabaseForm
+        ? null
+        : guestGate(principal, guestAccess, c.req.method);
       if (gate) return c.json({error: gate.error}, gate.status);
       // Claim-on-sign-in (contract §4.3 step 3). The first time a verified persona
       // JWS appears, bind every matching `invited` roster row / email ACL to its
@@ -2101,6 +2189,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     }
   };
 
+  const requireManageDatabaseForm = async (c: Context<AppEnv>) => {
+    denyPatPolicy(c);
+    const databaseId = c.req.param('databaseId');
+    const viewId = c.req.param('viewId');
+    if (!databaseId || !viewId) throw new HTTPException(404, {message: 'form not found'});
+    await requireDbAccess(c, store, 'write', databaseId);
+    const database = await store.getDatabase(databaseId);
+    const view = database ? currentDatabaseFormView(database, viewId) : null;
+    if (!database || !view) throw new HTTPException(404, {message: 'form not found'});
+    if (await store.isManagedDatabase(databaseId)) {
+      throw new HTTPException(403, {message: 'this database is server-managed and cannot publish a form'});
+    }
+    return {database, view};
+  };
+
   app.post(API.databases, async (c) => {
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.
@@ -2131,6 +2234,222 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await broadcastRows(database.id);
     return c.json(database);
   });
+
+  // F-4 publication lifecycle. POST is both first-publish and rotate: because the
+  // plaintext is never stored, every successful call mints a fresh capability and
+  // atomically replaces the digest. The response exposes it only inside the public
+  // descriptor URL's fragment, so navigation/proxy logs never receive the secret.
+  app.post(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
+    const {database, view} = await requireManageDatabaseForm(c);
+    const capability = generateSubmissionKey();
+    const published = await store.setDatabaseFormCapabilityHash(
+      database.id,
+      view.id,
+      hashDatabaseFormCapability(capability),
+    );
+    if (!published) return c.json({error: 'form not found'}, 404);
+    const url = new URL(API.databaseFormDescriptor(database.id, view.id), c.req.url);
+    url.hash = `capability=${capability}`;
+    logEdit(c, database.pageId, 'database.form.publish', view.id);
+    return c.json({url: url.toString()}, 201);
+  });
+
+  app.delete(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
+    const {database, view} = await requireManageDatabaseForm(c);
+    const revoked = await store.revokeDatabaseFormCapability(database.id, view.id);
+    if (!revoked) return c.json({error: 'form not found'}, 404);
+    logEdit(c, database.pageId, 'database.form.revoke', view.id);
+    return c.body(null, 204);
+  });
+
+  // The sole anonymous read opened by a published form: effective form copy plus
+  // current mapped writable fields. Every property is rebuilt from an allowlist;
+  // full schema/view metadata and row data never enter the response object.
+  app.get(`${API.databases}/:databaseId/views/:viewId/form`, async (c) => {
+    const {database, view} = await requirePublishedDatabaseForm(
+      store,
+      c.req.param('databaseId'),
+      c.req.param('viewId'),
+    );
+    const byId = new Map(database.schema.properties.map((property) => [property.id, property]));
+    const seen = new Set<string>();
+    const fields = (view.visiblePropertyIds ?? []).flatMap((propertyId) => {
+      if (seen.has(propertyId)) return [];
+      seen.add(propertyId);
+      const property = byId.get(propertyId);
+      if (!property || property.id.startsWith('sys_') || !isFormWritablePropertyType(property.type)) return [];
+      return [{
+        id: property.id,
+        name: property.name,
+        type: property.type,
+        ...(property.options
+          ? {options: property.options.map((option) => ({
+            id: option.id,
+            label: option.label,
+            ...(option.color === undefined ? {} : {color: option.color}),
+            ...(option.group === undefined ? {} : {group: option.group}),
+          }))}
+          : {}),
+      }];
+    });
+    const descriptor: DatabaseFormDescriptor = {
+      formConfig: publicDatabaseFormConfig(view.name, view.formConfig),
+      fields,
+    };
+    return c.json(descriptor);
+  });
+
+  app.post(
+    `${API.databases}/:databaseId/views/:viewId/uploads`,
+    bodyLimit({
+      maxSize: FORM_UPLOAD_MAX_BODY_BYTES,
+      onError: (c) => c.json({error: 'request body too large'}, 413),
+    }),
+    async (c) => {
+      const body = await c.req.json<unknown>().catch(() => null);
+      const databaseId = c.req.param('databaseId');
+      const viewId = c.req.param('viewId');
+      const {database, view, capabilityHash} = await requireDatabaseFormSubmissionAccess(
+        store,
+        databaseId,
+        viewId,
+        databaseFormCapability(body),
+      );
+      if (databaseFormRateLimited(c, capabilityHash)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+      const input = validateDatabaseFormUploadRequest(body);
+      if (!isDatabaseFormFilesField(database, view, input.fieldId)) {
+        return c.json({error: 'invalid form upload field'}, 400);
+      }
+      const bytes = decodeFormUploadBase64(input.data);
+      if (!bytes || bytes.byteLength === 0) return c.json({error: 'invalid form upload'}, 400);
+      if (bytes.byteLength > FORM_UPLOAD_MAX_FILE_BYTES) {
+        return c.json({error: 'request body too large'}, 413);
+      }
+      const mime = safeAssetMime(input.mime);
+      if (mime === null) return c.json({error: 'invalid content type'}, 400);
+
+      try {
+        const staged = await store.stageFormUpload(
+          bytes,
+          mime,
+          {
+            token: randomUUID(),
+            pageId: database.pageId,
+            formId: databaseFormUploadId(view.id),
+            fieldId: input.fieldId,
+            name: input.name.trim(),
+            capabilityHash,
+          },
+          {
+            maxFormBytes: FORM_UPLOAD_MAX_FORM_BYTES,
+            maxFormStagedBytes: FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
+            maxTotalBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
+          },
+        );
+        const result: FormUploadResult = {token: staged.token, name: staged.name, size: staged.size};
+        return c.json(result, 201);
+      } catch (err) {
+        if (err instanceof AssetBudgetError || err instanceof FormAssetBudgetError) {
+          return c.json({error: 'asset storage is full'}, 507);
+        }
+        throw err;
+      }
+    },
+  );
+
+  // The public fill authorization rung. It bypasses ordinary database read/write
+  // authority, but only after current publication, capability, response-state, and
+  // managed-database checks. Validation uses freshly loaded SDK schema/view data.
+  app.post(
+    `${API.databases}/:databaseId/views/:viewId/submissions`,
+    bodyLimit({
+      maxSize: FORM_SUBMISSION_MAX_BODY_BYTES,
+      onError: (c) => c.json({error: 'request body too large'}, 413),
+    }),
+    async (c) => {
+      const body = await c.req.json<unknown>().catch(() => null);
+      const databaseId = c.req.param('databaseId');
+      const viewId = c.req.param('viewId');
+      const {database, view, capabilityHash} = await requireDatabaseFormSubmissionAccess(
+        store,
+        databaseId,
+        viewId,
+        databaseFormCapability(body),
+      );
+      if (databaseFormRateLimited(c, capabilityHash)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
+      const input = validateDatabaseFormSubmissionRequest(body);
+      const validation = validateRowAgainstForm(database.schema, view, input.fields);
+      if (!validation.ok) return c.json({errors: validation.errors}, 400);
+
+      const uploadEntries = databaseFormFileEntries(database.schema, validation.fields);
+      const uploadCount = uploadEntries.reduce((count, entry) => count + entry.tokens.length, 0);
+      if (uploadCount > FORM_UPLOAD_MAX_FILES) return c.json({error: 'too many files'}, 400);
+      const uploadFormId = databaseFormUploadId(view.id);
+      const claimed = await store.claimFormUploads(
+        database.pageId,
+        uploadFormId,
+        uploadEntries,
+        input.idempotencyKey,
+        FORM_UPLOAD_ORPHAN_TTL_MS,
+        capabilityHash,
+      );
+      if (!claimed) return c.json({error: 'invalid or expired form upload'}, 400);
+      const uploadByToken = new Map(claimed.map((upload) => [upload.token, upload]));
+      const storedFields = {...validation.fields};
+      for (const entry of uploadEntries) {
+        storedFields[entry.fieldId] = entry.tokens.map((token) => {
+          const upload = uploadByToken.get(token)!;
+          return `${API.asset(upload.assetId)}?filename=${encodeURIComponent(upload.name)}`;
+        });
+      }
+
+      const author = databaseFormPrincipal(view.id);
+      const {page: pageRow, created} = await store.createRow(
+        database.id,
+        {properties: storedFields},
+        author,
+        {
+          idempotency: {
+            scope: `database-form:${database.id}:${view.id}:${capabilityHash}`,
+            key: input.idempotencyKey,
+          },
+        },
+      );
+      const replayTokens = claimed
+        .filter((upload) => upload.consumedBy === pageRow.id)
+        .map((upload) => upload.token);
+      const freshTokens = claimed
+        .filter((upload) => upload.consumedBy !== pageRow.id)
+        .map((upload) => upload.token);
+      if (created) {
+        await store.consumeFormUploads(claimed.map((upload) => upload.token), input.idempotencyKey, pageRow.id);
+      } else {
+        await store.consumeFormUploads(replayTokens, input.idempotencyKey, pageRow.id);
+        await store.discardFormUploads(database.pageId, uploadFormId, freshTokens);
+      }
+
+      if (created) {
+        hub.publishPage(pageRow);
+        await broadcastRows(database.id);
+        void store.logEdit({
+          pageId: pageRow.id,
+          author,
+          kind: 'database.form.submit',
+          summary: view.id,
+        }).catch((err) => {
+          console.error('OpenBook database-form edit-log write failed:', err);
+        });
+      }
+      const result: FormSubmissionResult = {rowId: pageRow.id, submittedAt: pageRow.createdAt};
+      return c.json(result, 201);
+    },
+  );
 
   app.delete(`${API.databases}/:id`, async (c) => {
     const id = c.req.param('id');

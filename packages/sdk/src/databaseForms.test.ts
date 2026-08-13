@@ -66,6 +66,7 @@ describe('database form view contract', () => {
     });
     expect(isFormWritablePropertyType('status')).toBe(true);
     expect(isFormWritablePropertyType('formula')).toBe(false);
+    expect(isFormWritablePropertyType('__proto__' as DatabasePropertyType)).toBe(false);
   });
 
   it('creates a form with an explicit writable field mapping', () => {

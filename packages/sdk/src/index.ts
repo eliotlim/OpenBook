@@ -25,6 +25,7 @@ export type {
 export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POLICIES, resolveAgentEdits} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export {
+  DatabaseFormSubmissionError,
   FormSubmissionError,
   FormUploadError,
   FORM_UPLOAD_MAX_FILE_BYTES,
@@ -33,8 +34,12 @@ export {
   FORM_UPLOAD_MAX_FORM_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
   generateSubmissionKey,
+  type DatabaseFormDescriptor,
+  type DatabaseFormDescriptorField,
+  type DatabaseFormPublication,
   type DatabaseFormReference,
   type DatabaseFormSubmissionRequest,
+  type DatabaseFormUploadInput,
   type FormSubmissionRequest,
   type FormSubmissionResult,
   type FormUploadInput,
