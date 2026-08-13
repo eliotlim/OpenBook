@@ -1,16 +1,40 @@
+import type {Locator} from '@playwright/test';
 import {expect, test} from './fixtures';
 import {newPage, SERVER} from './seed';
 
 test.use({freshWorkspace: true});
 
-const x = async (locator: import('@playwright/test').Locator): Promise<number> => {
+const x = async (locator: Locator): Promise<number> => {
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();
   return box!.x;
 };
 
-const layoutX = (locator: import('@playwright/test').Locator): Promise<number> =>
+const layoutX = (locator: Locator): Promise<number> =>
   locator.evaluate((element) => (element as HTMLElement).offsetLeft);
+
+const settledX = async (locator: Locator, coordinate: 'bounding' | 'layout' = 'bounding'): Promise<number> => {
+  let settled: number | undefined;
+  await expect
+    .poll(async () => {
+      const [first, second] = await locator.evaluate(
+        (element, coordinate) =>
+          new Promise<[number, number]>((resolve) => {
+            const read = () =>
+              coordinate === 'layout' ? (element as HTMLElement).offsetLeft : element.getBoundingClientRect().x;
+            requestAnimationFrame(() => {
+              const first = read();
+              requestAnimationFrame(() => resolve([first, read()]));
+            });
+          }),
+        coordinate,
+      );
+      settled = first === second ? second : undefined;
+      return settled;
+    })
+    .not.toBeUndefined();
+  return settled!;
+};
 
 // Manager verification gate: this sandbox has no Chromium. Run with
 // `pnpm --filter @book.dev/web test:e2e --grep @manager-verified`.
@@ -27,6 +51,7 @@ test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', 
 
   const pageId = await newPage(request, 'BB-3 layout reservation');
   await page.goto(`/?page=${pageId}&shell=desktop`);
+  await page.evaluate(() => document.fonts.ready);
 
   const libraryTrigger = page.getByRole('button').filter({hasText: new URL(SERVER).host}).first();
   await libraryTrigger.click();
@@ -40,24 +65,24 @@ test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', 
   // paths without changing the status sibling's position.
   await remoteRow.focus();
   await expect(remove).toHaveCSS('opacity', '0');
-  const statusBeforeReveal = await x(status);
+  const statusBeforeReveal = await settledX(status);
   await localRow.focus();
   await expect(remove).toHaveCSS('opacity', '1');
-  expect(await x(status)).toBe(statusBeforeReveal);
+  await expect.poll(() => x(status)).toBe(statusBeforeReveal);
   await remoteRow.focus();
   await expect(remove).toHaveCSS('opacity', '0');
   await localRow.hover();
   await expect(remove).toHaveCSS('opacity', '1');
-  expect(await x(status)).toBe(statusBeforeReveal);
+  await expect.poll(() => x(status)).toBe(statusBeforeReveal);
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', {name: 'New tab'}).click();
   const tabs = page.getByRole('tab');
   await expect(tabs).toHaveCount(2);
-  const secondTabBeforeSwitch = await x(tabs.nth(1));
+  const secondTabBeforeSwitch = await settledX(tabs.nth(1));
   await tabs.nth(0).click();
   await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-  expect(await x(tabs.nth(1))).toBe(secondTabBeforeSwitch);
+  await expect.poll(() => x(tabs.nth(1))).toBe(secondTabBeforeSwitch);
 
   await page.keyboard.press('ControlOrMeta+k');
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
@@ -71,8 +96,8 @@ test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', 
   // Focus may scroll the narrow toolbar to reveal the search input. offsetLeft
   // measures the filter's position in the flex layout, independent of that
   // scroll, and therefore distinguishes viewport movement from sibling reflow.
-  const filterBeforeFocus = await layoutX(filter);
+  const filterBeforeFocus = await settledX(filter, 'layout');
   await search.focus();
   await expect(search).toBeFocused();
-  expect(await layoutX(filter)).toBe(filterBeforeFocus);
+  await expect.poll(() => layoutX(filter)).toBe(filterBeforeFocus);
 });
