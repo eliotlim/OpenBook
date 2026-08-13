@@ -1,7 +1,7 @@
 # Forms × Databases contract spike (F-1)
 
 Status: normative interface contract for F-2 (form-view builder), F-3
-(standalone form block), and F-4 (public fill route). This spike defines shared
+(database-form embedding), and F-4 (public fill route). This spike defines shared
 types and pure validation only; it does not implement those features.
 
 ## 1. Product invariants
@@ -11,17 +11,24 @@ Forms and databases are two views of the same rows and columns.
 - A database may own zero, one, or many `DatabaseView` values with
   `type: 'form'`. Each form view has independent field order, inclusion, copy,
   required flags, response state, publication, and capability.
-- A form field always projects a current `DatabaseProperty`. Adding or retyping
-  a field therefore creates or updates a database column; there is no second
-  field schema to drift from the database schema.
-- A form view remains available in the database view switcher. A standalone
-  `form` block stores a `DatabaseFormReference` (`databaseId`, `viewId`) and
-  renders that same view; it must not copy field definitions into block props.
-- Publishing a page as a form is a form-only render mode. It MUST NOT reveal the
-  database toolbar, view switcher, schema, existing rows, or an editable grid.
-  Publishing the underlying database is a separate, explicit action with its
-  own access decision. Publishing either one never implicitly publishes the
-  other.
+- A form field projects a current `DatabaseProperty`, except for the explicit
+  virtual `TITLE_PROPERTY_ID` mapping to the row page name. Adding or retyping
+  any other field therefore creates or updates a database column; there is no
+  second property schema to drift from the database schema.
+- A form view remains available in the database view switcher. F-3 is the path
+  for a new embedding block: it stores only a `DatabaseFormReference`
+  (`databaseId`, `viewId`) and renders that same view, without copying field
+  definitions into block props.
+- The already-shipped legacy standalone `form` block (`FormSchema`,
+  `FormBuilder`, and `formAccess.ts`) and database-view forms coexist in
+  parallel. This contract does not migrate or reinterpret legacy blocks;
+  migration is explicitly deferred.
+- Publishing a database-view form is a form-only action and render mode. It MUST
+  NOT reveal the database toolbar, view switcher, schema, existing rows, or an
+  editable grid. Form publication and its single active capability belong to
+  `(databaseId, viewId)`, independently of page or database publication state.
+  Publishing or unpublishing any one of the form, page, or database never
+  implicitly changes either of the other two.
 - Public fill and form-only fields are in v1.
 
 ## 2. Persisted SDK shape
@@ -39,13 +46,25 @@ interface DatabaseView {
     help?: string;
     required?: boolean;
     placeholder?: string;
+    multiline?: boolean;
+    validation?: {
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+      pattern?: string;
+    };
   }>;
   formConfig?: {
     title?: string;
     description?: string;
     submitLabel?: string;
-    confirmationMessage?: string;
+    confirmation?:
+      | {type: 'message'; message: string}
+      | {type: 'redirect'; redirectUrl: string};
     acceptingResponses?: boolean;
+    closedMessage?: string;
+    maxResponses?: number;
   };
 }
 ```
@@ -57,19 +76,66 @@ fields, not all columns. `defaultView('form', ...)` writes an explicit list of
 all current v1-writable, non-reserved properties, an empty `formFields`, and
 `acceptingResponses: true`.
 
-`formFields` is presentation/required metadata only. An entry not present in
-`visiblePropertyIds`, not present in the current schema, or no longer writable
-is ignored. Property name, type, options, date configuration, and number/rating
-configuration are always read live from `DatabaseProperty`. An optional
-`formFields[id].label` is a deliberate display override; without it, a column
-rename immediately renames the form field. A retype immediately changes both
-the builder control and server validation.
+`TITLE_PROPERTY_ID` (`'title'`) is the one virtual field: it is not present in
+`schema.properties`, but F-2 may explicitly put it in `visiblePropertyIds` and
+configure ordinary text-field metadata for it. It is not added to new form
+views by default, preserving the existing explicit property list. When mapped,
+the validator treats it as text and returns it as the row `name`; it never
+appears in the validated property record.
+
+`formFields` is presentation/validation metadata only. An entry not present in
+`visiblePropertyIds`, not the title, not present in the current schema, or no
+longer writable is ignored. Property name, type, options, date configuration,
+and number/rating configuration are always read live from `DatabaseProperty`.
+An optional `formFields[id].label` is a deliberate display override; without
+it, a column rename immediately renames the form field. A retype immediately
+changes both the builder control and server validation. `multiline` applies to
+text controls. `validation` has parity with the legacy standalone field shape
+and its min/max, length, and safe-pattern constraints are enforced server-side,
+not only in F-2/F-3 clients.
 
 Display defaults are `view.name` for `formConfig.title`, `Submit` for
-`submitLabel`, and a product-standard success message for
-`confirmationMessage`. Only `acceptingResponses === true` accepts a public
-fill; this is fail-closed for malformed/hand-authored persisted data. Setting it
-false closes the form but does not unpublish it or revoke read access.
+`submitLabel`, and a product-standard message confirmation for `confirmation`.
+Only `acceptingResponses === true` accepts a public fill; this is fail-closed
+for malformed/hand-authored persisted data. Setting it false closes the form
+but does not unpublish it or revoke read access. `maxResponses` is a per-view
+ceiling; when absent it resolves to the shipped legacy
+`FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS` default (currently 10,000), keeping
+one abuse ceiling across both form systems.
+
+The capability-gated public response is frozen as the strict
+`DatabaseFormDescriptor` projection below:
+
+```ts
+interface DatabaseFormDescriptor {
+  title: string;
+  description: string;
+  submitLabel: string;
+  acceptingResponses: boolean;
+  closedMessage?: string;
+  fields: Array<{
+    propertyId: string;
+    type: FormWritablePropertyType;
+    label: string;
+    help: string;
+    required: boolean;
+    placeholder: string;
+    options?: DatabaseSelectOption[];
+    includeTime?: boolean;
+    dateRange?: boolean;
+    numberTarget?: number;
+  }>;
+}
+```
+
+`projectDatabaseFormDescriptor(schema, view)` is the only SDK projection path.
+It returns `null` for a non-form view, follows only the explicit live writable
+mapping (including the virtual title), defensively copies mapped options, and
+returns exactly the keys above. It MUST NOT serialize `DatabaseSchema`, an
+unmapped column or its options, filters, sorts, formulas, internal column copy,
+form validation metadata, confirmation/cap state, response counts, or any other
+schema/view data. `closedMessage` is included only when the form is closed and
+custom closed copy exists.
 
 ## 3. Field creation, mapping, and cleanup
 
@@ -78,6 +144,8 @@ F-2 must apply the following mutations atomically in one database-schema update.
 Mapping an existing column appends its property id to the form view's
 `visiblePropertyIds` (or inserts it at the chosen index) and optionally creates
 its `formFields[id]` metadata. The property itself remains the source of truth.
+Mapping `TITLE_PROPERTY_ID` follows the same operation but does not create a
+`DatabaseProperty`; it targets the row page name.
 
 Creating a form-only field mints an ordinary collision-free `DatabaseProperty`
 with a normal property id, the requested v1-writable type/options, and
@@ -135,6 +203,9 @@ here:
 | `verification` | no | managed attestation; a filler cannot self-verify |
 | `backlinks` | no | computed from the link graph |
 
+The virtual `TITLE_PROPERTY_ID` mapping is additionally writable as `text`; it
+is not a 25th `DatabasePropertyType` and does not change the exhaustive map.
+
 This is a deliberate fail-closed v1 default. Adding support later requires
 changing the exhaustive map, validator, builder control, public renderer, and
 tests together.
@@ -156,37 +227,62 @@ The effective allowlist is exactly:
 
 ```text
 view.visiblePropertyIds
-  ∩ current schema.properties ids
-  ∩ v1 form-writable types
+  ∩ (
+      TITLE_PROPERTY_ID as text
+      ∪ (current schema.properties ids ∩ v1 form-writable types)
+    )
   − reserved sys_* ids
 ```
 
 The function rejects a non-form view, a non-object payload, and every submitted
 key outside that allowlist. It validates each allowed value against the current
-property shape/options and returns either `{ok:true, fields}` with a fresh,
-allowlisted record, or `{ok:false, errors}`. It never coerces numeric strings,
-partially persists valid fields, or trusts `formFields` as a schema.
+property shape/options and the mapped server-side `validation` metadata. It
+returns either `{ok:true, name?, fields}` with a fresh, allowlisted property
+record, or `{ok:false, errors}`. When title is mapped, `name` is always populated
+with its validated string or `''` for an optional empty title, and `fields`
+never contains the title key. When title is not mapped, `name` is absent. The
+function never coerces numeric strings, partially persists valid fields, or
+trusts `formFields` as a property schema.
 
-For required fields, absent, `null`, a blank string of the corresponding string
-type, an empty choice/file array, and an empty configured date range are empty.
+For required fields, absent, `null`, a blank string for any property type, an
+empty choice/file array, and an empty configured date range are empty. This
+ordering ensures a blank required number reports `required`, not `type`.
 Numeric zero and checkbox `false` are valid present values. Optional empty
-fields are omitted from successful output. Stable error codes are exported as
-`FORM_ROW_VALIDATION_ERROR_CODES`; user-facing copy belongs to F-2/F-3.
+properties are omitted from successful `fields`; optional empty mapped title
+becomes `name: ''`. Stable error codes are exported as
+`FORM_ROW_VALIDATION_ERROR_CODES`, including `min`, `max`, `minLength`,
+`maxLength`, `pattern`, and the route-limit code `too_large`; user-facing copy
+belongs to F-2/F-3.
 
 File strings pass the pure shape check only. Before row creation, F-4 must bind
 and atomically claim every token to this form capability using the existing
 staged-upload rules, replace it with the retained asset URL, and reject an
 unknown, expired, already-consumed, or cross-form token.
 
-## 6. Fill capability and route (F-4)
+## 6. Fill capability and routes (F-4)
 
-The frozen endpoint is:
+The frozen capability-carrying endpoints are:
 
 ```text
+POST /api/databases/:databaseId/views/:viewId/form
 POST /api/databases/:databaseId/views/:viewId/submissions
 ```
 
-It is intentionally unauthenticated and is exposed in the SDK as
+Both are intentionally unauthenticated. The descriptor endpoint is exposed as
+`API.databaseForm(databaseId, viewId)` and takes a
+`DatabaseFormDescriptorRequest` JSON body, never a query-string capability:
+
+```ts
+{capability: string}
+```
+
+It validates the capability and publication binding up front through the same
+step-2 deny door as submission, then returns
+`projectDatabaseFormDescriptor(database.schema, view)`. A valid capability can
+therefore fetch a closed descriptor with `acceptingResponses: false` and its
+optional `closedMessage`; a closed form is not treated as missing.
+
+The submission endpoint is exposed as
 `API.databaseFormSubmissions(databaseId, viewId)`. Its JSON body is
 `DatabaseFormSubmissionRequest`:
 
@@ -198,46 +294,72 @@ It is intentionally unauthenticated and is exposed in the SDK as
 }
 ```
 
-The capability grants only row creation through this exact form view. It grants
-no database/page read, general database write, schema edit, or publish right.
-It is a cryptographically random 256-bit unpadded base64url token. Publication
-state owns it, not `DatabaseView`: persist only a SHA-256 digest keyed by
-`(databaseId, viewId)`, compare in constant time, and return/expose the raw token
-only as part of the form's public URL. The public URL should carry it in a URL
-fragment (`#capability=...`) so it is not sent in navigation requests; the form
-runtime copies it into the POST body. Do not place it in query strings, logs,
-analytics, block props, or the database schema.
+The capability grants descriptor read and row creation through this exact form
+view only. It grants no database/page read, general database write, schema edit,
+or publish right. It is a cryptographically random 256-bit unpadded base64url
+token. Publication state owns it, not `DatabaseView`: persist only a SHA-256
+digest keyed by `(databaseId, viewId)`, compare in constant time, and
+return/expose the raw token only as part of the form's public URL. The public URL
+should carry it in a URL fragment (`#capability=...`) so it is not sent in
+navigation requests; the form runtime copies it into POST bodies. Do not place
+it in query strings, logs, analytics, block props, or the database schema.
 
-There is at most one active public-fill capability per form view. First publish
-mints it; rotate/revoke replaces or removes the digest. Deleting a form view
-revokes its record. Duplicating a form view creates a new `view.id` and MUST NOT
-copy or alias publication state; publishing the duplicate mints a new
+There is at most one active public-fill capability per `(databaseId, viewId)`.
+First publish mints it; rotate/revoke replaces or removes the digest. Every F-3
+embedding resolves the same publication record: an embedding block never mints
+a capability and never stores or carries the raw token. Revoking the one active
+capability disables every embedding and public URL that used it. Deleting a form
+view revokes its record. Duplicating a form view creates a new `view.id` and MUST
+NOT copy or alias publication state; publishing the duplicate mints a new
 capability. Copying display configuration and field mappings is allowed.
 
-The route order is normative:
+Form publish is its own explicit action. It does not publish or unpublish the
+host page or database, and page/database publish changes do not publish,
+unpublish, rotate, or revoke the form. In particular, unpublishing a page does
+not silently keep-or-kill a form link as a side effect: the link is independent,
+and only explicit rotation/revocation of its form capability kills it.
+
+The submission route order is normative:
 
 1. Parse the bounded JSON envelope and require the existing non-simple client
    header/CSRF posture used by public forms.
 2. Load `databaseId` and `viewId`; require a current form view, an ordinary
-   non-managed database, `acceptingResponses === true`, an active matching
-   capability, and the publication binding. Missing, deleted, stopped, managed,
-   and wrong-token states return identical `404 {"error":"form not found"}`
-   bytes so the route is not an existence oracle.
-3. Apply the existing public-form rate, body, field-count, value-size, upload,
-   and idempotency limits.
+   non-managed database, an active matching capability, and the publication
+   binding. Missing or deleted database/view/publication, managed database, and
+   wrong-token states return identical
+   `404 {"error":"form not found"}` bytes so the route is not an existence
+   oracle. The descriptor fetch uses this identical step before projecting any
+   data.
+3. Only after a valid capability match, reject
+   `acceptingResponses !== true` with the distinct
+   `403 {"error":"form_closed"}`. Then apply the existing public-form rate,
+   body, field-count, value-size, upload, and idempotency limits plus the
+   per-view `maxResponses` ceiling. An absent ceiling uses
+   `FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS`; the count is derived from active
+   rows whose durable form marker names this `viewId`.
 4. Run `validateRowAgainstForm(database.schema, view, body.fields)`. Validation
    failure returns `400` with the machine-readable errors and creates nothing.
-5. Claim/resolve file tokens, then create exactly one row with the validated
-   property record. The write principal is synthetic, with
-   `subject: "form:<viewId>"`; it is attribution for this one operation, not a
-   generally authorized guest principal.
+5. Claim/resolve file tokens, then create exactly one row with
+   `name: validation.name ?? ''` and the validated property record. In the
+   existing reserved page-property convention, the same atomic create stamps
+   `[FORM_SUBMISSION_PROPERTY_ID]: {submittedViaViewId: viewId, submittedAt}`.
+   This marker is durable per-row provenance, not client-supplied data; F-2 uses
+   it for per-form response counts and F-4 MUST NOT omit it. The write principal
+   is synthetic, with `subject: "form:<viewId>"`; it is attribution for this one
+   operation, not a generally authorized guest principal.
 6. Scope `idempotencyKey` to this capability/view. A replay returns the original
    `FormSubmissionResult` (`rowId`, `submittedAt`) with `201` and does not create
-   another row.
+   another row or restamp provenance.
 
 Capability validation and current-schema validation occur on every request.
 The client may render a stale builder snapshot, but the server result always
 reflects the current database contract.
+
+**Row title (normative, v1):** when `TITLE_PROPERTY_ID` is mapped, F-4 validates
+it as a normal text field (including required and validation metadata) and
+passes the resulting `name` to `createRow`. When title is unmapped, the validator
+does not accept a title key and F-4 creates the row with the explicit empty name
+`''`; it never derives a title from another answer.
 
 ## 7. Mutation semantics
 
@@ -251,7 +373,8 @@ reflects the current database contract.
 - **Duplicate form view:** copy layout/config/mappings, assign a new view id, and
   mint a new capability on publish. Never copy publication/capability state.
 - **Stop responses:** `acceptingResponses: false` makes the fill route fail
-  closed without deleting submissions or field configuration.
+  with `403 {"error":"form_closed"}` after a valid capability match, without
+  deleting submissions, field configuration, publication, or descriptor access.
 
 ## 8. Compatibility and F-2 handoff
 
@@ -276,10 +399,14 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
 
 ## 9. Explicit defaults and deferrals
 
-- New form views explicitly map all current v1-writable, non-`sys_*` columns and accept
-  responses, but are not public until separately published.
+- New form views explicitly map all current v1-writable, non-`sys_*` columns and
+  accept responses, but do not map the virtual title and are not public until
+  separately published.
 - Missing/invalid mapping, acceptance state, capability state, view type, or
   property type fails closed.
+- A missing `maxResponses` uses
+  `FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS` (10,000); the counter is per form
+  view and is backed by the durable `FORM_SUBMISSION_PROPERTY_ID` marker.
 - Relation, dependency, person, and verification controls are deferred from
   public v1 for the authority reasons in the table; their columns can still be
   displayed in ordinary database views.
@@ -288,16 +415,33 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
   consume only the public URL and `DatabaseFormReference`.
 - Removing a form field never auto-deletes its column. Destructive cleanup is an
   explicit column action routed through `removeProperty`.
+- The legacy standalone form block remains supported alongside database-view
+  forms. Migration is deferred; new embeds use the F-3 reference path.
 
-## 10. Review gates for F-2/F-3/F-4
+## 10. Review gates for F-2/F-3/F-4/F-5
 
 - F-2: field reorder/inclusion changes only `visiblePropertyIds`; field edits
   mutate `DatabaseProperty`; retype warnings and unknown-view fallback are
-  covered by UI tests.
-- F-3: a standalone block persists only `DatabaseFormReference`, renders no
-  database surface in form-only publication mode, and does not expose a raw
-  capability in page/block JSON.
+  covered by UI tests. Publishing MUST show an explicit review that enumerates
+  every field becoming publicly writable and specifically calls out mapped
+  `select`, `status`, and `checkbox` columns.
+- F-2/F-3: if a mid-flight schema change produces `unknown_field`, the client
+  re-fetches the capability-gated descriptor and preserves the filler's typed
+  answers while reconciling the changed field mapping.
+- F-3: a new embedding block persists only `DatabaseFormReference`, renders no
+  database surface in form-only publication mode, never mints a capability, and
+  does not expose or carry a raw capability in page/block JSON. This gate does
+  not alter the legacy standalone form block.
 - F-4: capability isolation/rotation/duplicate-view tests, oracle-equivalent
-  404s, managed-database refusal, current-type race tests, strict allowlist and
-  required-field tests, upload binding, synthetic author attribution, rate/body
-  limits, and idempotent replay all pass before enabling the public route.
+  404s, closed-form 403 after valid-capability tests, descriptor no-leak tests,
+  managed-database refusal, current-type/title race tests, strict allowlist and
+  required/validation tests, upload binding, durable view provenance, synthetic
+  author attribution, response/rate/body limits, and idempotent replay all pass
+  before enabling the public route.
+- F-5: publication storage and the single active capability are keyed by
+  `(databaseId, viewId)`; every embedding resolves that record. Publish, rotate,
+  revoke, duplicate-view, and delete-view tests prove that blocks never mint or
+  retain raw tokens, revocation disables all embeddings, and form/page/database
+  publication states never mutate one another in either direction. A page
+  unpublish must leave the independent form link unchanged until that form's
+  capability is explicitly rotated or revoked.
