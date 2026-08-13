@@ -9,21 +9,45 @@ const block: BlockJSON = {
 };
 
 describe('database form block export', () => {
-  it('degrades static HTML to an Open form link carrying only the reference', () => {
-    const html = blocksToHtml([block], {originPageUrl: 'https://openbook.test/?page=host'});
-    expect(html).toContain('href="https://openbook.test/?page=host"');
+  it('links all static paths only when the known origin is safe', () => {
+    const origin = 'https://openbook.test/?page=host';
+    const html = blocksToHtml([block], {originPageUrl: origin});
+    expect(html).toContain(`href="${origin}"`);
     expect(html).toContain('>Open form</a>');
-    expect(html).toContain('data-database-id="db-contact"');
-    expect(html).toContain('data-form-view-id="view-contact"');
-    expect(html).not.toMatch(/schema|capability|submissionKey|token/i);
+
+    expect(blocksToMarkdown([block], {originPageUrl: origin})).toContain(`[Open form](${origin})`);
+    const projected = projectBlocksForExport([block], undefined, undefined, {originPageUrl: origin}).blocks;
+    expect(projected[0].data.text).toContain(`href="${origin}"`);
+    expect(projected[0].data.text).toContain('>Open form</a>');
   });
 
-  it('degrades Markdown and the shared projection to a link, never a form/table', () => {
-    expect(blocksToMarkdown([block])).toContain('[Open form](#database-form-db-contact-view-contact)');
+  it('degrades all paths without an origin to a labelled, inert placeholder', () => {
+    const html = blocksToHtml([block]);
+    expect(html).toContain('<span class="ob-dbform-placeholder"');
+    expect(html).toContain('>📋 Database form</span>');
+    expect(html).not.toContain('<a ');
+    expect(html).toContain('data-database-id="db-contact"');
+    expect(html).toContain('data-form-view-id="view-contact"');
+
+    const markdown = blocksToMarkdown([block]);
+    expect(markdown).toContain('**📋 Database form**');
+    expect(markdown).not.toContain('[Open form]');
+
     const projected = projectBlocksForExport([block]).blocks;
     expect(projected).toHaveLength(1);
     expect(projected[0].type).toBe('paragraph');
-    expect(projected[0].data.text).toContain('>Open form</a>');
+    expect(projected[0].data.text).toContain('<span class="ob-dbform-placeholder"');
+    expect(projected[0].data.text).toContain('data-database-id="db-contact"');
+    expect(projected[0].data.text).not.toContain('<a ');
     expect(projected[0].data.text).not.toMatch(/<form|<table/i);
+    expect(html).not.toMatch(/schema|capability|submissionKey|token/i);
+  });
+
+  it('rejects unsafe origins in all three paths', () => {
+    const opts = {originPageUrl: 'javascript:alert(1)'};
+    expect(blocksToHtml([block], opts)).not.toContain('<a ');
+    expect(blocksToMarkdown([block], opts)).toBe('**📋 Database form**');
+    expect(projectBlocksForExport([block], undefined, undefined, opts).blocks[0].data.text)
+      .not.toContain('<a ');
   });
 });

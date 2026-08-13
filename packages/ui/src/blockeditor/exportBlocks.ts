@@ -105,15 +105,20 @@ function databaseFormReference(props: Record<string, unknown> | undefined): Data
     : null;
 }
 
-const databaseFormAnchor = (reference: DatabaseFormReference | null, originPageUrl?: string | null): string => {
-  const fallback = reference
-    ? `#database-form-${encodeURIComponent(reference.databaseId)}-${encodeURIComponent(reference.viewId)}`
-    : '#database-form';
-  const href = originPageUrl && isSafeHref(originPageUrl) ? originPageUrl : fallback;
-  const attrs = reference
-    ? ` data-database-id="${escapeHtml(reference.databaseId)}" data-form-view-id="${escapeHtml(reference.viewId)}"`
-    : '';
-  return `<a class="ob-dbform-link" href="${escapeHtml(href)}"${attrs}>${escapeHtml(t('formBlock.databaseReference.openForm'))}</a>`;
+interface DatabaseFormExportOptions {
+  originPageUrl?: string | null;
+}
+
+const databaseFormAttributes = (reference: DatabaseFormReference | null): string => reference
+  ? ` data-database-id="${escapeHtml(reference.databaseId)}" data-form-view-id="${escapeHtml(reference.viewId)}"`
+  : '';
+
+const databaseFormHtml = (reference: DatabaseFormReference | null, originPageUrl?: string | null): string => {
+  const attrs = databaseFormAttributes(reference);
+  if (!originPageUrl || !isSafeHref(originPageUrl)) {
+    return `<span class="ob-dbform-placeholder"${attrs}>📋 ${escapeHtml(t('slash.custom.dbform.label'))}</span>`;
+  }
+  return `<a class="ob-dbform-link" href="${escapeHtml(originPageUrl)}"${attrs}>${escapeHtml(t('formBlock.databaseReference.openForm'))}</a>`;
 };
 
 // ── Cell-range clipboard (TBL-5) ─────────────────────────────────────────────
@@ -247,7 +252,7 @@ function kitInputMd(b: BlockJSON): string {
 }
 
 /** Render block JSON to clean semantic HTML (one string, no wrapper). */
-export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string | null} = {}): string {
+export function blocksToHtml(blocks: BlockJSON[], opts: DatabaseFormExportOptions = {}): string {
   const parts: string[] = [];
   let i = 0;
   while (i < blocks.length) {
@@ -329,7 +334,7 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
     case 'columns': {
       const cols = b.children ?? [];
       const colHtml = cols
-        .map((col) => `<div style="flex:1;min-width:0">${blocksToHtml(col.children ?? [])}</div>`)
+        .map((col) => `<div style="flex:1;min-width:0">${blocksToHtml(col.children ?? [], opts)}</div>`)
         .join('');
       parts.push(`<div style="display:flex;gap:1.25rem" class="obe-x-columns">${colHtml}</div>`);
       i += 1;
@@ -364,7 +369,7 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
       i += 1;
       break;
     case 'dbform':
-      parts.push(`<p>${databaseFormAnchor(databaseFormReference(b.props), opts.originPageUrl)}</p>`);
+      parts.push(`<p>${databaseFormHtml(databaseFormReference(b.props), opts.originPageUrl)}</p>`);
       i += 1;
       break;
     case 'form':
@@ -374,7 +379,7 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
     case 'group': {
       const name = String(b.props?.name ?? '').trim();
       const heading = name ? `<p class="obe-x-group-name"><strong>${escapeHtml(name)}</strong></p>` : '';
-      parts.push(`<section class="obe-x-group">${heading}${blocksToHtml(b.children ?? [])}</section>`);
+      parts.push(`<section class="obe-x-group">${heading}${blocksToHtml(b.children ?? [], opts)}</section>`);
       i += 1;
       break;
     }
@@ -386,7 +391,7 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
         .map((s) => {
           const label = String(s.props?.label ?? '').trim();
           const head = label ? `<h3>${escapeHtml(label)}</h3>` : '';
-          return `<section class="obe-x-section">${head}${blocksToHtml(s.children ?? [])}</section>`;
+          return `<section class="obe-x-section">${head}${blocksToHtml(s.children ?? [], opts)}</section>`;
         })
         .join('');
       parts.push(`<section class="obe-x-${b.type}">${sections}</section>`);
@@ -432,7 +437,7 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
 }
 
 /** Render block JSON to GitHub-flavoured Markdown. */
-export function blocksToMarkdown(blocks: BlockJSON[]): string {
+export function blocksToMarkdown(blocks: BlockJSON[], opts: DatabaseFormExportOptions = {}): string {
   const out: string[] = [];
   let n = 0; // numbered-list counter (resets when the run breaks)
   for (const b of blocks) {
@@ -484,7 +489,7 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       break;
     }
     case 'columns':
-      for (const col of b.children ?? []) out.push(blocksToMarkdown(col.children ?? []));
+      for (const col of b.children ?? []) out.push(blocksToMarkdown(col.children ?? [], opts));
       break;
     case 'table': {
       // Covered slots are absent from tableChildrenToJSON. Reconstruct their
@@ -532,11 +537,9 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       out.push(`**🗃 ${String(b.props?.name ?? 'Database')}**`);
       break;
     case 'dbform': {
-      const reference = databaseFormReference(b.props);
-      const href = reference
-        ? `#database-form-${encodeURIComponent(reference.databaseId)}-${encodeURIComponent(reference.viewId)}`
-        : '#database-form';
-      out.push(`[${t('formBlock.databaseReference.openForm')}](${href})`);
+      out.push(opts.originPageUrl && isSafeHref(opts.originPageUrl)
+        ? `[${escapeMd(t('formBlock.databaseReference.openForm'))}](${opts.originPageUrl})`
+        : `**📋 ${escapeMd(t('slash.custom.dbform.label'))}**`);
       break;
     }
     case 'form':
@@ -545,7 +548,7 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     case 'group': {
       const name = String(b.props?.name ?? '').trim();
       if (name) out.push(`**${name}**`);
-      out.push(blocksToMarkdown(b.children ?? []));
+      out.push(blocksToMarkdown(b.children ?? [], opts));
       break;
     }
     case 'tabs':
@@ -553,7 +556,7 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       for (const section of b.children ?? []) {
         const label = String(section.props?.label ?? '').trim();
         if (label) out.push(`### ${label}`);
-        out.push(blocksToMarkdown(section.children ?? []));
+        out.push(blocksToMarkdown(section.children ?? [], opts));
       }
       break;
     case 'choicecards':
@@ -627,7 +630,12 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   richtext: (p) => (Array.isArray(p.runs) ? (p.runs as Array<{t?: string}>).map((r) => r?.t ?? '').join('') : ''),
 };
 
-export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<string, ExportCell>, dbSeries?: DbChartSeriesMap): ExportDoc {
+export function projectBlocksForExport(
+  blocks: BlockJSON[],
+  computed?: Map<string, ExportCell>,
+  dbSeries?: DbChartSeriesMap,
+  opts: DatabaseFormExportOptions = {},
+): ExportDoc {
   const out: ExportDoc = {blocks: [], values: [], names: []};
   // Seed a reactive cell's CURRENT value (resolved by the editor's evaluator) so
   // static exports show the same numbers/series/states as the live window. Only
@@ -1040,7 +1048,7 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         sink.push({
           id: b.id,
           type: 'paragraph',
-          data: {text: databaseFormAnchor(reference)},
+          data: {text: databaseFormHtml(reference, opts.originPageUrl)},
         });
         i += 1;
         break;
@@ -1087,6 +1095,7 @@ export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: 
   snapshot: T,
   dbSeries?: DbChartSeriesMap,
   evaluated?: Map<string, ExportCell>,
+  opts: DatabaseFormExportOptions = {},
 ): T {
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
   const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
@@ -1118,7 +1127,7 @@ export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: 
     }
   };
   enrichStatuses(blocks);
-  const projected = projectBlocksForExport(blocks, computed, dbSeries);
+  const projected = projectBlocksForExport(blocks, computed, dbSeries, opts);
   // `editorjs` is the RETAINED on-disk storage key for the export projection
   // (back-compat alias — see PageSnapshot in sdk/types.ts). Every consumer reads
   // `snapshot.editorjs.blocks`; the key name must not change or persisted

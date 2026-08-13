@@ -208,12 +208,12 @@ export async function gatherSite(
     // persisted snapshot (viewing never writes; export resolves fresh).
     const rawSnapshot = isRoot ? root.snapshot : stored!.data;
     const dbSeries = await resolveDbChartSeries(client, snapshotBlocks(rawSnapshot));
-    const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
+    const originUrl = formOriginUrl(id);
+    const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries, undefined, {originPageUrl: originUrl});
     const title = (isRoot ? root.title : stored!.name ?? '').trim() || 'Untitled';
     // Prefer the icon stored on the page record (it travels in properties now);
     // fall back to the in-memory cache / default for the unsaved root.
     const storedIcon = (stored?.properties[ICON_PROPERTY_ID] as string | undefined) || '';
-    const originUrl = formOriginUrl(id);
     const page: SitePage = {
       id,
       title,

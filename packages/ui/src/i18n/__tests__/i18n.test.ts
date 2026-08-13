@@ -66,6 +66,17 @@ describe('t', () => {
       expect(Object.keys(locale.formBlock?.databaseReference ?? {}).sort()).toEqual(keys);
       expect(locale.slash?.custom?.dbform).toBeDefined();
     }
+
+    const slashCopy = [
+      [en, 'Database form', 'Embed a form view from an existing database', 'Form', 'Build a standalone form on this page'],
+      [de, 'Datenbankformular', 'Eine Formularansicht aus einer vorhandenen Datenbank einbetten', 'Formular', 'Ein eigenständiges Formular auf dieser Seite erstellen'],
+      [ja, 'データベースフォーム', '既存のデータベースのフォームビューを埋め込む', 'フォーム', 'このページに独立したフォームを作成'],
+      [zh, '数据库表单', '嵌入现有数据库中的表单视图', '表单', '在此页面构建独立表单'],
+    ] as const;
+    for (const [locale, databaseLabel, databaseHint, legacyLabel, legacyHint] of slashCopy) {
+      expect(locale.slash?.custom?.dbform).toEqual({label: databaseLabel, hint: databaseHint});
+      expect(locale.slash?.custom?.form).toEqual({label: legacyLabel, hint: legacyHint});
+    }
   });
 });
 

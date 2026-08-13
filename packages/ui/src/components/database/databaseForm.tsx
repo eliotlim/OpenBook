@@ -125,6 +125,8 @@ export interface DatabaseFormProps {
   view: DatabaseView;
   properties: DatabaseProperty[];
   canEdit: boolean;
+  /** Submission authority is separate from builder access for authenticated embeds. */
+  canSubmit?: boolean;
   onUpdateView: (patch: Partial<DatabaseView>) => Promise<void>;
   onCreateProperty: (
     input: NewPropertyInput,
@@ -766,7 +768,7 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
 export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
   const {t} = useTranslation();
   const [mode, setMode] = useState<'builder' | 'fill'>(props.canEdit ? 'builder' : 'fill');
-  if (!props.canEdit) {
+  if (!(props.canSubmit ?? props.canEdit)) {
     return (
       <div className="space-y-4" data-database-form>
         <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-readonly role="note">

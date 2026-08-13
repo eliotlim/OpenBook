@@ -1,9 +1,17 @@
 import React, {useContext, useEffect, useMemo, useState} from 'react';
-import {isSafeHref, type DatabaseFormReference, type StoredDatabase} from '@book.dev/sdk';
+import {
+  isSafeHref,
+  SELECT_COLORS,
+  shortId,
+  type DatabaseFormReference,
+  type DatabaseSelectOption,
+  type StoredDatabase,
+} from '@book.dev/sdk';
 import {FileText, Search} from 'lucide-react';
 import {FormOriginContext} from '@/blockeditor/FormBlockView';
 import {blockProp, setBlockProp, type NewBlock} from '@/blockeditor/model';
 import {registerCustomBlock, type CustomBlockProps} from '@/blockeditor/registry';
+import {PageIcon} from '@/components/PageIcon';
 import {useOptionalData} from '@/data';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
 import {useTranslation} from '@/providers';
@@ -18,15 +26,15 @@ export function databaseFormReferenceFromBlock(block: CustomBlockProps['block'])
 
 export const makeDatabaseFormBlock = (): NewBlock => ({type: 'dbform'});
 
-const DatabaseFormMissing: React.FC = () => {
+const DatabaseFormUnavailable: React.FC<{kind: 'missing' | 'unconfigured'}> = ({kind}) => {
   const {t} = useTranslation();
   return (
     <div
       className="rounded-lg border border-border bg-card px-4 py-5 text-center text-sm text-muted-foreground"
-      data-database-form-block-missing
+      data-database-form-block-unavailable={kind}
       role="status"
     >
-      {t('formBlock.databaseReference.missing')}
+      {t(`formBlock.databaseReference.${kind}`)}
     </div>
   );
 };
@@ -34,11 +42,23 @@ const DatabaseFormMissing: React.FC = () => {
 const DatabaseFormStaticLink: React.FC<{reference: DatabaseFormReference}> = ({reference}) => {
   const {t} = useTranslation();
   const originUrl = useContext(FormOriginContext);
-  const href = originUrl && isSafeHref(originUrl) ? originUrl : '#';
+  if (!originUrl || !isSafeHref(originUrl)) {
+    return (
+      <div
+        className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-foreground"
+        data-database-id={reference.databaseId}
+        data-form-view-id={reference.viewId}
+        role="status"
+      >
+        <FileText className="h-4 w-4" />
+        {t('slash.custom.dbform.label')}
+      </div>
+    );
+  }
   return (
     <a
       className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-foreground hover:bg-hover"
-      href={href}
+      href={originUrl}
       data-database-id={reference.databaseId}
       data-form-view-id={reference.viewId}
     >
@@ -56,9 +76,13 @@ const DatabaseFormPicker: React.FC<{onPick: (reference: DatabaseFormReference) =
   const [database, setDatabase] = useState<StoredDatabase | null>(null);
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const allDatabases = useMemo(
+    () => pageLinks.searchPages('', {databasesOnly: true}),
+    [],
+  );
   const databases = useMemo(
-    () => pageLinks.searchPages(query, {databasesOnly: true}),
-    [query],
+    () => query.trim() ? pageLinks.searchPages(query, {databasesOnly: true}) : allDatabases,
+    [allDatabases, query],
   );
 
   const chooseDatabase = (result: PageLinkResult): void => {
@@ -110,14 +134,16 @@ const DatabaseFormPicker: React.FC<{onPick: (reference: DatabaseFormReference) =
                 onClick={() => chooseDatabase(result)}
                 className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-hover"
               >
-                <span aria-hidden>{result.icon}</span>
+                <PageIcon value={result.icon} className="shrink-0 leading-none" />
                 <span className="min-w-0 truncate">{result.label}</span>
                 {result.path && <span className="ml-auto min-w-0 truncate pl-2 text-xs text-muted-foreground">{result.path}</span>}
               </button>
             ))}
             {databases.length === 0 && (
               <div className="px-1.5 py-3 text-center text-xs text-muted-foreground">
-                {t('formBlock.databaseReference.noDatabases')}
+                {t(allDatabases.length === 0
+                  ? 'formBlock.databaseReference.noDatabases'
+                  : 'formBlock.databaseReference.noMatchingDatabases')}
               </div>
             )}
           </div>
@@ -139,8 +165,15 @@ const DatabaseFormPicker: React.FC<{onPick: (reference: DatabaseFormReference) =
               </button>
             ))}
             {!loading && !unavailable && database && formViews.length === 0 && (
-              <div className="px-1.5 py-3 text-center text-xs text-muted-foreground">
-                {t('formBlock.databaseReference.noForms')}
+              <div className="px-1.5 py-3 text-center text-xs text-muted-foreground" role="status">
+                <div>{t('formBlock.databaseReference.noForms')}</div>
+                <button
+                  type="button"
+                  onClick={() => pageLinks.openPage(selected.id)}
+                  className="mt-1 font-medium text-foreground underline underline-offset-2"
+                >
+                  {t('formBlock.databaseReference.openDatabase')}
+                </button>
               </div>
             )}
           </div>
@@ -180,7 +213,7 @@ export const DatabaseFormBlock: React.FC<CustomBlockProps> = ({block, editor, pa
   }, [client, reference?.databaseId, reference?.viewId]);
 
   if (!reference) {
-    if (pageReadOnly) return <DatabaseFormMissing />;
+    if (pageReadOnly) return <DatabaseFormUnavailable kind="unconfigured" />;
     return (
       <DatabaseFormPicker
         onPick={(next) => editor.doc.transact(() => {
@@ -195,7 +228,7 @@ export const DatabaseFormBlock: React.FC<CustomBlockProps> = ({block, editor, pa
     return <div className="rounded-lg border border-border bg-card px-4 py-5 text-center text-sm text-muted-foreground">{t('formBlock.databaseReference.loadingForm')}</div>;
   }
   const view = database?.schema.views.find((candidate) => candidate.id === reference.viewId);
-  if (!database || view?.type !== 'form') return <DatabaseFormMissing />;
+  if (!database || view?.type !== 'form') return <DatabaseFormUnavailable kind="missing" />;
 
   return (
     <DatabaseForm
@@ -203,9 +236,32 @@ export const DatabaseFormBlock: React.FC<CustomBlockProps> = ({block, editor, pa
       view={view}
       properties={database.schema.properties}
       canEdit={false}
+      canSubmit
       onUpdateView={async () => undefined}
       onCreateProperty={async () => undefined}
-      onSubmit={async (fields) => (await client.createRow(reference.databaseId, {name: null, properties: fields})).id}
+      onAddOption={async (propertyId, label): Promise<DatabaseSelectOption | null> => {
+        const trimmed = label.trim();
+        const property = database.schema.properties.find((candidate) => candidate.id === propertyId);
+        if (!trimmed || !property) return null;
+        const existing = property.options ?? [];
+        const match = existing.find((option) => option.label.toLowerCase() === trimmed.toLowerCase());
+        if (match) return match;
+        const option: DatabaseSelectOption = {
+          id: shortId('opt'),
+          label: trimmed,
+          color: SELECT_COLORS[existing.length % SELECT_COLORS.length],
+        };
+        const updated = await client.updateDatabase(reference.databaseId, {
+          schema: {
+            ...database.schema,
+            properties: database.schema.properties.map((candidate) =>
+              candidate.id === propertyId ? {...candidate, options: [...existing, option]} : candidate),
+          },
+        });
+        setDatabase(updated);
+        return option;
+      }}
+      onSubmit={async (fields, name) => (await client.createRow(reference.databaseId, {name: name ?? null, properties: fields})).id}
     />
   );
 };
@@ -216,8 +272,8 @@ export function registerDatabaseFormBlock(): void {
     type: 'dbform',
     render: DatabaseFormBlock,
     slash: {
-      label: 'Form — database',
-      hint: 'Embed an existing database form',
+      label: 'Database form',
+      hint: 'Embed a form view from an existing database',
       keywords: 'form database survey response embed existing view',
       group: 'interactive',
       make: makeDatabaseFormBlock,
