@@ -27,6 +27,9 @@ import {
 import type * as Y from 'yjs';
 import {
   blockChildren,
+  COLUMN_GRID_UNITS,
+  columnBoundaryFromPointer,
+  columnGridUnit,
   blockId,
   blockProp,
   blockText,
@@ -36,6 +39,7 @@ import {
   makeBlock,
   moveBlock,
   moveBlocks,
+  normalizeColumnSpans,
   patchBlock,
   parentBlockOf,
   blockToJSON,
@@ -45,6 +49,7 @@ import {
   cloneBlock,
   normalizeCellRect,
   removeBlock,
+  resizeColumnBoundary,
   rootBlocks,
   setBlockProp,
   tableCellColor,
@@ -70,6 +75,7 @@ import {
   tableSnapRectToSpans,
   tableSpans,
   tableSplitCell,
+  trailingColumnBoundaryFromPointer,
   setTableCellRangeColor,
   setTableColumnColor,
   setTableRowColor,
@@ -2553,62 +2559,103 @@ function listNumber(doc: Y.Doc, block: BlockMap): number {
 
 // ── Columns ──────────────────────────────────────────────────────────────────
 
-/** A columns layout on the 12-col grid, with draggable dividers between
- *  columns that redistribute the adjacent pair's spans. */
+/** A columns layout on the 12-col grid, with cascading resize boundaries. */
 const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor} = shared;
   const wrapRef = useRef<HTMLDivElement>(null);
   const cols = blockChildren(block)!;
-  const fallback = Math.floor(12 / Math.max(1, cols.length));
-  const spanOf = (col: BlockMap): number => Math.max(1, Math.min(12, blockProp<number>(col, 'span') ?? fallback));
-  const styleFor = (col: BlockMap): React.CSSProperties => ({gridColumn: `span ${spanOf(col)}`});
+  const spans = useMemo(
+    () => normalizeColumnSpans(cols.map((col) => blockProp<number>(col, 'span'))),
+    [cols, editor.version],
+  );
+  const boundaryAt = (boundaryIndex: number): number =>
+    spans.slice(0, boundaryIndex + 1).reduce((sum, span) => sum + span, 0);
 
-  /** Drag the divider between columns i and i+1: shift grid units between them. */
-  const onDividerDown = (e: React.PointerEvent, i: number): void => {
+  const commitSpans = (next: readonly number[]): void => {
+    if (next.every((span, i) => blockProp<number>(cols.get(i), 'span') === span)) return;
+    editor.doc.transact(() => {
+      next.forEach((span, i) => setBlockProp(cols.get(i), 'span', span));
+    }, 'local');
+  };
+
+  /** Drag an internal boundary, or the last column's trailing edge. */
+  const onDividerDown = (e: React.PointerEvent, boundaryIndex: number, trailing = false): void => {
     if (editor.readOnly) return;
     e.preventDefault();
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const unit = wrap.getBoundingClientRect().width / 12;
-    const left = cols.get(i);
-    const right = cols.get(i + 1);
-    const startLeft = spanOf(left);
-    const startRight = spanOf(right);
-    const startX = e.clientX;
+    const rect = wrap.getBoundingClientRect();
+    const computed = getComputedStyle(wrap);
+    const gap = Number.parseFloat(computed.columnGap || computed.gap) || 0;
+    const unit = columnGridUnit(rect.width, gap, cols.length);
+    if (unit <= 0) return;
+    const startSpans = spans;
+    const startBoundary = boundaryAt(boundaryIndex);
+    const startPointerX = e.clientX;
+    const pointerId = e.pointerId;
     const move = (ev: PointerEvent): void => {
-      const delta = Math.round((ev.clientX - startX) / unit);
-      const nextLeft = Math.max(1, Math.min(startLeft + startRight - 1, startLeft + delta));
-      const nextRight = startLeft + startRight - nextLeft;
-      if (nextLeft !== spanOf(left) || nextRight !== spanOf(right)) {
-        editor.doc.transact(() => {
-          setBlockProp(left, 'span', nextLeft);
-          setBlockProp(right, 'span', nextRight);
-        }, 'local');
-      }
+      if (ev.pointerId !== pointerId) return;
+      const target = trailing
+        ? trailingColumnBoundaryFromPointer(ev.clientX, startPointerX, startBoundary, unit)
+        : columnBoundaryFromPointer(ev.clientX, rect.left, unit, gap, boundaryIndex);
+      commitSpans(resizeColumnBoundary(startSpans, boundaryIndex, target));
     };
-    const up = (): void => {
+    const up = (ev: PointerEvent): void => {
+      if (ev.pointerId !== pointerId) return;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  const onDividerKeyDown = (e: React.KeyboardEvent, boundaryIndex: number, trailing = false): void => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const target = boundaryAt(boundaryIndex) + (trailing ? -step : step);
+    commitSpans(resizeColumnBoundary(spans, boundaryIndex, target));
   };
 
   return (
     <div ref={wrapRef} className="obe-columns" data-cols={cols.length} role="group" aria-label={`${cols.length} columns`}>
       {cols.map((col, i) => (
         <React.Fragment key={blockId(col)}>
-          <div className="obe-column" style={styleFor(col)} data-block-row={blockId(col)}>
+          <div className="obe-column" style={{gridColumn: `span ${spans[i]}`}} data-block-row={blockId(col)}>
             {i > 0 && !editor.readOnly && (
               <div
                 className="obe-col-divider"
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize columns"
+                aria-label={`Resize columns ${i} and ${i + 1}`}
+                aria-valuemin={i}
+                aria-valuemax={COLUMN_GRID_UNITS - (cols.length - i)}
+                aria-valuenow={boundaryAt(i - 1)}
+                tabIndex={0}
+                contentEditable={false}
                 onPointerDown={(e) => onDividerDown(e, i - 1)}
+                onKeyDown={(e) => onDividerKeyDown(e, i - 1)}
               />
             )}
             <BlockList list={blockChildren(col)!} {...shared} depth={shared.depth + 1} container="column" />
+            {i === cols.length - 1 && cols.length > 1 && !editor.readOnly && (
+              <div
+                className="obe-col-divider obe-col-divider-trailing"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize last column"
+                aria-valuemin={1}
+                aria-valuemax={COLUMN_GRID_UNITS - (cols.length - 1)}
+                aria-valuenow={spans[i]}
+                tabIndex={0}
+                contentEditable={false}
+                onPointerDown={(e) => onDividerDown(e, i - 1, true)}
+                onKeyDown={(e) => onDividerKeyDown(e, i - 1, true)}
+              />
+            )}
           </div>
         </React.Fragment>
       ))}

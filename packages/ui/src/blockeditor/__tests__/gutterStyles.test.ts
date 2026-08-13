@@ -54,3 +54,21 @@ describe('block gutter pane geometry', () => {
     expect(fullWidth).toMatch(/padding-left:\s*var\(--obe-gutter-room\)/);
   });
 });
+
+describe('column resize styles', () => {
+  it('uses the editor width, not the window width, to stack columns', () => {
+    const root = ruleBody('.obe-root');
+    expect(root).toMatch(/container-name:\s*obe-block-editor/);
+    expect(root).toMatch(/container-type:\s*inline-size/);
+    expect(CSS).toContain('@container obe-block-editor (max-width: 40rem)');
+    expect(CSS).not.toMatch(/@media[^{}]*max-width[^{}]*{[^{}]*\.obe-columns/);
+  });
+
+  it('keeps a raised, touch-safe one-rem hit zone with a two-pixel hover rule', () => {
+    const divider = ruleBody('.obe-col-divider');
+    expect(divider).toMatch(/z-index:\s*4/);
+    expect(divider).toMatch(/width:\s*1rem/);
+    expect(divider).toMatch(/touch-action:\s*none/);
+    expect(ruleBody('.obe-col-divider::after')).toMatch(/width:\s*2px/);
+  });
+});

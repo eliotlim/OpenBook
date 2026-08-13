@@ -906,6 +906,8 @@
 .obe-root {
   --obe-gutter-room: 3.4rem;
   --obe-indent-step: 1.5rem;
+  container-name: obe-block-editor;
+  container-type: inline-size;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
      up with the title and icon on both edges — the drag gutter floats in the
@@ -1816,7 +1818,7 @@ a.obe-mention {
 .dark .obe-tok-num { color: hsl(30 80% 66%); }
 .dark .obe-tok-lit { color: hsl(208 78% 70%); }
 
-/* Columns: a 12-col grid that collapses on small screens */
+/* Columns: a 12-col grid that collapses with its editor container. */
 .obe-columns {
   flex: 1;
   min-width: 0;
@@ -1825,9 +1827,6 @@ a.obe-mention {
   gap: 1.25rem;
 }
 .obe-column { min-width: 0; }
-@media (max-width: 640px) {
-  .obe-columns { display: flex; flex-direction: column; gap: 0.25rem; }
-}
 
 /* Group: a titled, lockable, syncable container that namespaces its inputs. */
 .obe-group {
@@ -3737,22 +3736,41 @@ a.obe-mention {
    stay a plain draggable button — a Radix trigger suppresses dragging). */
 .obe-handle-anchor { position: absolute; width: 0; height: 0; }
 
-/* Column resize divider: a slim grab zone in the column gap */
+/* Column resize divider: a one-rem hit zone centred in the column gap. */
 .obe-column { position: relative; }
 .obe-col-divider {
   position: absolute;
-  left: -0.85rem;
+  z-index: 4;
+  left: -1.125rem;
   top: 0;
   bottom: 0;
-  width: 0.6rem;
+  width: 1rem;
   cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.obe-col-divider::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
   border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background 120ms ease;
 }
-.obe-col-divider:hover,
-.obe-col-divider:active {
-  background: hsl(var(--ring) / 0.35);
+.obe-col-divider:hover::after,
+.obe-col-divider:active::after,
+.obe-col-divider:focus-visible::after {
+  background: hsl(var(--ring) / 0.65);
 }
-@media (max-width: 640px) {
+.obe-col-divider-trailing {
+  right: -0.5rem;
+  left: auto;
+}
+@container obe-block-editor (max-width: 40rem) {
+  .obe-columns { display: flex; flex-direction: column; gap: 0.25rem; }
   .obe-col-divider { display: none; }
 }
 
