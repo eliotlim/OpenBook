@@ -63,7 +63,7 @@ export default function EditorLab() {
   }, [doc]);
 
   return (
-    <div style={{minHeight: '100vh', background: 'hsl(var(--background))'}}>
+    <div className="obe-editor-pane" style={{minHeight: '100vh', background: 'hsl(var(--background))'}}>
       <div style={{maxWidth: '44rem', margin: '0 auto', padding: '3rem 1.5rem 0'}}>
         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'}}>
           <span style={{fontSize: 12, color: 'hsl(var(--muted-foreground))'}}>editor lab · synced across tabs</span>
