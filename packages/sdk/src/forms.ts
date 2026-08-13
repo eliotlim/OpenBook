@@ -70,6 +70,8 @@ export interface DatabaseFormDescriptorRequest {
 /** Read-only publication state suitable for a builder or reference-only embed. */
 export interface DatabaseFormPublication {
   published: boolean;
+  responseCount: number;
+  maxResponses: number;
 }
 
 /** One-time result of first-publish or rotation. The capability lives only in this URL's fragment. */
@@ -102,6 +104,10 @@ export class DatabaseFormRequestError extends Error {
 export interface FormSubmissionResult {
   rowId: string;
   submittedAt: string;
+  /** Revealed only after a successful submission; never included in the public descriptor. */
+  confirmation?:
+    | {type: 'message'; message: string}
+    | {type: 'redirect'; redirectUrl: string};
 }
 
 /** Typed non-success response from the public form-submission endpoint. */
@@ -127,4 +133,18 @@ export function generateSubmissionKey(): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Accept only browser-safe HTTP(S) confirmation destinations, including relative URLs. */
+export function safeFormRedirectUrl(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value, 'https://openbook.local');
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) return parsed.href;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
 }

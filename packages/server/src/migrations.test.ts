@@ -146,23 +146,23 @@ describe('migration 0026 — database form capabilities', () => {
   });
 });
 
-describe('migration 0026 — page listing posture', () => {
+describe('migration 0025 — page listing posture', () => {
   it('adds listed=true to an existing database and is re-run safe without resetting data', async () => {
     const db = await freshDb();
     const id = await newPage(db);
 
-    // Recreate the pre-0026 shape while retaining an existing page row.
+    // Recreate the pre-0025 shape while retaining an existing page row.
     await db.query('ALTER TABLE pages DROP COLUMN listed');
-    await db.query('DELETE FROM _migrations WHERE name = \'0026_page_listed\'');
+    await db.query('DELETE FROM _migrations WHERE name = \'0025_page_listed\'');
     await runMigrations(db);
     expect((await db.query<{listed: boolean}>('SELECT listed FROM pages WHERE id = $1', [id]))[0].listed).toBe(true);
 
     // Force the idempotent statement to execute again; it must preserve the flip.
     await db.query('UPDATE pages SET listed = false WHERE id = $1', [id]);
-    await db.query('DELETE FROM _migrations WHERE name = \'0026_page_listed\'');
+    await db.query('DELETE FROM _migrations WHERE name = \'0025_page_listed\'');
     await runMigrations(db);
     expect((await db.query<{listed: boolean}>('SELECT listed FROM pages WHERE id = $1', [id]))[0].listed).toBe(false);
-    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0026_page_listed\'')).toHaveLength(1);
+    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0025_page_listed\'')).toHaveLength(1);
     await db.close();
   });
 });

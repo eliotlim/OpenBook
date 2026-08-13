@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {generateSubmissionKey} from './forms';
+import {generateSubmissionKey, safeFormRedirectUrl} from './forms';
 import {FORM_SUBMISSION_PROPERTY_ID, type DatabaseFormSubmissionMarker} from './pageProperties';
 
 describe('generateSubmissionKey', () => {
@@ -24,5 +24,14 @@ describe('generateSubmissionKey', () => {
   it('does not repeat across independently generated keys', () => {
     const keys = new Set(Array.from({length: 64}, () => generateSubmissionKey()));
     expect(keys.size).toBe(64);
+  });
+});
+
+describe('safeFormRedirectUrl', () => {
+  it('accepts relative and HTTP(S) destinations while rejecting active schemes', () => {
+    expect(safeFormRedirectUrl('/thanks?source=form#done')).toBe('/thanks?source=form#done');
+    expect(safeFormRedirectUrl('https://example.com/thanks')).toBe('https://example.com/thanks');
+    expect(safeFormRedirectUrl('javascript:alert(1)')).toBeNull();
+    expect(safeFormRedirectUrl('data:text/html,unsafe')).toBeNull();
   });
 });

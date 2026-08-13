@@ -222,7 +222,12 @@ describe('database form-view public fill', () => {
       idempotencyKey,
     );
     expect(first.status).toBe(201);
-    const result = (await first.json()) as {rowId: string; submittedAt: string};
+    const result = (await first.json()) as {
+      rowId: string;
+      submittedAt: string;
+      confirmation?: {type: 'message'; message: string};
+    };
+    expect(result.confirmation).toEqual({type: 'message', message: 'Received'});
     const replay = await submit(
       a,
       seeded.database.id,
@@ -250,6 +255,15 @@ describe('database form-view public fill', () => {
     const marker = rows[0].properties[FORM_SUBMISSION_PROPERTY_ID] as DatabaseFormSubmissionMarker;
     expect(marker).toEqual({submittedViaViewId: seeded.view.id, submittedAt: result.submittedAt});
     expect(await store.countDatabaseFormResponses(seeded.database.id, seeded.view.id)).toBe(1);
+    const publication = await app().request(
+      API.databaseFormCapability(seeded.database.id, seeded.view.id),
+      {headers: {[IDENTITY_HEADER]: ownerJws, 'X-OpenBook-Client': '1'}},
+    );
+    expect(await publication.json()).toEqual({
+      published: true,
+      responseCount: 1,
+      maxResponses: FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS,
+    });
     const page = await store.getPage(result.rowId);
     expect(page?.data.authors).toBeUndefined();
     const edits = await store.listEdits(result.rowId);
@@ -261,6 +275,53 @@ describe('database form-view public fill', () => {
       verifiedVia: 'guest',
       kind: 'database.form.submit',
     });
+  });
+
+  it('reveals a sanitized redirect confirmation only after a successful submission', async () => {
+    const redirectView = formView(`redirect-${seq}`, {
+      formConfig: {
+        acceptingResponses: true,
+        confirmation: {type: 'redirect', redirectUrl: '/thanks?from=form'},
+      },
+    });
+    const seeded = await seedForm({view: redirectView});
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, redirectView.id);
+
+    const publicDescriptor = await descriptor(a, seeded.database.id, redirectView.id, capability);
+    expect(publicDescriptor.status).toBe(200);
+    expect(JSON.stringify(await publicDescriptor.json())).not.toContain('confirmation');
+
+    const response = await submit(
+      a,
+      seeded.database.id,
+      redirectView.id,
+      capability,
+      {email: 'reader@example.com'},
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      confirmation: {type: 'redirect', redirectUrl: '/thanks?from=form'},
+    });
+
+    const unsafeCurrent = (await store.getDatabase(seeded.database.id))!;
+    await store.updateDatabase(unsafeCurrent.id, {
+      schema: {
+        ...unsafeCurrent.schema,
+        views: unsafeCurrent.schema.views.map((view) => view.id === redirectView.id
+          ? {...view, formConfig: {...view.formConfig, confirmation: {type: 'redirect', redirectUrl: 'javascript:alert(1)'}}}
+          : view),
+      },
+    });
+    const unsafeResponse = await submit(
+      a,
+      seeded.database.id,
+      redirectView.id,
+      capability,
+      {email: 'second@example.com'},
+    );
+    expect(unsafeResponse.status).toBe(201);
+    expect(await unsafeResponse.json()).not.toHaveProperty('confirmation');
   });
 
   it('rejects unmapped, managed, and reserved column injection without creating a row', async () => {
@@ -696,7 +757,11 @@ describe('database form-view public fill', () => {
 
     const before = await a.request(path, {headers: ownerHeaders});
     expect(before.status).toBe(200);
-    expect(await before.json()).toEqual({published: false});
+    expect(await before.json()).toEqual({
+      published: false,
+      responseCount: 0,
+      maxResponses: FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS,
+    });
 
     const rejected = await a.request(path, {method: 'POST', headers: ownerHeaders});
     expect(rejected.status).toBe(400);
@@ -719,7 +784,11 @@ describe('database form-view public fill', () => {
     const after = await a.request(path, {headers: ownerHeaders});
     expect(after.status).toBe(200);
     const afterText = await after.text();
-    expect(JSON.parse(afterText)).toEqual({published: true});
+    expect(JSON.parse(afterText)).toEqual({
+      published: true,
+      responseCount: 0,
+      maxResponses: FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS,
+    });
     expect(afterText).not.toContain(capability);
   });
 

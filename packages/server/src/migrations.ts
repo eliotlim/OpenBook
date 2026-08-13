@@ -606,6 +606,12 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    // UP-1 — discovery is independent of the visibility audience ladder. Existing
+    // pages remain listed; ADD IF NOT EXISTS keeps a replay safe on every backend.
+    name: '0025_page_listed',
+    statements: ['ALTER TABLE pages ADD COLUMN IF NOT EXISTS listed BOOLEAN NOT NULL DEFAULT true'],
+  },
+  {
     // F-4 — publication state for database-backed form views. The plaintext
     // 256-bit fill capability is never stored: only its SHA-256 digest is keyed to
     // one (database, view) pair. Presence is the publication binding; replacing the
@@ -629,12 +635,6 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS database_form_capabilities_updated_idx ON database_form_capabilities (updated_at)',
       'CREATE INDEX IF NOT EXISTS form_uploads_capability_idx ON form_uploads (capability_hash) WHERE capability_hash IS NOT NULL',
     ],
-  },
-  {
-    // UP-1 — discovery is independent of the visibility audience ladder. Existing
-    // pages remain listed; ADD IF NOT EXISTS keeps a replay safe on every backend.
-    name: '0026_page_listed',
-    statements: ['ALTER TABLE pages ADD COLUMN IF NOT EXISTS listed BOOLEAN NOT NULL DEFAULT true'],
   },
 ];
 
