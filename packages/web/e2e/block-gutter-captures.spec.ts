@@ -81,7 +81,7 @@ async function captureBeforeAfter(
     `;
   const baseline = await page.addStyleTag({
     content: `
-      .obe-root.obe-full { padding-left: 0 !important; }
+      .obe-editor-pane .max-w-none { padding-left: 0 !important; }
       ${priorGutter}
     `,
   });

@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 
 const CSS = readFileSync('src/index.css', 'utf8');
 const DOCUMENT = readFileSync('src/screens/BlockPageDocument.tsx', 'utf8');
+const EDITOR_LAB = readFileSync('../web/src/components/EditorLab.tsx', 'utf8');
 
 function ruleBody(selector: string): string {
   const start = CSS.indexOf(`${selector} {`);
@@ -30,12 +31,13 @@ describe('block gutter visibility', () => {
 });
 
 describe('block gutter pane geometry', () => {
-  it('establishes inline-size containment on the editor pane and positioned wrapper', () => {
+  it('establishes inline-size containment on every editor pane, not its positioned wrapper', () => {
     expect(ruleBody('.obe-editor-pane')).toMatch(/container-name:\s*obe-editor-pane/);
     expect(ruleBody('.obe-editor-pane')).toMatch(/container-type:\s*inline-size/);
-    expect(ruleBody('.obe-editor-wrap')).toMatch(/container-type:\s*inline-size/);
-    expect(DOCUMENT).toContain('className="obe-editor-pane px-6 md:px-10"');
+    expect(CSS).not.toMatch(/\.obe-editor-wrap\s*{[^}]*container-type/);
+    expect(DOCUMENT).toContain('\'obe-editor-pane w-full pb-40\'');
     expect(DOCUMENT).toContain('\'obe-editor-wrap relative pt-2\'');
+    expect(EDITOR_LAB).toContain('className="obe-editor-pane"');
   });
 
   it('uses pane width to collapse the top-level gutter to its grip', () => {
@@ -47,11 +49,22 @@ describe('block gutter pane geometry', () => {
     expect(CSS).not.toMatch(/@media[^{]*max-width[^{]*{\s*\.obe-gutter/);
   });
 
-  it('reserves the complete gutter inside full-width roots', () => {
-    expect(ruleBody('.obe-root')).toMatch(/--obe-gutter-room:\s*3\.4rem/);
+  it('reserves the complete gutter on every shared full-width document column', () => {
+    expect(ruleBody('.obe-editor-pane')).toMatch(/--obe-gutter-room:\s*3\.4rem/);
+    expect(DOCUMENT).toContain(
+      'fullWidth ? \'max-w-none pl-[var(--obe-gutter-room)]\' : \'max-w-content\'',
+    );
     const fullWidth = ruleBody('.obe-root.obe-full');
     expect(fullWidth).toMatch(/max-width:\s*none/);
-    expect(fullWidth).toMatch(/padding-left:\s*var\(--obe-gutter-room\)/);
+    expect(fullWidth).not.toMatch(/padding-left/);
+  });
+
+  it('removes the shared reserve when the gutter cannot render', () => {
+    expect(ruleBody('.obe-editor-pane.obe-readonly')).toMatch(/--obe-gutter-room:\s*0/);
+    expect(DOCUMENT).toContain('!canWrite && \'obe-readonly\'');
+    expect(CSS).toMatch(
+      /@media \(pointer: coarse\)\s*{\s*\.obe-editor-pane\s*{\s*--obe-gutter-room:\s*0;/,
+    );
   });
 });
 
