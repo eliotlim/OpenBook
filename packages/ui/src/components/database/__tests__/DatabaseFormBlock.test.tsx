@@ -1,4 +1,3 @@
-import React from 'react';
 import * as Y from 'yjs';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
@@ -102,6 +101,10 @@ describe('database form block', () => {
   it.each([
     ['database', null],
     ['view', {...database, schema: {...database.schema, views: []}}],
+    ['form view replaced by a table', {
+      ...database,
+      schema: {...database.schema, views: [{...formView, type: 'table'}]},
+    }],
   ])('shows the deleted-target placeholder for a missing %s', async (_kind, target) => {
     const data = client({getDatabase: vi.fn().mockResolvedValue(target)});
     const {block, editor, Render} = harness();
