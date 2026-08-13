@@ -9,6 +9,9 @@ const x = async (locator: import('@playwright/test').Locator): Promise<number> =
   return box!.x;
 };
 
+const layoutX = (locator: import('@playwright/test').Locator): Promise<number> =>
+  locator.evaluate((element) => (element as HTMLElement).offsetLeft);
+
 // Manager verification gate: this sandbox has no Chromium. Run with
 // `pnpm --filter @book.dev/web test:e2e --grep @manager-verified`.
 test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', '@database', '@manager-verified']}, async ({page, request}) => {
@@ -28,13 +31,24 @@ test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', 
   const libraryTrigger = page.getByRole('button').filter({hasText: new URL(SERVER).host}).first();
   await libraryTrigger.click();
   const localRow = page.getByRole('menuitem').filter({hasText: 'My Library'});
+  const remoteRow = page.getByRole('menuitem').filter({hasText: new URL(SERVER).host});
   const status = localRow.getByRole('img');
   const remove = localRow.getByRole('button', {name: 'Remove My Library'});
+
+  // Radix focuses the first menu item when the menu opens. Move focus away so
+  // the hidden baseline is deterministic, then exercise both intended reveal
+  // paths without changing the status sibling's position.
+  await remoteRow.focus();
   await expect(remove).toHaveCSS('opacity', '0');
-  const statusBeforeHover = await x(status);
+  const statusBeforeReveal = await x(status);
+  await localRow.focus();
+  await expect(remove).toHaveCSS('opacity', '1');
+  expect(await x(status)).toBe(statusBeforeReveal);
+  await remoteRow.focus();
+  await expect(remove).toHaveCSS('opacity', '0');
   await localRow.hover();
   await expect(remove).toHaveCSS('opacity', '1');
-  expect(await x(status)).toBe(statusBeforeHover);
+  expect(await x(status)).toBe(statusBeforeReveal);
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', {name: 'New tab'}).click();
@@ -54,8 +68,11 @@ test('BB-3 reserved reveals keep sibling x-coordinates fixed', {tag: ['@shell', 
   const search = page.getByRole('textbox', {name: 'Search rows'});
   const filter = toolbar.getByRole('button', {name: 'Filter', exact: true});
   await filter.scrollIntoViewIfNeeded();
-  const filterBeforeFocus = await x(filter);
+  // Focus may scroll the narrow toolbar to reveal the search input. offsetLeft
+  // measures the filter's position in the flex layout, independent of that
+  // scroll, and therefore distinguishes viewport movement from sibling reflow.
+  const filterBeforeFocus = await layoutX(filter);
   await search.focus();
   await expect(search).toBeFocused();
-  expect(await x(filter)).toBe(filterBeforeFocus);
+  expect(await layoutX(filter)).toBe(filterBeforeFocus);
 });
