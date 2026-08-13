@@ -69,6 +69,27 @@ describe('title → editor', () => {
     expect(document.activeElement?.getAttribute('data-block-text')).toBe(blockId(roots.get(0)));
   });
 
+  it('focusStart() restores and focuses a paragraph after removeSelected leaves the doc text-less', () => {
+    const doc = createDoc([
+      {id: 'p', type: 'paragraph', text: 'one'},
+      {id: 'd', type: 'divider'},
+    ]);
+    const ref = React.createRef<BlockEditorHandle>();
+    const {container} = render(<BlockEditor doc={doc} focusRef={ref} />);
+    const paragraph = container.querySelector('[data-block-text="p"]') as HTMLElement;
+    fireEvent.focus(paragraph);
+    fireEvent.keyDown(paragraph, {key: 'Escape'});
+    expect(container.querySelectorAll('.obe-row-selected')).toHaveLength(1);
+    fireEvent.keyDown(document, {key: 'Delete'});
+    expect(rootBlocks(doc).map(blockType)).toEqual(['divider']);
+
+    act(() => ref.current!.focusStart());
+    const roots = rootBlocks(doc);
+    expect(roots.length).toBe(2);
+    expect(blockType(roots.get(1))).toBe('paragraph');
+    expect(document.activeElement?.getAttribute('data-block-text')).toBe(blockId(roots.get(1)));
+  });
+
   it('clicking below a seeded empty doc focuses its paragraph without inserting twice', () => {
     const doc = new Y.Doc();
     const {container} = render(<BlockEditor doc={doc} />);

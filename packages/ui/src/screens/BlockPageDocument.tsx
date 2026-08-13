@@ -628,7 +628,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 
       <div className="px-6 md:px-10">
         <div className={columnClass}>
-          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-[3.25rem]' : 'min-h-[40vh]', 'relative pt-2')}>
+          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'relative pt-2')}>
             {doc && (
               <FormOriginContext.Provider value={formOriginUrl(pageId)}>
                 <BlockEditor

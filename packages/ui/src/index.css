@@ -638,7 +638,7 @@
    reads as clutter. Keep the hint for the focused block only, but retain its
    line box so focus never moves the database below it. */
 .obe-compact [data-placeholder]:empty:not(:focus)::before {
-  color: transparent;
+  opacity: 0;
 }
 
 /* Inline @-mention: a link from one page to another. Atomic (contenteditable

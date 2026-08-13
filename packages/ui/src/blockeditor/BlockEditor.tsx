@@ -256,6 +256,9 @@ export const BlockEditor: React.FC<{
   // Give a writable, text-less document its typing row as soon as it loads.
   // Doing this before paint keeps the row out of the title → body focus path;
   // writing directly also avoids moving the caret before the user asks to.
+  // Known benign races: concurrent first-visits may each seed (Yjs keeps both),
+  // and a text-less snapshot may seed before a peer's live content merges. This
+  // is accepted; the UndoManager is unaffected because it tracks 'local' only.
   useLayoutEffect(() => {
     if (readOnly) return;
     const hasTextBlock = [...walkBlocks(rootBlocks(doc))].some(
@@ -264,8 +267,8 @@ export const BlockEditor: React.FC<{
     if (!hasTextBlock) rootBlocks(doc).push([makeBlock({type: 'paragraph'})]);
   }, [doc, readOnly]);
 
-  // Title → editor: focus the first text block, caret at its start. Writable
-  // text-less docs were seeded above, so hand-off itself never changes layout.
+  // Title → editor: focus the first text block, caret at its start. Load-time
+  // text-less docs are seeded above; the fallback covers docs emptied later.
   useImperativeHandle(focusRef, () => ({
     focusStart() {
       // A read-only page (viewer / present) has no caret surface to hand off to —
@@ -273,7 +276,11 @@ export const BlockEditor: React.FC<{
       // point even if a caller invokes the hand-off imperatively.
       if (editor.readOnly) return;
       const first = editor.textBlockIds()[0];
-      if (first) editor.requestCaret({blockId: first, offset: 0});
+      if (!first) {
+        editor.insertAfter(null, {type: 'paragraph'});
+        return;
+      }
+      editor.requestCaret({blockId: first, offset: 0});
     },
   }), [editor]);
 

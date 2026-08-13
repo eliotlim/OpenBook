@@ -19,7 +19,7 @@ describe('compact editor placeholder metrics', () => {
     expect(ruleBody('.obe-text:empty::before')).toMatch(/content:\s*attr\(data-placeholder\)/);
 
     const compact = ruleBody('.obe-compact [data-placeholder]:empty:not(:focus)::before');
-    expect(compact).toMatch(/color:\s*transparent/);
+    expect(compact).toMatch(/opacity:\s*0/);
     expect(compact).not.toMatch(/\bcontent\s*:/);
     expect(compact).not.toMatch(/\b(?:display|font|height|line-height|position|width)\s*:/);
   });
