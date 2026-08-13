@@ -481,7 +481,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // F-4 has two independent abuse ceilings: one shared by every holder of a
   // capability and one shared by every public-form request from a socket peer.
   // Keys use the stored digest / trusted peer address, never the raw capability or
-  // spoofable forwarding headers.
+  // spoofable forwarding headers. Like legacy forms, adapters without a trustworthy
+  // peer use the larger shared floor and isolate that floor per database form.
   const databaseFormCapabilityLimiter = new FixedWindowLimiter(
     FORM_REQUEST_RATE_LIMIT,
     FORM_REQUEST_RATE_WINDOW_MS,
@@ -502,12 +503,56 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
     return true;
   };
-  const databaseFormRateLimited = (c: Context<AppEnv>, capabilityHash: string): boolean => {
+  const databaseFormRateBucket = (c: Context<AppEnv>, databaseId: string, viewId: string) => {
+    const peer = clientIpKey(c);
+    return peer === 'peer'
+      ? {limiter: formSharedLimiter, key: `db-form:${databaseId}:${viewId}`}
+      : {limiter: databaseFormIpLimiter, key: `ip:${peer}:db-form:${databaseId}:${viewId}`};
+  };
+  const databaseFormPeerRateLimited = (
+    c: Context<AppEnv>,
+    databaseId: string,
+    viewId: string,
+    record: boolean,
+  ): boolean => {
+    const {limiter, key} = databaseFormRateBucket(c, databaseId, viewId);
+    const over = record ? limiter.exceeded(key) : limiter.peek(key);
+    if (over) c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
+    return over;
+  };
+  const databaseFormRateLimited = (
+    c: Context<AppEnv>,
+    databaseId: string,
+    viewId: string,
+    capabilityHash: string,
+  ): boolean => {
     const capabilityExceeded = databaseFormCapabilityLimiter.exceeded(`capability:${capabilityHash}`);
-    const ipExceeded = databaseFormIpLimiter.exceeded(`ip:${clientIpKey(c)}`);
-    if (!capabilityExceeded && !ipExceeded) return false;
+    const peerExceeded = databaseFormPeerRateLimited(c, databaseId, viewId, true);
+    if (!capabilityExceeded && !peerExceeded) return false;
     c.header('Retry-After', String(Math.ceil(FORM_REQUEST_RATE_WINDOW_MS / 1000)));
     return true;
+  };
+  const requireMeteredDatabaseFormAccess = async (
+    c: Context<AppEnv>,
+    databaseId: string,
+    viewId: string,
+    capability: string,
+  ) => {
+    try {
+      return await requireDatabaseFormSubmissionAccess(store, databaseId, viewId, capability);
+    } catch (err) {
+      // Mirror the failed-PAT limiter: only a failed hidden-state/capability gate
+      // records a pre-auth hit. Once the bucket is over budget, the failing request
+      // and subsequent requests are shed with 429 before another database lookup.
+      if (
+        err instanceof HTTPException
+        && err.status === 404
+        && databaseFormPeerRateLimited(c, databaseId, viewId, true)
+      ) {
+        throw new HTTPException(429, {message: 'rate limit exceeded'});
+      }
+      throw err;
+    }
   };
   // Loads a page's durable snapshot as raw Yjs update bytes — the seed base for the
   // relay doc. The block document stores its CRDT state as base64 in `blockdoc.update`.
@@ -2265,13 +2310,23 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       onError: (c) => c.json({error: 'request body too large'}, 413),
     }),
     async (c) => {
+      const databaseId = c.req.param('databaseId');
+      const viewId = c.req.param('viewId');
+      // Shed an already-over-budget peer before parsing or touching publication
+      // state. Failed gates below record into this same form-specific bucket.
+      if (databaseFormPeerRateLimited(c, databaseId, viewId, false)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
       const body = await c.req.json<unknown>().catch(() => null);
-      const {database, view} = await requireDatabaseFormSubmissionAccess(
-        store,
-        c.req.param('databaseId'),
-        c.req.param('viewId'),
+      const {database, view, capabilityHash} = await requireMeteredDatabaseFormAccess(
+        c,
+        databaseId,
+        viewId,
         databaseFormCapability(body),
       );
+      if (databaseFormRateLimited(c, databaseId, viewId, capabilityHash)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
       validateDatabaseFormDescriptorRequest(body);
       const descriptor = projectDatabaseFormDescriptor(database.schema, view);
       return descriptor
@@ -2304,7 +2359,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       if ((await store.countDatabaseFormResponses(database.id, view.id)) >= responseCap) {
         return c.json({error: 'response limit reached'}, 429);
       }
-      if (databaseFormRateLimited(c, capabilityHash)) {
+      if (databaseFormRateLimited(c, databaseId, viewId, capabilityHash)) {
         return c.json({error: 'rate limit exceeded'}, 429);
       }
       await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);
@@ -2359,11 +2414,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       onError: (c) => c.json({error: 'request body too large'}, 413),
     }),
     async (c) => {
-      const body = await c.req.json<unknown>().catch(() => null);
       const databaseId = c.req.param('databaseId');
       const viewId = c.req.param('viewId');
-      const {database, view, capabilityHash} = await requireDatabaseFormSubmissionAccess(
-        store,
+      // Failed capabilities must consume a trusted-peer budget too; otherwise an
+      // attacker can flood the constant-time digest/DB gate without touching either
+      // post-auth limiter. `peek` preserves an early 429 once that budget is spent.
+      if (databaseFormPeerRateLimited(c, databaseId, viewId, false)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      const body = await c.req.json<unknown>().catch(() => null);
+      const {database, view, capabilityHash} = await requireMeteredDatabaseFormAccess(
+        c,
         databaseId,
         viewId,
         databaseFormCapability(body),
@@ -2373,7 +2434,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
       const responseCap = databaseFormResponseCap(view);
       if (responseCap === null) return c.json({error: 'form not found'}, 404);
-      if (databaseFormRateLimited(c, capabilityHash)) {
+      if (databaseFormRateLimited(c, databaseId, viewId, capabilityHash)) {
         return c.json({error: 'rate limit exceeded'}, 429);
       }
       await store.gcExpiredFormUploads(FORM_UPLOAD_ORPHAN_TTL_MS);

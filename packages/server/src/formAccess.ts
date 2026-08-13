@@ -48,7 +48,14 @@ export const FORM_UPLOAD_MAX_FIELD_ID_BYTES = 200;
 
 const DUMMY_SUBMISSION_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DUMMY_DATABASE_FORM_CAPABILITY_HASH = '0'.repeat(64);
+const FORM_IDEMPOTENCY_V4_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const FORM_IDEMPOTENCY_BASE64URL = /^[A-Za-z0-9_-]{22,}$/;
 const textEncoder = new TextEncoder();
+
+/** Require the wire shape of at least 128 bits of caller-generated entropy. */
+function isStrongFormIdempotencyKey(key: string): boolean {
+  return FORM_IDEMPOTENCY_V4_UUID.test(key) || FORM_IDEMPOTENCY_BASE64URL.test(key);
+}
 
 /** The validated subset of a persisted `form` block that the server consumes. */
 export interface StoredFormDefinition {
@@ -133,6 +140,7 @@ export async function requireDatabaseFormSubmissionAccess(
   providedCapability: string,
 ): Promise<{database: StoredDatabase; view: DatabaseView; capabilityHash: string}> {
   const database = await store.getDatabase(databaseId);
+  const page = database ? await store.getPage(database.pageId) : null;
   const view = database ? currentDatabaseFormView(database, viewId) : null;
   const capabilityHash = view
     ? await store.getDatabaseFormCapabilityHash(databaseId, viewId)
@@ -143,6 +151,7 @@ export async function requireDatabaseFormSubmissionAccess(
   const matches = constantTimeSubmissionKeyEqual(providedHash, expectedHash);
   if (
     !database
+    || !page
     || !view
     || !capabilityHash
     || managed
@@ -482,6 +491,7 @@ export function validateDatabaseFormSubmissionRequest(body: unknown): DatabaseFo
   if (
     typeof body.idempotencyKey !== 'string'
     || idempotencyKey.length === 0
+    || !isStrongFormIdempotencyKey(idempotencyKey)
     || textEncoder.encode(idempotencyKey).byteLength > FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES
   ) {
     throw new HTTPException(400, {message: 'invalid form submission'});
