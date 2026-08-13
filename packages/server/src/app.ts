@@ -17,12 +17,15 @@ import {
   FORM_UPLOAD_MAX_FORM_BYTES,
   FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
+  formPatternIsUnsafe,
+  isFormWritablePropertyType,
   generateSubmissionKey,
   projectDatabaseFormDescriptor,
   submissionToRowInput,
   validateRowAgainstForm,
   validateSubmission,
   PAGE_VISIBILITIES,
+  TITLE_PROPERTY_ID,
   type AclLevel,
   type AgentEditsPolicy,
   type BackupCadence,
@@ -2209,6 +2212,45 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return {database, view};
   };
 
+  const requireReadDatabaseForm = async (c: Context<AppEnv>) => {
+    const databaseId = c.req.param('databaseId');
+    const viewId = c.req.param('viewId');
+    if (!databaseId || !viewId) throw new HTTPException(404, {message: 'form not found'});
+    await requireDbAccess(c, store, 'read', databaseId);
+    const database = await store.getDatabase(databaseId);
+    const view = database ? currentDatabaseFormView(database, viewId) : null;
+    if (!database || !view) throw new HTTPException(404, {message: 'form not found'});
+    return {database, view};
+  };
+
+  const invalidDatabaseFormPatternIds = (
+    database: Awaited<ReturnType<typeof requireManageDatabaseForm>>['database'],
+    view: Awaited<ReturnType<typeof requireManageDatabaseForm>>['view'],
+  ): string[] => {
+    const mapped = new Set(view.visiblePropertyIds ?? []);
+    const liveIds = new Set([
+      ...(mapped.has(TITLE_PROPERTY_ID) ? [TITLE_PROPERTY_ID] : []),
+      ...database.schema.properties
+        .filter((property) =>
+          mapped.has(property.id)
+          && !property.id.startsWith('sys_')
+          && isFormWritablePropertyType(property.type),
+        )
+        .map((property) => property.id),
+    ]);
+    return [...liveIds].filter((propertyId) => {
+      const pattern = view.formFields?.[propertyId]?.validation?.pattern;
+      if (pattern === undefined) return false;
+      if (typeof pattern !== 'string' || pattern.length > 256 || formPatternIsUnsafe(pattern)) return true;
+      try {
+        void new RegExp(pattern);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+  };
+
   app.post(API.databases, async (c) => {
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.
@@ -2244,8 +2286,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // plaintext is never stored, every successful call mints a fresh capability and
   // atomically replaces the digest. The response exposes it only inside the public
   // descriptor URL's fragment, so navigation/proxy logs never receive the secret.
+  app.get(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
+    const {database, view} = await requireReadDatabaseForm(c);
+    const published = (await store.getDatabaseFormCapabilityHash(database.id, view.id)) !== null;
+    return c.json({published});
+  });
+
   app.post(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
     const {database, view} = await requireManageDatabaseForm(c);
+    const invalidPatternIds = invalidDatabaseFormPatternIds(database, view);
+    if (invalidPatternIds.length > 0) {
+      return c.json({error: 'invalid form validation pattern', propertyIds: invalidPatternIds}, 400);
+    }
     const capability = generateSubmissionKey();
     const published = await store.setDatabaseFormCapabilityHash(
       database.id,
@@ -2253,10 +2305,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       hashDatabaseFormCapability(capability),
     );
     if (!published) return c.json({error: 'form not found'}, 404);
-    const url = new URL(API.databaseForm(database.id, view.id), c.req.url);
+    const url = new URL('/', c.req.url);
+    url.searchParams.set('form', database.id);
+    url.searchParams.set('view', view.id);
     url.hash = `capability=${capability}`;
     logEdit(c, database.pageId, 'database.form.publish', view.id);
-    return c.json({url: url.toString()}, 201);
+    return c.json({url: `${url.pathname}${url.search}${url.hash}`}, 201);
   });
 
   app.delete(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {

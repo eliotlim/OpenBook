@@ -67,6 +67,37 @@ export interface DatabaseFormDescriptorRequest {
   capability: string;
 }
 
+/** Read-only publication state suitable for a builder or reference-only embed. */
+export interface DatabaseFormPublication {
+  published: boolean;
+}
+
+/** One-time result of first-publish or rotation. The capability lives only in this URL's fragment. */
+export interface DatabaseFormPublishResult {
+  url: string;
+}
+
+/** File bytes and capability accepted by a database form view's staging route. */
+export interface DatabaseFormUploadInput {
+  capability: string;
+  fieldId: string;
+  name: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/** Typed public database-form failure, including stable server validation codes. */
+export class DatabaseFormRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly errors: Array<{propertyId: string; code: string}> = [],
+  ) {
+    super(`Database form request failed (${status})${code ? `: ${code}` : ''}`);
+    this.name = 'DatabaseFormRequestError';
+  }
+}
+
 /** Stable success response returned for both a first submission and its replay. */
 export interface FormSubmissionResult {
   rowId: string;

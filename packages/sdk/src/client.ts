@@ -21,8 +21,14 @@ import type {
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibilitySettings, PageVisibilityUpdate, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import {
+  DatabaseFormRequestError,
   FormSubmissionError,
   FormUploadError,
+  type DatabaseFormDescriptorRequest,
+  type DatabaseFormPublication,
+  type DatabaseFormPublishResult,
+  type DatabaseFormSubmissionRequest,
+  type DatabaseFormUploadInput,
   type FormSubmissionRequest,
   type FormSubmissionResult,
   type FormUploadInput,
@@ -33,6 +39,7 @@ import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
 import type {
+  DatabaseFormDescriptor,
   DatabaseInput,
   DatabaseRow,
   DatabaseUpdate,
@@ -355,6 +362,36 @@ export interface DataClient {
   getPageDatabase(pageId: string): Promise<StoredDatabase | null>;
   /** Update a database's name and/or schema. */
   updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase>;
+  /** Read publication state without exposing the raw capability (F-3 reference seam). */
+  getDatabaseFormPublication?(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublication>;
+  /** First-publish or rotate a form view, returning the one-time public fill URL. */
+  publishDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublishResult>;
+  /** Revoke the single active public-fill capability for a form view. */
+  revokeDatabaseForm?(databaseId: string, viewId: string): Promise<boolean>;
+  /** Fetch the strict capability-gated public descriptor. */
+  getPublicDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormDescriptorRequest,
+  ): Promise<DatabaseFormDescriptor>;
+  /** Submit one anonymous response through a database form capability. */
+  submitDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormSubmissionRequest,
+  ): Promise<FormSubmissionResult>;
+  /** Stage one public database-form file and return its opaque submission token. */
+  uploadDatabaseFormFile?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormUploadInput,
+  ): Promise<FormUploadResult>;
   /** Delete a database and all its row pages. Resolves `true` if removed. */
   deleteDatabase(id: string): Promise<boolean>;
   /** List a database's rows (projected: properties + exported cell values). */
@@ -1475,6 +1512,109 @@ export class HttpDataClient implements DataClient {
 
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase> {
     return this.request<StoredDatabase>('PATCH', API.database(id), patch);
+  }
+
+  async getDatabaseFormPublication(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublication> {
+    return this.request<DatabaseFormPublication>('GET', API.databaseFormCapability(databaseId, viewId));
+  }
+
+  async publishDatabaseForm(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublishResult> {
+    return this.request<DatabaseFormPublishResult>('POST', API.databaseFormCapability(databaseId, viewId));
+  }
+
+  async revokeDatabaseForm(databaseId: string, viewId: string): Promise<boolean> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormCapability(databaseId, viewId)}`, {
+      method: 'DELETE',
+      cache: 'no-store',
+    });
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  async getPublicDatabaseForm(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormDescriptorRequest,
+  ): Promise<DatabaseFormDescriptor> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseForm(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown};
+      throw new DatabaseFormRequestError(res.status, typeof payload.error === 'string' ? payload.error : undefined);
+    }
+    return (await res.json()) as DatabaseFormDescriptor;
+  }
+
+  async submitDatabaseForm(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormSubmissionRequest,
+  ): Promise<FormSubmissionResult> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormSubmissions(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown; errors?: unknown};
+      const errors = Array.isArray(payload.errors)
+        ? payload.errors.flatMap((candidate) => {
+          if (
+            candidate
+            && typeof candidate === 'object'
+            && 'propertyId' in candidate
+            && typeof candidate.propertyId === 'string'
+            && 'code' in candidate
+            && typeof candidate.code === 'string'
+          ) {
+            return [{propertyId: candidate.propertyId, code: candidate.code}];
+          }
+          return [];
+        })
+        : [];
+      throw new DatabaseFormRequestError(
+        res.status,
+        typeof payload.error === 'string' ? payload.error : undefined,
+        errors,
+      );
+    }
+    return (await res.json()) as FormSubmissionResult;
+  }
+
+  async uploadDatabaseFormFile(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormUploadInput,
+  ): Promise<FormUploadResult> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormUploads(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        capability: input.capability,
+        fieldId: input.fieldId,
+        name: input.name,
+        mime: input.mime,
+        data: bytesToBase64(input.bytes),
+      }),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown};
+      throw new DatabaseFormRequestError(res.status, typeof payload.error === 'string' ? payload.error : undefined);
+    }
+    return (await res.json()) as FormUploadResult;
   }
 
   async deleteDatabase(id: string): Promise<boolean> {

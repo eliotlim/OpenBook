@@ -46,6 +46,7 @@ import {Button} from '@/components/ui/button';
 import {EmptyState} from '@/components/ui/empty-state';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
+import {useData} from '@/data';
 import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {readPageIcon} from '@/lib/pageIcon';
 import {useCanWrite} from '@/lib/useCanWrite';
@@ -990,6 +991,7 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
   schema,
   canEdit = true,
 }) => {
+  const client = useData();
   if (!isDatabaseViewType(view.type)) return <NewerClientRequiredView type={view.type} />;
 
   // The dense date layouts only show property chips once the user opts in (picks
@@ -1021,6 +1023,15 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
         onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
         onAddOption={(propertyId, label) => db.addSelectOption(propertyId, label)}
         onSubmit={(fields, name) => db.submitFormRow(fields, name)}
+        getPublication={client.getDatabaseFormPublication
+          ? async () => (await client.getDatabaseFormPublication!(db.database!.id, view.id)).published
+          : undefined}
+        onPublish={client.publishDatabaseForm
+          ? () => client.publishDatabaseForm!(db.database!.id, view.id)
+          : undefined}
+        onRevoke={client.revokeDatabaseForm
+          ? () => client.revokeDatabaseForm!(db.database!.id, view.id)
+          : undefined}
       />
     );
   case 'bar':

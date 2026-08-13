@@ -18,6 +18,12 @@ export const API = {
   /** Capability-gated database form descriptor: `POST` (F-4). */
   databaseForm: (databaseId: string, viewId: string): string =>
     `/api/databases/${encodeURIComponent(databaseId)}/views/${encodeURIComponent(viewId)}/form`,
+  /** Owner/manager publication lifecycle: `GET` status / `POST` mint-or-rotate / `DELETE` revoke. */
+  databaseFormCapability: (databaseId: string, viewId: string): string =>
+    `/api/databases/${encodeURIComponent(databaseId)}/views/${encodeURIComponent(viewId)}/capability`,
+  /** Capability-gated staged upload for a database form view: `POST`. */
+  databaseFormUploads: (databaseId: string, viewId: string): string =>
+    `/api/databases/${encodeURIComponent(databaseId)}/views/${encodeURIComponent(viewId)}/uploads`,
   /** Capability-gated staged form-file upload: `POST`. */
   formUploads: (pageId: string, formId: string): string =>
     `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/uploads`,
