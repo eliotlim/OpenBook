@@ -43,12 +43,12 @@ export default function AboutDialog({open, onOpenChange}: {open?: boolean; onOpe
         </DialogDescription>
         <DialogFooter>
           <Button variant="ghost" asChild>
-            <a href="https://github.com/eliotlim/openbook" target="_blank" rel="noreferrer noopener">
+            <a href="https://github.com/lab255/OpenBook" target="_blank" rel="noreferrer noopener">
               Learn more
             </a>
           </Button>
           <Button variant="ghost" asChild>
-            <a href="https://github.com/eliotlim/openbook/issues" target="_blank" rel="noreferrer noopener">
+            <a href="https://github.com/lab255/OpenBook/issues" target="_blank" rel="noreferrer noopener">
               Get support
             </a>
           </Button>

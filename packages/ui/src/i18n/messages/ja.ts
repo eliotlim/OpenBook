@@ -534,6 +534,18 @@ export const ja: PartialMessages = {
     indexed: '{pages} ページをインデックス済み',
     notIndexed: '初回検索時にインデックスを作成します。',
   },
+  agents: {
+    localMcpTitle: 'ローカル MCP コネクタ',
+    localMcpHint: '下でトークンを作成し、このコマンドの <token> に貼り付けてください。',
+    localMcpScopes:
+      '読み取り専用トークンでは読み取りツールだけを使用できます。書き込みには書き込みスコープが必要で、「エージェントによる編集」（またはページごとの設定）が「直接」でない限り、提案として保存されます。',
+    localMcpPortWarn:
+      'OpenBook の実行中にのみ登録してください。トークンは 127.0.0.1:4319 で応答しているプロセスに送信されます。',
+    localMcpFollowsDefault:
+      'アプリでライブラリを切り替えても、コネクタは常にデフォルトのローカルライブラリに接続します。',
+    localMcpDisabled: 'コネクタを使用するには、エージェント API を有効にしてください。',
+    localMcpCopy: 'コマンドをコピー',
+  },
   agent: {
     title: 'アシスタント',
     hint: 'ノートについて質問できます。アシスタントはページの検索・閲覧・作成ができます。',
@@ -1345,6 +1357,7 @@ export const ja: PartialMessages = {
         timeline: '時間軸に沿ったガントバー',
         map: '場所プロパティでマーカーを配置',
         graph: '行同士の依存関係を表示',
+        form: 'Form',
         bar: 'グループごとに集計した棒グラフ',
         pie: 'グループごとに集計した円グラフ',
       },

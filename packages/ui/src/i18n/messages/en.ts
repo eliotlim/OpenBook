@@ -2054,12 +2054,15 @@ export const en = {
     revokeConfirmBody: 'Any agent using it will immediately lose access. This cannot be undone.',
     revokeConfirmButton: 'Revoke',
     capNote: 'Up to 25 tokens per library.',
-    // Local MCP connector setup (STAB-5). Shown on the desktop app when the agent
-    // API is on: the loopback endpoint + the exact config an MCP client registers.
+    // Local MCP connector setup (STAB-5). Shown on the desktop app; the command is
+    // available only while the agent API is on.
     localMcpTitle: 'Local MCP connector',
-    localMcpHint: 'This library also answers on a loopback address for local MCP clients (Claude Desktop, Claude Code, Cursor). Register the connector with the snippet below — it’s pinned to this exact library and refuses any other server on the port.',
+    localMcpHint: 'Create a token below, then paste it into <token> in this command.',
+    localMcpScopes: 'Read-only tokens use read tools only. Writes need write scope and land as suggestions unless Agent edits (or a page\'s override) is Direct.',
+    localMcpPortWarn: 'Register this only while OpenBook is running — the token goes to whatever is answering on 127.0.0.1:4319.',
     localMcpFollowsDefault: 'The connector always talks to your default local library, even if you switch libraries in the app.',
-    localMcpCopy: 'Copy config',
+    localMcpDisabled: 'Enable the agent API to use the connector.',
+    localMcpCopy: 'Copy command',
   },
   agentEdits: {
     title: 'Agent edits',
@@ -2184,6 +2187,7 @@ export const en = {
         timeline: 'Gantt-style bars across time',
         map: 'Markers placed by a location property',
         graph: 'How rows depend on each other',
+        form: 'Form',
         bar: 'Rows aggregated into bars per group',
         pie: 'Rows aggregated into slices per group',
       },

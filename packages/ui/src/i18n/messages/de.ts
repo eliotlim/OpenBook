@@ -539,6 +539,18 @@ export const de: PartialMessages = {
     indexed: '{pages} Seiten indiziert',
     notIndexed: 'Index entsteht bei der ersten Suche.',
   },
+  agents: {
+    localMcpTitle: 'Lokaler MCP-Connector',
+    localMcpHint: 'Erstelle unten ein Token und füge es dann in diesem Befehl anstelle von <token> ein.',
+    localMcpScopes:
+      'Tokens mit Lesezugriff können nur Lesewerkzeuge verwenden. Schreibvorgänge benötigen Schreibzugriff und werden als Vorschläge erstellt, sofern „Agentenbearbeitungen“ (oder die Einstellung der jeweiligen Seite) nicht auf „Direkt“ gesetzt ist.',
+    localMcpPortWarn:
+      'Registriere dies nur, solange OpenBook läuft – das Token geht an den Prozess, der auf 127.0.0.1:4319 antwortet.',
+    localMcpFollowsDefault:
+      'Der Connector greift immer auf deine lokale Standardbibliothek zu, auch wenn du in der App die Bibliothek wechselst.',
+    localMcpDisabled: 'Aktiviere die Agenten-API, um den Connector zu verwenden.',
+    localMcpCopy: 'Befehl kopieren',
+  },
   agent: {
     title: 'Assistent',
     hint: 'Frag zu deinen Notizen — der Assistent kann Seiten suchen, lesen und anlegen.',
@@ -1352,6 +1364,7 @@ export const de: PartialMessages = {
         timeline: 'Gantt-Balken entlang der Zeit',
         map: 'Marker nach einer Standort-Eigenschaft',
         graph: 'Abhängigkeiten zwischen Zeilen',
+        form: 'Form',
         bar: 'Zeilen als Balken je Gruppe aggregiert',
         pie: 'Zeilen als Kreissegmente je Gruppe',
       },
