@@ -40,18 +40,25 @@ async function sidebarMetrics(row: Locator) {
   };
 }
 
-async function expectPersistentSidebarSelection(row: Locator) {
-  await expect(row).toHaveClass(/\bhover:bg-hover-strong\b/);
-  const restingBackground = await row.evaluate((element) => getComputedStyle(element).backgroundColor);
-  const rail = await row.evaluate((element) => {
+async function sidebarSelectionRail(row: Locator) {
+  return row.evaluate((element) => {
     const style = getComputedStyle(element, '::before');
     return {background: style.backgroundColor, width: style.width};
   });
-  expect(rail.width).toBe('2px');
-  expect(rail.background).not.toBe(restingBackground);
+}
 
+async function expectPersistentSidebarSelection(row: Locator) {
+  await expect(row).toHaveClass(/\bbg-hover-strong\b/);
+  const metrics = await sidebarMetrics(row);
+  const rail = await sidebarSelectionRail(row);
+  expect(rail.width).toBe('2px');
+  expect(rail.background).not.toBe(await row.evaluate((element) => getComputedStyle(element).backgroundColor));
+
+  // Main allowed hover to tint selected rows; BB-2's metric-free rail, rather
+  // than an exact background colour, is the persistent selection indicator.
   await row.hover();
-  await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(restingBackground);
+  expect(await sidebarMetrics(row)).toEqual(metrics);
+  expect(await sidebarSelectionRail(row)).toEqual(rail);
 }
 
 async function newDatabase(page: Page): Promise<void> {
