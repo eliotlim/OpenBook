@@ -336,8 +336,11 @@
 
   html,
   body,
-  #__next {
+  #__next,
+  #root {
     height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   body {
@@ -635,9 +638,10 @@
 }
 /* A database host page (compact editor) shows its table right below the tiny
    editor area — an unfocused "Type / for commands…" floating above the table
-   reads as clutter. Keep the hint for the focused block only. */
+   reads as clutter. Keep the hint for the focused block only, but retain its
+   line box so focus never moves the database below it. */
 .obe-compact [data-placeholder]:empty:not(:focus)::before {
-  content: none;
+  opacity: 0;
 }
 
 /* Inline @-mention: a link from one page to another. Atomic (contenteditable

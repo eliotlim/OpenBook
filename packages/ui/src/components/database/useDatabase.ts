@@ -1272,6 +1272,8 @@ const VIEW_TYPE_LABEL: Record<DatabaseViewType, string> = {
   timeline: 'Timeline',
   map: 'Map',
   graph: 'Graph',
+  // F-2 owns the final form-view creation experience.
+  form: 'Form',
   bar: 'Bar chart',
   pie: 'Pie chart',
 };

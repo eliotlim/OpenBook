@@ -639,7 +639,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         <div className={columnClass}>
           <div
             ref={editorWrapRef}
-            className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'obe-editor-wrap relative pt-2')}
+            className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'obe-editor-wrap relative pt-2')}
           >
             {doc && (
               <FormOriginContext.Provider value={formOriginUrl(pageId)}>
