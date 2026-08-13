@@ -1020,7 +1020,7 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
         onUpdateView={(patch) => db.updateView(view.id, patch)}
         onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
         onAddOption={(propertyId, label) => db.addSelectOption(propertyId, label)}
-        onSubmit={(fields) => db.submitFormRow(fields)}
+        onSubmit={(fields, name) => db.submitFormRow(fields, name)}
       />
     );
   case 'bar':

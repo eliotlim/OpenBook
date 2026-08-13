@@ -16,6 +16,7 @@ import {
   viewTypePatch,
 } from '../databaseMenus';
 import type {UseDatabase} from '../useDatabase';
+import {I18nProvider} from '@/providers';
 
 afterEach(cleanup);
 
@@ -44,26 +45,54 @@ describe('form view registry', () => {
       formFields: {},
       formConfig: {acceptingResponses: true},
     });
+
+    const formerForm = {
+      ...table,
+      type: 'table',
+      visiblePropertyIds: ['p-text'],
+      formFields: {'p-text': {required: true}},
+      formConfig: {acceptingResponses: false, closedMessage: 'Paused'},
+    } as DatabaseView;
+    expect(viewTypePatch('form', formerForm, properties)).toEqual({type: 'form'});
   });
 });
 
 describe('unknown database view guard', () => {
-  it('keeps an unknown persisted type out of the table and form renderers', () => {
+  it('keeps x_future out of the table grid while form renders the real form view', () => {
     const unknown = {
       id: 'v-future',
       name: 'Future',
-      type: 'future-layout',
+      type: 'x_future',
       filters: [],
       sorts: [],
     } as unknown as DatabaseView;
 
-    const {container} = render(
+    const unknownRender = render(
       <ViewBody db={{} as UseDatabase} view={unknown} columns={[]} schema={[]} />,
     );
 
     expect(screen.getByText('A newer client is required to show this view.')).toBeTruthy();
-    expect(container.querySelector('[data-unsupported-database-view="future-layout"]')).toBeTruthy();
-    expect(container.querySelector('table')).toBeNull();
-    expect(container.querySelector('[data-database-form]')).toBeNull();
+    expect(unknownRender.container.querySelector('[data-unsupported-database-view="x_future"]')).toBeTruthy();
+    expect(unknownRender.container.querySelector('table')).toBeNull();
+    unknownRender.unmount();
+
+    const form = {
+      id: 'v-form',
+      name: 'Form',
+      type: 'form',
+      filters: [],
+      sorts: [],
+      visiblePropertyIds: [],
+      formFields: {},
+      formConfig: {acceptingResponses: false},
+    } as DatabaseView;
+    const formRender = render(
+      <I18nProvider>
+        <ViewBody db={{} as UseDatabase} view={form} columns={[]} schema={[]} canEdit={false} />
+      </I18nProvider>,
+    );
+    expect(formRender.container.querySelector('[data-database-form]')).toBeTruthy();
+    expect(formRender.container.querySelector('[data-unsupported-database-view]')).toBeNull();
+    expect(formRender.container.querySelector('table')).toBeNull();
   });
 });

@@ -146,7 +146,7 @@ export interface UseDatabase {
   addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
   /** Create one row from an in-app form without loading or refreshing the row
    *  stream. The table view will load it when the user switches back. */
-  submitFormRow: (initial: Record<string, unknown>) => Promise<string | undefined>;
+  submitFormRow: (initial: Record<string, unknown>, name?: string) => Promise<string | undefined>;
   /** Create a sub-item nested under `parentId`. Returns the new row id. */
   addSubItem: (parentId: string) => Promise<string | undefined>;
   /** Re-parent a row (`null` = top level). Reverts if the server refuses (e.g. a cycle). */
@@ -549,9 +549,9 @@ export function useDatabase(
   );
 
   const submitFormRow = useCallback(
-    async (initial: Record<string, unknown>): Promise<string | undefined> => {
+    async (initial: Record<string, unknown>, name?: string): Promise<string | undefined> => {
       if (!database) return undefined;
-      const page = await client.createRow(database.id, {name: null, properties: initial});
+      const page = await client.createRow(database.id, {name: name ?? null, properties: initial});
       return page.id;
     },
     [client, database],

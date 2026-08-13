@@ -154,8 +154,10 @@ describe('database form mutations and row blindness', () => {
     const {result} = await loadDatabase();
 
     await act(() => result.current.submitFormRow({[source.id]: 'ready'}));
+    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {name: null, properties: {[source.id]: 'ready'}});
 
-    expect(client.createRow).toHaveBeenCalledWith(formDatabase.id, {name: null, properties: {[source.id]: 'ready'}});
+    await act(() => result.current.submitFormRow({[source.id]: 'named'}, 'Intake response'));
+    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {name: 'Intake response', properties: {[source.id]: 'named'}});
     expect(client.listRows).not.toHaveBeenCalled();
     expect(client.subscribeRows).not.toHaveBeenCalled();
   });

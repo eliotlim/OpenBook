@@ -2,8 +2,10 @@ import React, {useState} from 'react';
 import {AlertTriangle, GripVertical, Plus, Trash2} from 'lucide-react';
 import {
   isFormWritablePropertyType,
+  TITLE_PROPERTY_ID,
   validateRowAgainstForm,
   type DatabaseFormField,
+  type DatabaseFormFieldValidation,
   type DatabaseProperty,
   type DatabaseSelectOption,
   type DatabaseView,
@@ -59,8 +61,14 @@ const FORM_ERROR_KEY: Record<FormRowValidationErrorCode, TKey> = {
   unknown_field: 'database.formView.errors.unknownField',
   required: 'database.formView.errors.required',
   type: 'database.formView.errors.type',
+  min: 'database.formView.errors.min',
+  max: 'database.formView.errors.max',
+  minLength: 'database.formView.errors.minLength',
+  maxLength: 'database.formView.errors.maxLength',
+  pattern: 'database.formView.errors.pattern',
   option: 'database.formView.errors.option',
   range: 'database.formView.errors.range',
+  too_large: 'database.formView.errors.tooLarge',
   date_format: 'database.formView.errors.dateFormat',
   email_format: 'database.formView.errors.emailFormat',
   url_format: 'database.formView.errors.urlFormat',
@@ -74,15 +82,22 @@ export interface ProjectedDatabaseFormField {
   label: string;
 }
 
+const titleProperty = (name: string): DatabaseProperty => ({
+  id: TITLE_PROPERTY_ID,
+  name,
+  type: 'text',
+});
+
 /** Resolve form mappings against the current property schema. Names and types
  *  are intentionally read now, never copied into form metadata. */
 export function projectDatabaseFormFields(
   properties: readonly DatabaseProperty[],
   view: DatabaseView,
+  titleLabel = 'Title',
 ): ProjectedDatabaseFormField[] {
   const byId = new Map(properties.map((property) => [property.id, property]));
   return (view.visiblePropertyIds ?? []).flatMap((propertyId) => {
-    const property = byId.get(propertyId);
+    const property = propertyId === TITLE_PROPERTY_ID ? titleProperty(titleLabel) : byId.get(propertyId);
     if (!property) return [];
     const metadata = view.formFields?.[propertyId] ?? {};
     return [{
@@ -116,7 +131,7 @@ export interface DatabaseFormProps {
     opts?: AddPropertyForViewListOptions,
   ) => Promise<string | undefined>;
   onAddOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
-  onSubmit: (fields: Record<string, unknown>) => Promise<string | undefined>;
+  onSubmit: (fields: Record<string, unknown>, name?: string) => Promise<string | undefined>;
 }
 
 const fieldClass = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-hidden focus-visible:shadow-[var(--ring-control)]';
@@ -126,7 +141,8 @@ const MetadataInput: React.FC<{
   value: string | undefined;
   placeholder: string;
   onCommit: (value: string | undefined) => void;
-}> = ({label, value, placeholder, onCommit}) => (
+  trim?: boolean;
+}> = ({label, value, placeholder, onCommit, trim = true}) => (
   <label className="block min-w-0">
     <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
     <input
@@ -134,13 +150,62 @@ const MetadataInput: React.FC<{
       defaultValue={value ?? ''}
       placeholder={placeholder}
       onBlur={(event) => {
-        const next = event.target.value.trim() || undefined;
+        const raw = event.target.value;
+        const next = (trim ? raw.trim() : raw) || undefined;
         if (next !== value) onCommit(next);
       }}
       className={fieldClass}
     />
   </label>
 );
+
+const NumberMetadataInput: React.FC<{
+  label: string;
+  value: number | undefined;
+  placeholder?: string;
+  min?: number;
+  integer?: boolean;
+  onCommit: (value: number | undefined) => void;
+}> = ({label, value, placeholder, min, integer = false, onCommit}) => (
+  <label className="block min-w-0">
+    <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
+    <input
+      key={value ?? ''}
+      type="number"
+      defaultValue={value ?? ''}
+      placeholder={placeholder}
+      min={min}
+      step={integer ? 1 : 'any'}
+      onBlur={(event) => {
+        const raw = event.target.value.trim();
+        const parsed = raw === '' ? undefined : Number(raw);
+        const next = parsed === undefined || !Number.isFinite(parsed)
+          ? undefined
+          : integer
+            ? Math.trunc(parsed)
+            : parsed;
+        if (next !== value) onCommit(next);
+      }}
+      className={fieldClass}
+    />
+  </label>
+);
+
+/** Accept only browser-safe HTTP(S) destinations, including relative URLs. */
+export function safeFormRedirectUrl(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+    const base = currentOrigin && currentOrigin !== 'null' ? currentOrigin : 'https://openbook.local';
+    const parsed = new URL(value, base);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) return parsed.href;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
 
 const NewFieldDialog: React.FC<{
   open: boolean;
@@ -222,7 +287,7 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const fields = projectDatabaseFormFields(properties, view).filter((field) => field.writable);
+  const fields = projectDatabaseFormFields(properties, view, t('database.formView.rowTitle')).filter((field) => field.writable);
   const errorsByProperty = new Map(errors.filter((error) => error.propertyId).map((error) => [error.propertyId, error]));
   const globalError = errors.find((error) => error.propertyId === '');
 
@@ -243,7 +308,7 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
     setSubmitError(false);
     setSubmitting(true);
     try {
-      const rowId = await onSubmit(result.fields);
+      const rowId = await onSubmit(result.fields, result.name);
       if (!rowId) {
         setSubmitError(true);
         return;
@@ -266,18 +331,34 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
     return (
       <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-closed>
         <h2 className="text-xl font-semibold">{view.formConfig?.title?.trim() || view.name}</h2>
-        <p className="mt-3 text-sm text-muted-foreground">{t('database.formView.closed')}</p>
+        <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
+          {view.formConfig?.closedMessage?.trim() || t('database.formView.closed')}
+        </p>
       </div>
     );
   }
 
   if (confirmed) {
+    const confirmation = view.formConfig?.confirmation;
+    const redirectUrl = confirmation?.type === 'redirect'
+      ? safeFormRedirectUrl(confirmation.redirectUrl)
+      : null;
     return (
       <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-confirmation role="status">
-        <p className="whitespace-pre-wrap text-base">
-          {view.formConfig?.confirmationMessage?.trim() || t('database.formView.defaultConfirmation')}
-        </p>
-        <Button className="mt-5" variant="outline" onClick={restart}>{t('database.formView.submitAnother')}</Button>
+        {redirectUrl ? (
+          <Button asChild data-form-confirmation-redirect>
+            <a href={redirectUrl} rel="noopener noreferrer">{t('database.formView.continue')}</a>
+          </Button>
+        ) : (
+          <>
+            <p className="whitespace-pre-wrap text-base">
+              {confirmation?.type === 'message' && confirmation.message.trim()
+                ? confirmation.message.trim()
+                : t('database.formView.defaultConfirmation')}
+            </p>
+            <Button className="mt-5" variant="outline" onClick={restart}>{t('database.formView.submitAnother')}</Button>
+          </>
+        )}
       </div>
     );
   }
@@ -298,13 +379,23 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
               </span>
               {metadata.help && <span className="mt-1 block text-xs text-muted-foreground">{metadata.help}</span>}
               <span className={cn('group mt-2 block min-h-9 overflow-visible rounded-md border bg-background', error ? 'border-destructive' : 'border-border')}>
-                <PropertyValueCell
-                  property={inputProperty}
-                  value={values[property.id]}
-                  placeholder={metadata.placeholder}
-                  onChange={(value) => updateValue(property.id, value)}
-                  onAddOption={(optionLabel) => onAddOption(property.id, optionLabel)}
-                />
+                {property.type === 'text' && metadata.multiline ? (
+                  <textarea
+                    defaultValue={typeof values[property.id] === 'string' ? values[property.id] as string : ''}
+                    placeholder={metadata.placeholder}
+                    aria-label={label}
+                    onBlur={(event) => updateValue(property.id, event.target.value)}
+                    className="min-h-24 w-full resize-y bg-transparent px-2 py-1.5 text-sm outline-hidden"
+                  />
+                ) : (
+                  <PropertyValueCell
+                    property={inputProperty}
+                    value={values[property.id]}
+                    placeholder={metadata.placeholder}
+                    onChange={(value) => updateValue(property.id, value)}
+                    onAddOption={(optionLabel) => onAddOption(property.id, optionLabel)}
+                  />
+                )}
               </span>
               {error && <span className="mt-1 block text-xs text-destructive" role="alert">{t(FORM_ERROR_KEY[error.code])}</span>}
             </div>
@@ -334,12 +425,16 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [newFieldOpen, setNewFieldOpen] = useState(false);
-  const fields = projectDatabaseFormFields(properties, view);
+  const rowTitle = titleProperty(t('database.formView.rowTitle'));
+  const fields = projectDatabaseFormFields(properties, view, rowTitle.name);
   const mappedIds = new Set(view.visiblePropertyIds ?? []);
-  const available = properties.filter((property) =>
-    !mappedIds.has(property.id)
-      && !property.id.startsWith('sys_')
-      && isFormWritablePropertyType(property.type));
+  const available = [
+    ...(mappedIds.has(TITLE_PROPERTY_ID) ? [] : [rowTitle]),
+    ...properties.filter((property) =>
+      !mappedIds.has(property.id)
+        && !property.id.startsWith('sys_')
+        && isFormWritablePropertyType(property.type)),
+  ];
 
   const updateField = (propertyId: string, patch: Partial<DatabaseFormField>): void => {
     void onUpdateView({
@@ -365,6 +460,16 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
   };
   const updateConfig = (patch: NonNullable<DatabaseView['formConfig']>): void => {
     void onUpdateView({formConfig: {...(view.formConfig ?? {}), ...patch}});
+  };
+  const updateValidation = (
+    propertyId: string,
+    key: keyof DatabaseFormFieldValidation,
+    value: number | string | undefined,
+  ): void => {
+    const validation = {...(view.formFields?.[propertyId]?.validation ?? {})};
+    if (value === undefined) delete validation[key];
+    else Object.assign(validation, {[key]: value});
+    updateField(propertyId, {validation: Object.keys(validation).length > 0 ? validation : undefined});
   };
 
   return (
@@ -403,8 +508,12 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
           </div>
         )}
         <div className="space-y-3">
-          {fields.map(({property, metadata, writable}) => (
-            <article
+          {fields.map(({property, metadata, writable}) => {
+            const hasNumericValidation = property.type === 'number' || property.type === 'rating';
+            const hasLengthValidation = ['text', 'url', 'email', 'phone', 'multi_select', 'files'].includes(property.type);
+            const hasPatternValidation = ['text', 'url', 'email', 'phone'].includes(property.type);
+            return (
+              <article
               key={property.id}
               draggable
               data-form-field-id={property.id}
@@ -483,10 +592,69 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
                     aria-label={`${t('database.formView.required')}: ${property.name}`}
                   />
                 </label>
+                {property.type === 'text' && (
+                  <label className="flex items-center justify-between gap-4 rounded-md border border-border px-2.5 py-2 text-sm">
+                    {t('database.formView.multiline')}
+                    <Switch
+                      checked={metadata.multiline === true}
+                      onCheckedChange={(multiline) => updateField(property.id, {multiline})}
+                      aria-label={`${t('database.formView.multiline')}: ${property.name}`}
+                    />
+                  </label>
+                )}
               </div>
+              {(hasNumericValidation || hasLengthValidation || hasPatternValidation) && (
+                <div className="mt-3 rounded-md border border-border p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">{t('database.formView.validation')}</div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {hasNumericValidation && (
+                      <>
+                        <NumberMetadataInput
+                          label={t('database.formView.minimum')}
+                          value={metadata.validation?.min}
+                          onCommit={(value) => updateValidation(property.id, 'min', value)}
+                        />
+                        <NumberMetadataInput
+                          label={t('database.formView.maximum')}
+                          value={metadata.validation?.max}
+                          onCommit={(value) => updateValidation(property.id, 'max', value)}
+                        />
+                      </>
+                    )}
+                    {hasLengthValidation && (
+                      <>
+                        <NumberMetadataInput
+                          label={t('database.formView.minimumLength')}
+                          value={metadata.validation?.minLength}
+                          min={0}
+                          integer
+                          onCommit={(value) => updateValidation(property.id, 'minLength', value)}
+                        />
+                        <NumberMetadataInput
+                          label={t('database.formView.maximumLength')}
+                          value={metadata.validation?.maxLength}
+                          min={0}
+                          integer
+                          onCommit={(value) => updateValidation(property.id, 'maxLength', value)}
+                        />
+                      </>
+                    )}
+                    {hasPatternValidation && (
+                      <MetadataInput
+                        label={t('database.formView.pattern')}
+                        value={metadata.validation?.pattern}
+                        placeholder={t('database.formView.patternPlaceholder')}
+                        trim={false}
+                        onCommit={(value) => updateValidation(property.id, 'pattern', value)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="mt-2 text-xs text-muted-foreground">{t('database.formView.removeHint')}</div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -511,11 +679,47 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
             placeholder={t('database.formView.submitLabelPlaceholder')}
             onCommit={(submitLabel) => updateConfig({submitLabel})}
           />
+          <label className="block min-w-0">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">{t('database.formView.confirmationType')}</span>
+            <Select
+              value={view.formConfig?.confirmation?.type ?? 'message'}
+              onChange={(event) => updateConfig({confirmation: event.target.value === 'redirect'
+                ? {type: 'redirect', redirectUrl: ''}
+                : {type: 'message', message: ''}})}
+              aria-label={t('database.formView.confirmationType')}
+            >
+              <option value="message">{t('database.formView.confirmationMessageOption')}</option>
+              <option value="redirect">{t('database.formView.confirmationRedirectOption')}</option>
+            </Select>
+          </label>
+          {view.formConfig?.confirmation?.type === 'redirect' ? (
+            <MetadataInput
+              label={t('database.formView.confirmationRedirectUrl')}
+              value={view.formConfig.confirmation.redirectUrl}
+              placeholder={t('database.formView.confirmationRedirectPlaceholder')}
+              onCommit={(redirectUrl) => updateConfig({confirmation: {type: 'redirect', redirectUrl: redirectUrl ?? ''}})}
+            />
+          ) : (
+            <MetadataInput
+              label={t('database.formView.confirmationMessage')}
+              value={view.formConfig?.confirmation?.type === 'message' ? view.formConfig.confirmation.message : undefined}
+              placeholder={t('database.formView.confirmationPlaceholder')}
+              onCommit={(message) => updateConfig({confirmation: {type: 'message', message: message ?? ''}})}
+            />
+          )}
           <MetadataInput
-            label={t('database.formView.confirmationMessage')}
-            value={view.formConfig?.confirmationMessage}
-            placeholder={t('database.formView.confirmationPlaceholder')}
-            onCommit={(confirmationMessage) => updateConfig({confirmationMessage})}
+            label={t('database.formView.closedMessage')}
+            value={view.formConfig?.closedMessage}
+            placeholder={t('database.formView.closedMessagePlaceholder')}
+            onCommit={(closedMessage) => updateConfig({closedMessage})}
+          />
+          <NumberMetadataInput
+            label={t('database.formView.maxResponses')}
+            value={view.formConfig?.maxResponses}
+            placeholder={t('database.formView.maxResponsesPlaceholder')}
+            min={1}
+            integer
+            onCommit={(maxResponses) => updateConfig({maxResponses})}
           />
           <label className="flex items-center justify-between gap-4 rounded-md border border-border px-2.5 py-2 text-sm">
             {t('database.formView.acceptingResponses')}

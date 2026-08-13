@@ -2269,7 +2269,7 @@ export const ViewOptionsMenu: React.FC<{
 /** Build the patch for switching a view's layout, defaulting layout-specific config. */
 export function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
-  if (type === 'form' && view.type !== 'form') {
+  if (type === 'form' && view.formConfig === undefined) {
     patch.visiblePropertyIds = properties
       .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
       .map((property) => property.id);
