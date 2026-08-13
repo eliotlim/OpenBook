@@ -284,11 +284,12 @@ test.describe('PUB-1: published-pages-only default access', () => {
       // silent whole-library exposure the old three-state control could cause.
       expect((await policy(instance)).defaultVisibility).toBe('members');
 
-      // The page's own `public` visibility survived both instance-policy writes.
+      // The page's own `public` visibility and independent listing posture
+      // survived both instance-policy writes.
       const visibility = await (
         await fetch(`${instance.url}/api/pages/${publishedId}/visibility`, {headers: instance.owner})
       ).json();
-      expect(visibility).toEqual({visibility: 'public'});
+      expect(visibility).toEqual({visibility: 'public', listed: true});
       expect((await anonGet(publishedId)).status()).toBe(200);
       expect((await anonGet(unpublishedId)).status()).toBe(404);
 
