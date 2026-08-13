@@ -107,7 +107,7 @@ export type FormWritablePropertyType = {
 
 /** True when `type` is safe for a public form fill in v1. */
 export function isFormWritablePropertyType(type: DatabasePropertyType): type is FormWritablePropertyType {
-  return FORM_PROPERTY_TYPE_WRITABILITY[type];
+  return FORM_PROPERTY_TYPE_WRITABILITY[type] === true;
 }
 
 /** Display formatting for `number`/`formula`/`expr` numeric values. */
@@ -502,6 +502,9 @@ export interface DatabaseFormDescriptorField {
   help: string;
   required: boolean;
   placeholder: string;
+  multiline?: boolean;
+  /** Display-safe constraints; pattern remains server-enforced only. */
+  validation?: Pick<DatabaseFormFieldValidation, 'min' | 'max' | 'minLength' | 'maxLength'>;
   options?: DatabaseSelectOption[];
   includeTime?: boolean;
   dateRange?: boolean;
@@ -1455,9 +1458,15 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
     // A form's field list is always explicit and fail-closed. Form-only fields
     // are added as ordinary pageHidden properties by the builder, then appended
     // here just like any other form-writable database column.
-    view.visiblePropertyIds = properties
-      .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
-      .map((property) => property.id);
+    view.visiblePropertyIds = [
+      TITLE_PROPERTY_ID,
+      ...properties
+        .filter((property) =>
+          property.id !== TITLE_PROPERTY_ID
+          && !property.id.startsWith('sys_')
+          && isFormWritablePropertyType(property.type))
+        .map((property) => property.id),
+    ];
     view.formFields = {};
     view.formConfig = {acceptingResponses: true};
   }
@@ -1834,6 +1843,19 @@ export function projectDatabaseFormDescriptor(
       required: metadata?.required === true,
       placeholder: metadata?.placeholder ?? '',
     };
+    if (property.type === 'text' && metadata?.multiline !== undefined) {
+      field.multiline = metadata.multiline;
+    }
+    const validation = metadata?.validation;
+    if (validation) {
+      const displayValidation = {
+        ...(validation.min !== undefined ? {min: validation.min} : {}),
+        ...(validation.max !== undefined ? {max: validation.max} : {}),
+        ...(validation.minLength !== undefined ? {minLength: validation.minLength} : {}),
+        ...(validation.maxLength !== undefined ? {maxLength: validation.maxLength} : {}),
+      };
+      if (Object.keys(displayValidation).length > 0) field.validation = displayValidation;
+    }
     if (
       (property.type === 'select' || property.type === 'multi_select' || property.type === 'status')
       && property.options !== undefined

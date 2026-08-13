@@ -235,6 +235,7 @@ export {
   extractMentionIds,
   propertiesReferencePage,
   extractPropertyReferenceIds,
+  type DatabaseFormSubmissionMarker,
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, onServerOverrideChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
