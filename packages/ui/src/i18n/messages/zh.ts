@@ -1341,6 +1341,7 @@ export const zh: PartialMessages = {
         timeline: '沿时间轴的甘特条',
         map: '按位置属性放置标记',
         graph: '展示行之间的依赖关系',
+        form: 'Form',
         bar: '按分组聚合的条形图',
         pie: '按分组聚合的饼图',
       },

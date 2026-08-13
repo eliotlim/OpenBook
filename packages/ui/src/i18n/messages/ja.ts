@@ -1349,6 +1349,7 @@ export const ja: PartialMessages = {
         timeline: '時間軸に沿ったガントバー',
         map: '場所プロパティでマーカーを配置',
         graph: '行同士の依存関係を表示',
+        form: 'Form',
         bar: 'グループごとに集計した棒グラフ',
         pie: 'グループごとに集計した円グラフ',
       },

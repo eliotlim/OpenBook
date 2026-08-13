@@ -2179,6 +2179,7 @@ export const en = {
         timeline: 'Gantt-style bars across time',
         map: 'Markers placed by a location property',
         graph: 'How rows depend on each other',
+        form: 'Form',
         bar: 'Rows aggregated into bars per group',
         pie: 'Rows aggregated into slices per group',
       },

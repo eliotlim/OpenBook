@@ -1356,6 +1356,7 @@ export const de: PartialMessages = {
         timeline: 'Gantt-Balken entlang der Zeit',
         map: 'Marker nach einer Standort-Eigenschaft',
         graph: 'Abhängigkeiten zwischen Zeilen',
+        form: 'Form',
         bar: 'Zeilen als Balken je Gruppe aggregiert',
         pie: 'Zeilen als Kreissegmente je Gruppe',
       },

@@ -5,6 +5,7 @@ import {
   dateStart,
   flattenRowTree,
   groupRowsBy,
+  isDatabaseViewType,
   PARENT_GROUP_ID,
   summarizeColumn,
   TITLE_PROPERTY_ID,
@@ -42,6 +43,7 @@ import {Switch} from '@/components/ui/switch';
 import {Label} from '@/components/ui/label';
 import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
+import {EmptyState} from '@/components/ui/empty-state';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
@@ -968,6 +970,16 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
   );
 };
 
+/** F-2 compatibility boundary: unknown layouts must never inherit table writes. */
+const NewerClientRequiredView: React.FC<{type: unknown}> = ({type}) => (
+  <div className="rounded-md border border-border" data-unsupported-database-view={String(type)}>
+    <EmptyState
+      title="A newer client is required to show this view."
+      hint="Update OpenBook to view or edit this database layout."
+    />
+  </div>
+);
+
 /** Render the active view's body for its layout type. */
 const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]}> = ({
   db,
@@ -975,6 +987,8 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
   columns,
   schema,
 }) => {
+  if (!isDatabaseViewType(view.type)) return <NewerClientRequiredView type={view.type} />;
+
   // The dense date layouts only show property chips once the user opts in (picks
   // properties); the card layouts show the visible set by default.
   const explicitCols = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? columns : [];
@@ -993,12 +1007,17 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
     return <MapView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'graph':
     return <GraphView db={db} view={view} properties={schema} />;
+  case 'form':
+    // F-2 replaces this fail-closed stub with the form builder/preview.
+    return <NewerClientRequiredView type={view.type} />;
   case 'bar':
     return <BarChartView db={db} view={view} properties={schema} />;
   case 'pie':
     return <PieChartView db={db} view={view} properties={schema} />;
-  default:
+  case 'table':
     return <TableView db={db} view={view} columns={columns} schema={schema} />;
+  default:
+    return <NewerClientRequiredView type={view.type} />;
   }
 };
 
