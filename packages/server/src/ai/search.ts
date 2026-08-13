@@ -75,6 +75,10 @@ export interface IndexablePage {
   id: string;
   name: string | null;
   data: unknown;
+  /** Discovery posture is retained in the raw index input. Per-principal
+   * filtering still happens after ranking because owners/admins may discover
+   * unlisted pages while every other principal may not. */
+  listed?: boolean;
 }
 
 /**
@@ -109,9 +113,10 @@ export function pageRowsToDocs(rows: IndexablePage[]): IndexedDoc[] {
 
 /**
  * Collapse a ranked candidate list to one result per page (best chunk wins),
- * gated by an optional per-principal read check. Walks the whole candidate set
- * (not just its top slice) so the caller still gets up to `limit` *readable*
- * hits, with no existence oracle — an unreadable page is silently skipped.
+ * gated by an optional per-principal inclusion check (read + discovery for
+ * shared-server callers). Walks the whole candidate set so the caller still
+ * gets up to `limit` eligible hits, with no existence oracle — an excluded page
+ * is silently skipped.
  * Shared by {@link AiService.search} and {@link LocalSearchIndex.search}.
  */
 export async function assembleSearchResults(
@@ -119,7 +124,7 @@ export async function assembleSearchResults(
   ranked: Array<{i: number; score: number}>,
   query: string,
   limit: number,
-  canRead?: (pageId: string) => Promise<boolean>,
+  canInclude?: (pageId: string) => Promise<boolean>,
 ): Promise<AiSearchResponse['results']> {
   const seen = new Set<string>();
   const results: AiSearchResponse['results'] = [];
@@ -127,7 +132,7 @@ export async function assembleSearchResults(
     const doc = index.docs[i];
     if (seen.has(doc.pageId)) continue;
     seen.add(doc.pageId);
-    if (canRead && !(await canRead(doc.pageId))) continue;
+    if (canInclude && !(await canInclude(doc.pageId))) continue;
     results.push({
       pageId: doc.pageId,
       title: doc.title,
