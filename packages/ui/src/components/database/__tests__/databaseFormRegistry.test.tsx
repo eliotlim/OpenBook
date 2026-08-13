@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it} from 'vitest';
 import {cleanup, render, screen} from '@testing-library/react';
 import {
   KNOWN_DATABASE_VIEW_TYPES,
+  type DataClient,
   type DatabaseProperty,
   type DatabaseView,
 } from '@book.dev/sdk';
@@ -16,6 +17,7 @@ import {
   viewTypePatch,
 } from '../databaseMenus';
 import type {UseDatabase} from '../useDatabase';
+import {DataProvider} from '@/data';
 import {I18nProvider} from '@/providers';
 
 afterEach(cleanup);
@@ -76,7 +78,9 @@ describe('unknown database view guard', () => {
     } as unknown as DatabaseView;
 
     const unknownRender = render(
-      <ViewBody db={{} as UseDatabase} view={unknown} columns={[]} schema={[]} />,
+      <DataProvider client={{} as DataClient}>
+        <ViewBody db={{} as UseDatabase} view={unknown} columns={[]} schema={[]} />
+      </DataProvider>,
     );
 
     expect(screen.getByText('A newer client is required to show this view.')).toBeTruthy();
@@ -95,9 +99,11 @@ describe('unknown database view guard', () => {
       formConfig: {acceptingResponses: false},
     } as DatabaseView;
     const formRender = render(
-      <I18nProvider>
-        <ViewBody db={{} as UseDatabase} view={form} columns={[]} schema={[]} canEdit={false} />
-      </I18nProvider>,
+      <DataProvider client={{} as DataClient}>
+        <I18nProvider>
+          <ViewBody db={{} as UseDatabase} view={form} columns={[]} schema={[]} canEdit={false} />
+        </I18nProvider>
+      </DataProvider>,
     );
     expect(formRender.container.querySelector('[data-database-form]')).toBeTruthy();
     expect(formRender.container.querySelector('[data-unsupported-database-view]')).toBeNull();

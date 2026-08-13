@@ -146,9 +146,12 @@ async function publish(
   });
   expect(response.status).toBe(201);
   const {url} = (await response.json()) as {url: string};
-  const capability = new URLSearchParams(new URL(url).hash.slice(1)).get('capability');
+  const parsed = new URL(url, 'https://app.book.pub');
+  const capability = new URLSearchParams(parsed.hash.slice(1)).get('capability');
   expect(capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
-  expect(new URL(url).pathname).toBe(API.databaseForm(databaseId, viewId));
+  expect(parsed.pathname).toBe('/');
+  expect(parsed.searchParams.get('form')).toBe(databaseId);
+  expect(parsed.searchParams.get('view')).toBe(viewId);
   return {capability: capability!, url};
 }
 
@@ -543,7 +546,7 @@ describe('database form-view public fill', () => {
     const seeded = await seedForm({view});
     await store.createRow(seeded.database.id, {properties: {email: 'existing@example.com', unmapped: 'secret'}});
     const a = app();
-    const {capability, url} = await publish(a, seeded.database.id, seeded.view.id);
+    const {capability} = await publish(a, seeded.database.id, seeded.view.id);
     const descriptorResponse = await descriptor(a, seeded.database.id, seeded.view.id, capability);
     expect(descriptorResponse.status).toBe(200);
     expect(await descriptorResponse.json() as DatabaseFormDescriptor).toEqual({
@@ -592,7 +595,7 @@ describe('database form-view public fill', () => {
       ],
     });
 
-    const queryOnly = await a.request(`${new URL(url).pathname}?capability=${encodeURIComponent(capability)}`, {
+    const queryOnly = await a.request(`${API.databaseForm(seeded.database.id, seeded.view.id)}?capability=${encodeURIComponent(capability)}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({}),
@@ -641,6 +644,108 @@ describe('database form-view public fill', () => {
       },
     });
     expect(await store.getDatabaseFormCapabilityHash(current.id, duplicate.id)).toBeNull();
+  });
+
+  it('reports publication without disclosing the capability and rejects unsafe patterns before minting', async () => {
+    const unsafeView = formView(`unsafe-${seq}`, {
+      formFields: {
+        email: {required: true, validation: {pattern: '(a+)+$'}},
+      },
+    });
+    const seeded = await seedForm({view: unsafeView});
+    const a = app();
+    const path = API.databaseFormCapability(seeded.database.id, unsafeView.id);
+    const ownerHeaders = {[IDENTITY_HEADER]: ownerJws, 'X-OpenBook-Client': '1'};
+
+    const before = await a.request(path, {headers: ownerHeaders});
+    expect(before.status).toBe(200);
+    expect(await before.json()).toEqual({published: false});
+
+    const rejected = await a.request(path, {method: 'POST', headers: ownerHeaders});
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({
+      error: 'invalid form validation pattern',
+      propertyIds: ['email'],
+    });
+    expect(await store.getDatabaseFormCapabilityHash(seeded.database.id, unsafeView.id)).toBeNull();
+
+    const current = (await store.getDatabase(seeded.database.id))!;
+    await store.updateDatabase(current.id, {
+      schema: {
+        ...current.schema,
+        views: current.schema.views.map((view) => view.id === unsafeView.id
+          ? {...view, formFields: {email: {required: true, validation: {pattern: '^.+@.+$'}}}}
+          : view),
+      },
+    });
+    const {capability} = await publish(a, seeded.database.id, unsafeView.id);
+    const after = await a.request(path, {headers: ownerHeaders});
+    expect(after.status).toBe(200);
+    const afterText = await after.text();
+    expect(JSON.parse(afterText)).toEqual({published: true});
+    expect(afterText).not.toContain(capability);
+  });
+
+  it('keeps an unlisted, unpublished host isolated while its form capability stays live', async () => {
+    await store.updateInstanceConfig({
+      trustedIssuers: [{issuer: ISS, jwks}],
+      ownerSubject: OWNER,
+      defaultVisibility: 'public',
+      guestAccess: 'read',
+    });
+    const seeded = await seedForm();
+    const hostSecret = `private-host-title-${seq}`;
+    await store.upsertPage({...seeded.page, name: hostSecret});
+    const current = (await store.getDatabase(seeded.database.id))!;
+    const otherView = {
+      id: `private-table-${seq}`,
+      name: `private-other-view-${seq}`,
+      type: 'table' as const,
+      filters: [],
+      sorts: [],
+    };
+    await store.updateDatabase(current.id, {
+      name: `private-database-${seq}`,
+      schema: {...current.schema, views: [...current.schema.views, otherView]},
+    });
+    await store.setPageVisibility(seeded.page.id, {visibility: 'public', listed: false});
+
+    const a = app();
+    const published = await publish(a, seeded.database.id, seeded.view.id);
+    const activeHash = await store.getDatabaseFormCapabilityHash(seeded.database.id, seeded.view.id);
+    const guestHeaders = {'X-OpenBook-Client': '1'};
+    const listedWhilePublic = await a.request(API.pages, {headers: guestHeaders});
+    expect(listedWhilePublic.status).toBe(200);
+    expect(((await listedWhilePublic.json()) as Array<{id: string}>).map((page) => page.id)).not.toContain(seeded.page.id);
+    expect((await a.request(API.page(seeded.page.id), {headers: guestHeaders})).status).toBe(200);
+
+    const publicDescriptor = await descriptor(a, seeded.database.id, seeded.view.id, published.capability);
+    expect(publicDescriptor.status).toBe(200);
+    const descriptorText = await publicDescriptor.text();
+    expect(descriptorText).not.toContain(hostSecret);
+    expect(descriptorText).not.toContain(otherView.name);
+    expect(descriptorText).not.toContain(`private-database-${seq}`);
+
+    // Page publication changes are deliberately independent from form publication.
+    await store.setPageVisibility(seeded.page.id, {visibility: 'members', listed: false});
+    expect(await store.getDatabaseFormCapabilityHash(seeded.database.id, seeded.view.id)).toBe(activeHash);
+    const listedAfterUnpublish = await a.request(API.pages, {headers: guestHeaders});
+    expect(((await listedAfterUnpublish.json()) as Array<{id: string}>).map((page) => page.id)).not.toContain(seeded.page.id);
+    expect((await a.request(API.page(seeded.page.id), {headers: guestHeaders})).status).not.toBe(200);
+    expect((await a.request(API.database(seeded.database.id), {headers: guestHeaders})).status).not.toBe(200);
+    expect((await a.request(API.databaseRows(seeded.database.id), {headers: guestHeaders})).status).not.toBe(200);
+
+    const stillLive = await descriptor(a, seeded.database.id, seeded.view.id, published.capability);
+    expect(stillLive.status).toBe(200);
+    const submitted = await submit(
+      a,
+      seeded.database.id,
+      seeded.view.id,
+      published.capability,
+      {email: 'isolated@example.com'},
+    );
+    expect(submitted.status).toBe(201);
+    expect(await store.countDatabaseFormResponses(seeded.database.id, seeded.view.id)).toBe(1);
   });
 
   it('fails closed on malformed persisted mappings instead of exposing a public error', async () => {
