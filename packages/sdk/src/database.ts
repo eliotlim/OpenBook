@@ -107,7 +107,7 @@ export type FormWritablePropertyType = {
 
 /** True when `type` is safe for a public form fill in v1. */
 export function isFormWritablePropertyType(type: DatabasePropertyType): type is FormWritablePropertyType {
-  return FORM_PROPERTY_TYPE_WRITABILITY[type];
+  return FORM_PROPERTY_TYPE_WRITABILITY[type] === true;
 }
 
 /** Display formatting for `number`/`formula`/`expr` numeric values. */
