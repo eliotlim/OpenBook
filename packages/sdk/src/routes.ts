@@ -12,6 +12,12 @@ export const API = {
   /** Capability-gated form row creation: `POST`. */
   formSubmissions: (pageId: string, formId: string): string =>
     `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/submissions`,
+  /** Capability-gated database form-view row creation: `POST` (F-4). */
+  databaseFormSubmissions: (databaseId: string, viewId: string): string =>
+    `/api/databases/${encodeURIComponent(databaseId)}/views/${encodeURIComponent(viewId)}/submissions`,
+  /** Capability-gated database form descriptor: `POST` (F-4). */
+  databaseForm: (databaseId: string, viewId: string): string =>
+    `/api/databases/${encodeURIComponent(databaseId)}/views/${encodeURIComponent(viewId)}/form`,
   /** Capability-gated staged form-file upload: `POST`. */
   formUploads: (pageId: string, formId: string): string =>
     `/api/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/uploads`,
