@@ -46,6 +46,14 @@ describe('form view registry', () => {
       formConfig: {acceptingResponses: true},
     });
 
+    const incompleteForm = {...table, type: 'form'} as DatabaseView;
+    expect(viewTypePatch('form', incompleteForm, properties)).toEqual({
+      type: 'form',
+      visiblePropertyIds: ['p-text'],
+      formFields: {},
+      formConfig: {acceptingResponses: true},
+    });
+
     const formerForm = {
       ...table,
       type: 'table',

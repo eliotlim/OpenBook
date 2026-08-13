@@ -215,6 +215,15 @@ describe('database form fill renderer', () => {
     expect(screen.getByText('Responses reopen Monday.')).toBeTruthy();
     closedRender.unmount();
 
+    const defaultClosedRender = render(<DatabaseForm
+      view={{...closed, formConfig: {acceptingResponses: false}}}
+      properties={[email]}
+      canEdit={false}
+      {...actions()}
+    />);
+    expect(screen.getByText('This form is not accepting responses.')).toBeTruthy();
+    defaultClosedRender.unmount();
+
     const redirect = {
       ...formView,
       formConfig: {acceptingResponses: true, confirmation: {type: 'redirect', redirectUrl: 'https://example.com/thanks'}},
