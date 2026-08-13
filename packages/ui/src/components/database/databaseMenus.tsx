@@ -1199,7 +1199,7 @@ export const SummaryPicker: React.FC<{current: SummaryType; display: string; onC
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
       {SUMMARY_TYPES.map((s) => (
-        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)} className={cn(s.value === current && 'bg-hover')}>
+        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)}>
           {s.label}
         </DropdownMenuItem>
       ))}
