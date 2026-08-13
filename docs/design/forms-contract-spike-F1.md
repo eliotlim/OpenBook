@@ -239,6 +239,12 @@ Capability validation and current-schema validation occur on every request.
 The client may render a stale builder snapshot, but the server result always
 reflects the current database contract.
 
+**Row title (normative, v1):** `TITLE_PROPERTY_ID` (`'title'`) is not part of
+`schema.properties`, so v1 forms cannot write the row title. F-4 creates the
+submitted row with an empty name (no derived label). Future title support
+special-cases `TITLE_PROPERTY_ID` in the writability allowlist and is additive
+— no breaking change to this contract.
+
 ## 7. Mutation semantics
 
 - **Rename:** property name changes flow live into every mapped form unless that
