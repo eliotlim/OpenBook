@@ -260,17 +260,18 @@ export async function gatherSite(
     if (visited.has(id)) continue;
     visited.add(id);
 
-    const [stored, visibility] = await Promise.all([
-      client.getPage(id).catch(() => null),
-      // Older/test clients may not implement the UP-1 settings endpoint. Only
-      // an explicit false is hidden; absent metadata retains the legacy default.
-      Promise.resolve()
+    const stored = await client.getPage(id).catch(() => null);
+    // Current stores carry `listed` on the page record, avoiding a second RPC
+    // for every crawled page. Older/test clients may omit it, so retain the
+    // settings-endpoint fallback. Only an explicit false is hidden.
+    const storedListed = (stored as (StoredPage & {listed?: boolean}) | null)?.listed;
+    const listed =
+      storedListed ??
+      (await Promise.resolve()
         .then(() => client.getPageVisibility(id))
-        .catch(() => null),
-    ]);
+        .catch(() => null))?.listed;
     // The root may be brand-new/unsaved; fall back to its live snapshot.
     const isRoot = id === rootId;
-    const listed = visibility?.listed ?? (stored as (StoredPage & {listed?: boolean}) | null)?.listed;
     // `listed` controls discovery/export reachability, not direct access. The
     // manager explicitly selected the root, so keep it; every reached unlisted
     // page is hard-skipped without prompting.
@@ -338,6 +339,16 @@ export async function gatherSite(
         for (const r of rows) if (!pages.has(r.id)) queue.push(r.id);
       }
     }
+  }
+
+  // The content cap can leave referenced pages and database rows queued. They
+  // still need visibility classification so unlisted ids/titles are scrubbed
+  // from already-gathered snapshots and row metadata without fetching content.
+  for (const id of queue) {
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const visibility = await client.getPageVisibility(id).catch(() => null);
+    if (visibility?.listed === false) hiddenIds.add(id);
   }
 
   if (hiddenIds.size > 0) {
