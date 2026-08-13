@@ -292,6 +292,8 @@ const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-h
 export interface PropertyValueCellProps {
   property: DatabaseProperty;
   value: unknown;
+  /** Optional form-view copy for the editor's empty state. */
+  placeholder?: string;
   /** Live exported value (expr columns are read-only and use this). */
   exprValue?: unknown;
   onChange: (value: unknown) => void;
@@ -309,6 +311,7 @@ export interface PropertyValueCellProps {
 export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   property,
   value,
+  placeholder,
   exprValue,
   onChange,
   onAddOption,
@@ -353,17 +356,17 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
       </div>
     );
   case 'number':
-    return <NumberCell property={property} value={value} onChange={onChange} />;
+    return <NumberCell property={property} value={value} placeholder={placeholder} onChange={onChange} />;
   case 'rating':
     return <RatingCell property={property} value={value} onChange={onChange} />;
   case 'date':
     return <DateCell property={property} value={value} onChange={onChange} />;
   case 'select':
-    return <SelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
+    return <SelectCell property={property} value={value} placeholder={placeholder} onChange={onChange} onAddOption={onAddOption} />;
   case 'status':
-    return <StatusCell property={property} value={value} onChange={onChange} />;
+    return <StatusCell property={property} value={value} placeholder={placeholder} onChange={onChange} />;
   case 'multi_select':
-    return <MultiSelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
+    return <MultiSelectCell property={property} value={value} placeholder={placeholder} onChange={onChange} onAddOption={onAddOption} />;
   case 'relation':
     return <RelationCell property={property} value={value} onChange={onChange} />;
   case 'dependency':
@@ -373,7 +376,7 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   case 'url':
   case 'email':
   case 'phone':
-    return <LinkCell kind={property.type} value={value} onChange={onChange} />;
+    return <LinkCell kind={property.type} value={value} placeholder={placeholder} onChange={onChange} />;
   case 'location':
     return <LocationCell value={value} onChange={onChange} />;
   case 'created_time':
@@ -413,7 +416,7 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
         defaultValue={typeof value === 'string' ? value : value == null ? '' : String(value)}
         onBlur={(e) => onChange(e.target.value)}
         className={inputClass}
-        placeholder="Empty"
+        placeholder={placeholder || 'Empty'}
       />
     );
   }
@@ -454,9 +457,10 @@ const ProgressRing: React.FC<{frac: number}> = ({frac}) => {
  * or `ring` it pairs the editable input with a progress visual scaled to the
  * property's `numberTarget` (defaults to 100).
  */
-const NumberCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | 'onChange'>> = ({
+const NumberCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | 'placeholder' | 'onChange'>> = ({
   property,
   value,
+  placeholder,
   onChange,
 }) => {
   const input = (
@@ -470,7 +474,7 @@ const NumberCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | '
         property.numberDisplay === 'bar' && 'w-14 flex-none',
         property.numberDisplay === 'ring' && 'flex-1',
       )}
-      placeholder="—"
+      placeholder={placeholder || '—'}
       aria-label={property.name}
     />
   );
@@ -789,9 +793,10 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
 };
 
 /** Editable url / email / phone cell with an "open" affordance when filled. */
-const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; onChange: (value: unknown) => void}> = ({
+const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; placeholder?: string; onChange: (value: unknown) => void}> = ({
   kind,
   value,
+  placeholder,
   onChange,
 }) => {
   const str = typeof value === 'string' ? value : '';
@@ -802,7 +807,7 @@ const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; onCha
         defaultValue={str}
         onBlur={(e) => onChange(e.target.value.trim() || null)}
         className={inputClass}
-        placeholder="Empty"
+        placeholder={placeholder || 'Empty'}
         aria-label={kind}
       />
       {str && (
@@ -918,7 +923,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
 };
 
 /** Multi-select: toggle any number of option chips; create options inline. */
-const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange, onAddOption}) => {
+const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, placeholder, onChange, onAddOption}) => {
   const [draft, setDraft] = useState('');
   const ids = Array.isArray(value) ? (value as string[]) : [];
   const selected = (property.options ?? []).filter((o) => ids.includes(o.id));
@@ -936,7 +941,7 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
           {selected.length > 0 ? (
             selected.map((o) => <SelectChip key={o.id} option={o} />)
           ) : (
-            <span className={emptyHint}>Empty</span>
+            <span className={emptyHint}>{placeholder || 'Empty'}</span>
           )}
         </button>
       </DropdownMenuTrigger>
@@ -1105,7 +1110,7 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
   );
 };
 
-const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange, onAddOption}) => {
+const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, placeholder, onChange, onAddOption}) => {
   const [draft, setDraft] = useState('');
   const selected = findOption(property, value);
 
@@ -1119,7 +1124,7 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-hover">
-          {selected ? <SelectChip option={selected} /> : <span className={emptyHint}>Empty</span>}
+          {selected ? <SelectChip option={selected} /> : <span className={emptyHint}>{placeholder || 'Empty'}</span>}
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
       </DropdownMenuTrigger>
@@ -1172,9 +1177,10 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
  * In progress / Complete groups (the lifecycle `status` type). Renders a coloured
  * dot + label and groups the dropdown by lifecycle.
  */
-const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: (value: unknown) => void}> = ({
+const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; placeholder?: string; onChange: (value: unknown) => void}> = ({
   property,
   value,
+  placeholder,
   onChange,
 }) => {
   const selected = findOption(property, value);
@@ -1193,7 +1199,7 @@ const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange
               {selected.label}
             </span>
           ) : (
-            <span className={emptyHint}>Empty</span>
+            <span className={emptyHint}>{placeholder || 'Empty'}</span>
           )}
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>

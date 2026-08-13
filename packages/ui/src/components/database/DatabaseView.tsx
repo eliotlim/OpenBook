@@ -1013,11 +1013,14 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
   case 'form':
     return (
       <DatabaseForm
+        key={view.id}
         view={view}
         properties={schema}
         canEdit={canEdit}
         onUpdateView={(patch) => db.updateView(view.id, patch)}
         onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
+        onAddOption={(propertyId, label) => db.addSelectOption(propertyId, label)}
+        onSubmit={(fields) => db.submitFormRow(fields)}
       />
     );
   case 'bar':

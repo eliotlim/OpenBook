@@ -2,9 +2,13 @@ import React, {useState} from 'react';
 import {AlertTriangle, GripVertical, Plus, Trash2} from 'lucide-react';
 import {
   isFormWritablePropertyType,
+  validateRowAgainstForm,
   type DatabaseFormField,
   type DatabaseProperty,
+  type DatabaseSelectOption,
   type DatabaseView,
+  type FormRowValidationError,
+  type FormRowValidationErrorCode,
   type FormWritablePropertyType,
 } from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
@@ -29,6 +33,7 @@ import {Switch} from '@/components/ui/switch';
 import type {TKey} from '@/i18n';
 import {cn} from '@/lib/utils';
 import {useTranslation} from '@/providers';
+import {PropertyValueCell} from './databaseCells';
 import type {AddPropertyForViewListOptions, NewPropertyInput} from './useDatabase';
 
 const FORM_TYPE_KEY: Record<FormWritablePropertyType, TKey> = {
@@ -48,6 +53,19 @@ const FORM_TYPE_KEY: Record<FormWritablePropertyType, TKey> = {
 };
 
 export const FORM_PROPERTY_TYPES = Object.keys(FORM_TYPE_KEY) as FormWritablePropertyType[];
+
+const FORM_ERROR_KEY: Record<FormRowValidationErrorCode, TKey> = {
+  view_type: 'database.formView.errors.viewType',
+  unknown_field: 'database.formView.errors.unknownField',
+  required: 'database.formView.errors.required',
+  type: 'database.formView.errors.type',
+  option: 'database.formView.errors.option',
+  range: 'database.formView.errors.range',
+  date_format: 'database.formView.errors.dateFormat',
+  email_format: 'database.formView.errors.emailFormat',
+  url_format: 'database.formView.errors.urlFormat',
+  phone_format: 'database.formView.errors.phoneFormat',
+};
 
 export interface ProjectedDatabaseFormField {
   property: DatabaseProperty;
@@ -97,6 +115,8 @@ export interface DatabaseFormProps {
     input: NewPropertyInput,
     opts?: AddPropertyForViewListOptions,
   ) => Promise<string | undefined>;
+  onAddOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
+  onSubmit: (fields: Record<string, unknown>) => Promise<string | undefined>;
 }
 
 const fieldClass = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-hidden focus-visible:shadow-[var(--ring-control)]';
@@ -190,21 +210,122 @@ const NewFieldDialog: React.FC<{
   );
 };
 
-const StaticFormProjection: React.FC<Pick<DatabaseFormProps, 'view' | 'properties'>> = ({view, properties}) => {
+const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' | 'onAddOption' | 'onSubmit'>> = ({
+  view,
+  properties,
+  onAddOption,
+  onSubmit,
+}) => {
+  const {t} = useTranslation();
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [errors, setErrors] = useState<FormRowValidationError[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const fields = projectDatabaseFormFields(properties, view).filter((field) => field.writable);
+  const errorsByProperty = new Map(errors.filter((error) => error.propertyId).map((error) => [error.propertyId, error]));
+  const globalError = errors.find((error) => error.propertyId === '');
+
+  const updateValue = (propertyId: string, value: unknown): void => {
+    setValues((current) => ({...current, [propertyId]: value}));
+    setErrors((current) => current.filter((error) => error.propertyId !== propertyId));
+    setSubmitError(false);
+  };
+  const submit = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (submitting) return;
+    const result = validateRowAgainstForm({properties, views: [view]}, view, values);
+    if (!result.ok) {
+      setErrors(result.errors);
+      return;
+    }
+    setErrors([]);
+    setSubmitError(false);
+    setSubmitting(true);
+    try {
+      const rowId = await onSubmit(result.fields);
+      if (!rowId) {
+        setSubmitError(true);
+        return;
+      }
+      setConfirmed(true);
+    } catch {
+      setSubmitError(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const restart = (): void => {
+    setValues({});
+    setErrors([]);
+    setSubmitError(false);
+    setConfirmed(false);
+  };
+
+  if (view.formConfig?.acceptingResponses !== true) {
+    return (
+      <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-closed>
+        <h2 className="text-xl font-semibold">{view.formConfig?.title?.trim() || view.name}</h2>
+        <p className="mt-3 text-sm text-muted-foreground">{t('database.formView.closed')}</p>
+      </div>
+    );
+  }
+
+  if (confirmed) {
+    return (
+      <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-confirmation role="status">
+        <p className="whitespace-pre-wrap text-base">
+          {view.formConfig?.confirmationMessage?.trim() || t('database.formView.defaultConfirmation')}
+        </p>
+        <Button className="mt-5" variant="outline" onClick={restart}>{t('database.formView.submitAnother')}</Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 shadow-sm" data-database-form-fill>
+    <form className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 shadow-sm" data-database-form-fill onSubmit={(event) => void submit(event)} noValidate>
       <h2 className="text-xl font-semibold">{view.formConfig?.title?.trim() || view.name}</h2>
       {view.formConfig?.description && <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{view.formConfig.description}</p>}
-      <div className="mt-6 space-y-4">
-        {fields.map((field) => (
-          <div key={field.property.id} className="rounded-md border border-border bg-background px-3 py-2">
-            <div className="text-sm font-medium">{field.label}{field.metadata.required && <span className="ml-1 text-destructive">*</span>}</div>
-            {field.metadata.help && <div className="mt-1 text-xs text-muted-foreground">{field.metadata.help}</div>}
-          </div>
-        ))}
+      <div className="mt-6 space-y-5">
+        {fields.map(({property, metadata, label}) => {
+          const error = errorsByProperty.get(property.id);
+          const inputProperty = label === property.name ? property : {...property, name: label};
+          return (
+            <div key={`${property.id}:${property.type}`} className="block" data-form-input={property.id}>
+              <span className="text-sm font-medium">
+                {label}
+                {metadata.required && <span className="ml-1 text-destructive" aria-hidden>*</span>}
+              </span>
+              {metadata.help && <span className="mt-1 block text-xs text-muted-foreground">{metadata.help}</span>}
+              <span className={cn('group mt-2 block min-h-9 overflow-visible rounded-md border bg-background', error ? 'border-destructive' : 'border-border')}>
+                <PropertyValueCell
+                  property={inputProperty}
+                  value={values[property.id]}
+                  placeholder={metadata.placeholder}
+                  onChange={(value) => updateValue(property.id, value)}
+                  onAddOption={(optionLabel) => onAddOption(property.id, optionLabel)}
+                />
+              </span>
+              {error && <span className="mt-1 block text-xs text-destructive" role="alert">{t(FORM_ERROR_KEY[error.code])}</span>}
+            </div>
+          );
+        })}
       </div>
-    </div>
+      {(errors.length > 0 || submitError) && (
+        <div className="mt-5 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          {submitError
+            ? t('database.formView.submitError')
+            : globalError
+              ? t(FORM_ERROR_KEY[globalError.code])
+              : t('database.formView.validationSummary')}
+        </div>
+      )}
+      <Button className="mt-6" type="submit" disabled={submitting}>
+        {submitting
+          ? t('database.formView.submitting')
+          : view.formConfig?.submitLabel?.trim() || t('database.formView.submit')}
+      </Button>
+    </form>
   );
 };
 
@@ -433,7 +554,7 @@ export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
           </div>
         </div>
       )}
-      {mode === 'builder' && props.canEdit ? <DatabaseFormBuilder {...props} /> : <StaticFormProjection {...props} />}
+      {mode === 'builder' && props.canEdit ? <DatabaseFormBuilder {...props} /> : <DatabaseFormFill {...props} />}
     </div>
   );
 };

@@ -144,6 +144,9 @@ export interface UseDatabase {
   // Row mutations
   /** Create a row, optionally pre-setting property values. Returns the new id. */
   addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
+  /** Create one row from an in-app form without loading or refreshing the row
+   *  stream. The table view will load it when the user switches back. */
+  submitFormRow: (initial: Record<string, unknown>) => Promise<string | undefined>;
   /** Create a sub-item nested under `parentId`. Returns the new row id. */
   addSubItem: (parentId: string) => Promise<string | undefined>;
   /** Re-parent a row (`null` = top level). Reverts if the server refuses (e.g. a cycle). */
@@ -540,6 +543,15 @@ export function useDatabase(
       const before = rowsMutationVersion.current;
       const fresh = await client.listRows(database.id);
       setRows((prev) => (rowsMutationVersion.current === before ? fresh : prev));
+      return page.id;
+    },
+    [client, database],
+  );
+
+  const submitFormRow = useCallback(
+    async (initial: Record<string, unknown>): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const page = await client.createRow(database.id, {name: null, properties: initial});
       return page.id;
     },
     [client, database],
@@ -1223,6 +1235,7 @@ export function useDatabase(
     search,
     setSearch,
     addRow,
+    submitFormRow,
     addSubItem,
     setRowParent,
     renameRow,
