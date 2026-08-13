@@ -71,6 +71,24 @@ describe('database form view contract', () => {
     expect(isFormWritablePropertyType('formula')).toBe(false);
   });
 
+  it('fails closed for inherited and unknown runtime property types', () => {
+    const hostileTypes = ['__proto__', 'constructor', 'unknown'];
+    const hostileProperties = hostileTypes.map((type) => ({id: type, name: type, type})) as unknown as DatabaseProperty[];
+    for (const type of hostileTypes) expect(isFormWritablePropertyType(type as DatabasePropertyType)).toBe(false);
+
+    expect(defaultView('form', 'Hostile', hostileProperties).visiblePropertyIds).toEqual([TITLE_PROPERTY_ID]);
+
+    const view = formView({visiblePropertyIds: hostileTypes});
+    expect(validateRowAgainstForm(
+      schemaWith(hostileProperties, view),
+      view,
+      Object.fromEntries(hostileTypes.map((type) => [type, 'blocked'])),
+    )).toEqual({
+      ok: false,
+      errors: hostileTypes.map((propertyId) => ({propertyId, code: 'unknown_field'})),
+    });
+  });
+
   it('creates a form with an explicit writable field mapping', () => {
     const properties: DatabaseProperty[] = [
       {id: 'name', name: 'Name', type: 'text'},
