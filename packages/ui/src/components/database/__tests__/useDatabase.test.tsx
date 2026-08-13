@@ -176,4 +176,37 @@ describe('database form mutations and row blindness', () => {
     await act(() => second.result.current.deleteView(formView.id));
     expect(savedSchema().views).toEqual([pinnedView]);
   });
+
+  it('scrubs a deleted column and queues a one-time notice only for affected forms', async () => {
+    const otherForm = {
+      ...formView,
+      id: 'v-other-form',
+      name: 'Other form',
+      visiblePropertyIds: [tail.id],
+      formFields: {[tail.id]: {}},
+    } as DatabaseView;
+    const withTwoForms = {
+      ...formDatabase,
+      schema: {properties: [source, tail], views: [pinnedView, formView, otherForm]},
+    } as StoredDatabase;
+    client.getDatabase.mockResolvedValue(withTwoForms);
+    client.updateDatabase.mockImplementation(async (_id: string, patch: Partial<StoredDatabase>) => ({
+      ...withTwoForms,
+      ...patch,
+    }));
+    const {result} = await loadDatabase();
+
+    await act(() => result.current.deleteProperty(source.id));
+
+    const schema = savedSchema();
+    expect(schema.properties.map((property) => property.id)).toEqual([tail.id]);
+    expect(schema.views.find((view) => view.id === formView.id)).toMatchObject({
+      visiblePropertyIds: [],
+      formFields: {},
+    });
+    expect(result.current.removedFormFieldNotices).toEqual({[formView.id]: [source.name]});
+
+    act(() => result.current.consumeRemovedFormFieldNotice(formView.id));
+    expect(result.current.removedFormFieldNotices).toEqual({});
+  });
 });

@@ -2241,6 +2241,7 @@ export const en = {
       rotateConfirm: 'Rotate and publish',
       remove: 'Remove from form',
       removeHint: 'The database column and its existing values are kept.',
+      deletedFieldNotice: 'Deleted database fields were removed from this form: {fields}. Existing row values remain archived.',
       newFieldTitle: 'Create a form field',
       name: 'Field name',
       namePlaceholder: 'Question or field name',

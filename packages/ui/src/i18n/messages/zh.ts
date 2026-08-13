@@ -1396,6 +1396,7 @@ export const zh: PartialMessages = {
       rotateConfirm: '轮换并发布',
       remove: '从表单中移除',
       removeHint: '数据库列及其现有值会保留。',
+      deletedFieldNotice: '已从此表单移除被删除的数据库字段：{fields}。现有行值仍会存档保留。',
       newFieldTitle: '创建表单字段',
       name: '字段名称',
       namePlaceholder: '问题或字段名称',

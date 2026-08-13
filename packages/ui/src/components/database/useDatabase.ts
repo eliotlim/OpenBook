@@ -137,6 +137,9 @@ export interface UseDatabase {
   visibleRows: DatabaseRow[];
   activeView: DatabaseView | null;
   setActiveViewId: (viewId: string) => void;
+  /** Deleted-column names awaiting a one-time notice in each affected form. */
+  removedFormFieldNotices: Readonly<Record<string, readonly string[]>>;
+  consumeRemovedFormFieldNotice: (viewId: string) => void;
   /** The quick-search query applied across every column. */
   search: string;
   setSearch: (query: string) => void;
@@ -278,6 +281,7 @@ export function useDatabase(
   const [loading, setLoading] = useState(true);
   const [activeViewId, setActiveViewIdState] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [removedFormFieldNotices, setRemovedFormFieldNotices] = useState<Record<string, string[]>>({});
 
   // Forms (and unknown future layouts) are deliberately row-blind. This flag is
   // also used by the row effects below so selecting a form tears down the row
@@ -990,12 +994,34 @@ export function useDatabase(
   const deleteProperty = useCallback(
     async (propertyId: string): Promise<void> => {
       if (!database) return;
+      const property = database.schema.properties.find((candidate) => candidate.id === propertyId);
+      const affectedFormIds = database.schema.views
+        .filter((view) => view.type === 'form' && view.visiblePropertyIds?.includes(propertyId))
+        .map((view) => view.id);
       // `removeProperty` scrubs every dangling reference (filters incl. the nested
       // tree, sorts, summaries, group-by/date/cover config, and rollups).
       await saveSchema(removeProperty(database.schema, propertyId));
+      if (property && affectedFormIds.length > 0) {
+        setRemovedFormFieldNotices((current) => {
+          const next = {...current};
+          for (const viewId of affectedFormIds) {
+            next[viewId] = [...(next[viewId] ?? []), property.name];
+          }
+          return next;
+        });
+      }
     },
     [database, saveSchema],
   );
+
+  const consumeRemovedFormFieldNotice = useCallback((viewId: string): void => {
+    setRemovedFormFieldNotices((current) => {
+      if (!(viewId in current)) return current;
+      const next = {...current};
+      delete next[viewId];
+      return next;
+    });
+  }, []);
 
   const makeDependencyTwoWay = useCallback(
     async (propertyId: string): Promise<void> => {
@@ -1232,6 +1258,8 @@ export function useDatabase(
     visibleRows,
     activeView,
     setActiveViewId,
+    removedFormFieldNotices,
+    consumeRemovedFormFieldNotice,
     search,
     setSearch,
     addRow,

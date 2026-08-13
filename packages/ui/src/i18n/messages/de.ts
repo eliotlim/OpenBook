@@ -1409,6 +1409,7 @@ export const de: PartialMessages = {
       rotateConfirm: 'Erneuern und veröffentlichen',
       remove: 'Aus Formular entfernen',
       removeHint: 'Die Datenbankspalte und ihre vorhandenen Werte bleiben erhalten.',
+      deletedFieldNotice: 'Gelöschte Datenbankfelder wurden aus diesem Formular entfernt: {fields}. Vorhandene Zeilenwerte bleiben archiviert.',
       newFieldTitle: 'Formularfeld erstellen',
       name: 'Feldname',
       namePlaceholder: 'Frage oder Feldname',

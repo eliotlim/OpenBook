@@ -1402,6 +1402,7 @@ export const ja: PartialMessages = {
       rotateConfirm: '更新して公開',
       remove: 'フォームから削除',
       removeHint: 'データベースの列と既存の値は保持されます。',
+      deletedFieldNotice: '削除されたデータベースフィールドはこのフォームから外されました: {fields}。既存の行の値はアーカイブとして保持されます。',
       newFieldTitle: 'フォームフィールドを作成',
       name: 'フィールド名',
       namePlaceholder: '質問またはフィールド名',
