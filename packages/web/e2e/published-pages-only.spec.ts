@@ -288,7 +288,9 @@ test.describe('PUB-1: published-pages-only default access', () => {
       const visibility = await (
         await fetch(`${instance.url}/api/pages/${publishedId}/visibility`, {headers: instance.owner})
       ).json();
-      expect(visibility).toEqual({visibility: 'public'});
+      // UP-1 adds the independent discovery flag to this response. Publishing
+      // the page leaves it listed, and the Private round-trip preserves both.
+      expect(visibility).toEqual({visibility: 'public', listed: true});
       expect((await anonGet(publishedId)).status()).toBe(200);
       expect((await anonGet(unpublishedId)).status()).toBe(404);
 
