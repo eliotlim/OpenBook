@@ -56,10 +56,13 @@ describe('LibrarySelectMenu titlebar trigger', () => {
 
     const remove = screen.getByRole('button', {name: 'Remove Remote Library'});
     const row = remove.closest('[role="menuitem"]') as HTMLElement;
+    const reservation = remove.parentElement as HTMLElement;
     for (const className of [
       'flex',
-      'h-6',
-      'w-6',
+      'absolute',
+      'inset-0',
+      'border',
+      'border-transparent',
       'opacity-0',
       'pointer-events-none',
       'group-hover:opacity-100',
@@ -68,6 +71,9 @@ describe('LibrarySelectMenu titlebar trigger', () => {
       'group-focus-within:pointer-events-auto',
     ]) {
       expect(remove.classList.contains(className)).toBe(true);
+    }
+    for (const className of ['relative', 'h-6', 'w-6', 'shrink-0']) {
+      expect(reservation.classList.contains(className)).toBe(true);
     }
     expect(row.classList.contains('group')).toBe(true);
     expect(remove.classList.contains('hidden')).toBe(false);
