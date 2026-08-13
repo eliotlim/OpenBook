@@ -12,17 +12,25 @@
 //
 // Usage:
 //   node webm-to-gif.mjs <in.webm> <out.gif> [--crop WxH+X+Y] [--scale W] [--fps 12] [--since 4.2]
-//     --crop   ffmpeg crop filter geometry, e.g. 140x110+597+375 (w x h + x + y). Optional.
-//     --scale  output width in px (height auto, aspect kept). Default 420.
-//     --fps    frames per second. Default 12.
-//     --since  seconds before end-of-file to start (grabs the tail). Default: whole clip.
+//     --crop     ffmpeg crop filter geometry, e.g. 140x110+597+375 (w x h + x + y). Optional.
+//     --scale    output width in px (height auto, aspect kept). Default 420.
+//     --fps      frames per second. Default 12.
+//     --since    seconds before end-of-file to start (grabs the tail). Default: whole clip.
+//     --start    seconds from the start to begin (for slicing one recording into
+//                several GIFs, e.g. a sidebar-select beat then a tab-switch beat).
+//     --duration seconds to keep after --start. Default: to end of clip.
 
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { GIFEncoder, quantize, applyPalette } from 'gifenc';
+// gifenc's CJS build (dist/gifenc.js) exports via a computed __export() helper
+// that Node's cjs-module-lexer can't statically detect, so named imports fail
+// ("Named export 'GIFEncoder' not found") even though the export exists at
+// runtime. Import the default (whole CJS exports object) and destructure.
+import gifencPkg from 'gifenc';
+const { GIFEncoder, quantize, applyPalette } = gifencPkg;
 
 function arg(name, def) {
   const i = process.argv.indexOf(`--${name}`);
@@ -38,6 +46,8 @@ const crop = arg('crop');            // e.g. "140x110+597+375"
 const scaleW = Number(arg('scale', '420'));
 const fps = Number(arg('fps', '12'));
 const since = arg('since');          // seconds from end, optional
+const start = arg('start');          // seconds from start, optional
+const duration = arg('duration');    // seconds to keep after --start, optional
 
 // Find Playwright's bundled ffmpeg (macOS/linux layouts).
 function findFfmpeg() {
@@ -69,9 +79,19 @@ try {
     filters.push(`crop=${m[1]}:${m[2]}:${m[3]}:${m[4]}`);
   }
   filters.push(`scale=${scaleW}:-1:flags=lanczos`);
-  filters.push(`fps=${fps}`);
-  const pre = since ? ['-sseof', `-${since}`] : [];
-  execFileSync(ffmpeg, [...pre, '-i', inWebm, '-vf', filters.join(','), join(work, 'f-%04d.png')], { stdio: 'ignore' });
+  // NOT `fps=` as a -vf filter: Playwright's bundled ffmpeg is built with
+  // --disable-everything and only enables crop/scale/pad (see `-filters`) —
+  // the fps filter isn't compiled in and errors ("No option name near ...").
+  // `-r` is a demuxer/muxer-level output option (frame drop/dup by PTS), not
+  // a filtergraph filter, so it works without that filter being available.
+  const pre = since
+    ? ['-sseof', `-${since}`]
+    : [...(start ? ['-ss', start] : []), ...(duration ? ['-t', duration] : [])];
+  execFileSync(
+    ffmpeg,
+    [...pre, '-i', inWebm, '-vf', filters.join(','), '-r', String(fps), join(work, 'f-%04d.png')],
+    { stdio: 'ignore' },
+  );
 
   const frames = readdirSync(work).filter((f) => f.endsWith('.png')).sort();
   if (!frames.length) throw new Error('ffmpeg produced no frames');
