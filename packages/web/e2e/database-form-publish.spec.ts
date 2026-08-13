@@ -124,7 +124,12 @@ async function ownerJson<T>(instance: ClaimedInstance, path: string, init: Reque
 async function patchFormConfig(
   instance: ClaimedInstance,
   databaseId: string,
-  patch: {acceptingResponses: boolean; closedMessage?: string; maxResponses?: number},
+  patch: {
+    acceptingResponses: boolean;
+    closedMessage?: string;
+    maxResponses?: number;
+    confirmation?: {type: 'message'; message: string} | {type: 'redirect'; redirectUrl: string};
+  },
 ): Promise<void> {
   const database = await ownerJson<StoredDatabase>(instance, `/api/databases/${databaseId}`);
   const schema: DatabaseSchema = {
@@ -188,6 +193,7 @@ test(
             properties: [
               {id: 'email', name: 'Contact email', type: 'email'},
               {id: 'plan', name: 'Plan', type: 'select', options: [{id: 'free', label: 'Free', color: 'blue'}]},
+              {id: 'topics', name: 'Topics', type: 'multi_select', options: [{id: 'forms', label: 'Forms', color: 'blue'}]},
               {id: 'stage', name: 'Stage', type: 'status', options: [{id: 'new', label: 'New', color: 'gray'}]},
               {id: 'consent', name: 'Consent', type: 'checkbox'},
             ],
@@ -198,12 +204,13 @@ test(
                 type: 'form',
                 filters: [],
                 sorts: [],
-                visiblePropertyIds: ['email', 'plan', 'stage', 'consent'],
-                formFields: {email: {required: true}, plan: {}, stage: {}, consent: {}},
+                visiblePropertyIds: ['email', 'plan', 'topics', 'stage', 'consent'],
+                formFields: {email: {required: true}, plan: {}, topics: {}, stage: {}, consent: {}},
                 formConfig: {
                   title: 'Apply here',
                   description: 'Public descriptor copy',
                   submitLabel: 'Send response',
+                  confirmation: {type: 'message', message: 'Application received.'},
                   acceptingResponses: true,
                 },
               },
@@ -220,10 +227,10 @@ test(
       await ownerPage.getByRole('button', {name: 'Publish form'}).click();
       const review = ownerPage.locator('[data-database-form-publish-review]');
       await expect(review).toBeVisible();
-      for (const [id, label] of [['email', 'Contact email'], ['plan', 'Plan'], ['stage', 'Stage'], ['consent', 'Consent']]) {
+      for (const [id, label] of [['email', 'Contact email'], ['plan', 'Plan'], ['topics', 'Topics'], ['stage', 'Stage'], ['consent', 'Consent']]) {
         await expect(review.locator(`[data-publish-review-field="${id}"]`)).toContainText(label);
       }
-      await expect(review.getByText('Public choice')).toHaveCount(3);
+      await expect(review.getByText('Public choice')).toHaveCount(4);
       const publishConfirm = review.getByRole('button', {name: 'Publish form'});
       await expect(publishConfirm).toBeDisabled();
       await review.getByRole('checkbox', {name: /Responses will be untitled/}).check();
@@ -252,7 +259,7 @@ test(
       await visitor.getByRole('combobox', {name: 'Stage'}).selectOption('new');
       await visitor.getByRole('checkbox', {name: 'Consent'}).check();
       await visitor.getByRole('button', {name: 'Send response'}).click();
-      await expect(visitor.locator('[data-public-form-confirmation]')).toContainText('Thanks');
+      await expect(visitor.locator('[data-public-form-confirmation]')).toContainText('Application received.');
 
       const rows = await ownerJson<Array<{name: string; properties: Record<string, unknown>}>>(
         instance,
@@ -278,9 +285,23 @@ test(
       expect((await anonymousApi.post(`${instance.url}/api/ai/search`, {data: {query: HOST_TITLE}})).status()).toBeGreaterThanOrEqual(400);
 
       await ownerPage.getByRole('button', {name: 'Revoke'}).click();
+      const revokeDialog = ownerPage.locator('[data-database-form-revoke-confirm]');
+      await expect(revokeDialog).toContainText('Every distributed copy');
+      await revokeDialog.getByRole('button', {name: 'Revoke public form'}).click();
       await expect(ownerPage.getByText('Not published')).toBeVisible();
       await visitor.goto(fillUrl);
       await expect(visitor.locator('[data-public-form-not-found]')).toContainText('Form not found');
+
+      await patchFormConfig(instance, database.id, {
+        acceptingResponses: true,
+        confirmation: {type: 'redirect', redirectUrl: 'https://example.com/thanks'},
+      });
+      const redirectUrl = await publishByApi(instance, database.id);
+      await visitor.goto(redirectUrl);
+      await fillRequiredEmail(visitor, 'redirect@example.com');
+      const continueLink = visitor.getByRole('link', {name: 'Continue'});
+      await expect(continueLink).toHaveAttribute('href', 'https://example.com/thanks');
+      expect(new URL(visitor.url()).hash).toMatch(/^#capability=/);
 
       await patchFormConfig(instance, database.id, {
         acceptingResponses: false,
@@ -290,7 +311,7 @@ test(
       await visitor.goto(closedUrl);
       await expect(visitor.locator('[data-public-form-closed]')).toContainText('Responses reopen Monday.');
 
-      await patchFormConfig(instance, database.id, {acceptingResponses: true, maxResponses: 1});
+      await patchFormConfig(instance, database.id, {acceptingResponses: true, maxResponses: 2});
       const exhaustedUrl = await publishByApi(instance, database.id);
       await visitor.goto(exhaustedUrl);
       await fillRequiredEmail(visitor, 'second@example.com');

@@ -71,6 +71,8 @@ describe('public database form surface', () => {
     expect(container.querySelector('[data-database-view]')).toBeNull();
     expect(screen.queryByText('Private host title')).toBeNull();
     expect(screen.queryByPlaceholderText(/Search pages/)).toBeNull();
+    expect(screen.getByRole('textbox', {name: 'Your name'}).getAttribute('aria-required')).toBe('true');
+    expect(screen.getByRole('textbox', {name: 'Your name'}).hasAttribute('aria-describedby')).toBe(false);
 
     fireEvent.change(screen.getByRole('textbox', {name: 'Your name'}), {target: {value: 'Ada Lovelace'}});
     fireEvent.click(screen.getByRole('checkbox', {name: 'Consent'}));
@@ -86,6 +88,39 @@ describe('public database form surface', () => {
       },
     ));
     expect(await screen.findByText('Thanks — your response has been recorded.')).toBeTruthy();
+  });
+
+  it('renders the post-submit message returned by the server', async () => {
+    renderPublic(client({
+      submitDatabaseForm: vi.fn().mockResolvedValue({
+        rowId: 'row-message',
+        submittedAt: '2026-08-13T00:00:00.000Z',
+        confirmation: {type: 'message', message: 'We received your application.'},
+      }),
+    }));
+    await screen.findByText('Public intake');
+    fireEvent.change(screen.getByRole('textbox', {name: 'Your name'}), {target: {value: 'Ada Lovelace'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Send response'}));
+
+    expect(await screen.findByText('We received your application.')).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Submit another response'})).toBeTruthy();
+  });
+
+  it('renders a no-auto-redirect Continue action returned by the server', async () => {
+    renderPublic(client({
+      submitDatabaseForm: vi.fn().mockResolvedValue({
+        rowId: 'row-redirect',
+        submittedAt: '2026-08-13T00:00:00.000Z',
+        confirmation: {type: 'redirect', redirectUrl: 'https://example.com/thanks'},
+      }),
+    }));
+    await screen.findByText('Public intake');
+    fireEvent.change(screen.getByRole('textbox', {name: 'Your name'}), {target: {value: 'Grace Hopper'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Send response'}));
+
+    const continueLink = await screen.findByRole('link', {name: 'Continue'});
+    expect(continueLink.getAttribute('href')).toBe('https://example.com/thanks');
+    expect(screen.queryByRole('button', {name: 'Submit another response'})).toBeNull();
   });
 
   it('renders the descriptor closed message without a submission control', async () => {

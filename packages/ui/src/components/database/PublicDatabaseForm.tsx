@@ -2,9 +2,12 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   DatabaseFormRequestError,
   FORM_UPLOAD_MAX_FILES,
+  generateSubmissionKey,
+  safeFormRedirectUrl,
   type DataClient,
   type DatabaseFormDescriptor,
   type DatabaseFormDescriptorField,
+  type FormSubmissionResult,
 } from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
 import type {TKey} from '@/i18n';
@@ -48,9 +51,7 @@ const ERROR_KEYS: Record<string, TKey> = {
 const inputClass = 'mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-hidden focus-visible:shadow-[var(--ring-control)]';
 
 function newIdempotencyKey(): string {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `form-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return generateSubmissionKey();
 }
 
 function initialRequiredErrors(
@@ -80,11 +81,15 @@ const PublicField: React.FC<{
   onFiles: (files: File[]) => void;
 }> = ({field, value, files, error, onChange, onFiles}) => {
   const {t} = useTranslation();
-  const describedBy = `${field.propertyId}-help${error ? ` ${field.propertyId}-error` : ''}`;
+  const describedBy = [
+    field.help ? `${field.propertyId}-help` : null,
+    error ? `${field.propertyId}-error` : null,
+  ].filter(Boolean).join(' ') || undefined;
   const common = {
     'aria-label': field.label,
     'aria-invalid': Boolean(error) || undefined,
     'aria-describedby': describedBy,
+    'aria-required': field.required || undefined,
   };
 
   let control: React.ReactNode;
@@ -131,7 +136,7 @@ const PublicField: React.FC<{
     const max = field.numberTarget && field.numberTarget > 0 ? Math.min(10, Math.round(field.numberTarget)) : 5;
     const current = typeof value === 'number' ? value : 0;
     control = (
-      <div className="mt-2 flex gap-1" role="group" aria-label={field.label} aria-invalid={Boolean(error) || undefined}>
+      <div {...common} className="mt-2 flex gap-1" role="group">
         {Array.from({length: max}, (_, index) => index + 1).map((rating) => (
           <button
             key={rating}
@@ -165,7 +170,7 @@ const PublicField: React.FC<{
   case 'multi_select': {
     const selected = Array.isArray(value) ? value as string[] : [];
     control = (
-      <div className={cn('mt-2 space-y-1 rounded-md border border-border p-2', error && 'border-destructive')} role="group" aria-label={field.label}>
+      <div {...common} className={cn('mt-2 space-y-1 rounded-md border border-border p-2', error && 'border-destructive')} role="group">
         {(field.options ?? []).map((option) => (
           <label key={option.id} className="flex items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-hover">
             <input
@@ -193,7 +198,7 @@ const PublicField: React.FC<{
           onChange={(event) => onChange(event.target.checked)}
           className="h-4 w-4 accent-primary"
         />
-        {t('database.publicForm.checkboxLabel', {label: field.label})}
+        {t('database.publicForm.checkboxLabel')}
       </label>
     );
     break;
@@ -201,7 +206,7 @@ const PublicField: React.FC<{
     const range = value && typeof value === 'object' ? value as {start?: string; end?: string} : {};
     const dateType = field.includeTime ? 'datetime-local' : 'date';
     control = field.dateRange ? (
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <div {...common} className="mt-2 grid gap-2 sm:grid-cols-2" role="group">
         <input
           {...common}
           type={dateType}
@@ -250,7 +255,7 @@ const PublicField: React.FC<{
       : {};
     const setLocation = (patch: Partial<typeof location>) => onChange({...location, ...patch});
     control = (
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <div {...common} className="mt-2 grid gap-2 sm:grid-cols-2" role="group">
         <input
           type="number"
           step="any"
@@ -340,6 +345,7 @@ export const PublicDatabaseForm: React.FC<PublicDatabaseFormProps> = ({
   const [errors, setErrors] = useState<PublicError[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState<TKey | null>(null);
+  const [confirmation, setConfirmation] = useState<FormSubmissionResult['confirmation']>();
   const idempotencyKey = useRef<string | null>(null);
 
   const load = async (): Promise<DatabaseFormDescriptor> => {
@@ -421,7 +427,8 @@ export const PublicDatabaseForm: React.FC<PublicDatabaseFormProps> = ({
         }
         if (tokens && tokens.length > 0) fields[field.propertyId] = tokens;
       }
-      await client.submitDatabaseForm(databaseId, viewId, {capability, fields, idempotencyKey: key});
+      const result = await client.submitDatabaseForm(databaseId, viewId, {capability, fields, idempotencyKey: key});
+      setConfirmation(result.confirmation);
       setSurface('success');
     } catch (error) {
       if (!(error instanceof DatabaseFormRequestError)) {
@@ -464,9 +471,14 @@ export const PublicDatabaseForm: React.FC<PublicDatabaseFormProps> = ({
     setUploadedTokens({});
     setErrors([]);
     setServerMessage(null);
+    setConfirmation(undefined);
     idempotencyKey.current = null;
     setSurface('form');
   };
+
+  const confirmationRedirect = confirmation?.type === 'redirect' && typeof confirmation.redirectUrl === 'string'
+    ? safeFormRedirectUrl(confirmation.redirectUrl)
+    : null;
 
   return (
     <main className="min-h-screen bg-background px-4 py-10 text-foreground sm:px-6" data-public-database-form-surface>
@@ -495,8 +507,20 @@ export const PublicDatabaseForm: React.FC<PublicDatabaseFormProps> = ({
       )}
       {surface === 'success' && descriptor && (
         <section className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-8 text-center shadow-sm" data-public-form-confirmation role="status">
-          <p className="text-base">{t('database.formView.defaultConfirmation')}</p>
-          <Button className="mt-5" variant="outline" onClick={restart}>{t('database.formView.submitAnother')}</Button>
+          {confirmationRedirect ? (
+            <Button asChild data-form-confirmation-redirect>
+              <a href={confirmationRedirect} rel="noopener noreferrer">{t('database.formView.continue')}</a>
+            </Button>
+          ) : (
+            <>
+              <p className="whitespace-pre-wrap text-base">
+                {confirmation?.type === 'message' && typeof confirmation.message === 'string' && confirmation.message.trim()
+                  ? confirmation.message.trim()
+                  : t('database.formView.defaultConfirmation')}
+              </p>
+              <Button className="mt-5" variant="outline" onClick={restart}>{t('database.formView.submitAnother')}</Button>
+            </>
+          )}
         </section>
       )}
       {surface === 'form' && descriptor && !descriptor.acceptingResponses && (

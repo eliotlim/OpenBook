@@ -20,13 +20,18 @@ export default function App({Component, pageProps}: AppProps) {
   // so it doesn't spin up a second AccountProvider that races the real one.
   const router = useRouter();
   if (router.pathname === '/account/callback') return <Component {...pageProps} />;
+  if (!(pageProps as {publicForm?: unknown}).publicForm && !router.isReady) return null;
 
   // The public database-form query is a pre-auth shell route. Keep it outside
   // Library/Account/Hud providers so opening a fill capability cannot initialize
   // navigation, search, page lists, or sign-in chrome before rendering the form.
   const publicForm = Boolean(
     (pageProps as {publicForm?: unknown}).publicForm
-    || (typeof router.query.form === 'string' && typeof router.query.view === 'string'),
+    || (typeof router.query.form === 'string' && typeof router.query.view === 'string')
+    || (typeof window !== 'undefined' && (() => {
+      const params = new URLSearchParams(window.location.search);
+      return Boolean(params.get('form') && params.get('view'));
+    })()),
   );
   if (publicForm) {
     return (
