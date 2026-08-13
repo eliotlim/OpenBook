@@ -996,8 +996,12 @@
   transition: opacity 120ms ease;
 }
 /* Inside columns there's no page gutter — a compact, handle-only grip
-   floats in the column gap. */
-.obe-gutter-nested { left: -1.45rem; }
+   floats in the column gap. Keep the visible grip above the resize divider;
+   hidden gutters remain inert, so the divider owns the gap at rest. */
+.obe-gutter-nested {
+  left: -1.45rem;
+  z-index: var(--z-index-local-overlay);
+}
 .obe-gutter-icon { width: 14px; height: 14px; }
 /* Touch devices: the gutter is a hover affordance that a tap only reveals
    AFTER the fact, and at phone margins it overlaps the first characters of

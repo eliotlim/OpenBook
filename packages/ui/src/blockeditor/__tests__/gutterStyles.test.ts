@@ -85,4 +85,12 @@ describe('column resize styles', () => {
     expect(ruleBody('.obe-col-divider::after')).toMatch(/width:\s*2px/);
     expect(ruleBody('.obe-col-divider-trailing')).toMatch(/right:\s*-1rem/);
   });
+
+  it('lets a revealed nested gutter take pointer ownership above the column divider', () => {
+    expect(ruleBody('.obe-gutter-nested')).toMatch(/z-index:\s*var\(--z-index-local-overlay\)/);
+    expect(ruleBody('.obe-gutter')).toMatch(/pointer-events:\s*none/);
+    expect(
+      ruleBody('.obe-row:hover > .obe-gutter,\n.obe-row:focus-within > .obe-gutter,\n.obe-gutter:focus-within'),
+    ).toMatch(/pointer-events:\s*auto/);
+  });
 });
