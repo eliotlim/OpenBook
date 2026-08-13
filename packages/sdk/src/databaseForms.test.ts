@@ -80,7 +80,7 @@ describe('database form view contract', () => {
       {id: 'email', name: 'Email', type: 'email'},
     ];
     const view = defaultView('form', 'Intake', properties);
-    expect(view.visiblePropertyIds).toEqual(['name', 'email']);
+    expect(view.visiblePropertyIds).toEqual([TITLE_PROPERTY_ID, 'name', 'email']);
     expect(view.formFields).toEqual({});
     expect(view.formConfig).toEqual({acceptingResponses: true});
   });
@@ -91,8 +91,14 @@ describe('database form view contract', () => {
     const view = formView({
       visiblePropertyIds: [TITLE_PROPERTY_ID, 'category', 'when', 'score'],
       formFields: {
-        [TITLE_PROPERTY_ID]: {label: 'Your name', required: true, multiline: true},
+        [TITLE_PROPERTY_ID]: {
+          label: 'Your name',
+          required: true,
+          multiline: true,
+          validation: {minLength: 2, maxLength: 80, pattern: '^[A-Z]'},
+        },
         category: {help: 'Choose one', placeholder: 'Pick', validation: {minLength: 1}},
+        score: {validation: {min: 0, max: 100}},
       },
       formConfig: {
         title: 'Public intake',
@@ -127,6 +133,8 @@ describe('database form view contract', () => {
           help: '',
           required: true,
           placeholder: '',
+          multiline: true,
+          validation: {minLength: 2, maxLength: 80},
         },
         {
           propertyId: 'category',
@@ -135,6 +143,7 @@ describe('database form view contract', () => {
           help: 'Choose one',
           required: false,
           placeholder: 'Pick',
+          validation: {minLength: 1},
           options: publicOptions,
         },
         {
@@ -154,12 +163,15 @@ describe('database form view contract', () => {
           help: '',
           required: false,
           placeholder: '',
+          validation: {min: 0, max: 100},
           numberTarget: 100,
         },
       ],
     });
     expect(JSON.stringify(descriptor)).not.toContain('Classified');
     expect(JSON.stringify(descriptor)).not.toContain('internal column copy');
+    expect(JSON.stringify(descriptor)).not.toContain('^[A-Z]');
+    expect(JSON.stringify(descriptor)).not.toContain('pattern');
     expect(descriptor?.fields[1].options).not.toBe(publicOptions);
     expect(projectDatabaseFormDescriptor(schema, {...view, type: 'table'})).toBeNull();
   });
