@@ -48,11 +48,12 @@ import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {readPageIcon} from '@/lib/pageIcon';
+import {useCanWrite} from '@/lib/useCanWrite';
 import {useNavigation, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
-import {useDatabase, type UseDatabase} from './useDatabase';
+import {canDeleteDatabaseView, useDatabase, type UseDatabase} from './useDatabase';
 import {addQuickFilter, ColumnMenuItems, RowMenuItems, type RowMenuBulk} from './databaseMenuItems';
 import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, viewTypePatch, VIEW_TYPES} from './databaseMenus';
@@ -76,6 +77,7 @@ import {TimelineView} from './databaseTimeline';
 import {MapView} from './databaseMap';
 import {GraphView} from './databaseGraph';
 import {dotStyle} from './databaseColors';
+import {DatabaseForm} from './databaseForm';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
   row.exports[property.cellName ?? property.name];
@@ -981,11 +983,12 @@ const NewerClientRequiredView: React.FC<{type: unknown}> = ({type}) => (
 );
 
 /** Render the active view's body for its layout type. */
-const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]}> = ({
+export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]; canEdit?: boolean}> = ({
   db,
   view,
   columns,
   schema,
+  canEdit = true,
 }) => {
   if (!isDatabaseViewType(view.type)) return <NewerClientRequiredView type={view.type} />;
 
@@ -1008,8 +1011,15 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
   case 'graph':
     return <GraphView db={db} view={view} properties={schema} />;
   case 'form':
-    // F-2 replaces this fail-closed stub with the form builder/preview.
-    return <NewerClientRequiredView type={view.type} />;
+    return (
+      <DatabaseForm
+        view={view}
+        properties={schema}
+        canEdit={canEdit}
+        onUpdateView={(patch) => db.updateView(view.id, patch)}
+        onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
+      />
+    );
   case 'bar':
     return <BarChartView db={db} view={view} properties={schema} />;
   case 'pie':
@@ -1113,7 +1123,7 @@ export const ViewTabContextMenu: React.FC<{
   children: React.ReactNode;
 }> = ({db, view, onRename, children}) => {
   const {t} = useTranslation();
-  const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
+  const canDeleteView = canDeleteDatabaseView(db.database?.schema.views ?? [], view.id);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
@@ -1179,6 +1189,7 @@ export const Toolbar: React.FC<{
 }) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
+  const rowAware = isDatabaseViewType(view.type) && view.type !== 'form';
   return (
     <div
       className="mb-2 flex items-center gap-2 overflow-x-auto max-sm:ob-edge-fade-x max-sm:pr-5 sm:flex-wrap sm:justify-between sm:overflow-visible"
@@ -1249,35 +1260,41 @@ export const Toolbar: React.FC<{
         <AddViewMenu onAdd={onAddView} />
       </div>
       <div className="flex shrink-0 items-center gap-1 sm:shrink sm:flex-wrap">
-        <NewRowMenu db={db} />
-        <SearchBox db={db} />
-        <FilterMenu
-          database={db.database!}
-          view={view}
-          onChange={(patch) => void db.updateView(view.id, patch)}
-          open={chipEditor === undefined ? undefined : chipEditor === 'filter'}
-          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'filter' : null) : undefined}
-        />
-        <SortMenu
-          database={db.database!}
-          view={view}
-          onChange={(patch) => void db.updateView(view.id, patch)}
-          open={chipEditor === undefined ? undefined : chipEditor === 'sort'}
-          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'sort' : null) : undefined}
-        />
-        <GroupMenu
-          db={db}
-          view={view}
-          open={chipEditor === undefined ? undefined : chipEditor === 'group'}
-          onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'group' : null) : undefined}
-        />
-        <FieldsMenu db={db} view={view} />
+        {rowAware && (
+          <>
+            <NewRowMenu db={db} />
+            <SearchBox db={db} />
+            <FilterMenu
+              database={db.database!}
+              view={view}
+              onChange={(patch) => void db.updateView(view.id, patch)}
+              open={chipEditor === undefined ? undefined : chipEditor === 'filter'}
+              onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'filter' : null) : undefined}
+            />
+            <SortMenu
+              database={db.database!}
+              view={view}
+              onChange={(patch) => void db.updateView(view.id, patch)}
+              open={chipEditor === undefined ? undefined : chipEditor === 'sort'}
+              onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'sort' : null) : undefined}
+            />
+            <GroupMenu
+              db={db}
+              view={view}
+              open={chipEditor === undefined ? undefined : chipEditor === 'group'}
+              onOpenChange={onChipEditorChange ? (open) => onChipEditorChange(open ? 'group' : null) : undefined}
+            />
+            <FieldsMenu db={db} view={view} />
+          </>
+        )}
         <ViewOptionsMenu db={db} view={view} />
-        <span className="px-1 text-xs text-muted-foreground/70">
-          {db.visibleRows.length === db.rows.length
-            ? `${db.visibleRows.length} row${db.visibleRows.length === 1 ? '' : 's'}`
-            : `${db.visibleRows.length} of ${db.rows.length}`}
-        </span>
+        {rowAware && (
+          <span className="px-1 text-xs text-muted-foreground/70">
+            {db.visibleRows.length === db.rows.length
+              ? `${db.visibleRows.length} row${db.visibleRows.length === 1 ? '' : 's'}`
+              : `${db.visibleRows.length} of ${db.rows.length}`}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1307,7 +1324,8 @@ const DatabaseContextMenu: React.FC<{
 }> = ({db, onRenameView, onConfigureExpiry, onAddView, children}) => {
   const {t} = useTranslation();
   const view = db.activeView!;
-  const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
+  const canDeleteView = canDeleteDatabaseView(db.database?.schema.views ?? [], view.id);
+  const rowAware = isDatabaseViewType(view.type) && view.type !== 'form';
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
@@ -1342,33 +1360,35 @@ const DatabaseContextMenu: React.FC<{
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void db.addRow()}>
-          <Rows3 className="mr-2 h-4 w-4" />
-          New row
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* CSV lives here (data-level, whole-database actions) rather than in
-            the per-view View options popover. Export honours the active view's
-            filters/sorts/search (visibleRows), matching what's on screen —
-            including cross-database rollups, which resolve against the same
-            rollup rows/properties the cells display. */}
-        <ContextMenuItem
-          onSelect={() =>
-            downloadText(
-              `${safeFilename(view.name, 'database')}.csv`,
-              rowsToCsv(db.visibleRows, db.database!.schema.properties, db.rollupProperties, db.rollupRows),
-              'text/csv',
-            )
-          }
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Export CSV
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => importCsvFile(db.importCsv)}>
-          <Upload className="mr-2 h-4 w-4" />
-          Import CSV
-        </ContextMenuItem>
+        {rowAware && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void db.addRow()}>
+              <Rows3 className="mr-2 h-4 w-4" />
+              New row
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            {/* CSV lives here (data-level, whole-database actions) rather than in
+                the per-view View options popover. Export honours the active view's
+                filters/sorts/search (visibleRows), matching what's on screen. */}
+            <ContextMenuItem
+              onSelect={() =>
+                downloadText(
+                  `${safeFilename(view.name, 'database')}.csv`,
+                  rowsToCsv(db.visibleRows, db.database!.schema.properties, db.rollupProperties, db.rollupRows),
+                  'text/csv',
+                )
+              }
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => importCsvFile(db.importCsv)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onConfigureExpiry}>
           <CalendarClock className="mr-2 h-4 w-4" />
@@ -1575,6 +1595,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   databaseIdHint,
   inline,
 }) => {
+  const canEdit = useCanWrite();
   // A page-level database (the `?page='d host, not an inline embed) mirrors its
   // active view into the URL (`?view=`); the hook further gates on this being
   // the primary pane, so a split-pane database never fights for the param.
@@ -1594,6 +1615,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
 
   const schema = db.database.schema.properties;
   const view = db.activeView;
+  const rowAware = isDatabaseViewType(view.type) && view.type !== 'form';
   // Table/list honour the view's chosen+ordered columns; other layouts show all.
   const visibleIds = view.visiblePropertyIds;
   const columns =
@@ -1633,13 +1655,17 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
             chipEditor={chipEditor}
             onChipEditorChange={setChipEditor}
           />
-          <div className="flex flex-wrap items-center gap-x-3">
-            <FilterChips db={db} view={view} onEdit={() => setChipEditor('filter')} />
-            <SortChips db={db} view={view} onEdit={() => setChipEditor('sort')} />
-            <GroupChips db={db} view={view} onEdit={() => setChipEditor('group')} />
-          </div>
-          <MetricsBar db={db} view={view} />
-          <ViewBody db={db} view={view} columns={columns} schema={schema} />
+          {rowAware && (
+            <>
+              <div className="flex flex-wrap items-center gap-x-3">
+                <FilterChips db={db} view={view} onEdit={() => setChipEditor('filter')} />
+                <SortChips db={db} view={view} onEdit={() => setChipEditor('sort')} />
+                <GroupChips db={db} view={view} onEdit={() => setChipEditor('group')} />
+              </div>
+              <MetricsBar db={db} view={view} />
+            </>
+          )}
+          <ViewBody db={db} view={view} columns={columns} schema={schema} canEdit={canEdit} />
         </div>
       </DatabaseContextMenu>
     </>

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import {
   isFilterGroup,
+  isFormWritablePropertyType,
   PARENT_GROUP_ID,
   RELATIVE_DATE_OPS,
   relationSides,
@@ -86,7 +87,7 @@ import {EmptyState} from '@/components/ui/empty-state';
 import {cn} from '@/lib/utils';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
 import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
-import type {NewPropertyInput, UseDatabase} from './useDatabase';
+import {canDeleteDatabaseView, type NewPropertyInput, type UseDatabase} from './useDatabase';
 import {ColumnMenuItems, popoverColumnComponents} from './databaseMenuItems';
 
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
@@ -238,7 +239,6 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
   {value: 'timeline', label: 'Timeline', Icon: GanttChartSquare},
   {value: 'map', label: 'Map', Icon: MapPin},
   {value: 'graph', label: 'Graph', Icon: Workflow},
-  // F-2 replaces this compatibility entry with the form-builder presentation.
   {value: 'form', label: 'Form', Icon: ClipboardList},
   {value: 'bar', label: 'Bar chart', Icon: BarChart3},
   {value: 'pie', label: 'Pie chart', Icon: PieChart},
@@ -1599,7 +1599,7 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView; onEdit: (
 };
 
 /** Per-layout one-liner for the add-view menu (mirrors the slash menu's hints). */
-const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
+export const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
   table: 'database.addView.hints.table',
   board: 'database.addView.hints.board',
   gallery: 'database.addView.hints.gallery',
@@ -1608,7 +1608,6 @@ const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
   timeline: 'database.addView.hints.timeline',
   map: 'database.addView.hints.map',
   graph: 'database.addView.hints.graph',
-  // F-2 owns the final form-builder hint/copy.
   form: 'database.addView.hints.form',
   bar: 'database.addView.hints.bar',
   pie: 'database.addView.hints.pie',
@@ -1616,11 +1615,12 @@ const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
 
 /** Layouts that need a property before they can lay rows out (the add-view
  *  menu annotates these; adding one renders an in-body setup card to fix it). */
-const VIEW_TYPE_NEEDS_KEY: Partial<Record<DatabaseViewType, TKey>> = {
+export const VIEW_TYPE_NEEDS_KEY: Partial<Record<DatabaseViewType, TKey>> = {
   calendar: 'database.addView.needs.date',
   timeline: 'database.addView.needs.date',
   map: 'database.addView.needs.location',
   graph: 'database.addView.needs.dependency',
+  form: 'database.addView.needs.form',
   bar: 'database.addView.needs.group',
   pie: 'database.addView.needs.group',
 };
@@ -1700,9 +1700,9 @@ const GroupByPicker: React.FC<{
 
 /** The view layouts whose rows can be grouped (the ViewOptionsMenu "Group by"
  *  set — calendars group by day and graphs by edges, so they're excluded). */
-const GROUPABLE_VIEW_TYPES = new Set<DatabaseViewType>(['board', 'bar', 'pie', 'table', 'list', 'gallery', 'map', 'timeline']);
+export const GROUPABLE_VIEW_TYPES = new Set<DatabaseViewType>(['board', 'bar', 'pie', 'table', 'list', 'gallery', 'map', 'timeline']);
 /** The view layouts with a configurable visible-property set. */
-const FIELDABLE_VIEW_TYPES = new Set<DatabaseViewType>(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'map']);
+export const FIELDABLE_VIEW_TYPES = new Set<DatabaseViewType>(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'map']);
 
 /**
  * Toolbar "Group" control: the active view's grouping one popover away — a
@@ -2233,19 +2233,21 @@ export const ViewOptionsMenu: React.FC<{
           </div>
         )}
 
-        <div className="space-y-1.5 border-t border-border pt-2">
-          <button onClick={() => addFirstMetric(db, view)} className={cn(toolButtonClass, 'w-full justify-center')}>
-            <Sigma className="h-3.5 w-3.5" /> Add metric card
-          </button>
-          {((view.sorts?.length ?? 0) > 0 || (view.filters?.length ?? 0) > 0 || (view.filterRoot?.filters.length ?? 0) > 0) && (
-            <button
-              onClick={() => void db.updateView(view.id, {filterRoot: undefined, filters: [], sorts: []})}
-              className={cn(toolButtonClass, 'w-full justify-center')}
-            >
-              <ListFilter className="h-3.5 w-3.5" /> Clear filters & sorts
+        {view.type !== 'form' && (
+          <div className="space-y-1.5 border-t border-border pt-2">
+            <button onClick={() => addFirstMetric(db, view)} className={cn(toolButtonClass, 'w-full justify-center')}>
+              <Sigma className="h-3.5 w-3.5" /> Add metric card
             </button>
-          )}
-        </div>
+            {((view.sorts?.length ?? 0) > 0 || (view.filters?.length ?? 0) > 0 || (view.filterRoot?.filters.length ?? 0) > 0) && (
+              <button
+                onClick={() => void db.updateView(view.id, {filterRoot: undefined, filters: [], sorts: []})}
+                className={cn(toolButtonClass, 'w-full justify-center')}
+              >
+                <ListFilter className="h-3.5 w-3.5" /> Clear filters & sorts
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-1 border-t border-border pt-2">
           <button onClick={() => void db.duplicateView(view.id)} className={cn(toolButtonClass, 'flex-1 justify-center')}>
@@ -2253,7 +2255,7 @@ export const ViewOptionsMenu: React.FC<{
           </button>
           <button
             onClick={() => void db.deleteView(view.id)}
-            disabled={db.database!.schema.views.length <= 1}
+            disabled={!canDeleteDatabaseView(db.database!.schema.views, view.id)}
             className={cn(toolButtonClass, 'flex-1 justify-center text-destructive hover:text-destructive disabled:opacity-30')}
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -2267,6 +2269,13 @@ export const ViewOptionsMenu: React.FC<{
 /** Build the patch for switching a view's layout, defaulting layout-specific config. */
 export function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
+  if (type === 'form' && view.type !== 'form') {
+    patch.visiblePropertyIds = properties
+      .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
+      .map((property) => property.id);
+    patch.formFields = {};
+    patch.formConfig = {acceptingResponses: true};
+  }
   if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
     // Mirror defaultView: only a categorical property (select/status/relation)
     // makes a sensible default grouping; otherwise stay ungrouped (one "All"
