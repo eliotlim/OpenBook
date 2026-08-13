@@ -101,7 +101,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           the cover tint instead of the white `body`, keeping the notebook-cover
           feel continuous. Web leaves `data-titlebar` unset, so the root stays
           transparent and the web framing is unchanged. */}
-        <div className="ob-app-root flex h-screen flex-col" data-titlebar={inWindowTabs}>
+        <div className="ob-app-root flex h-full flex-col" data-titlebar={inWindowTabs}>
           {/* The titlebar strip (desktop): the in-window tab bar, plus frameless
             window controls on the right (Windows/Linux). Its height comes from
             `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
