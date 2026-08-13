@@ -21,6 +21,27 @@ export default function App({Component, pageProps}: AppProps) {
   const router = useRouter();
   if (router.pathname === '/account/callback') return <Component {...pageProps} />;
 
+  // The public database-form query is a pre-auth shell route. Keep it outside
+  // Library/Account/Hud providers so opening a fill capability cannot initialize
+  // navigation, search, page lists, or sign-in chrome before rendering the form.
+  const publicForm = Boolean(
+    (pageProps as {publicForm?: unknown}).publicForm
+    || (typeof router.query.form === 'string' && typeof router.query.view === 'string'),
+  );
+  if (publicForm) {
+    return (
+      <ErrorBoundary
+        errorComponent={() => <div role="alert">{t('database.publicForm.unavailableDescription')}</div>}
+      >
+        <ThemeProvider>
+          <I18nProvider>
+            <Component {...pageProps} />
+          </I18nProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <>
       <ErrorBoundary
