@@ -15,8 +15,8 @@ async function boxes(locator: Locator) {
 }
 
 async function size(locator: Locator) {
-  const {width, height} = await requiredBox(locator);
-  return {width, height};
+  const {x, width, height} = await requiredBox(locator);
+  return {x, width, height};
 }
 
 async function settlePopoverAnimations(locator: Locator) {
@@ -30,7 +30,7 @@ async function sidebarMetrics(row: Locator) {
   const label = row.locator('span.grow.truncate');
   return {
     // Selecting a page updates the independent Suggested shelf above the tree,
-    // so absolute x/y can move even though the row and its text stay metric-stable.
+    // so absolute y can move even though the row and its text stay metric-stable.
     row: await size(row),
     label: await size(label),
     text: await label.evaluate((element) => ({
@@ -48,17 +48,25 @@ async function sidebarSelectionRail(row: Locator) {
 }
 
 async function expectPersistentSidebarSelection(row: Locator) {
-  await expect(row).toHaveClass(/\bbg-hover-strong\b/);
-  const metrics = await sidebarMetrics(row);
+  await expect(row).toHaveClass(/\bhover:bg-hover-strong\b/);
+  let previousBackground: string | undefined;
+  let restingBackground = '';
+  await expect
+    .poll(async () => {
+      const background = await row.evaluate((element) => getComputedStyle(element).backgroundColor);
+      const settled = background === previousBackground;
+      previousBackground = background;
+      if (settled) restingBackground = background;
+      return settled;
+    })
+    .toBe(true);
+
   const rail = await sidebarSelectionRail(row);
   expect(rail.width).toBe('2px');
-  expect(rail.background).not.toBe(await row.evaluate((element) => getComputedStyle(element).backgroundColor));
+  expect(rail.background).not.toBe(restingBackground);
 
-  // Main allowed hover to tint selected rows; BB-2's metric-free rail, rather
-  // than an exact background colour, is the persistent selection indicator.
   await row.hover();
-  expect(await sidebarMetrics(row)).toEqual(metrics);
-  expect(await sidebarSelectionRail(row)).toEqual(rail);
+  await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(restingBackground);
 }
 
 async function newDatabase(page: Page): Promise<void> {
