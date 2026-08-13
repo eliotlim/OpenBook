@@ -117,7 +117,7 @@ describe('view-tab context menu', () => {
     expect(db2.duplicateView).toHaveBeenCalledWith('view-inactive');
   });
 
-  it('changes the inactive tab type and keeps delete hidden for the last view', () => {
+  it('changes the inactive tab type and keeps form and delete hidden for the last row-managing view', () => {
     const db = makeDb();
     render(<Harness db={db} />);
     openInactiveTabMenu();
@@ -134,5 +134,10 @@ describe('view-tab context menu', () => {
     render(<Harness db={onlyDb} />);
     fireEvent.contextMenu(screen.getByRole('button', {name: 'Active'}));
     expect(screen.queryByText('Delete view')).toBeNull();
+
+    const onlySubTrigger = screen.getByText('Change type').closest('[role="menuitem"]') as HTMLElement;
+    onlySubTrigger.focus();
+    fireEvent.keyDown(onlySubTrigger, {key: 'ArrowRight'});
+    expect(screen.queryByText('Form')).toBeNull();
   });
 });

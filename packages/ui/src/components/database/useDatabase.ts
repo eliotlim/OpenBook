@@ -3,6 +3,7 @@ import {
   applyView,
   defaultStatusOptions,
   defaultView,
+  FORM_SUBMISSION_PROPERTY_ID,
   FormulaError,
   isDatabaseViewType,
   relationSides,
@@ -14,6 +15,7 @@ import {
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
   type DatabaseFormField,
+  type DatabaseFormSubmissionMarker,
   type RelationCardinality,
   type DatabasePropertyType,
   type DatabaseRow,
@@ -550,11 +552,18 @@ export function useDatabase(
 
   const submitFormRow = useCallback(
     async (initial: Record<string, unknown>, name?: string): Promise<string | undefined> => {
-      if (!database) return undefined;
-      const page = await client.createRow(database.id, {name: name ?? null, properties: initial});
+      if (!database || activeView?.type !== 'form') return undefined;
+      const marker: DatabaseFormSubmissionMarker = {
+        submittedViaViewId: activeView.id,
+        submittedAt: new Date().toISOString(),
+      };
+      const page = await client.createRow(database.id, {
+        name: name ?? null,
+        properties: {...initial, [FORM_SUBMISSION_PROPERTY_ID]: marker},
+      });
       return page.id;
     },
-    [client, database],
+    [activeView, client, database],
   );
 
   const addSubItem = useCallback(

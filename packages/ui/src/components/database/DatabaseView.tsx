@@ -1148,7 +1148,7 @@ export const ViewTabContextMenu: React.FC<{
             {t('database.viewMenu.changeType')}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className={MENU_WIDTH_SM}>
-            {VIEW_TYPES.map(({value, label, Icon}) => (
+            {VIEW_TYPES.filter(({value}) => value !== 'form' || canDeleteDatabaseView(db.database!.schema.views, view.id)).map(({value, label, Icon}) => (
               <ContextMenuItem
                 key={value}
                 onSelect={() => void db.updateView(view.id, viewTypePatch(value, view, db.database!.schema.properties))}

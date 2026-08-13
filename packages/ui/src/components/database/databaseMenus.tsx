@@ -1931,9 +1931,10 @@ export const ViewOptionsMenu: React.FC<{
               <button
                 key={value}
                 onClick={() => db.updateView(view.id, viewTypePatch(value, view, properties))}
+                disabled={value === 'form' && !canDeleteDatabaseView(db.database!.schema.views, view.id)}
                 title={label}
                 className={cn(
-                  'flex flex-col items-center gap-1 rounded border px-1 py-1.5 text-[10px] transition-colors',
+                  'flex flex-col items-center gap-1 rounded border px-1 py-1.5 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-30',
                   view.type === value ? 'border-brand/50 bg-accent text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
                 )}
               >
@@ -2270,9 +2271,15 @@ export const ViewOptionsMenu: React.FC<{
 export function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
   if (type === 'form' && view.formConfig === undefined) {
-    patch.visiblePropertyIds = properties
-      .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
-      .map((property) => property.id);
+    patch.visiblePropertyIds = [
+      TITLE_PROPERTY_ID,
+      ...properties
+        .filter((property) =>
+          property.id !== TITLE_PROPERTY_ID
+          && !property.id.startsWith('sys_')
+          && isFormWritablePropertyType(property.type))
+        .map((property) => property.id),
+    ];
     patch.formFields = {};
     patch.formConfig = {acceptingResponses: true};
   }

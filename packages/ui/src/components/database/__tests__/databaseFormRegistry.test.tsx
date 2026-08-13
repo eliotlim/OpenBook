@@ -1,8 +1,10 @@
-import {afterEach, describe, expect, it} from 'vitest';
-import {cleanup, render, screen} from '@testing-library/react';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {
   KNOWN_DATABASE_VIEW_TYPES,
+  TITLE_PROPERTY_ID,
   type DatabaseProperty,
+  type StoredDatabase,
   type DatabaseView,
 } from '@book.dev/sdk';
 import {ViewBody} from '../DatabaseView';
@@ -12,6 +14,7 @@ import {
   VIEW_TYPE_HINT_KEY,
   VIEW_TYPE_NEEDS_KEY,
   VIEW_TYPES,
+  ViewOptionsMenu,
   viewIcon,
   viewTypePatch,
 } from '../databaseMenus';
@@ -41,7 +44,7 @@ describe('form view registry', () => {
 
     expect(viewTypePatch('form', table, properties)).toEqual({
       type: 'form',
-      visiblePropertyIds: ['p-text'],
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'p-text'],
       formFields: {},
       formConfig: {acceptingResponses: true},
     });
@@ -49,7 +52,7 @@ describe('form view registry', () => {
     const incompleteForm = {...table, type: 'form'} as DatabaseView;
     expect(viewTypePatch('form', incompleteForm, properties)).toEqual({
       type: 'form',
-      visiblePropertyIds: ['p-text'],
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'p-text'],
       formFields: {},
       formConfig: {acceptingResponses: true},
     });
@@ -62,6 +65,25 @@ describe('form view registry', () => {
       formConfig: {acceptingResponses: false, closedMessage: 'Paused'},
     } as DatabaseView;
     expect(viewTypePatch('form', formerForm, properties)).toEqual({type: 'form'});
+  });
+
+  it('disables the form layout tile when switching would strand a forms-only database', () => {
+    const onlyTable = {id: 'v-table', name: 'Table', type: 'table', filters: [], sorts: []} as DatabaseView;
+    const db = {
+      database: {
+        id: 'db-1',
+        name: 'Database',
+        schema: {properties: [], views: [onlyTable]},
+      } as unknown as StoredDatabase,
+      updateView: vi.fn().mockResolvedValue(undefined),
+    } as unknown as UseDatabase;
+
+    render(<I18nProvider><ViewOptionsMenu db={db} view={onlyTable} /></I18nProvider>);
+    fireEvent.click(screen.getByRole('button', {name: 'View options'}));
+
+    expect((screen.getByTitle('Form') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTitle('Form'));
+    expect(db.updateView).not.toHaveBeenCalled();
   });
 });
 
