@@ -380,7 +380,7 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   case 'url':
   case 'email':
   case 'phone':
-    return <LinkCell kind={property.type} value={value} placeholder={placeholder} onChange={onChange} controlProps={controlProps} />;
+    return <LinkCell property={property} kind={property.type} value={value} placeholder={placeholder} onChange={onChange} controlProps={controlProps} />;
   case 'location':
     return <LocationCell value={value} onChange={onChange} controlProps={controlProps} />;
   case 'created_time':
@@ -805,7 +805,8 @@ const FilesCell: React.FC<Pick<PropertyValueCellProps, 'value' | 'onChange' | 'c
 };
 
 /** Editable url / email / phone cell with an "open" affordance when filled. */
-const LinkCell: React.FC<Pick<PropertyValueCellProps, 'value' | 'placeholder' | 'onChange' | 'controlProps'> & {kind: 'url' | 'email' | 'phone'}> = ({
+const LinkCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | 'placeholder' | 'onChange' | 'controlProps'> & {kind: 'url' | 'email' | 'phone'}> = ({
+  property,
   kind,
   value,
   placeholder,
@@ -821,7 +822,7 @@ const LinkCell: React.FC<Pick<PropertyValueCellProps, 'value' | 'placeholder' | 
         onBlur={(e) => onChange(e.target.value.trim() || null)}
         className={inputClass}
         placeholder={placeholder || 'Empty'}
-        aria-label={kind}
+        aria-label={property.name}
         {...controlProps}
       />
       {str && (
