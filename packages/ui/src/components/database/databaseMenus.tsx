@@ -11,6 +11,7 @@ import {
   Calendar,
   ChevronDown,
   Columns3,
+  ClipboardList,
   Eye,
   Filter,
   GanttChartSquare,
@@ -239,6 +240,8 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
   {value: 'timeline', label: 'Timeline', Icon: GanttChartSquare},
   {value: 'map', label: 'Map', Icon: MapPin},
   {value: 'graph', label: 'Graph', Icon: Workflow},
+  // F-2 replaces this compatibility entry with the form-builder presentation.
+  {value: 'form', label: 'Form', Icon: ClipboardList},
   {value: 'bar', label: 'Bar chart', Icon: BarChart3},
   {value: 'pie', label: 'Pie chart', Icon: PieChart},
 ];
@@ -1609,6 +1612,8 @@ const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
   timeline: 'database.addView.hints.timeline',
   map: 'database.addView.hints.map',
   graph: 'database.addView.hints.graph',
+  // F-2 owns the final form-builder hint/copy.
+  form: 'database.addView.hints.form',
   bar: 'database.addView.hints.bar',
   pie: 'database.addView.hints.pie',
 };

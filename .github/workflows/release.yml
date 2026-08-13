@@ -585,7 +585,7 @@ jobs:
   # trades for a short-lived, per-publish registry token, after npmjs.com matches
   # this repo+workflow+environment against the package's configured Trusted
   # Publisher. Configure once per package on npmjs.com (Settings → Trusted
-  # Publishers): org `eliotlim`, repo `OpenBook`, workflow `release.yml`,
+  # Publishers): org `lab255`, repo `OpenBook`, workflow `release.yml`,
   # environment `publish`. Replaces the expired/lost NPM_TOKEN that silently
   # blocked the 1.61–1.63 publishes.
   publish-npm:
