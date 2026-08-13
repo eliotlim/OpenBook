@@ -524,6 +524,16 @@ export const zh: PartialMessages = {
     indexed: '已索引 {pages} 个页面',
     notIndexed: '首次搜索时建立索引。',
   },
+  agents: {
+    localMcpTitle: '本地 MCP 连接器',
+    localMcpHint: '在下方创建令牌，然后将其粘贴到此命令的 <token> 处。',
+    localMcpScopes:
+      '只读令牌只能使用读取工具。写入需要写入权限范围；除非“智能体编辑”（或页面的单独设置）为“直接”，否则更改将作为建议提交。',
+    localMcpPortWarn: '仅在 OpenBook 运行时注册；令牌会发送给正在 127.0.0.1:4319 上响应的进程。',
+    localMcpFollowsDefault: '即使你在应用中切换了资料库，连接器也始终使用默认的本地资料库。',
+    localMcpDisabled: '启用智能体 API 后才能使用此连接器。',
+    localMcpCopy: '复制命令',
+  },
   agent: {
     title: '助手',
     hint: '询问你的笔记——助手可以搜索、阅读和创建页面。',
@@ -1331,6 +1341,7 @@ export const zh: PartialMessages = {
         timeline: '沿时间轴的甘特条',
         map: '按位置属性放置标记',
         graph: '展示行之间的依赖关系',
+        form: 'Form',
         bar: '按分组聚合的条形图',
         pie: '按分组聚合的饼图',
       },

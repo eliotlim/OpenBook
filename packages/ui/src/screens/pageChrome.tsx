@@ -204,6 +204,8 @@ function caretOnLastLine(el: HTMLTextAreaElement): boolean {
     mirror.style[prop] = cs[prop];
   }
   mirror.style.position = 'absolute';
+  mirror.style.top = '0';
+  mirror.style.left = '-99999px';
   mirror.style.visibility = 'hidden';
   mirror.style.whiteSpace = 'pre-wrap';
   mirror.style.wordWrap = 'break-word';
