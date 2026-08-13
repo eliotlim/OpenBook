@@ -142,8 +142,6 @@ export interface DatabaseFormProps {
   onPublish?: () => Promise<{url: string}>;
   /** Revoke the one active capability. */
   onRevoke?: () => Promise<boolean>;
-  /** HTTP connection origin used when the app itself is served from another scheme/origin. */
-  fillUrlBase?: string;
   /** Publication lifecycle requires instance-level manage authority. */
   canManagePublication?: boolean;
 }
@@ -782,7 +780,6 @@ const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
   getPublication,
   onPublish,
   onRevoke,
-  fillUrlBase,
 }) => {
   const {t} = useTranslation();
   const [publication, setPublication] = useState<DatabaseFormPublication | null>(null);
@@ -840,9 +837,12 @@ const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
     try {
       const result = await onPublish();
       if (!result.url.startsWith('/') || result.url.startsWith('//')) {
-        throw new Error('form fill URL must be connection-relative');
+        throw new Error('form fill URL must be application-relative');
       }
-      const base = fillUrlBase?.trim() || (typeof window === 'undefined' ? 'https://openbook.local' : window.location.href);
+      // This is an app route, even when the app is connected to a remote data
+      // server. Resolving it against the transport origin sends visitors to an
+      // API-only server in that configuration instead of the public form UI.
+      const base = typeof window === 'undefined' ? 'https://openbook.local' : window.location.href;
       const absolute = new URL(result.url, base).toString();
       setFillUrl(absolute);
       setCopied(false);

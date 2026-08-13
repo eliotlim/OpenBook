@@ -1042,7 +1042,6 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
         getPublication={client.getDatabaseFormPublication ? getPublication : undefined}
         onPublish={client.publishDatabaseForm ? publishForm : undefined}
         onRevoke={client.revokeDatabaseForm ? revokeForm : undefined}
-        fillUrlBase={client.connectionBaseUrl}
       />
     );
   case 'bar':

@@ -267,7 +267,7 @@ describe('database form builder', () => {
     expect(screen.queryByText('Public form')).toBeNull();
   });
 
-  it('resolves a one-time fill path against the data connection origin', async () => {
+  it('resolves a one-time fill path against the app origin', async () => {
     const withTitle = {
       ...formView,
       visiblePropertyIds: [TITLE_PROPERTY_ID, email.id],
@@ -279,19 +279,15 @@ describe('database form builder', () => {
       onPublish: vi.fn().mockResolvedValue({url: '/?form=db&view=v-form#capability=remote-secret'}),
       onRevoke: vi.fn().mockResolvedValue(true),
     };
-    render(<DatabaseForm
-      view={withTitle}
-      properties={[email]}
-      canEdit
-      fillUrlBase="https://remote.example/api"
-      {...props}
-    />);
+    render(<DatabaseForm view={withTitle} properties={[email]} canEdit {...props} />);
     const publishButton = await screen.findByRole('button', {name: 'Publish form'});
     fireEvent.click(publishButton);
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Publish form'}));
 
     const link = await screen.findByRole('link', {name: /remote-secret/});
-    expect(link.getAttribute('href')).toBe('https://remote.example/?form=db&view=v-form#capability=remote-secret');
+    expect(link.getAttribute('href')).toBe(
+      new URL('/?form=db&view=v-form#capability=remote-secret', window.location.href).toString(),
+    );
   });
 
   it('rejects unsafe patterns while authoring and blocks a hand-authored unsafe pattern at review', async () => {
@@ -337,7 +333,7 @@ describe('database form fill renderer', () => {
     const props = actions();
     render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'not-an-email'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -350,7 +346,7 @@ describe('database form fill renderer', () => {
     const props = actions();
     render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -415,7 +411,7 @@ describe('database form fill renderer', () => {
     } as DatabaseView;
     const props = actions();
     render(<DatabaseForm view={redirect} properties={[email]} canEdit={false} {...props} />);
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
