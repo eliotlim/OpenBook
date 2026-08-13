@@ -254,7 +254,7 @@ describe('database form fill renderer', () => {
     const props = actions();
     render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'not-an-email'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -267,7 +267,7 @@ describe('database form fill renderer', () => {
     const props = actions();
     render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -332,7 +332,7 @@ describe('database form fill renderer', () => {
     } as DatabaseView;
     const props = actions();
     render(<DatabaseForm view={redirect} properties={[email]} canEdit={false} {...props} />);
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
