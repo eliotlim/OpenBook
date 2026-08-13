@@ -115,7 +115,7 @@ export interface DatabaseFormProps {
     input: NewPropertyInput,
     opts?: AddPropertyForViewListOptions,
   ) => Promise<string | undefined>;
-  onAddOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
+  onAddOption?: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
   onSubmit: (fields: Record<string, unknown>) => Promise<string | undefined>;
 }
 
@@ -303,7 +303,7 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
                   value={values[property.id]}
                   placeholder={metadata.placeholder}
                   onChange={(value) => updateValue(property.id, value)}
-                  onAddOption={(optionLabel) => onAddOption(property.id, optionLabel)}
+                  onAddOption={onAddOption ? (optionLabel) => onAddOption(property.id, optionLabel) : undefined}
                 />
               </span>
               {error && <span className="mt-1 block text-xs text-destructive" role="alert">{t(FORM_ERROR_KEY[error.code])}</span>}

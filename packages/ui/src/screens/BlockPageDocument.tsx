@@ -30,6 +30,7 @@ import {RemoteCursors} from '@/components/presence/RemoteCursors';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
+import {registerDatabaseFormBlock} from '@/components/database/DatabaseFormBlock';
 import {FormOriginContext, formOriginUrl, registerFormBlock} from '@/blockeditor/FormBlockView';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {ExportBooksDialog, type ExportBooksChoice} from '@/components/ExportBooksDialog';
@@ -69,6 +70,7 @@ import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageCh
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
 registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
 registerDatabaseBlock(); // inline database-view embeds ("Link to database")
+registerDatabaseFormBlock(); // reference-only database form embeds (F-3)
 registerFormBlock(); // provider-aware form shell (database summary + frozen preview)
 
 /**

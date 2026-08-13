@@ -29,6 +29,7 @@ import {registerReactiveBlocks} from './reactiveBlocks';
 import {INPUT_TYPES} from './kit/scope';
 import {CONTAINER_BLOCKS, TEXT_BLOCKS} from './model';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
+import {registerDatabaseFormBlock} from '@/components/database/DatabaseFormBlock';
 import {registerFormBlock} from './FormBlockView';
 import {BUNDLED_PLUGINS} from '@/plugins/bundled.gen';
 
@@ -37,6 +38,7 @@ describe('registry ↔ catalogue drift guard', () => {
     registerArtifactKit();
     registerReactiveBlocks();
     registerDatabaseBlock();
+    registerDatabaseFormBlock();
     registerFormBlock();
     const registered = new Set(registeredBlockTypes().filter((t) => !t.includes('/')));
     const catalogued = new Set(BLOCK_TYPE_CATALOGUE.filter((e) => e.category === 'kit').map((e) => e.type));
@@ -52,6 +54,7 @@ describe('registry ↔ catalogue drift guard', () => {
     registerArtifactKit();
     registerReactiveBlocks();
     registerDatabaseBlock();
+    registerDatabaseFormBlock();
     registerFormBlock();
     for (const t of registeredBlockTypes()) {
       expect(BLOCK_TYPE_CATALOGUE.find((e) => e.type === t)?.category, t).not.toBe('core');

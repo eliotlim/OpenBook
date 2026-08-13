@@ -1,4 +1,4 @@
-import {isSafeHref, type FormField, type FormSchema} from '@book.dev/sdk';
+import {isSafeHref, type DatabaseFormReference, type FormField, type FormSchema} from '@book.dev/sdk';
 import {t} from '@/i18n';
 import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
 import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
@@ -96,6 +96,25 @@ function runToHtml(run: TextRun): string {
 }
 
 const textHtml = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToHtml).join('');
+
+function databaseFormReference(props: Record<string, unknown> | undefined): DatabaseFormReference | null {
+  const databaseId = props?.databaseId;
+  const viewId = props?.viewId;
+  return typeof databaseId === 'string' && databaseId && typeof viewId === 'string' && viewId
+    ? {databaseId, viewId}
+    : null;
+}
+
+const databaseFormAnchor = (reference: DatabaseFormReference | null, originPageUrl?: string | null): string => {
+  const fallback = reference
+    ? `#database-form-${encodeURIComponent(reference.databaseId)}-${encodeURIComponent(reference.viewId)}`
+    : '#database-form';
+  const href = originPageUrl && isSafeHref(originPageUrl) ? originPageUrl : fallback;
+  const attrs = reference
+    ? ` data-database-id="${escapeHtml(reference.databaseId)}" data-form-view-id="${escapeHtml(reference.viewId)}"`
+    : '';
+  return `<a class="ob-dbform-link" href="${escapeHtml(href)}"${attrs}>${escapeHtml(t('formBlock.databaseReference.openForm'))}</a>`;
+};
 
 // ── Cell-range clipboard (TBL-5) ─────────────────────────────────────────────
 // A copied multi-cell selection is a rectangular grid of rich-text runs
@@ -344,6 +363,10 @@ export function blocksToHtml(blocks: BlockJSON[], opts: {originPageUrl?: string 
       );
       i += 1;
       break;
+    case 'dbform':
+      parts.push(`<p>${databaseFormAnchor(databaseFormReference(b.props), opts.originPageUrl)}</p>`);
+      i += 1;
+      break;
     case 'form':
       parts.push(formToStaticHtml(formSchemaFromProps(b.props), opts.originPageUrl));
       i += 1;
@@ -508,6 +531,14 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     case 'dbview':
       out.push(`**🗃 ${String(b.props?.name ?? 'Database')}**`);
       break;
+    case 'dbform': {
+      const reference = databaseFormReference(b.props);
+      const href = reference
+        ? `#database-form-${encodeURIComponent(reference.databaseId)}-${encodeURIComponent(reference.viewId)}`
+        : '#database-form';
+      out.push(`[${t('formBlock.databaseReference.openForm')}](${href})`);
+      break;
+    }
     case 'form':
       out.push(formToMarkdown(formSchemaFromProps(b.props)));
       break;
@@ -1001,6 +1032,19 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         });
         i += 1;
         break;
+      case 'dbform': {
+        // A static export cannot run the authenticated row-create path. Keep
+        // only the durable reference as data attributes and link back to the
+        // live page when the export entry point knows its origin.
+        const reference = databaseFormReference(b.props);
+        sink.push({
+          id: b.id,
+          type: 'paragraph',
+          data: {text: databaseFormAnchor(reference)},
+        });
+        i += 1;
+        break;
+      }
       case 'form': {
         // Keep the exact durable props under `data.props` for FORM-1/FORM-5,
         // while mirroring them at `data.*` for the static export renderers.

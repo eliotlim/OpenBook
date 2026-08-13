@@ -59,6 +59,14 @@ describe('t', () => {
       expect(leaves({builder: locale.formBlock?.builder, settings: locale.formBlock?.settings}).sort()).toEqual(sourceKeys);
     }
   });
+
+  it('ships every database-form block string in all four locales', () => {
+    const keys = Object.keys(en.formBlock.databaseReference).sort();
+    for (const locale of [de, ja, zh]) {
+      expect(Object.keys(locale.formBlock?.databaseReference ?? {}).sort()).toEqual(keys);
+      expect(locale.slash?.custom?.dbform).toBeDefined();
+    }
+  });
 });
 
 describe('resolveLocale', () => {
