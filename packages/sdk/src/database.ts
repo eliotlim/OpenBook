@@ -107,7 +107,7 @@ export type FormWritablePropertyType = {
 
 /** True when `type` is safe for a public form fill in v1. */
 export function isFormWritablePropertyType(type: DatabasePropertyType): type is FormWritablePropertyType {
-  return FORM_PROPERTY_TYPE_WRITABILITY[type] === true;
+  return FORM_PROPERTY_TYPE_WRITABILITY[type];
 }
 
 /** Display formatting for `number`/`formula`/`expr` numeric values. */
@@ -458,20 +458,68 @@ export interface DatabaseMetric {
 }
 
 /** Per-property presentation and validation metadata for a form view. */
+export interface DatabaseFormFieldValidation {
+  min?: number;
+  max?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+}
+
 export interface DatabaseFormField {
   label?: string;
   help?: string;
   required?: boolean;
   placeholder?: string;
+  /** Render a text property as a multi-line input. */
+  multiline?: boolean;
+  /** Constraints enforced by the public submission validator. */
+  validation?: DatabaseFormFieldValidation;
 }
+
+/** Post-submit behaviour for a database-view form. */
+export type DatabaseFormConfirmation =
+  | {type: 'message'; message: string}
+  | {type: 'redirect'; redirectUrl: string};
 
 /** Form-wide copy and response state for a form view. */
 export interface DatabaseFormConfig {
   title?: string;
   description?: string;
   submitLabel?: string;
-  confirmationMessage?: string;
+  confirmation?: DatabaseFormConfirmation;
   acceptingResponses?: boolean;
+  closedMessage?: string;
+  /** Per-view response ceiling; absence uses the legacy public-form default. */
+  maxResponses?: number;
+}
+
+/** One deliberately projected public field; no other column shape is exposed. */
+export interface DatabaseFormDescriptorField {
+  propertyId: string;
+  type: FormWritablePropertyType;
+  label: string;
+  help: string;
+  required: boolean;
+  placeholder: string;
+  multiline?: boolean;
+  /** Display-safe constraints; pattern remains server-enforced only. */
+  validation?: Pick<DatabaseFormFieldValidation, 'min' | 'max' | 'minLength' | 'maxLength'>;
+  options?: DatabaseSelectOption[];
+  includeTime?: boolean;
+  dateRange?: boolean;
+  numberTarget?: number;
+}
+
+/** Capability-gated public rendering contract for one database form view. */
+export interface DatabaseFormDescriptor {
+  title: string;
+  description: string;
+  submitLabel: string;
+  acceptingResponses: boolean;
+  /** Present only for a closed form that configured custom copy. */
+  closedMessage?: string;
+  fields: DatabaseFormDescriptorField[];
 }
 
 /** Stable machine-readable failures returned by {@link validateRowAgainstForm}. */
@@ -480,8 +528,14 @@ export const FORM_ROW_VALIDATION_ERROR_CODES = [
   'unknown_field',
   'required',
   'type',
+  'min',
+  'max',
+  'minLength',
+  'maxLength',
+  'pattern',
   'option',
   'range',
+  'too_large',
   'date_format',
   'email_format',
   'url_format',
@@ -498,7 +552,7 @@ export interface FormRowValidationError {
 
 /** A successful result contains only current, mapped, form-writable properties. */
 export type FormRowValidationResult =
-  | {ok: true; fields: Record<string, unknown>}
+  | {ok: true; name?: string; fields: Record<string, unknown>}
   | {ok: false; errors: FormRowValidationError[]};
 
 /** A saved presentation of the database: a layout plus its filters and sorts. */
@@ -513,8 +567,9 @@ export interface DatabaseView {
   sorts: DatabaseSort[];
   /**
    * Property ids to show, in order. Empty/undefined shows every property. The
-   * title is always shown and is not listed here. A `form` view is deliberately
-   * stricter: only explicitly listed ids are fields, in this exact order.
+   * title is always shown and is not listed here for ordinary views. A `form`
+   * view is deliberately stricter: only explicitly listed ids are fields, in
+   * this exact order, and the reserved `title` id maps the row name.
    */
   visiblePropertyIds?: string[];
   /** Form-view field metadata, keyed by property id. Inclusion and order remain
@@ -1403,9 +1458,15 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
     // A form's field list is always explicit and fail-closed. Form-only fields
     // are added as ordinary pageHidden properties by the builder, then appended
     // here just like any other form-writable database column.
-    view.visiblePropertyIds = properties
-      .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
-      .map((property) => property.id);
+    view.visiblePropertyIds = [
+      TITLE_PROPERTY_ID,
+      ...properties
+        .filter((property) =>
+          property.id !== TITLE_PROPERTY_ID
+          && !property.id.startsWith('sys_')
+          && isFormWritablePropertyType(property.type))
+        .map((property) => property.id),
+    ];
     view.formFields = {};
     view.formConfig = {acceptingResponses: true};
   }
@@ -1546,19 +1607,15 @@ function validFormDate(value: string, includeTime: boolean): boolean {
 
 function formFieldIsEmpty(property: DatabaseProperty, value: unknown): boolean {
   if (value === undefined || value === null) return true;
+  // HTML controls can emit an empty string even when the backing property is
+  // numeric, boolean, or otherwise non-string. Treat it as absence before type
+  // validation so a required blank consistently reports `required`.
+  if (typeof value === 'string' && value.trim() === '') return true;
   switch (property.type) {
-  case 'text':
-  case 'select':
-  case 'status':
-  case 'url':
-  case 'email':
-  case 'phone':
-    return typeof value === 'string' && value.trim() === '';
   case 'multi_select':
   case 'files':
     return Array.isArray(value) && value.length === 0;
   case 'date':
-    if (typeof value === 'string') return value.trim() === '';
     if (property.dateRange && typeof value === 'object' && !Array.isArray(value)) {
       const range = value as Partial<DateRange>;
       return !range.start && !range.end;
@@ -1650,6 +1707,183 @@ function copyFormValue(value: unknown): unknown {
   return value;
 }
 
+type MappedFormProperty = DatabaseProperty & {type: FormWritablePropertyType};
+
+const FORM_TITLE_PROPERTY: MappedFormProperty = {
+  id: TITLE_PROPERTY_ID,
+  name: 'Title',
+  type: 'text',
+};
+
+/** Resolve the ordered, current, writable field mapping, including row title. */
+function mappedFormProperties(schema: DatabaseSchema, view: DatabaseView): MappedFormProperty[] {
+  const byId = new Map(schema.properties.map((property) => [property.id, property]));
+  return (view.visiblePropertyIds ?? [])
+    .map((propertyId) => propertyId === TITLE_PROPERTY_ID ? FORM_TITLE_PROPERTY : byId.get(propertyId))
+    .filter((property): property is MappedFormProperty =>
+      property !== undefined && !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type));
+}
+
+interface FormPatternFrame {
+  hasAlternation: boolean;
+  hasQuantifier: boolean;
+}
+
+/** Conservative structural screen for common exponential-backtracking forms. */
+function formPatternIsUnsafe(pattern: string): boolean {
+  if (/\\(?:[1-9]|k<)/.test(pattern)) return true;
+  const frames: FormPatternFrame[] = [{hasAlternation: false, hasQuantifier: false}];
+  let inClass = false;
+  let quantifiers = 0;
+
+  for (let i = 0; i < pattern.length; i += 1) {
+    const char = pattern[i];
+    if (char === '\\') {
+      i += 1;
+      continue;
+    }
+    if (inClass) {
+      if (char === ']') inClass = false;
+      continue;
+    }
+    if (char === '[') {
+      inClass = true;
+      continue;
+    }
+    if (char === '(') {
+      if (pattern[i + 1] === '?' && pattern[i + 2] !== ':') return true;
+      if (pattern[i + 1] === '?' && pattern[i + 2] === ':') i += 2;
+      frames.push({hasAlternation: false, hasQuantifier: false});
+      continue;
+    }
+    if (char === '|') {
+      frames[frames.length - 1].hasAlternation = true;
+      continue;
+    }
+    if (char === ')') {
+      if (frames.length === 1) continue;
+      const frame = frames.pop()!;
+      const next = pattern[i + 1];
+      const quantified = next === '*' || next === '+' || next === '?' || next === '{';
+      if (quantified && (frame.hasAlternation || frame.hasQuantifier)) return true;
+      const parent = frames[frames.length - 1];
+      parent.hasAlternation ||= frame.hasAlternation;
+      parent.hasQuantifier ||= frame.hasQuantifier || quantified;
+      continue;
+    }
+    if (char === '*' || char === '+' || char === '?' || char === '{') {
+      frames[frames.length - 1].hasQuantifier = true;
+      quantifiers += 1;
+      if (quantifiers > 8) return true;
+    }
+  }
+  return inClass;
+}
+
+function validateFormFieldConstraints(
+  metadata: DatabaseFormField | undefined,
+  value: unknown,
+): FormRowValidationErrorCode[] {
+  const validation = metadata?.validation;
+  if (!validation) return [];
+  const errors: FormRowValidationErrorCode[] = [];
+
+  if (typeof value === 'number') {
+    if (typeof validation.min === 'number' && value < validation.min) errors.push('min');
+    if (typeof validation.max === 'number' && value > validation.max) errors.push('max');
+  }
+
+  const length = typeof value === 'string' || Array.isArray(value) ? value.length : undefined;
+  if (length !== undefined) {
+    if (typeof validation.minLength === 'number' && length < validation.minLength) errors.push('minLength');
+    if (typeof validation.maxLength === 'number' && length > validation.maxLength) errors.push('maxLength');
+  }
+
+  if (validation.pattern !== undefined && typeof value === 'string') {
+    const pattern = validation.pattern;
+    if (
+      typeof pattern !== 'string'
+      || pattern.length > 256
+      || value.length > 1_024
+      || formPatternIsUnsafe(pattern)
+    ) {
+      errors.push('pattern');
+    } else {
+      try {
+        if (!new RegExp(pattern).test(value)) errors.push('pattern');
+      } catch {
+        errors.push('pattern');
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * Project only the public rendering contract from a freshly loaded form view.
+ * Returns `null` for a non-form view so callers cannot accidentally serialize a
+ * normal database view through the public endpoint.
+ */
+export function projectDatabaseFormDescriptor(
+  schema: DatabaseSchema,
+  view: DatabaseView,
+): DatabaseFormDescriptor | null {
+  if (view.type !== 'form') return null;
+  const config = view.formConfig;
+  const acceptingResponses = config?.acceptingResponses === true;
+  const fields = mappedFormProperties(schema, view).map((property): DatabaseFormDescriptorField => {
+    const metadata = view.formFields && formHasOwn(view.formFields, property.id)
+      ? view.formFields[property.id]
+      : undefined;
+    const field: DatabaseFormDescriptorField = {
+      propertyId: property.id,
+      type: property.type,
+      label: metadata?.label ?? property.name,
+      help: metadata?.help ?? '',
+      required: metadata?.required === true,
+      placeholder: metadata?.placeholder ?? '',
+    };
+    if (property.type === 'text' && metadata?.multiline !== undefined) {
+      field.multiline = metadata.multiline;
+    }
+    const validation = metadata?.validation;
+    if (validation) {
+      const displayValidation = {
+        ...(validation.min !== undefined ? {min: validation.min} : {}),
+        ...(validation.max !== undefined ? {max: validation.max} : {}),
+        ...(validation.minLength !== undefined ? {minLength: validation.minLength} : {}),
+        ...(validation.maxLength !== undefined ? {maxLength: validation.maxLength} : {}),
+      };
+      if (Object.keys(displayValidation).length > 0) field.validation = displayValidation;
+    }
+    if (
+      (property.type === 'select' || property.type === 'multi_select' || property.type === 'status')
+      && property.options !== undefined
+    ) {
+      field.options = property.options.map((option) => ({...option}));
+    }
+    if (property.type === 'date') {
+      if (property.includeTime !== undefined) field.includeTime = property.includeTime;
+      if (property.dateRange !== undefined) field.dateRange = property.dateRange;
+    }
+    if ((property.type === 'number' || property.type === 'rating') && property.numberTarget !== undefined) {
+      field.numberTarget = property.numberTarget;
+    }
+    return field;
+  });
+
+  return {
+    title: config?.title ?? view.name,
+    description: config?.description ?? '',
+    submitLabel: config?.submitLabel ?? 'Submit',
+    acceptingResponses,
+    ...(!acceptingResponses && config?.closedMessage !== undefined
+      ? {closedMessage: config.closedMessage}
+      : {}),
+    fields,
+  };
+}
+
 /**
  * Validate an untrusted public fill against the database's current schema and
  * form mapping. The allowlist is the form's explicit `visiblePropertyIds`
@@ -1667,11 +1901,7 @@ export function validateRowAgainstForm(
     return {ok: false, errors: [{propertyId: '', code: 'type'}]};
   }
 
-  const byId = new Map(schema.properties.map((property) => [property.id, property]));
-  const mapped = (view.visiblePropertyIds ?? [])
-    .map((propertyId) => byId.get(propertyId))
-    .filter((property): property is DatabaseProperty =>
-      property !== undefined && !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type));
+  const mapped = mappedFormProperties(schema, view);
   const allowedIds = new Set(mapped.map((property) => property.id));
   const errors: FormRowValidationError[] = [];
 
@@ -1680,6 +1910,7 @@ export function validateRowAgainstForm(
   }
 
   const validated: Record<string, unknown> = {};
+  let name: string | undefined;
   for (const property of mapped) {
     const present = formHasOwn(fields, property.id);
     const value = present ? fields[property.id] : undefined;
@@ -1688,11 +1919,21 @@ export function validateRowAgainstForm(
       : undefined;
     if (!present || formFieldIsEmpty(property, value)) {
       if (metadata?.required === true) errors.push({propertyId: property.id, code: 'required'});
+      if (property.id === TITLE_PROPERTY_ID) name = '';
       continue;
     }
     const code = validateFormPropertyValue(property, value);
     if (code) {
       errors.push({propertyId: property.id, code});
+      continue;
+    }
+    const constraintCodes = validateFormFieldConstraints(metadata, value);
+    if (constraintCodes.length > 0) {
+      for (const constraintCode of constraintCodes) errors.push({propertyId: property.id, code: constraintCode});
+      continue;
+    }
+    if (property.id === TITLE_PROPERTY_ID) {
+      name = value as string;
       continue;
     }
     Object.defineProperty(validated, property.id, {
@@ -1703,7 +1944,8 @@ export function validateRowAgainstForm(
     });
   }
 
-  return errors.length > 0 ? {ok: false, errors} : {ok: true, fields: validated};
+  if (errors.length > 0) return {ok: false, errors};
+  return name === undefined ? {ok: true, fields: validated} : {ok: true, name, fields: validated};
 }
 
 // ── Number formatting ────────────────────────────────────────────────────────

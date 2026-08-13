@@ -25,7 +25,6 @@ export type {
 export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POLICIES, resolveAgentEdits} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export {
-  DatabaseFormSubmissionError,
   FormSubmissionError,
   FormUploadError,
   FORM_UPLOAD_MAX_FILE_BYTES,
@@ -34,12 +33,9 @@ export {
   FORM_UPLOAD_MAX_FORM_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
   generateSubmissionKey,
-  type DatabaseFormDescriptor,
-  type DatabaseFormDescriptorField,
-  type DatabaseFormPublication,
+  type DatabaseFormDescriptorRequest,
   type DatabaseFormReference,
   type DatabaseFormSubmissionRequest,
-  type DatabaseFormUploadInput,
   type FormSubmissionRequest,
   type FormSubmissionResult,
   type FormUploadInput,
@@ -129,7 +125,11 @@ export type {
   DatabaseSort,
   DatabaseView,
   DatabaseFormField,
+  DatabaseFormFieldValidation,
+  DatabaseFormConfirmation,
   DatabaseFormConfig,
+  DatabaseFormDescriptorField,
+  DatabaseFormDescriptor,
   FormRowValidationErrorCode,
   FormRowValidationError,
   FormRowValidationResult,
@@ -181,6 +181,7 @@ export {
   defaultView,
   defaultStatusOptions,
   removeProperty,
+  projectDatabaseFormDescriptor,
   validateRowAgainstForm,
   formatNumber,
   formatUniqueId,
@@ -234,6 +235,7 @@ export {
   extractMentionIds,
   propertiesReferencePage,
   extractPropertyReferenceIds,
+  type DatabaseFormSubmissionMarker,
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, onServerOverrideChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';

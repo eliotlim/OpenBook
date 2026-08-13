@@ -21,31 +21,24 @@ import type {
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import {
-  DatabaseFormSubmissionError,
   FormSubmissionError,
   FormUploadError,
-  type DatabaseFormDescriptor,
-  type DatabaseFormPublication,
   type FormSubmissionRequest,
   type FormSubmissionResult,
   type FormUploadInput,
   type FormUploadResult,
-  type DatabaseFormSubmissionRequest,
-  type DatabaseFormUploadInput,
 } from './forms';
 import {FORM_VALIDATION_ERROR_CODES, type FormValidationError} from './formSchema';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
-import {
-  FORM_ROW_VALIDATION_ERROR_CODES,
-  type FormRowValidationError,
-  type DatabaseInput,
-  type DatabaseRow,
-  type DatabaseUpdate,
-  type RowInput,
-  type RowUpdate,
-  type StoredDatabase,
+import type {
+  DatabaseInput,
+  DatabaseRow,
+  DatabaseUpdate,
+  RowInput,
+  RowUpdate,
+  StoredDatabase,
 } from './database';
 import type {
   CommentInput,
@@ -144,30 +137,6 @@ export interface DataClient {
     pageId: string,
     formId: string,
     input: FormUploadInput,
-  ): Promise<FormUploadResult>;
-  /** Read the narrow descriptor for a published database form view. */
-  getDatabaseFormDescriptor?(
-    databaseId: string,
-    viewId: string,
-  ): Promise<DatabaseFormDescriptor | null>;
-  /** Publish or rotate a database form view and return its fragment-bearing URL. */
-  publishDatabaseForm?(
-    databaseId: string,
-    viewId: string,
-  ): Promise<DatabaseFormPublication>;
-  /** Revoke a database form view's public fill capability. */
-  revokeDatabaseForm?(databaseId: string, viewId: string): Promise<boolean>;
-  /** Submit one row through a database form view's public capability. */
-  submitDatabaseForm?(
-    databaseId: string,
-    viewId: string,
-    input: DatabaseFormSubmissionRequest,
-  ): Promise<FormSubmissionResult>;
-  /** Stage one file for a database form view's public capability. */
-  uploadDatabaseFormFile?(
-    databaseId: string,
-    viewId: string,
-    input: DatabaseFormUploadInput,
   ): Promise<FormUploadResult>;
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
@@ -1286,95 +1255,6 @@ export class HttpDataClient implements DataClient {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         key: input.key,
-        fieldId: input.fieldId,
-        name: input.name,
-        mime: input.mime,
-        data: bytesToBase64(input.bytes),
-      }),
-      cache: 'no-store',
-    });
-    if (!res.ok) throw new FormUploadError(res.status);
-    return (await res.json()) as FormUploadResult;
-  }
-
-  async getDatabaseFormDescriptor(databaseId: string, viewId: string): Promise<DatabaseFormDescriptor | null> {
-    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormDescriptor(databaseId, viewId)}`, {
-      cache: 'no-store',
-    });
-    if (res.status === 404) return null;
-    await throwIfNotOk(res);
-    return (await res.json()) as DatabaseFormDescriptor;
-  }
-
-  async publishDatabaseForm(databaseId: string, viewId: string): Promise<DatabaseFormPublication> {
-    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormCapability(databaseId, viewId)}`, {
-      method: 'POST',
-      cache: 'no-store',
-    });
-    await throwIfNotOk(res);
-    return (await res.json()) as DatabaseFormPublication;
-  }
-
-  async revokeDatabaseForm(databaseId: string, viewId: string): Promise<boolean> {
-    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormCapability(databaseId, viewId)}`, {
-      method: 'DELETE',
-      cache: 'no-store',
-    });
-    if (res.status === 404) return false;
-    await throwIfNotOk(res);
-    return true;
-  }
-
-  async submitDatabaseForm(
-    databaseId: string,
-    viewId: string,
-    input: DatabaseFormSubmissionRequest,
-  ): Promise<FormSubmissionResult> {
-    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormSubmissions(databaseId, viewId)}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(input),
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      let errors: FormRowValidationError[] = [];
-      try {
-        const payload = (await res.json()) as {errors?: unknown};
-        const codes = new Set<string>(FORM_ROW_VALIDATION_ERROR_CODES);
-        if (Array.isArray(payload.errors)) {
-          errors = payload.errors.flatMap((value) => {
-            if (
-              value &&
-              typeof value === 'object' &&
-              'propertyId' in value &&
-              typeof value.propertyId === 'string' &&
-              'code' in value &&
-              typeof value.code === 'string' &&
-              codes.has(value.code)
-            ) {
-              return [{propertyId: value.propertyId, code: value.code as FormRowValidationError['code']}];
-            }
-            return [];
-          });
-        }
-      } catch {
-        // Status is sufficient for hidden, stopped, limited, and oversized forms.
-      }
-      throw new DatabaseFormSubmissionError(res.status, errors);
-    }
-    return (await res.json()) as FormSubmissionResult;
-  }
-
-  async uploadDatabaseFormFile(
-    databaseId: string,
-    viewId: string,
-    input: DatabaseFormUploadInput,
-  ): Promise<FormUploadResult> {
-    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormUploads(databaseId, viewId)}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        capability: input.capability,
         fieldId: input.fieldId,
         name: input.name,
         mime: input.mime,
