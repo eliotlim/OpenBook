@@ -386,6 +386,46 @@ describe('validateRowAgainstForm', () => {
     });
   });
 
+  it('orders timed date ranges by instant across mixed timezone offsets', () => {
+    const property: DatabaseProperty = {
+      id: 'window',
+      name: 'Window',
+      type: 'date',
+      dateRange: true,
+      includeTime: true,
+    };
+    const currentView = formView({visiblePropertyIds: [property.id]});
+    const currentSchema = schemaWith([property], currentView);
+
+    // Lexically the end is earlier, but its -10:00 offset makes it almost a day
+    // later than the +14:00 start.
+    expect(validateRowAgainstForm(currentSchema, currentView, {
+      window: {
+        start: '2026-08-13T10:00:00+14:00',
+        end: '2026-08-13T09:30:00-10:00',
+      },
+    })).toEqual({
+      ok: true,
+      fields: {
+        window: {
+          start: '2026-08-13T10:00:00+14:00',
+          end: '2026-08-13T09:30:00-10:00',
+        },
+      },
+    });
+
+    // The inverse is lexically increasing but chronologically decreasing.
+    expect(validateRowAgainstForm(currentSchema, currentView, {
+      window: {
+        start: '2026-08-13T09:30:00-10:00',
+        end: '2026-08-13T10:00:00+14:00',
+      },
+    })).toEqual({
+      ok: false,
+      errors: [{propertyId: 'window', code: 'range'}],
+    });
+  });
+
   it('rejects malformed options, formats, ranges, and non-form views', () => {
     const invalid = validateRowAgainstForm(schema, view, {
       rating: 8,

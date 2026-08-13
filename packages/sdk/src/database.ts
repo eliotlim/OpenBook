@@ -1636,7 +1636,15 @@ function validateFormDateValue(property: DatabaseProperty, value: unknown): Form
   if (range.start !== null && range.start !== undefined && !validPart(range.start)) return 'date_format';
   if (range.end !== null && range.end !== undefined && !validPart(range.end)) return 'date_format';
   if (!validPart(range.start)) return 'date_format';
-  if (validPart(range.end) && range.end < range.start) return 'range';
+  if (validPart(range.end)) {
+    // Date-only values sort chronologically as ISO strings. Date-times do not:
+    // mixed offsets can make a lexically earlier value represent a later instant
+    // (and vice versa), so compare their parsed instants instead.
+    const endBeforeStart = property.includeTime === true
+      ? Date.parse(range.end) < Date.parse(range.start)
+      : range.end < range.start;
+    if (endBeforeStart) return 'range';
+  }
   return null;
 }
 
