@@ -179,6 +179,13 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
           }
           onSelectRow(row);
         }}
+        onKeyDown={(e) => {
+          if (canRemove && (e.key === 'Delete' || e.key === 'Backspace')) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeLibrary(ws.id);
+          }
+        }}
         className={`group flex items-center gap-2${blocked ? ' opacity-60' : ''}`}
       >
         <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">{ws.icon}</span>
@@ -219,7 +226,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
             type="button"
             aria-label={t('library.removeLibrary', {name: ws.name})}
             title={t('common.remove')}
-            className="pointer-events-none flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-hover hover:text-destructive group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+            className="pointer-events-none flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-hover hover:text-destructive group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.preventDefault();
