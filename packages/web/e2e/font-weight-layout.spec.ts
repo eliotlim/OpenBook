@@ -26,6 +26,20 @@ async function sidebarMetrics(row: Locator) {
   };
 }
 
+async function expectPersistentSidebarSelection(row: Locator) {
+  await expect(row).toHaveClass(/\bhover:bg-hover-strong\b/);
+  const restingBackground = await row.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const rail = await row.evaluate((element) => {
+    const style = getComputedStyle(element, '::before');
+    return {background: style.backgroundColor, width: style.width};
+  });
+  expect(rail.width).toBe('2px');
+  expect(rail.background).not.toBe(restingBackground);
+
+  await row.hover();
+  await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(restingBackground);
+}
+
 async function newDatabase(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('[data-home-screen]')).toBeVisible();
@@ -40,6 +54,7 @@ test('selecting a truncated sidebar row preserves row and text metrics', {tag: [
   const secondName = 'Second sidebar page with another deliberately long truncated label for verification';
   const firstId = await newPage(request, firstName);
   await newPage(request, secondName);
+  await page.addInitScript(() => localStorage.setItem('theme', 'light'));
   await page.goto(`/?page=${firstId}`);
 
   const first = page.getByRole('treeitem').filter({hasText: firstName});
@@ -56,6 +71,15 @@ test('selecting a truncated sidebar row preserves row and text metrics', {tag: [
   await expect(first).not.toHaveClass(/\bbg-hover-strong\b/);
 
   expect(await Promise.all([sidebarMetrics(first), sidebarMetrics(second)])).toEqual(before);
+
+  await expectPersistentSidebarSelection(second);
+
+  await page.locator('[data-profile-menu]').click();
+  await page.getByRole('menuitem', {name: 'Color mode'}).click();
+  await page.getByRole('menuitemradio', {name: 'Dark'}).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expectPersistentSidebarSelection(second);
 });
 
 test('switching database views shifts the tab strip and sibling tabs by 0px', {tag: ['@database', '@manager-verified']}, async ({page}) => {

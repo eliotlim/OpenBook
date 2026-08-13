@@ -9,7 +9,7 @@ import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {readFavorites, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
-import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
+import {SIDEBAR_HOVER, SIDEBAR_SELECTED_ROW} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t} from '@/i18n';
 import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
@@ -56,9 +56,9 @@ export default function FavoritesNav() {
                 <div
                   onClick={() => selectPageInPane(page.id, 'primary')}
                   className={cn(
-                    'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-sheet-1-foreground transition-colors',
+                    'group/fav relative mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-sheet-1-foreground transition-colors',
                     SIDEBAR_HOVER,
-                    selected && SIDEBAR_ACTIVE,
+                    selected && SIDEBAR_SELECTED_ROW,
                   )}
                 >
                   <PageIcon

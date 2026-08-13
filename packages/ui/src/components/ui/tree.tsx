@@ -20,6 +20,7 @@ import { PageIcon } from "@/components/PageIcon";
 import type { DropWhere } from "@/lib/treeMove";
 import useResizeObserver from "use-resize-observer";
 import { MENU_WIDTH_MD } from "@/components/ui/menu-components";
+import { SIDEBAR_SELECTED_ROW } from "@/lib/sidebarStyles";
 
 interface TreeDataItem {
   id: string;
@@ -339,8 +340,8 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
           // alpha de-emphasis — it fails contrast on the saturated sheet) and a
           // veil-based hover/active. `--sheet-1-foreground` collapses to the app
           // foreground at interface levels 0–1, so this stays correct there too.
-          "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-sheet-1-foreground transition-colors hover:bg-hover",
-          isSelected && "bg-hover-strong",
+          "group/row relative flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-sheet-1-foreground transition-colors hover:bg-hover",
+          isSelected && SIDEBAR_SELECTED_ROW,
           where === "inside" && "ring-2 ring-inset ring-[hsl(var(--sheet-1-foreground))] bg-hover",
           isDragged && "opacity-50",
         )}

@@ -70,6 +70,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -1198,11 +1200,13 @@ export const SummaryPicker: React.FC<{current: SummaryType; display: string; onC
       </button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
-      {SUMMARY_TYPES.map((s) => (
-        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)}>
-          {s.label}
-        </DropdownMenuItem>
-      ))}
+      <DropdownMenuRadioGroup value={current} onValueChange={(value) => onChange(value as SummaryType)}>
+        {SUMMARY_TYPES.map((s) => (
+          <DropdownMenuRadioItem key={s.value} value={s.value}>
+            {s.label}
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
     </DropdownMenuContent>
   </DropdownMenu>
 );
