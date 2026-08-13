@@ -1,7 +1,14 @@
 import * as Y from 'yjs';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {TITLE_PROPERTY_ID, type DataClient, type DatabaseProperty, type DatabaseView, type StoredDatabase} from '@book.dev/sdk';
+import {
+  FORM_SUBMISSION_PROPERTY_ID,
+  TITLE_PROPERTY_ID,
+  type DataClient,
+  type DatabaseProperty,
+  type DatabaseView,
+  type StoredDatabase,
+} from '@book.dev/sdk';
 import {DataProvider} from '@/data';
 import {blockToJSON, createDoc, rootBlocks, type BlockMap} from '@/blockeditor/model';
 import {getCustomBlock} from '@/blockeditor/registry';
@@ -96,7 +103,13 @@ describe('database form block', () => {
 
     await waitFor(() => expect(data.createRow).toHaveBeenCalledWith(database.id, {
       name: 'Ada Lovelace',
-      properties: {[email.id]: 'ada@example.com'},
+      properties: {
+        [email.id]: 'ada@example.com',
+        [FORM_SUBMISSION_PROPERTY_ID]: {
+          submittedViaViewId: formView.id,
+          submittedAt: expect.any(String),
+        },
+      },
     }));
   });
 
@@ -134,7 +147,13 @@ describe('database form block', () => {
 
     await waitFor(() => expect(data.createRow).toHaveBeenCalledWith(database.id, {
       name: null,
-      properties: {[email.id]: 'reader@example.com'},
+      properties: {
+        [email.id]: 'reader@example.com',
+        [FORM_SUBMISSION_PROPERTY_ID]: {
+          submittedViaViewId: formView.id,
+          submittedAt: expect.any(String),
+        },
+      },
     }));
     expect(await screen.findByText('Received.')).toBeTruthy();
     expect(data.getDatabase).toHaveBeenCalledWith(database.id);

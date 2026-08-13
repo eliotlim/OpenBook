@@ -1,5 +1,6 @@
 import React, {useContext, useEffect, useMemo, useState} from 'react';
 import {
+  FORM_SUBMISSION_PROPERTY_ID,
   isSafeHref,
   SELECT_COLORS,
   shortId,
@@ -261,7 +262,16 @@ export const DatabaseFormBlock: React.FC<CustomBlockProps> = ({block, editor, pa
         setDatabase(updated);
         return option;
       }}
-      onSubmit={async (fields, name) => (await client.createRow(reference.databaseId, {name: name ?? null, properties: fields})).id}
+      onSubmit={async (fields, name) => (await client.createRow(reference.databaseId, {
+        name: name ?? null,
+        properties: {
+          ...fields,
+          [FORM_SUBMISSION_PROPERTY_ID]: {
+            submittedViaViewId: reference.viewId,
+            submittedAt: new Date().toISOString(),
+          },
+        },
+      })).id}
     />
   );
 };
