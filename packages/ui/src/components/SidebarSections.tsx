@@ -12,6 +12,7 @@ import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t as bareT} from '@/i18n';
 import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {HiddenPageBadge} from '@/components/HiddenPageBadge';
 
 /**
  * The sidebar's flat page sections — Recents (last visited, device-local) and
@@ -97,6 +98,7 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
             className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4"
           />
           <span className="grow truncate">{displayName(page.name)}</span>
+          {page.listed === false && <HiddenPageBadge />}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className={MENU_WIDTH_MD}>

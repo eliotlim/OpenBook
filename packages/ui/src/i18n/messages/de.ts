@@ -96,6 +96,7 @@ export const de: PartialMessages = {
     crumbSiblings: 'Gleichrangige Seiten',
     crumbSubpages: 'Unterseiten',
     crumbCollapsed: 'Ausgeblendete Seiten anzeigen',
+    hiddenPage: 'In Navigation und Suche ausgeblendet',
     more: 'Weitere Aktionen',
     pages: 'Seiten',
     newPage: 'Neue Seite',
@@ -234,6 +235,12 @@ export const de: PartialMessages = {
       hint: 'Veröffentliche diese Seite, damit jeder mit dem Link sie unter {host} öffnen kann.',
       action: 'Seite veröffentlichen',
     },
+    listing: {
+      label: 'In Navigation und Suche ausblenden',
+      hint: 'Diese Seite wird nicht in Navigation oder Suche angezeigt. Personen mit Zugriff können sie weiterhin über den Link öffnen.',
+      inheritHint: 'Gilt nur für diese Seite; der Zugriff folgt weiterhin dem Bibliotheks-Standard.',
+      restrictedHint: 'Nur eingeladene Personen können diese Seite öffnen; Sichtbarkeit in Navigation und Suche ist daher nicht relevant.',
+    },
     forms: {
       accepts: 'Diese Seite nimmt öffentliche Einsendungen an',
       settings: 'Formulareinstellungen',
@@ -288,6 +295,7 @@ export const de: PartialMessages = {
       authenticated: 'Jede angemeldete Person, die diesen Link öffnet, kann diese Seite ansehen.',
       members: 'Nur Bibliotheks-Mitglieder, die diesen Link öffnen, können diese Seite ansehen.',
       restricted: 'Nur die von dir eingeladenen Personen können diesen Link öffnen.',
+      hidden: 'Diese Seite bleibt in Navigation und Suche ausgeblendet; Personen mit Zugriff können diesen Link weiterhin verwenden.',
       localOnly: 'Dieser Link funktioniert nur auf diesem Gerät.',
       browserLocal:
         'Dieser Link funktioniert nur in diesem Browser — bei allen anderen öffnet er deren eigene Bibliothek, nicht diese Seite. Veröffentlichen geht über die Desktop-App.',

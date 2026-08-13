@@ -38,19 +38,22 @@ const info = (over: Partial<InstanceInfo> = {}): InstanceInfo => ({
   ...over,
 });
 
-const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instance: Partial<InstanceInfo> = {}) =>
-  render(
+type VisibilityFixture = PageVisibility | {visibility: PageVisibility; listed: boolean};
+
+const wrap = (fixture: VisibilityFixture, over: Partial<DataClient> = {}, instance: Partial<InstanceInfo> = {}) => {
+  const initial = typeof fixture === 'string' ? {visibility: fixture, listed: true} : fixture;
+  return render(
     <I18nProvider>
       <DataProvider
         client={
           {
             getPage: async () => null,
-            getPageVisibility: async () => ({visibility, listed: true}),
+            getPageVisibility: async () => initial,
             listPageAcl: async () => [],
             getInstanceInfo: async () => info(instance),
             setPageVisibility: vi.fn(async (_id: string, update: PageVisibilityUpdate) => ({
-              visibility: update.visibility ?? visibility,
-              listed: update.listed ?? true,
+              visibility: update.visibility ?? initial.visibility,
+              listed: update.listed ?? initial.listed,
             })),
             ...over,
           } as unknown as DataClient
@@ -60,6 +63,7 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
       </DataProvider>
     </I18nProvider>,
   );
+};
 
 const open = () => fireEvent.click(screen.getByLabelText('Share'));
 
@@ -104,6 +108,60 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   closeKitPanel({keepPane: true});
+});
+
+describe('ShareDialog — page discovery (UP-3)', () => {
+  it.each([
+    ['inherit', false],
+    ['public', false],
+    ['authenticated', false],
+    ['members', false],
+    ['restricted', true],
+  ] as const)('renders the hidden-page toggle for %s scope (disabled: %s)', async (visibility, disabled) => {
+    wrap(visibility);
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation & search'});
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(disabled));
+  });
+
+  it('explains that an inherited page keeps library access while discovery applies only to the page', async () => {
+    wrap('inherit');
+    open();
+
+    expect(await screen.findByText('Applies only to this page; access still follows the library default.')).toBeTruthy();
+  });
+
+  it('persists a hidden flip through the SDK client and rehydrates it on reopen', async () => {
+    let settings: {visibility: PageVisibility; listed: boolean} = {visibility: 'public', listed: true};
+    const setPageVisibility = vi.fn(async (_id: string, update: PageVisibilityUpdate) => {
+      settings = {
+        visibility: update.visibility ?? settings.visibility,
+        listed: update.listed ?? settings.listed,
+      };
+      return settings;
+    });
+    const client = {
+      getPageVisibility: vi.fn(async () => settings),
+      setPageVisibility,
+    };
+
+    wrap(settings, client);
+    open();
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation & search'});
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {listed: false}));
+    expect(toggle.getAttribute('data-state')).toBe('checked');
+    expect(screen.getByText(/This page stays hidden from navigation and search/)).toBeTruthy();
+
+    cleanup();
+    wrap(settings, client);
+    open();
+    expect((await screen.findByRole('switch', {name: 'Hide from navigation & search'})).getAttribute('data-state'))
+      .toBe('checked');
+  });
 });
 
 describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {

@@ -13,6 +13,7 @@ import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t} from '@/i18n';
 import {MENU_WIDTH_MD} from '@/components/ui/menu-components';
+import {HiddenPageBadge} from '@/components/HiddenPageBadge';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : t('common.untitled');
@@ -66,6 +67,7 @@ export default function FavoritesNav() {
                     className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4"
                   />
                   <span className="grow truncate">{displayName(page.name)}</span>
+                  {page.listed === false && <HiddenPageBadge />}
                   <span
                     className="ml-1 flex shrink-0 items-center opacity-0 transition-opacity group-hover/fav:opacity-100 focus-within:opacity-100"
                     onClick={(e) => e.stopPropagation()}

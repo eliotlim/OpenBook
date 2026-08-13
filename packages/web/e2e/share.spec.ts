@@ -102,3 +102,29 @@ test('share: the scope picker progressively discloses advanced scopes', {tag: ['
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.locator('#share-scope')).toHaveAttribute('data-value', 'authenticated');
 });
+
+// UP-3 manager-verified visual: do not run locally with Chromium for this task;
+// the manager gate exercises both light/dark snapshots in its browser matrix.
+test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['@sharing', '@visual', '@manager-verified']}, async ({page, request}, testInfo) => {
+  const name = `Hidden page E2E ${testInfo.workerIndex}`;
+  const id = await newPage(request, name);
+  await openShare(page, id);
+
+  const dialog = page.getByRole('dialog');
+  const hidden = dialog.getByRole('switch', {name: 'Hide from navigation & search'});
+  await expect(hidden).toBeEnabled();
+  await hidden.click();
+  await expect(hidden).toBeChecked();
+  await expect(dialog.getByText(/stays hidden from navigation and search/)).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
+    .toBe(false);
+  await takeSnapshot(page, testInfo);
+
+  await page.keyboard.press('Escape');
+  const row = page.getByRole('treeitem').filter({hasText: name});
+  const badge = row.locator('[data-hidden-page-badge]');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveAttribute('aria-label', 'Hidden from navigation & search');
+  await takeSnapshot(page, testInfo);
+});
