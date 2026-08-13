@@ -37,6 +37,43 @@ test('database table: grid and toolbar visual', {tag: ['@database', '@visual']},
   await takeSnapshot(page, testInfo); // visual: database grid + toolbar
 });
 
+test('database editor focus keeps the toolbar fixed', {tag: ['@database', '@editor', '@p1']}, async ({page}) => {
+  await newDatabase(page);
+
+  const toolbar = page.locator('[data-database-toolbar]');
+  const title = page.locator('.ob-page-title');
+  const bodyRows = page.locator('.obe-root.obe-compact > [data-block-row]');
+  const body = bodyRows.locator('.obe-text').first();
+  await expect(toolbar).toBeVisible();
+  await expect(bodyRows).toHaveCount(1);
+
+  const toolbarBox = async () => {
+    // Let focus/blur styles settle for two painted frames before measuring the
+    // downstream database chrome.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
+    const box = await toolbar.boundingBox();
+    if (!box) throw new Error('database toolbar has no bounding box');
+    return box;
+  };
+
+  await title.focus();
+  await expect(title).toBeFocused();
+  const titleFocused = await toolbarBox();
+
+  await body.focus();
+  await expect(body).toBeFocused();
+  const bodyFocused = await toolbarBox();
+
+  await body.evaluate((element) => (element as HTMLElement).blur());
+  await expect(body).not.toBeFocused();
+  const blurred = await toolbarBox();
+
+  expect(bodyFocused).toEqual(titleFocused);
+  expect(blurred).toEqual(titleFocused);
+});
+
 // A formula column computes from another property (here the row title) — the
 // headline "simple expression formula" feature, end to end.
 test('database formula: a formula column computes from other properties', {tag: ['@database', '@visual', '@p1']}, async ({page}, testInfo) => {

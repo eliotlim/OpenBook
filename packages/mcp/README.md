@@ -38,6 +38,8 @@ what you already saw. These tools are the only way to write those keys —
 
 ## Setup
 
+The in-app Settings card uses the HTTP transport; the stdio setup below is the source-checkout/development route and authenticates as an unauthenticated guest rather than with a scoped token.
+
 Build once from the repo root:
 
 ```sh
@@ -47,7 +49,7 @@ pnpm install && pnpm build:libs && pnpm --filter @book.dev/mcp build
 Then register the binary with your MCP client.
 
 - `OPENBOOK_URL` points at the workspace. It defaults to `http://127.0.0.1:4319`, the desktop app's local server — but the packaged desktop app only opens that loopback port **while the local-MCP/agent toggle is ON** (Settings → Agents & AI admin → Enable agent API). With the toggle off the app is reachable only over its private IPC socket, and nothing of the app listens on 4319. Note the delta: unlike the FS-permissioned IPC socket, the loopback port — once the toggle is ON — is reachable by any local process, so it is a real added surface, which is why it is gated behind an explicit opt-in. Cross-origin BROWSER reachability is now closed (STAB-8): the sidecar reflects CORS `Access-Control-Allow-Origin` only for the app's own webview / loopback dev origins (a foreign web page gets no readable response), and an unauthenticated guest WRITE must carry the first-party `X-OpenBook-Client` header — which a cross-origin browser simple-request cannot attach — so a random web page can no longer read or write the local library. The MCP connector (like every first-party client) sends that header automatically via the sdk transport; you do not set it yourself.
-- `OPENBOOK_INSTANCE_ID` (recommended) is this library's stable id. When set, the connector verifies the server it reached advertises the **same** id and refuses to adopt anything else — so a stray responder on port 4319 (a leftover `pnpm dev` with its own data dir, a different app) is rejected with a clear error instead of silently reporting your real pages as "nonexistent". The desktop app shows the exact snippet, id included, in the same settings panel. Find a library's id at `GET /api/instance` (`instanceId`).
+- `OPENBOOK_INSTANCE_ID` (recommended) is this library's stable id. When set, the connector verifies the server it reached advertises the **same** id and refuses to adopt anything else — so a stray responder on port 4319 (a leftover `pnpm dev` with its own data dir, a different app) is rejected with a clear error instead of silently reporting your real pages as "nonexistent". Find a library's id at `GET /api/instance` (`instanceId`).
 
 The connector always talks to your default local library, even if you switch libraries in the app.
 
