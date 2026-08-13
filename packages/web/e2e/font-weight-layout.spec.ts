@@ -14,11 +14,25 @@ async function boxes(locator: Locator) {
   return Promise.all((await locator.all()).map(requiredBox));
 }
 
+async function size(locator: Locator) {
+  const {width, height} = await requiredBox(locator);
+  return {width, height};
+}
+
+async function settlePopoverAnimations(locator: Locator) {
+  await locator.evaluate(async (element) => {
+    const root = element.closest('[data-radix-popper-content-wrapper]') ?? element;
+    await Promise.allSettled(root.getAnimations({subtree: true}).map((animation) => animation.finished));
+  });
+}
+
 async function sidebarMetrics(row: Locator) {
   const label = row.locator('span.grow.truncate');
   return {
-    row: await requiredBox(row),
-    label: await requiredBox(label),
+    // Selecting a page updates the independent Suggested shelf above the tree,
+    // so absolute x/y can move even though the row and its text stay metric-stable.
+    row: await size(row),
+    label: await size(label),
     text: await label.evaluate((element) => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
@@ -106,6 +120,9 @@ test('toggling AND/OR shifts the sibling segment by 0px', {tag: ['@database', '@
   const any = page.getByRole('button', {name: 'Any', exact: true});
   await expect(all).toHaveClass(/\bbg-accent\b/);
 
+  // Popovers zoom in on mount; take the baseline only after that transform has
+  // settled so the comparison isolates the active-state change.
+  await settlePopoverAnimations(all);
   const before = await Promise.all([requiredBox(all), requiredBox(any)]);
   await any.click();
   await expect(any).toHaveClass(/\bbg-accent\b/);
