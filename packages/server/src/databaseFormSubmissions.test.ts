@@ -8,9 +8,11 @@ import {
   FORM_UPLOAD_ORPHAN_TTL_MS,
   TITLE_PROPERTY_ID,
   mintIdentityKeypair,
+  removeProperty,
   signIdentity,
   type DatabaseFormDescriptor,
   type DatabaseFormSubmissionMarker,
+  type DatabaseProperty,
   type DatabaseSchema,
   type DatabaseView,
   type IdentityKeypair,
@@ -385,6 +387,107 @@ describe('database form-view public fill', () => {
     const stale = await submit(a, seeded.database.id, seeded.view.id, capability, {email: 'reader@example.com'});
     expect(await stale.json()).toEqual({errors: [{propertyId: 'email', code: 'type'}]});
     expect(await store.listRows(seeded.database.id)).toHaveLength(0);
+  });
+
+  it.each<{
+    scenario: string;
+    before: DatabaseProperty;
+    submittedValue: unknown;
+    after: DatabaseProperty;
+    errorCode: 'type' | 'option';
+  }>([
+    {
+      scenario: 'a removed select option',
+      before: {
+        id: 'answer',
+        name: 'Answer',
+        type: 'select',
+        options: [{id: 'retired', label: 'Retired', color: 'gray'}],
+      },
+      submittedValue: 'retired',
+      after: {id: 'answer', name: 'Answer', type: 'select', options: []},
+      errorCode: 'option',
+    },
+    {
+      scenario: 'a text-to-select retype',
+      before: {id: 'answer', name: 'Answer', type: 'text'},
+      submittedValue: 'freeform',
+      after: {
+        id: 'answer',
+        name: 'Answer',
+        type: 'select',
+        options: [{id: 'listed', label: 'Listed', color: 'blue'}],
+      },
+      errorCode: 'option',
+    },
+    {
+      scenario: 'a number-to-text retype',
+      before: {id: 'answer', name: 'Answer', type: 'number'},
+      submittedValue: 42,
+      after: {id: 'answer', name: 'Answer', type: 'text'},
+      errorCode: 'type',
+    },
+  ])('accepts before and rejects the stale value after $scenario', async ({before, submittedValue, after, errorCode}) => {
+    const view = formView(`retype-${seq}-${Math.random()}`, {
+      visiblePropertyIds: [before.id],
+      formFields: {[before.id]: {}},
+    });
+    const seeded = await seedForm({view, properties: [before]});
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, view.id);
+
+    const accepted = await submit(a, seeded.database.id, view.id, capability, {
+      [before.id]: submittedValue,
+    });
+    expect(accepted.status).toBe(201);
+
+    const current = (await store.getDatabase(seeded.database.id))!;
+    await store.updateDatabase(current.id, {
+      schema: {
+        ...current.schema,
+        properties: current.schema.properties.map((property) => property.id === before.id ? after : property),
+      },
+    });
+
+    const stale = await submit(a, seeded.database.id, view.id, capability, {
+      [before.id]: submittedValue,
+    });
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toEqual({errors: [{propertyId: before.id, code: errorCode}]});
+    expect(await store.listRows(seeded.database.id)).toHaveLength(1);
+  });
+
+  it('scrubs a deleted live field while preserving its accepted row value as archived data', async () => {
+    const archived: DatabaseProperty = {id: 'archive-me', name: 'Archive me', type: 'text'};
+    const view = formView(`delete-${seq}`, {
+      visiblePropertyIds: [archived.id],
+      formFields: {[archived.id]: {required: true, help: 'Removed with the mapping'}},
+    });
+    const seeded = await seedForm({view, properties: [archived]});
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, view.id);
+
+    const accepted = await submit(a, seeded.database.id, view.id, capability, {
+      [archived.id]: 'keep this historical answer',
+    });
+    expect(accepted.status).toBe(201);
+
+    const current = (await store.getDatabase(seeded.database.id))!;
+    await store.updateDatabase(current.id, {schema: removeProperty(current.schema, archived.id)});
+
+    const publicAfterDelete = await descriptor(a, seeded.database.id, view.id, capability);
+    expect(publicAfterDelete.status).toBe(200);
+    expect((await publicAfterDelete.json() as DatabaseFormDescriptor).fields).toEqual([]);
+
+    const stale = await submit(a, seeded.database.id, view.id, capability, {
+      [archived.id]: 'stale answer',
+    });
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toEqual({errors: [{propertyId: archived.id, code: 'unknown_field'}]});
+
+    const [row] = await store.listRows(seeded.database.id);
+    expect(row.properties[archived.id]).toBe('keep this historical answer');
+    expect((await store.getDatabase(seeded.database.id))!.schema.properties).toEqual([]);
   });
 
   it('passes the mapped virtual title through to createRow and uses an explicit empty title when unmapped', async () => {
