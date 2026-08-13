@@ -128,7 +128,11 @@ test('interactive HTML export: served bundle has no unlisted subpage, mention, o
   await page.getByRole('menuitem', {name: 'Export'}).click();
   await page.getByRole('menuitem', {name: 'Interactive HTML'}).click();
   const download = await downloadPromise;
-  await expect(page.getByText('3 hidden pages skipped.')).toBeVisible();
+  // UP-2 removes the unlisted row at the server enumeration boundary before
+  // the web exporter receives the database rows. The export crawl itself sees
+  // and counts the two direct references; the artifact assertions below still
+  // prove that all three hidden records stay out of the bundle.
+  await expect(page.getByText('2 hidden pages skipped.')).toBeVisible();
 
   const filePath = testInfo.outputPath('unlisted-clean-export.html');
   await download.saveAs(filePath);
