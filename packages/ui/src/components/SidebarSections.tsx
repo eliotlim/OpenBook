@@ -89,7 +89,7 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
           className={cn(
             'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-sheet-1-foreground transition-colors',
             SIDEBAR_HOVER,
-            selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
+            selected && SIDEBAR_ACTIVE,
           )}
         >
           <PageIcon

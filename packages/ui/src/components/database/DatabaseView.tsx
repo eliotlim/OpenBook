@@ -1215,8 +1215,8 @@ export const Toolbar: React.FC<{
                 }}
                 onClick={() => db.setActiveViewId(v.id)}
                 className={cn(
-                  'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-                  active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
+                  'flex items-center gap-1 rounded px-2 py-1 text-sm font-medium transition-colors',
+                  active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
                   dragView === v.id && 'opacity-40',
                   overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
                 )}

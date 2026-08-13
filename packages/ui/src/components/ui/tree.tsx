@@ -340,7 +340,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
           // veil-based hover/active. `--sheet-1-foreground` collapses to the app
           // foreground at interface levels 0–1, so this stays correct there too.
           "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-sheet-1-foreground transition-colors hover:bg-hover",
-          isSelected && "bg-hover-strong font-medium",
+          isSelected && "bg-hover-strong",
           where === "inside" && "ring-2 ring-inset ring-[hsl(var(--sheet-1-foreground))] bg-hover",
           isDragged && "opacity-50",
         )}

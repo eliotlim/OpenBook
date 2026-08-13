@@ -1038,7 +1038,7 @@ const GroupEditor: React.FC<{
             <button
               key={c}
               onClick={() => onChange({...group, conjunction: c})}
-              className={cn('px-2 py-0.5 transition-colors', group.conjunction === c ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover')}
+              className={cn('px-2 py-0.5 transition-colors', group.conjunction === c ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-hover')}
             >
               {c === 'and' ? 'All' : 'Any'}
             </button>
@@ -1199,7 +1199,7 @@ export const SummaryPicker: React.FC<{current: SummaryType; display: string; onC
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
       {SUMMARY_TYPES.map((s) => (
-        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)} className={cn(s.value === current && 'font-medium')}>
+        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)} className={cn(s.value === current && 'bg-hover')}>
           {s.label}
         </DropdownMenuItem>
       ))}
