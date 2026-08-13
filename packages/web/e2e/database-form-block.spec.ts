@@ -51,7 +51,7 @@ test(
 
     await page.locator('.obe-text').first().click();
     await page.keyboard.type('/form database');
-    await expect(page.locator('.obe-slash-label').first()).toHaveText('Form — database');
+    await expect(page.locator('.obe-slash-label').first()).toHaveText('Database form');
     await page.keyboard.press('Enter');
 
     const picker = page.locator('[data-database-form-picker]');
