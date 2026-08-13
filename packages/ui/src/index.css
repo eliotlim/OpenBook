@@ -895,16 +895,19 @@
    chrome, hover-revealed gutters, 8px radii, the document is the hero. */
 
 /* The named outer container exposes the real pane width even when the standard
-   editor column is capped at 46rem; the positioned wrapper is also a containment
-   boundary for editor overlays and future local queries. */
+   editor column is capped at 46rem. Popup safety fence: container-type
+   deliberately does NOT capture the fixed-position editor popups (verified
+   Chromium+WebKit); adding `contain:`, `transform`, or `filter` to this element
+   or .obe-editor-wrap WOULD break every fixed popup
+   (slash/mention/emoji/link/toolbar) — don't. */
 .obe-editor-pane {
+  --obe-gutter-room: 3.4rem;
   container-name: obe-editor-pane;
   container-type: inline-size;
 }
-.obe-editor-wrap { container-type: inline-size; }
+.obe-editor-pane.obe-readonly { --obe-gutter-room: 0; }
 
 .obe-root {
-  --obe-gutter-room: 3.4rem;
   --obe-indent-step: 1.5rem;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
@@ -994,6 +997,7 @@
    AFTER the fact, and at phone margins it overlaps the first characters of
    the line — hide it (Enter adds blocks; long-press opens block actions). */
 @media (pointer: coarse) {
+  .obe-editor-pane { --obe-gutter-room: 0; }
   .obe-gutter { display: none; }
 }
 /* A standard column needs 3.4rem to show both gutter buttons. Below 47.8rem,
@@ -3756,12 +3760,8 @@ a.obe-mention {
   .obe-col-divider { display: none; }
 }
 
-/* Full-width mode has no centring slack, so reserve the complete gutter inside
-   the root. Rows deliberately shift right of the title by this amount. */
-.obe-root.obe-full {
-  max-width: none;
-  padding-left: var(--obe-gutter-room);
-}
+/* Full-width page mode widens the editor root to its shared document column. */
+.obe-root.obe-full { max-width: none; }
 
 /* Pages with content below the editor (a hosted database view) don't reserve
    the tall click-to-append zone — it would push that content below the fold. */
