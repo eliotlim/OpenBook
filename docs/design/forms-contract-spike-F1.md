@@ -393,6 +393,12 @@ does not accept a title key and F-4 creates the row with the explicit empty name
 - **Stop responses:** `acceptingResponses: false` makes the fill route fail
   with `403 {"error":"form_closed"}` after a valid capability match, without
   deleting submissions, field configuration, publication, or descriptor access.
+- **Concurrent schema edits:** the form builder and table-header controls each
+  send a full schema blob. `updateDatabase` replaces that blob through SQL
+  `COALESCE`, so overlapping saves are last-writer-wins: a builder field edit
+  can clobber a concurrently saved header rename, or the rename can clobber the
+  field edit. Refresh before reapplying the missing change. A schema-version
+  guard is intentionally outside this contract.
 
 ## 8. Compatibility and F-2 handoff
 
@@ -420,6 +426,11 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
 - New form views explicitly map `TITLE_PROPERTY_ID` first, followed by all
   current v1-writable, non-`sys_*` columns, and accept responses; they are not
   public until separately published.
+- That default mapping deliberately includes `pageHidden` columns created for
+  other forms. `pageHidden` stores no creating-form provenance, so the builder
+  cannot truthfully label only those fields “mapped from another form”; no hint
+  chip is added. Authors can remove an unwanted mapping without deleting its
+  shared column or archived values.
 - Missing/invalid mapping, acceptance state, capability state, view type, or
   property type fails closed.
 - A missing `maxResponses` uses
