@@ -1403,7 +1403,9 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
     // A form's field list is always explicit and fail-closed. Form-only fields
     // are added as ordinary pageHidden properties by the builder, then appended
     // here just like any other form-writable database column.
-    view.visiblePropertyIds = properties.filter((property) => isFormWritablePropertyType(property.type)).map((property) => property.id);
+    view.visiblePropertyIds = properties
+      .filter((property) => !property.id.startsWith('sys_') && isFormWritablePropertyType(property.type))
+      .map((property) => property.id);
     view.formFields = {};
     view.formConfig = {acceptingResponses: true};
   }

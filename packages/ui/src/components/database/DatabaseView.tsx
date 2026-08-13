@@ -5,6 +5,7 @@ import {
   dateStart,
   flattenRowTree,
   groupRowsBy,
+  isDatabaseViewType,
   PARENT_GROUP_ID,
   summarizeColumn,
   TITLE_PROPERTY_ID,
@@ -986,6 +987,8 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
   columns,
   schema,
 }) => {
+  if (!isDatabaseViewType(view.type)) return <NewerClientRequiredView type={view.type} />;
+
   // The dense date layouts only show property chips once the user opts in (picks
   // properties); the card layouts show the visible set by default.
   const explicitCols = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? columns : [];

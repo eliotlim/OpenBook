@@ -54,7 +54,7 @@ For a form view, `visiblePropertyIds` is deliberately stricter than its legacy
 meaning on row layouts: only explicitly listed property ids are fields, and
 their array order is display and validation order. Missing or empty means no
 fields, not all columns. `defaultView('form', ...)` writes an explicit list of
-all current v1-writable properties, an empty `formFields`, and
+all current v1-writable, non-reserved properties, an empty `formFields`, and
 `acceptingResponses: true`.
 
 `formFields` is presentation/required metadata only. An entry not present in
@@ -276,7 +276,7 @@ plain placeholder `Form`. F-2 owns final icons and localized copy.
 
 ## 9. Explicit defaults and deferrals
 
-- New form views explicitly map all current v1-writable columns and accept
+- New form views explicitly map all current v1-writable, non-`sys_*` columns and accept
   responses, but are not public until separately published.
 - Missing/invalid mapping, acceptance state, capability state, view type, or
   property type fails closed.

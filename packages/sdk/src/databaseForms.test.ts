@@ -73,6 +73,7 @@ describe('database form view contract', () => {
       {id: 'name', name: 'Name', type: 'text'},
       {id: 'total', name: 'Total', type: 'formula'},
       {id: 'owner', name: 'Owner', type: 'person'},
+      {id: 'sys_internal', name: 'Internal', type: 'text'},
       {id: 'email', name: 'Email', type: 'email'},
     ];
     const view = defaultView('form', 'Intake', properties);
