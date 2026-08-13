@@ -26,6 +26,12 @@ export const BACKLINKS_PROPERTY_ID = 'sys_backlinks';
 /** Reserved provenance marker attached to rows created by a form submission. */
 export const FORM_SUBMISSION_PROPERTY_ID = 'sys_form_submission';
 
+/** Provenance stamped on a row created through a database-view form. */
+export interface DatabaseFormSubmissionMarker {
+  submittedViaViewId: string;
+  submittedAt: string;
+}
+
 /**
  * Reserved ids for a page's **appearance**, stored on `page.properties` so a
  * page's theme / cover / typefaces travel with the document (sync across
