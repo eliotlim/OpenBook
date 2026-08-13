@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import type {Browser, BrowserContext, Page} from '@playwright/test';
 import type {DatabaseSchema, StoredDatabase} from '@book.dev/sdk';
 import {mintIdentityKeypair, signIdentity} from '../../sdk/src/identity';
-import {expect, test, WORKER_DATA_DIR_PREFIX} from './fixtures';
+import {chooseValue, expect, test, WORKER_DATA_DIR_PREFIX} from './fixtures';
 
 const FORM_PUBLISH_BASE_PORT = 4740;
 const ISSUER = 'https://account.book.pub';
@@ -297,6 +297,139 @@ test(
       await expect(visitor.locator('[data-public-form-exhausted]')).toContainText(
         'This form has received the maximum number of responses.',
       );
+    } finally {
+      await anonymousContext?.close();
+      await ownerContext?.close();
+      instance.stop();
+    }
+  },
+);
+
+test(
+  'F-6 hardens the full two-form lifecycle through live schema changes, duplication, deletion, and revocation',
+  {tag: ['@database', '@manager-verified']},
+  async ({browser}, workerInfo) => {
+    test.setTimeout(240_000);
+    const instance = await startClaimedInstance(workerInfo.workerIndex);
+    let ownerContext: BrowserContext | null = null;
+    let anonymousContext: BrowserContext | null = null;
+    try {
+      ownerContext = await appContext(browser, instance, instance.ownerHeaders);
+      const ownerPage = await ownerContext.newPage();
+      await ownerPage.goto('/');
+      await expect(ownerPage.locator('[data-home-screen]')).toBeVisible();
+      await ownerPage.keyboard.press('ControlOrMeta+k');
+      await ownerPage.getByPlaceholder(/Search pages or run a command/).fill('New database');
+      await ownerPage.keyboard.press('Enter');
+      await expect(ownerPage.getByRole('button', {name: 'Add column'})).toBeVisible();
+
+      const hostPageId = new URL(ownerPage.url()).searchParams.get('page');
+      if (!hostPageId) throw new Error('new database did not navigate to its host page');
+      const database = await ownerJson<StoredDatabase>(instance, `/api/pages/${hostPageId}/database`);
+      const notes = database.schema.properties.find((property) => property.name === 'Notes');
+      if (!notes) throw new Error('new database did not contain its Notes column');
+
+      // Create two independent form views in the owner UI. Only the first is
+      // published; merely creating the second must not mint publication state.
+      await ownerPage.getByRole('button', {name: 'Add view'}).click();
+      await ownerPage.getByRole('menuitem', {name: 'Form'}).click();
+      await expect(ownerPage.locator('[data-database-form-builder]')).toBeVisible();
+      const originalViewId = new URL(ownerPage.url()).searchParams.get('view');
+      if (!originalViewId) throw new Error('first form did not become addressable');
+
+      await ownerPage.getByRole('button', {name: 'Add view'}).click();
+      await ownerPage.getByRole('menuitem', {name: 'Form'}).click();
+      await expect(ownerPage.getByRole('button', {name: 'Form 2', exact: true})).toBeVisible();
+      const secondViewId = new URL(ownerPage.url()).searchParams.get('view');
+      expect(secondViewId).not.toBe(originalViewId);
+      await ownerPage.getByRole('button', {name: 'Form', exact: true}).click();
+
+      await ownerPage.getByRole('button', {name: 'Publish form'}).click();
+      const originalReview = ownerPage.locator('[data-database-form-publish-review]');
+      await expect(originalReview).toBeVisible();
+      await originalReview.getByRole('button', {name: 'Publish form'}).click();
+      const originalLink = ownerPage.locator('[data-database-form-fill-url] a').first();
+      await expect(originalLink).toBeVisible();
+      const originalUrl = await originalLink.getAttribute('href');
+      if (!originalUrl) throw new Error('original form publish did not return a URL');
+
+      anonymousContext = await appContext(browser, instance, instance.anonymousHeaders);
+      const visitor = await anonymousContext.newPage();
+      await visitor.goto(originalUrl);
+      await expect(visitor.locator('[data-public-form]')).toBeVisible();
+      await visitor.getByRole('textbox', {name: 'Notes'}).fill('archived first response');
+      await visitor.getByRole('button', {name: 'Submit', exact: true}).click();
+      await expect(visitor.locator('[data-public-form-confirmation]')).toBeVisible();
+
+      // Keep the public page's text control stale while the owner retypes the
+      // live column to select. Submitting its old string must be rejected by the
+      // current server schema, not coerced through the rendered snapshot.
+      await ownerPage.getByRole('button', {name: 'Table', exact: true}).click();
+      await ownerPage.getByRole('table').getByText('Notes', {exact: true}).click({button: 'right'});
+      await ownerPage.getByRole('menuitem', {name: 'Edit property…'}).click();
+      const propertyEditor = ownerPage.getByLabel('Property name').locator('..');
+      await chooseValue(ownerPage, propertyEditor.getByRole('combobox'), 'select');
+      await ownerPage.keyboard.press('Escape');
+
+      await visitor.getByRole('button', {name: 'Submit another response'}).click();
+      await visitor.getByRole('textbox', {name: 'Notes'}).fill('stale after retype');
+      await visitor.getByRole('button', {name: 'Submit', exact: true}).click();
+      await expect(visitor.getByText('Choose an available option.')).toBeVisible();
+      expect(await ownerJson<Array<unknown>>(instance, `/api/databases/${database.id}/rows`)).toHaveLength(1);
+
+      // Delete through the shared table-header UI. The field is scrubbed from
+      // both forms, the affected builder gets its one-time notice, and the
+      // already accepted row retains its now-orphaned value as archive data.
+      await ownerPage.getByRole('table').getByText('Notes', {exact: true}).click({button: 'right'});
+      await ownerPage.getByRole('menuitem', {name: 'Delete property'}).click();
+      await expect(ownerPage.getByRole('table').getByText('Notes', {exact: true})).toHaveCount(0);
+      await ownerPage.getByRole('button', {name: 'Form', exact: true}).click();
+      await expect(ownerPage.locator('[data-database-form-field-removed-notice]')).toContainText('Notes');
+      await expect(ownerPage.locator(`[data-form-field-id="${notes.id}"]`)).toHaveCount(0);
+
+      const afterDelete = await ownerJson<StoredDatabase>(instance, `/api/databases/${database.id}`);
+      expect(afterDelete.schema.properties.some((property) => property.id === notes.id)).toBe(false);
+      const archivedRows = await ownerJson<Array<{properties: Record<string, unknown>}>>(
+        instance,
+        `/api/databases/${database.id}/rows`,
+      );
+      expect(archivedRows[0].properties[notes.id]).toBe('archived first response');
+
+      // Duplicate through the view-tab UI. The original URL remains live; the
+      // copy is unpublished until its own explicit publish, then receives a
+      // distinct capability.
+      await ownerPage.getByRole('button', {name: 'Form', exact: true}).click({button: 'right'});
+      await ownerPage.getByRole('menuitem', {name: 'Duplicate view'}).click();
+      await expect(ownerPage.getByRole('button', {name: 'Form copy', exact: true})).toBeVisible();
+      const duplicateViewId = new URL(ownerPage.url()).searchParams.get('view');
+      expect(duplicateViewId).not.toBe(originalViewId);
+      await expect(ownerPage.getByText('Not published', {exact: true})).toBeVisible();
+
+      await visitor.goto(originalUrl);
+      await expect(visitor.locator('[data-public-form]')).toBeVisible();
+      await ownerPage.getByRole('button', {name: 'Publish form'}).click();
+      const duplicateReview = ownerPage.locator('[data-database-form-publish-review]');
+      await duplicateReview.getByRole('button', {name: 'Publish form'}).click();
+      const duplicateLink = ownerPage.locator('[data-database-form-fill-url] a').first();
+      await expect(duplicateLink).toBeVisible();
+      const duplicateUrl = await duplicateLink.getAttribute('href');
+      if (!duplicateUrl) throw new Error('duplicate form publish did not return a URL');
+      expect(new URL(duplicateUrl).hash).not.toBe(new URL(originalUrl).hash);
+
+      // Deleting the published duplicate through its tab revokes that view's
+      // capability atomically. Explicitly revoking the untouched original then
+      // closes its still-independent link as the final lifecycle step.
+      await ownerPage.getByRole('button', {name: 'Form copy', exact: true}).click({button: 'right'});
+      await ownerPage.getByRole('menuitem', {name: 'Delete view'}).click();
+      await visitor.goto(duplicateUrl);
+      await expect(visitor.locator('[data-public-form-not-found]')).toBeVisible();
+
+      await ownerPage.getByRole('button', {name: 'Form', exact: true}).click();
+      await expect(ownerPage.getByRole('button', {name: 'Revoke'})).toBeVisible();
+      await ownerPage.getByRole('button', {name: 'Revoke'}).click();
+      await expect(ownerPage.getByText('Not published', {exact: true})).toBeVisible();
+      await visitor.goto(originalUrl);
+      await expect(visitor.locator('[data-public-form-not-found]')).toBeVisible();
     } finally {
       await anonymousContext?.close();
       await ownerContext?.close();
