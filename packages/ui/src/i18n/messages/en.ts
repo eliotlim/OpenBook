@@ -2050,7 +2050,9 @@ export const en = {
     // available only while the agent API is on.
     localMcpTitle: 'Local MCP connector',
     localMcpHint: 'Create a token below, then paste it into <token> in this command.',
-    localMcpScopes: 'Read-only tokens use read tools only. Writes require write scope and become suggestions unless Agent edits is Direct.',
+    localMcpScopes: 'Read-only tokens use read tools only. Writes need write scope and land as suggestions unless Agent edits (or a page\'s override) is Direct.',
+    localMcpPortWarn: 'Register this only while OpenBook is running — the token goes to whatever is answering on 127.0.0.1:4319.',
+    localMcpFollowsDefault: 'The connector always talks to your default local library, even if you switch libraries in the app.',
     localMcpDisabled: 'Enable the agent API to use the connector.',
     localMcpCopy: 'Copy command',
   },

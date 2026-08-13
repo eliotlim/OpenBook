@@ -54,14 +54,17 @@ describe('AgentTokensSettings local MCP connector', () => {
     wrap(true);
 
     const title = await screen.findByText('Local MCP connector');
-    const command = title.closest('section')?.querySelector('code')?.textContent;
+    const card = title.closest('section');
+    const command = card?.querySelector('code')?.textContent;
     expect(command).toBe(
-      'claude mcp add --transport http openbook http://127.0.0.1:4319/api/mcp \\\n' +
-        '  --header "Authorization: Bearer <token>"',
+      'claude mcp add --transport http openbook http://127.0.0.1:4319/api/mcp --header "Authorization: Bearer <token>"',
     );
     expect(command).not.toContain('/path/to/');
     expect(command).not.toContain('OPENBOOK_URL');
     expect(command).not.toContain('OPENBOOK_INSTANCE_ID');
+    expect(card?.textContent).toContain(
+      'Register this only while OpenBook is running — the token goes to whatever is answering on 127.0.0.1:4319.',
+    );
 
     fireEvent.click(screen.getByRole('button', {name: 'Copy command'}));
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith(command));

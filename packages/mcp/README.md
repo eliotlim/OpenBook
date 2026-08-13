@@ -38,7 +38,7 @@ what you already saw. These tools are the only way to write those keys —
 
 ## Setup
 
-The in-app Settings card uses the HTTP transport; the stdio setup below is the source-checkout/development route.
+The in-app Settings card uses the HTTP transport; the stdio setup below is the source-checkout/development route and authenticates as an unauthenticated guest rather than with a scoped token.
 
 Build once from the repo root:
 

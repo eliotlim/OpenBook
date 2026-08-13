@@ -528,7 +528,9 @@ export const zh: PartialMessages = {
     localMcpTitle: '本地 MCP 连接器',
     localMcpHint: '在下方创建令牌，然后将其粘贴到此命令的 <token> 处。',
     localMcpScopes:
-      '只读令牌只能使用读取工具。写入需要写入权限范围；除非“智能体编辑”设为“直接”，否则更改将作为建议提交。',
+      '只读令牌只能使用读取工具。写入需要写入权限范围；除非“智能体编辑”（或页面的单独设置）为“直接”，否则更改将作为建议提交。',
+    localMcpPortWarn: '仅在 OpenBook 运行时注册；令牌会发送给正在 127.0.0.1:4319 上响应的进程。',
+    localMcpFollowsDefault: '即使你在应用中切换了资料库，连接器也始终使用默认的本地资料库。',
     localMcpDisabled: '启用智能体 API 后才能使用此连接器。',
     localMcpCopy: '复制命令',
   },

@@ -75,10 +75,8 @@ export default function AgentTokensSettings() {
   const [connectorCopied, setConnectorCopied] = useState(false);
 
   // Register Claude Code directly against the authenticated HTTP MCP endpoint.
-  const connectorConfig = [
-    'claude mcp add --transport http openbook http://127.0.0.1:4319/api/mcp \\',
-    '  --header "Authorization: Bearer <token>"',
-  ].join('\n');
+  const connectorConfig =
+    'claude mcp add --transport http openbook http://127.0.0.1:4319/api/mcp --header "Authorization: Bearer <token>"';
 
   const copyConnectorConfig = async () => {
     if (await copyText(connectorConfig)) {
@@ -281,7 +279,9 @@ export default function AgentTokensSettings() {
                   <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
                     <code>{connectorConfig}</code>
                   </pre>
+                  <p className="text-xs text-muted-foreground">{t('agents.localMcpPortWarn')}</p>
                   <p className="text-xs text-muted-foreground">{t('agents.localMcpScopes')}</p>
+                  <p className="text-xs text-muted-foreground">{t('agents.localMcpFollowsDefault')}</p>
                   <div>
                     <Button variant="secondary" size="sm" onClick={() => void copyConnectorConfig()}>
                       {connectorCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
