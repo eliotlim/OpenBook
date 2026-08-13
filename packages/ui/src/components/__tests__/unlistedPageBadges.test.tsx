@@ -4,7 +4,6 @@ import type {PageMeta} from '@book.dev/sdk';
 import LibraryNavigationTree from '@/components/LibraryNavigationTree';
 import FavoritesNav from '@/components/FavoritesNav';
 import {SidebarPageRow} from '@/components/SidebarSections';
-import {TooltipProvider} from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({
   pages: [] as PageMeta[],
@@ -55,17 +54,19 @@ describe('owner hidden-page badges (UP-3)', () => {
     localStorage.setItem('openbook.favorites', JSON.stringify([hidden.id]));
 
     const {container} = render(
-      <TooltipProvider delayDuration={0}>
+      <>
         <LibraryNavigationTree />
         <SidebarPageRow page={hidden} />
         <FavoritesNav />
-      </TooltipProvider>,
+      </>,
     );
 
     const badges = container.querySelectorAll('[data-hidden-page-badge]');
     expect(badges).toHaveLength(3);
     badges.forEach((badge) => {
-      expect(badge.getAttribute('aria-label')).toBe('Hidden from navigation & search');
+      expect(badge.getAttribute('role')).toBe('img');
+      expect(badge.getAttribute('aria-label')).toBe('Hidden from navigation and search');
+      expect(badge.getAttribute('tabindex')).toBeNull();
       expect(badge.querySelector('svg')).toBeTruthy();
     });
   });
@@ -76,11 +77,11 @@ describe('owner hidden-page badges (UP-3)', () => {
     localStorage.setItem('openbook.favorites', JSON.stringify([listed.id]));
 
     const {container} = render(
-      <TooltipProvider delayDuration={0}>
+      <>
         <LibraryNavigationTree />
         <SidebarPageRow page={listed} />
         <FavoritesNav />
-      </TooltipProvider>,
+      </>,
     );
 
     expect(container.querySelector('[data-hidden-page-badge]')).toBeNull();

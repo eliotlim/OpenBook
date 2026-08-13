@@ -198,7 +198,7 @@ export const en = {
     crumbSiblings: 'Siblings',
     crumbSubpages: 'Subpages',
     crumbCollapsed: 'Show hidden pages',
-    hiddenPage: 'Hidden from navigation & search',
+    hiddenPage: 'Hidden from navigation and search',
   },
   tabs: {
     new: 'New tab',
@@ -385,7 +385,7 @@ export const en = {
       action: 'Publish page',
     },
     listing: {
-      label: 'Hide from navigation & search',
+      label: 'Hide from navigation and search',
       hint: 'Keep this page out of navigation and search. People with access can still open its link.',
       inheritHint: 'Applies only to this page; access still follows the library default.',
       restrictedHint: 'Only invited people can reach this page, so navigation and search visibility do not apply.',

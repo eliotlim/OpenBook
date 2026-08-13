@@ -121,8 +121,19 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     wrap(visibility);
     open();
 
-    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation & search'});
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
     await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(disabled));
+  });
+
+  it('keeps the restricted explanation at full muted-text contrast while only the control is disabled', async () => {
+    wrap('restricted');
+    open();
+
+    const hint = await screen.findByText(
+      'Only invited people can reach this page, so navigation and search visibility do not apply.',
+    );
+    expect(hint.closest('label')?.className).not.toContain('opacity');
+    expect(screen.getByRole('switch', {name: 'Hide from navigation and search'}).hasAttribute('disabled')).toBe(true);
   });
 
   it('explains that an inherited page keeps library access while discovery applies only to the page', async () => {
@@ -148,7 +159,7 @@ describe('ShareDialog — page discovery (UP-3)', () => {
 
     wrap(settings, client);
     open();
-    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation & search'});
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
     await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
     fireEvent.click(toggle);
 
@@ -159,8 +170,22 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     cleanup();
     wrap(settings, client);
     open();
-    expect((await screen.findByRole('switch', {name: 'Hide from navigation & search'})).getAttribute('data-state'))
+    expect((await screen.findByRole('switch', {name: 'Hide from navigation and search'})).getAttribute('data-state'))
       .toBe('checked');
+  });
+
+  it('renders a listing-save error outside the switch label so clicking it does not retry the toggle', async () => {
+    const setPageVisibility = vi.fn(async () => {
+      throw new Error('failed to fetch');
+    });
+    wrap('public', {setPageVisibility});
+    open();
+
+    fireEvent.click(await screen.findByRole('switch', {name: 'Hide from navigation and search'}));
+    const error = await screen.findByRole('alert');
+    expect(error.closest('label')).toBeNull();
+    fireEvent.click(error);
+    expect(setPageVisibility).toHaveBeenCalledTimes(1);
   });
 });
 

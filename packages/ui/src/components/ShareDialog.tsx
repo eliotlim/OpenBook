@@ -788,35 +788,33 @@ export default function ShareDialog({
                 legible, but disable it where navigation/search have no link-based
                 discovery relevance. `inherit` remains page-local and available. */}
             {canManage && (
-              <label
-                className={`flex items-center justify-between gap-4 rounded-md border border-border bg-muted/40 px-3 py-2.5 ${
-                  scope === 'restricted' ? 'opacity-60' : ''
-                }`}
-              >
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-sm font-medium text-foreground">{t('share.listing.label')}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {t(
-                      scope === 'inherit'
-                        ? 'share.listing.inheritHint'
-                        : scope === 'restricted'
-                          ? 'share.listing.restrictedHint'
-                          : 'share.listing.hint',
-                    )}
-                  </span>
-                  {listingError && (
-                    <span role="alert" aria-live="assertive" className="text-xs text-destructive">
-                      {t(listingError)}
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
+                <label className="flex items-center justify-between gap-4">
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-medium text-foreground">{t('share.listing.label')}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t(
+                        scope === 'inherit'
+                          ? 'share.listing.inheritHint'
+                          : scope === 'restricted'
+                            ? 'share.listing.restrictedHint'
+                            : 'share.listing.hint',
+                      )}
                     </span>
-                  )}
-                </span>
-                <Switch
-                  checked={!listed}
-                  disabled={loading || listingBusy || scope === 'restricted'}
-                  aria-label={t('share.listing.label')}
-                  onCheckedChange={(hidden) => void changeHidden(hidden)}
-                />
-              </label>
+                  </span>
+                  <Switch
+                    checked={!listed}
+                    disabled={loading || listingBusy || scope === 'restricted'}
+                    aria-label={t('share.listing.label')}
+                    onCheckedChange={(hidden) => void changeHidden(hidden)}
+                  />
+                </label>
+                {listingError && (
+                  <span role="alert" aria-live="assertive" className="mt-1.5 block text-xs text-destructive">
+                    {t(listingError)}
+                  </span>
+                )}
+              </div>
             )}
 
             {formDisclosure && (

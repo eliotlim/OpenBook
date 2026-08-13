@@ -111,7 +111,7 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await openShare(page, id);
 
   const dialog = page.getByRole('dialog');
-  const hidden = dialog.getByRole('switch', {name: 'Hide from navigation & search'});
+  const hidden = dialog.getByRole('switch', {name: 'Hide from navigation and search'});
   await expect(hidden).toBeEnabled();
   await hidden.click();
   await expect(hidden).toBeChecked();
@@ -125,6 +125,6 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   const row = page.getByRole('treeitem').filter({hasText: name});
   const badge = row.locator('[data-hidden-page-badge]');
   await expect(badge).toBeVisible();
-  await expect(badge).toHaveAttribute('aria-label', 'Hidden from navigation & search');
+  await expect(badge).toHaveAttribute('aria-label', 'Hidden from navigation and search');
   await takeSnapshot(page, testInfo);
 });
