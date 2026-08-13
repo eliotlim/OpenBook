@@ -630,6 +630,12 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS form_uploads_capability_idx ON form_uploads (capability_hash) WHERE capability_hash IS NOT NULL',
     ],
   },
+  {
+    // UP-1 — discovery is independent of the visibility audience ladder. Existing
+    // pages remain listed; ADD IF NOT EXISTS keeps a replay safe on every backend.
+    name: '0026_page_listed',
+    statements: ['ALTER TABLE pages ADD COLUMN IF NOT EXISTS listed BOOLEAN NOT NULL DEFAULT true'],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

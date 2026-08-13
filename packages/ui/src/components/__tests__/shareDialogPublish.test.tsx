@@ -1,6 +1,6 @@
 import {describe, it, expect, afterEach, beforeEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
-import type {DataClient, InstanceInfo, PageVisibility, SiteVisibility} from '@book.dev/sdk';
+import type {DataClient, InstanceInfo, PageVisibility, PageVisibilityUpdate, SiteVisibility} from '@book.dev/sdk';
 import {guestPrincipal} from '@book.dev/sdk';
 import ShareDialog from '../ShareDialog';
 import {DataProvider} from '@/data/DataProvider';
@@ -45,10 +45,13 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
         client={
           {
             getPage: async () => null,
-            getPageVisibility: async () => visibility,
+            getPageVisibility: async () => ({visibility, listed: true}),
             listPageAcl: async () => [],
             getInstanceInfo: async () => info(instance),
-            setPageVisibility: vi.fn(async (_id: string, v: PageVisibility) => v),
+            setPageVisibility: vi.fn(async (_id: string, update: PageVisibilityUpdate) => ({
+              visibility: update.visibility ?? visibility,
+              listed: update.listed ?? true,
+            })),
             ...over,
           } as unknown as DataClient
         }
@@ -134,12 +137,15 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   });
 
   it('offers a one-click "Publish page" that sets the page public when it is not yet', async () => {
-    const setPageVisibility = vi.fn(async (_id: string, v: PageVisibility) => v);
+    const setPageVisibility = vi.fn(async (_id: string, update: PageVisibilityUpdate) => ({
+      visibility: update.visibility ?? 'restricted',
+      listed: update.listed ?? true,
+    }));
     wrap('restricted', {setPageVisibility});
     open();
     const btn = await screen.findByRole('button', {name: 'Publish page'});
     fireEvent.click(btn);
-    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', 'public'));
+    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {visibility: 'public'}));
   });
 
   it('does not claim "Published" when the address does not serve public pages — it prompts the address fix instead', async () => {

@@ -61,7 +61,7 @@ describe('ShareDialog delivery help (P0-2)', () => {
   it('offers copy-link + sign-in guidance when published with a pending email grant', async () => {
     mockPublishedHost = 'rae.book.cloud';
     wrap({
-      getPageVisibility: async () => 'restricted',
+      getPageVisibility: async () => ({visibility: 'restricted', listed: true}),
       listPageAcl: async () => [acl({email: 'rae@example.com', subject: null})],
       getInstanceInfo: async () => info(),
     });
@@ -72,7 +72,7 @@ describe('ShareDialog delivery help (P0-2)', () => {
   it('hides the delivery help when every grant is subject-only (already signed in)', async () => {
     mockPublishedHost = 'rae.book.cloud';
     wrap({
-      getPageVisibility: async () => 'restricted',
+      getPageVisibility: async () => ({visibility: 'restricted', listed: true}),
       // A subject-only grant: claimMemberships re-keyed email→subject on first
       // sign-in, so there's no pending email to hand a link to.
       listPageAcl: async () => [acl({email: null, subject: 'acct#rae'})],
@@ -87,7 +87,7 @@ describe('ShareDialog delivery help (P0-2)', () => {
   it('hides the delivery help when not published, even with a pending email grant', async () => {
     mockPublishedHost = null;
     wrap({
-      getPageVisibility: async () => 'restricted',
+      getPageVisibility: async () => ({visibility: 'restricted', listed: true}),
       listPageAcl: async () => [acl({email: 'rae@example.com', subject: null})],
       getInstanceInfo: async () => info(),
     });

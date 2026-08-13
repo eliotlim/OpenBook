@@ -185,15 +185,13 @@ export class AiService {
   }
 
   /**
-   * Rank the index for a query. `canRead`, when supplied, is the per-principal
-   * access gate (OB-190 follow-up): a page is only emitted as a result when it
-   * passes — so a shared instance can't leak `restricted`/`members` snippets to a
-   * caller who can't read those pages. Filtering happens during the per-page
-   * dedup so the caller still gets up to `limit` *readable* hits (we walk the
-   * whole ranked candidate set, not just its top slice), with no existence oracle
-   * (an unreadable page is silently skipped, never surfaced).
+   * Rank the index for a query. `canInclude`, when supplied, is the
+   * per-principal access + discovery gate: a page is only emitted as a result
+   * when it passes, so a shared instance can't leak restricted or unlisted
+   * snippets. Filtering happens during per-page dedup so the caller still gets
+   * up to `limit` eligible hits, with no existence oracle.
    */
-  async search(query: string, limit = 8, canRead?: (pageId: string) => Promise<boolean>): Promise<AiSearchResponse> {
+  async search(query: string, limit = 8, canInclude?: (pageId: string) => Promise<boolean>): Promise<AiSearchResponse> {
     const index = await this.ensureIndex();
     const lexical = bm25Scores(index, query).slice(0, limit * 4);
 
@@ -220,8 +218,8 @@ export class AiService {
       }
     }
 
-    // One result per page (best chunk wins), gated to the pages the caller may read.
-    return {results: await assembleSearchResults(index, ranked, query, limit, canRead), mode};
+    // One result per page (best chunk wins), gated to what the caller may enumerate.
+    return {results: await assembleSearchResults(index, ranked, query, limit, canInclude), mode};
   }
 
   // ── Generation ─────────────────────────────────────────────────────────────

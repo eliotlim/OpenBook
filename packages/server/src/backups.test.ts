@@ -226,7 +226,7 @@ describe('BackupScheduler', () => {
     const sameOrigin = await store.importBundle({...bundle, mode: 'copy'});
     const sameOriginId = sameOrigin.idMap[page.id];
     expect(sameOrigin.diagnostics).toBeUndefined();
-    expect(await store.getPageVisibility(sameOriginId)).toBe('public');
+    expect((await store.getPageVisibility(sameOriginId))?.visibility).toBe('public');
     expect(await store.getPageAgentEdits(sameOriginId)).toBe('direct');
     expect(await store.getPageAcl(sameOriginId)).toHaveLength(1);
 
@@ -239,14 +239,14 @@ describe('BackupScheduler', () => {
       expect(safe.diagnostics).toEqual([
         expect.objectContaining({code: 'partial-restore', version: 3, missing: ['page-access-state']}),
       ]);
-      expect(await foreign.getPageVisibility(safeId)).toBe('restricted');
+      expect((await foreign.getPageVisibility(safeId))?.visibility).toBe('restricted');
       expect(await foreign.getPageAgentEdits(safeId)).toBe('suggest');
       expect(await foreign.getPageAcl(safeId)).toEqual([]);
 
       const optedIn = await foreign.importBundle({...bundle, mode: 'copy', installForeignPageAccess: true});
       const optedInId = optedIn.idMap[page.id];
       expect(optedIn.diagnostics).toBeUndefined();
-      expect(await foreign.getPageVisibility(optedInId)).toBe('public');
+      expect((await foreign.getPageVisibility(optedInId))?.visibility).toBe('public');
       expect(await foreign.getPageAgentEdits(optedInId)).toBe('direct');
       expect(await foreign.getPageAcl(optedInId)).toHaveLength(1);
 
@@ -257,7 +257,7 @@ describe('BackupScheduler', () => {
       expect(noOrigin.diagnostics).toEqual([
         expect.objectContaining({code: 'partial-restore', version: 3, missing: ['page-access-state']}),
       ]);
-      expect(await foreign.getPageVisibility(noOrigin.idMap[page.id])).toBe('restricted');
+      expect((await foreign.getPageVisibility(noOrigin.idMap[page.id]))?.visibility).toBe('restricted');
     } finally {
       await foreign.close();
       await rm(foreignDir, {recursive: true, force: true});
@@ -380,7 +380,7 @@ describe('BackupScheduler', () => {
       expect(result.diagnostics).toEqual([
         expect.objectContaining({code: 'partial-restore', missing: ['scheduled-backup-skips']}),
       ]);
-      expect(await restored.getPageVisibility(restoredId)).toBe('restricted');
+      expect((await restored.getPageVisibility(restoredId))?.visibility).toBe('restricted');
       expect(await restored.getPageAgentEdits(restoredId)).toBe('suggest');
     } finally {
       await restored.close();
