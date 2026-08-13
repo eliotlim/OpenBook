@@ -514,144 +514,144 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
             const hasPatternValidation = ['text', 'url', 'email', 'phone'].includes(property.type);
             return (
               <article
-              key={property.id}
-              draggable
-              data-form-field-id={property.id}
-              onDragStart={() => setDragId(property.id)}
-              onDragEnd={() => {
-                setDragId(null);
-                setOverId(null);
-              }}
-              onDragOver={(event) => {
-                if (dragId && dragId !== property.id) {
-                  event.preventDefault();
-                  setOverId(property.id);
-                }
-              }}
-              onDrop={() => {
-                if (dragId) void onUpdateView({visiblePropertyIds: reorderFormFieldIds(view.visiblePropertyIds ?? [], dragId, property.id)});
-                setDragId(null);
-                setOverId(null);
-              }}
-              className={cn(
-                'rounded-lg border border-border bg-background p-3 transition-[opacity,box-shadow]',
-                dragId === property.id && 'opacity-40',
-                overId === property.id && dragId !== property.id && 'shadow-[var(--ring-control)]',
-              )}
-            >
-              <div className="mb-3 flex items-start gap-2">
-                <GripVertical className="mt-0.5 h-4 w-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{property.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {t('database.formView.fieldType', {type: FORM_TYPE_KEY[property.type as FormWritablePropertyType]
-                      ? t(FORM_TYPE_KEY[property.type as FormWritablePropertyType])
-                      : property.type})}
+                key={property.id}
+                draggable
+                data-form-field-id={property.id}
+                onDragStart={() => setDragId(property.id)}
+                onDragEnd={() => {
+                  setDragId(null);
+                  setOverId(null);
+                }}
+                onDragOver={(event) => {
+                  if (dragId && dragId !== property.id) {
+                    event.preventDefault();
+                    setOverId(property.id);
+                  }
+                }}
+                onDrop={() => {
+                  if (dragId) void onUpdateView({visiblePropertyIds: reorderFormFieldIds(view.visiblePropertyIds ?? [], dragId, property.id)});
+                  setDragId(null);
+                  setOverId(null);
+                }}
+                className={cn(
+                  'rounded-lg border border-border bg-background p-3 transition-[opacity,box-shadow]',
+                  dragId === property.id && 'opacity-40',
+                  overId === property.id && dragId !== property.id && 'shadow-[var(--ring-control)]',
+                )}
+              >
+                <div className="mb-3 flex items-start gap-2">
+                  <GripVertical className="mt-0.5 h-4 w-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{property.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {t('database.formView.fieldType', {type: FORM_TYPE_KEY[property.type as FormWritablePropertyType]
+                        ? t(FORM_TYPE_KEY[property.type as FormWritablePropertyType])
+                        : property.type})}
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => remove(property.id)}
+                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-destructive"
+                    aria-label={`${t('database.formView.remove')}: ${property.name}`}
+                    title={t('database.formView.removeHint')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => remove(property.id)}
-                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-destructive"
-                  aria-label={`${t('database.formView.remove')}: ${property.name}`}
-                  title={t('database.formView.removeHint')}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-              {!writable && (
-                <div className="mb-3 flex gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs text-amber-800 dark:text-amber-200" role="status">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  {t('database.formView.unsupported')}
-                </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MetadataInput
-                  label={t('database.formView.label')}
-                  value={metadata.label}
-                  placeholder={t('database.formView.labelPlaceholder', {name: property.name})}
-                  onCommit={(label) => updateField(property.id, {label})}
-                />
-                <MetadataInput
-                  label={t('database.formView.help')}
-                  value={metadata.help}
-                  placeholder={t('database.formView.helpPlaceholder')}
-                  onCommit={(help) => updateField(property.id, {help})}
-                />
-                <MetadataInput
-                  label={t('database.formView.placeholder')}
-                  value={metadata.placeholder}
-                  placeholder={t('database.formView.placeholderHint')}
-                  onCommit={(placeholder) => updateField(property.id, {placeholder})}
-                />
-                <label className="flex items-center justify-between gap-4 rounded-md border border-border px-2.5 py-2 text-sm">
-                  {t('database.formView.required')}
-                  <Switch
-                    checked={metadata.required === true}
-                    onCheckedChange={(required) => updateField(property.id, {required})}
-                    aria-label={`${t('database.formView.required')}: ${property.name}`}
+                {!writable && (
+                  <div className="mb-3 flex gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs text-amber-800 dark:text-amber-200" role="status">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    {t('database.formView.unsupported')}
+                  </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MetadataInput
+                    label={t('database.formView.label')}
+                    value={metadata.label}
+                    placeholder={t('database.formView.labelPlaceholder', {name: property.name})}
+                    onCommit={(label) => updateField(property.id, {label})}
                   />
-                </label>
-                {property.type === 'text' && (
+                  <MetadataInput
+                    label={t('database.formView.help')}
+                    value={metadata.help}
+                    placeholder={t('database.formView.helpPlaceholder')}
+                    onCommit={(help) => updateField(property.id, {help})}
+                  />
+                  <MetadataInput
+                    label={t('database.formView.placeholder')}
+                    value={metadata.placeholder}
+                    placeholder={t('database.formView.placeholderHint')}
+                    onCommit={(placeholder) => updateField(property.id, {placeholder})}
+                  />
                   <label className="flex items-center justify-between gap-4 rounded-md border border-border px-2.5 py-2 text-sm">
-                    {t('database.formView.multiline')}
+                    {t('database.formView.required')}
                     <Switch
-                      checked={metadata.multiline === true}
-                      onCheckedChange={(multiline) => updateField(property.id, {multiline})}
-                      aria-label={`${t('database.formView.multiline')}: ${property.name}`}
+                      checked={metadata.required === true}
+                      onCheckedChange={(required) => updateField(property.id, {required})}
+                      aria-label={`${t('database.formView.required')}: ${property.name}`}
                     />
                   </label>
-                )}
-              </div>
-              {(hasNumericValidation || hasLengthValidation || hasPatternValidation) && (
-                <div className="mt-3 rounded-md border border-border p-3">
-                  <div className="mb-2 text-xs font-medium text-muted-foreground">{t('database.formView.validation')}</div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {hasNumericValidation && (
-                      <>
-                        <NumberMetadataInput
-                          label={t('database.formView.minimum')}
-                          value={metadata.validation?.min}
-                          onCommit={(value) => updateValidation(property.id, 'min', value)}
-                        />
-                        <NumberMetadataInput
-                          label={t('database.formView.maximum')}
-                          value={metadata.validation?.max}
-                          onCommit={(value) => updateValidation(property.id, 'max', value)}
-                        />
-                      </>
-                    )}
-                    {hasLengthValidation && (
-                      <>
-                        <NumberMetadataInput
-                          label={t('database.formView.minimumLength')}
-                          value={metadata.validation?.minLength}
-                          min={0}
-                          integer
-                          onCommit={(value) => updateValidation(property.id, 'minLength', value)}
-                        />
-                        <NumberMetadataInput
-                          label={t('database.formView.maximumLength')}
-                          value={metadata.validation?.maxLength}
-                          min={0}
-                          integer
-                          onCommit={(value) => updateValidation(property.id, 'maxLength', value)}
-                        />
-                      </>
-                    )}
-                    {hasPatternValidation && (
-                      <MetadataInput
-                        label={t('database.formView.pattern')}
-                        value={metadata.validation?.pattern}
-                        placeholder={t('database.formView.patternPlaceholder')}
-                        trim={false}
-                        onCommit={(value) => updateValidation(property.id, 'pattern', value)}
+                  {property.type === 'text' && (
+                    <label className="flex items-center justify-between gap-4 rounded-md border border-border px-2.5 py-2 text-sm">
+                      {t('database.formView.multiline')}
+                      <Switch
+                        checked={metadata.multiline === true}
+                        onCheckedChange={(multiline) => updateField(property.id, {multiline})}
+                        aria-label={`${t('database.formView.multiline')}: ${property.name}`}
                       />
-                    )}
-                  </div>
+                    </label>
+                  )}
                 </div>
-              )}
-              <div className="mt-2 text-xs text-muted-foreground">{t('database.formView.removeHint')}</div>
+                {(hasNumericValidation || hasLengthValidation || hasPatternValidation) && (
+                  <div className="mt-3 rounded-md border border-border p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">{t('database.formView.validation')}</div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {hasNumericValidation && (
+                        <>
+                          <NumberMetadataInput
+                            label={t('database.formView.minimum')}
+                            value={metadata.validation?.min}
+                            onCommit={(value) => updateValidation(property.id, 'min', value)}
+                          />
+                          <NumberMetadataInput
+                            label={t('database.formView.maximum')}
+                            value={metadata.validation?.max}
+                            onCommit={(value) => updateValidation(property.id, 'max', value)}
+                          />
+                        </>
+                      )}
+                      {hasLengthValidation && (
+                        <>
+                          <NumberMetadataInput
+                            label={t('database.formView.minimumLength')}
+                            value={metadata.validation?.minLength}
+                            min={0}
+                            integer
+                            onCommit={(value) => updateValidation(property.id, 'minLength', value)}
+                          />
+                          <NumberMetadataInput
+                            label={t('database.formView.maximumLength')}
+                            value={metadata.validation?.maxLength}
+                            min={0}
+                            integer
+                            onCommit={(value) => updateValidation(property.id, 'maxLength', value)}
+                          />
+                        </>
+                      )}
+                      {hasPatternValidation && (
+                        <MetadataInput
+                          label={t('database.formView.pattern')}
+                          value={metadata.validation?.pattern}
+                          placeholder={t('database.formView.patternPlaceholder')}
+                          trim={false}
+                          onCommit={(value) => updateValidation(property.id, 'pattern', value)}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-2 text-xs text-muted-foreground">{t('database.formView.removeHint')}</div>
               </article>
             );
           })}
