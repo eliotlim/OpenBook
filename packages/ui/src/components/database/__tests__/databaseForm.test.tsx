@@ -41,6 +41,16 @@ const actions = () => ({
   onSubmit: vi.fn().mockResolvedValue('row-1'),
 });
 
+const renderFill = (
+  view: DatabaseView = formView,
+  properties: DatabaseProperty[] = [email],
+  props = actions(),
+) => {
+  const rendered = render(<DatabaseForm view={view} properties={properties} canEdit {...props} />);
+  fireEvent.click(screen.getByRole('button', {name: 'Fill'}));
+  return {props, rendered};
+};
+
 describe('database form live projection', () => {
   it('reads renamed and retyped columns live without copied schema fields', () => {
     expect(projectDatabaseFormFields([email], formView)[0]).toMatchObject({
@@ -145,27 +155,69 @@ describe('database form builder', () => {
       },
     });
   });
+
+  it('explains failed new-field creation when the target is no longer a form', async () => {
+    const props = {...actions(), onCreateProperty: vi.fn().mockResolvedValue(undefined)};
+    render(<DatabaseForm view={formView} properties={[email]} canEdit {...props} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', {name: 'Add field'}), {button: 0, ctrlKey: false});
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'New field'}));
+    expect(screen.getByText('Creates a new column in this database and adds it to this form.')).toBeTruthy();
+    const nameInput = screen.getByLabelText('Field name');
+    expect(nameInput.className).toContain('shadow-[var(--ring-field)]');
+    fireEvent.change(nameInput, {target: {value: 'Follow-up'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Create field'}));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('This field could not be added because this view is no longer a form.');
+  });
+
+  it('states remove semantics once and uses the amber note idiom for unsupported columns', () => {
+    const computed: DatabaseProperty = {id: 'p-formula', name: 'Computed', type: 'formula'};
+    const view = {...formView, visiblePropertyIds: [computed.id], formFields: {[computed.id]: {}}} as DatabaseView;
+    render(<DatabaseForm view={view} properties={[computed]} canEdit {...actions()} />);
+
+    expect(screen.getByText(/Removing a field from the form keeps its database column and existing values/)).toBeTruthy();
+    expect(screen.queryByText('The database column and its existing values are kept.')).toBeNull();
+    expect(screen.getByRole('button', {name: 'Remove from form: Computed'}).getAttribute('title'))
+      .toBe('The database column and its existing values are kept.');
+    const note = screen.getByRole('note');
+    expect(note.className).toContain('border-amber-500/40');
+    expect(note.className).toContain('text-foreground');
+  });
 });
 
 describe('database form fill renderer', () => {
-  it('blocks invalid submissions with SDK validation', async () => {
-    const props = actions();
-    render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
+  it('shows read-only members a friendly access state instead of a submit control', () => {
+    const {container} = render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...actions()} />);
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    expect(screen.getByText('You don\'t have access to submit this form.')).toBeTruthy();
+    expect(container.querySelector('[data-database-form-readonly]')?.getAttribute('role')).toBe('note');
+    expect(container.querySelector('[data-database-form-fill]')).toBeNull();
+    expect(screen.queryByRole('button', {name: 'Submit'})).toBeNull();
+  });
+
+  it('blocks invalid submissions with SDK validation', async () => {
+    const {props} = renderFill();
+
+    const input = screen.getByRole('textbox', {name: 'Email (required)'});
+    expect(input.getAttribute('aria-required')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe(`${email.id}-help`);
     fireEvent.change(input, {target: {value: 'not-an-email'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
 
     expect(await screen.findByText('Enter a valid email address.')).toBeTruthy();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe(`${email.id}-help ${email.id}-error`);
+    expect(document.getElementById(`${email.id}-help`)?.textContent).toBe('We will reply here');
+    expect(document.getElementById(`${email.id}-error`)?.textContent).toBe('Enter a valid email address.');
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
   it('creates one allowlisted row and enters confirmation state', async () => {
-    const props = actions();
-    render(<DatabaseForm view={formView} properties={[email]} canEdit={false} {...props} />);
+    const {props} = renderFill();
 
-    const input = screen.getByRole('textbox', {name: 'email'});
+    const input = screen.getByRole('textbox', {name: 'Email (required)'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -186,7 +238,7 @@ describe('database form fill renderer', () => {
       },
     } as DatabaseView;
     const props = actions();
-    const {container} = render(<DatabaseForm view={view} properties={[note]} canEdit={false} {...props} />);
+    const {rendered: {container}} = renderFill(view, [note], props);
 
     const title = container.querySelector<HTMLInputElement>('[data-form-input="title"] input')!;
     fireEvent.change(title, {target: {value: 'Ada'}});
@@ -211,16 +263,13 @@ describe('database form fill renderer', () => {
       ...formView,
       formConfig: {acceptingResponses: false, closedMessage: 'Responses reopen Monday.'},
     } as DatabaseView;
-    const closedRender = render(<DatabaseForm view={closed} properties={[email]} canEdit={false} {...actions()} />);
+    const {rendered: closedRender} = renderFill(closed);
     expect(screen.getByText('Responses reopen Monday.')).toBeTruthy();
     closedRender.unmount();
 
-    const defaultClosedRender = render(<DatabaseForm
-      view={{...closed, formConfig: {acceptingResponses: false}}}
-      properties={[email]}
-      canEdit={false}
-      {...actions()}
-    />);
+    const {rendered: defaultClosedRender} = renderFill(
+      {...closed, formConfig: {acceptingResponses: false}} as DatabaseView,
+    );
     expect(screen.getByText('This form is not accepting responses.')).toBeTruthy();
     defaultClosedRender.unmount();
 
@@ -228,9 +277,8 @@ describe('database form fill renderer', () => {
       ...formView,
       formConfig: {acceptingResponses: true, confirmation: {type: 'redirect', redirectUrl: 'https://example.com/thanks'}},
     } as DatabaseView;
-    const props = actions();
-    render(<DatabaseForm view={redirect} properties={[email]} canEdit={false} {...props} />);
-    const input = screen.getByRole('textbox', {name: 'email'});
+    renderFill(redirect);
+    const input = screen.getByRole('textbox', {name: 'Email (required)'});
     fireEvent.change(input, {target: {value: 'reader@example.com'}});
     fireEvent.blur(input);
     fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
@@ -239,6 +287,32 @@ describe('database form fill renderer', () => {
     expect(link.getAttribute('href')).toBe('https://example.com/thanks');
     expect(safeFormRedirectUrl('javascript:alert(1)')).toBeNull();
     expect(safeFormRedirectUrl('/thanks')).toBe('/thanks');
+  });
+
+  it('remounts uncontrolled fields when starting another response', async () => {
+    renderFill();
+    const first = screen.getByRole('textbox', {name: 'Email (required)'}) as HTMLInputElement;
+    fireEvent.change(first, {target: {value: 'reader@example.com'}});
+    fireEvent.blur(first);
+    fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Submit another response'}));
+
+    const restarted = screen.getByRole('textbox', {name: 'Email (required)'}) as HTMLInputElement;
+    expect(restarted).not.toBe(first);
+    expect(restarted.value).toBe('');
+  });
+
+  it('excludes mapped non-writable fields from fill mode', () => {
+    const computed: DatabaseProperty = {id: 'p-formula', name: 'Computed', type: 'formula'};
+    const view = {
+      ...formView,
+      visiblePropertyIds: [email.id, computed.id],
+      formFields: {...formView.formFields, [computed.id]: {required: true}},
+    } as DatabaseView;
+    const {rendered: {container}} = renderFill(view, [email, computed]);
+
+    expect(container.querySelector(`[data-form-input="${email.id}"]`)).toBeTruthy();
+    expect(container.querySelector(`[data-form-input="${computed.id}"]`)).toBeNull();
   });
 
   it('never imports or reads the database row projection', () => {
