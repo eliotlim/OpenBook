@@ -391,7 +391,10 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
             ? `${label} (${t('database.formView.required').toLocaleLowerCase()})`
             : label;
           const inputProperty = accessibleLabel === property.name ? property : {...property, name: accessibleLabel};
-          const describedBy = `${property.id}-help${error ? ` ${property.id}-error` : ''}`;
+          const describedBy = [
+            metadata.help ? `${property.id}-help` : null,
+            error ? `${property.id}-error` : null,
+          ].filter(Boolean).join(' ') || undefined;
           const common = {
             'aria-label': accessibleLabel,
             'aria-invalid': Boolean(error) || undefined,

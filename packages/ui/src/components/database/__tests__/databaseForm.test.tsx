@@ -196,6 +196,16 @@ describe('database form fill renderer', () => {
     expect(screen.queryByRole('button', {name: 'Submit'})).toBeNull();
   });
 
+  it('omits aria-describedby when no help or error is rendered', () => {
+    const view = {
+      ...formView,
+      formFields: {[email.id]: {required: true}},
+    } as DatabaseView;
+    renderFill(view);
+
+    expect(screen.getByRole('textbox', {name: 'Email (required)'}).hasAttribute('aria-describedby')).toBe(false);
+  });
+
   it('blocks invalid submissions with SDK validation', async () => {
     const {props} = renderFill();
 
