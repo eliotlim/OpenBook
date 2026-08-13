@@ -101,7 +101,7 @@ export default function TitlebarTabs() {
                     // the strip's lower edge so the label centers over the same
                     // region and doesn't drop when a tab becomes active.
                       'relative z-[1] h-control-md rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
-                      : 'mb-1 h-control-sm rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
+                      : 'mb-1 h-control-sm rounded-md border border-b-0 border-transparent text-muted-foreground hover:bg-background/40 hover:text-foreground',
                   )}
                 >
                   <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
