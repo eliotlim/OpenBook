@@ -1,8 +1,10 @@
-import {afterEach, describe, expect, it} from 'vitest';
-import {cleanup, render, screen} from '@testing-library/react';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {
   KNOWN_DATABASE_VIEW_TYPES,
+  TITLE_PROPERTY_ID,
   type DatabaseProperty,
+  type StoredDatabase,
   type DatabaseView,
 } from '@book.dev/sdk';
 import {ViewBody} from '../DatabaseView';
@@ -12,10 +14,12 @@ import {
   VIEW_TYPE_HINT_KEY,
   VIEW_TYPE_NEEDS_KEY,
   VIEW_TYPES,
+  ViewOptionsMenu,
   viewIcon,
   viewTypePatch,
 } from '../databaseMenus';
 import type {UseDatabase} from '../useDatabase';
+import {I18nProvider} from '@/providers';
 
 afterEach(cleanup);
 
@@ -40,30 +44,85 @@ describe('form view registry', () => {
 
     expect(viewTypePatch('form', table, properties)).toEqual({
       type: 'form',
-      visiblePropertyIds: ['p-text'],
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'p-text'],
       formFields: {},
       formConfig: {acceptingResponses: true},
     });
+
+    const incompleteForm = {...table, type: 'form'} as DatabaseView;
+    expect(viewTypePatch('form', incompleteForm, properties)).toEqual({
+      type: 'form',
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'p-text'],
+      formFields: {},
+      formConfig: {acceptingResponses: true},
+    });
+
+    const formerForm = {
+      ...table,
+      type: 'table',
+      visiblePropertyIds: ['p-text'],
+      formFields: {'p-text': {required: true}},
+      formConfig: {acceptingResponses: false, closedMessage: 'Paused'},
+    } as DatabaseView;
+    expect(viewTypePatch('form', formerForm, properties)).toEqual({type: 'form'});
+  });
+
+  it('disables the form layout tile when switching would strand a forms-only database', () => {
+    const onlyTable = {id: 'v-table', name: 'Table', type: 'table', filters: [], sorts: []} as DatabaseView;
+    const db = {
+      database: {
+        id: 'db-1',
+        name: 'Database',
+        schema: {properties: [], views: [onlyTable]},
+      } as unknown as StoredDatabase,
+      updateView: vi.fn().mockResolvedValue(undefined),
+    } as unknown as UseDatabase;
+
+    render(<I18nProvider><ViewOptionsMenu db={db} view={onlyTable} /></I18nProvider>);
+    fireEvent.click(screen.getByRole('button', {name: 'View options'}));
+
+    expect((screen.getByTitle('Form') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTitle('Form'));
+    expect(db.updateView).not.toHaveBeenCalled();
   });
 });
 
 describe('unknown database view guard', () => {
-  it('keeps an unknown persisted type out of the table and form renderers', () => {
+  it('keeps x_future out of the table grid while form renders the real form view', () => {
     const unknown = {
       id: 'v-future',
       name: 'Future',
-      type: 'future-layout',
+      type: 'x_future',
       filters: [],
       sorts: [],
     } as unknown as DatabaseView;
 
-    const {container} = render(
+    const unknownRender = render(
       <ViewBody db={{} as UseDatabase} view={unknown} columns={[]} schema={[]} />,
     );
 
     expect(screen.getByText('A newer client is required to show this view.')).toBeTruthy();
-    expect(container.querySelector('[data-unsupported-database-view="future-layout"]')).toBeTruthy();
-    expect(container.querySelector('table')).toBeNull();
-    expect(container.querySelector('[data-database-form]')).toBeNull();
+    expect(unknownRender.container.querySelector('[data-unsupported-database-view="x_future"]')).toBeTruthy();
+    expect(unknownRender.container.querySelector('table')).toBeNull();
+    unknownRender.unmount();
+
+    const form = {
+      id: 'v-form',
+      name: 'Form',
+      type: 'form',
+      filters: [],
+      sorts: [],
+      visiblePropertyIds: [],
+      formFields: {},
+      formConfig: {acceptingResponses: false},
+    } as DatabaseView;
+    const formRender = render(
+      <I18nProvider>
+        <ViewBody db={{} as UseDatabase} view={form} columns={[]} schema={[]} canEdit={false} />
+      </I18nProvider>,
+    );
+    expect(formRender.container.querySelector('[data-database-form]')).toBeTruthy();
+    expect(formRender.container.querySelector('[data-unsupported-database-view]')).toBeNull();
+    expect(formRender.container.querySelector('table')).toBeNull();
   });
 });
