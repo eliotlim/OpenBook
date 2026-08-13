@@ -13,6 +13,7 @@ import {HTTPException} from 'hono/http-exception';
 import {
   FORM_UPLOAD_MAX_FILE_BYTES,
   isFormWritablePropertyType,
+  type DatabaseFormDescriptorRequest,
   type DatabaseFormSubmissionRequest,
   type DatabaseView,
   type FormSchema,
@@ -121,26 +122,10 @@ export function currentDatabaseFormView(database: StoredDatabase, viewId: string
 }
 
 /**
- * Resolve the narrow public descriptor binding. Publication state, a current form
- * view, and an ordinary (non-managed) database are all required; every failure is
- * the same existence-hiding 404.
+ * Resolve a valid database-form capability without inspecting response state.
+ * Descriptor reads and submissions share this exact existence-hiding door; only
+ * a caller that passes it may learn that a form is closed.
  */
-export async function requirePublishedDatabaseForm(
-  store: PageStore,
-  databaseId: string,
-  viewId: string,
-): Promise<{database: StoredDatabase; view: DatabaseView; capabilityHash: string}> {
-  const database = await store.getDatabase(databaseId);
-  const view = database ? currentDatabaseFormView(database, viewId) : null;
-  const capabilityHash = view
-    ? await store.getDatabaseFormCapabilityHash(databaseId, viewId)
-    : null;
-  const managed = database ? await store.isManagedDatabase(databaseId) : false;
-  if (!database || !view || !capabilityHash || managed) denyFormSubmission();
-  return {database, view, capabilityHash};
-}
-
-/** Resolve a valid, currently-accepting database form capability. */
 export async function requireDatabaseFormSubmissionAccess(
   store: PageStore,
   databaseId: string,
@@ -162,11 +147,21 @@ export async function requireDatabaseFormSubmissionAccess(
     || !capabilityHash
     || managed
     || !matches
-    || view.formConfig?.acceptingResponses !== true
   ) {
     denyFormSubmission();
   }
   return {database, view, capabilityHash};
+}
+
+/** Resolve the frozen per-view response ceiling, failing closed when malformed. */
+export function databaseFormResponseCap(view: DatabaseView): number | null {
+  const config = view.formConfig;
+  if (!config || !Object.prototype.hasOwnProperty.call(config, 'maxResponses')) {
+    return FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS;
+  }
+  return Number.isSafeInteger(config.maxResponses) && (config.maxResponses as number) >= 0
+    ? config.maxResponses as number
+    : null;
 }
 
 /** Whether `fieldId` is a current, mapped files property on this form view. */
@@ -334,6 +329,18 @@ export function formSubmissionKey(body: unknown): string {
 /** Extract only the candidate database-form capability for the oracle-safe gate. */
 export function databaseFormCapability(body: unknown): string {
   return isRecord(body) && typeof body.capability === 'string' ? body.capability : '';
+}
+
+/** Validate the frozen capability-only descriptor POST body after the deny door. */
+export function validateDatabaseFormDescriptorRequest(body: unknown): DatabaseFormDescriptorRequest {
+  if (
+    !isRecord(body)
+    || typeof body.capability !== 'string'
+    || Object.keys(body).some((key) => key !== 'capability')
+  ) {
+    throw new HTTPException(400, {message: 'invalid form descriptor request'});
+  }
+  return {capability: body.capability};
 }
 
 /** Validate upload metadata after the capability gate has passed. */

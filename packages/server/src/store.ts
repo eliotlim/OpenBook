@@ -15,6 +15,7 @@ import type {
   BackupSkippedItem,
   CommentInput,
   CommentRun,
+  DatabaseFormSubmissionMarker,
   DatabaseInput,
   DatabaseRow,
   DatabaseSchema,
@@ -50,7 +51,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {AGENT_EDITS_POLICIES, authorize, BACKUP_VERSION, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, PAGE_VISIBILITIES, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {AGENT_EDITS_POLICIES, authorize, BACKUP_VERSION, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, FORM_SUBMISSION_PROPERTY_ID, isEmailAuthoritative, latestSnapshotAuthor, PAGE_VISIBILITIES, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {LedgerError, LEDGER_AUDIT_ACTIONS, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {compareSemver, isSemver} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
@@ -69,6 +70,7 @@ import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
  * import-overwrite guard test keeps the two literals in sync.
  */
 const USAGE_DB_SETTING_KEY = 'aiUsageDb';
+const DATABASE_FORM_MARKER_VIEW_KEY = 'submittedViaViewId' satisfies keyof DatabaseFormSubmissionMarker;
 
 /**
  * Thrown by {@link PageStore.putAsset} when storing a NEW asset would push the
@@ -235,7 +237,19 @@ export interface CreateRowOptions {
     /** Client-generated replay key within that scope. */
     key: string;
   };
+  /** Atomic F-4 publication binding and per-view response ceiling. */
+  databaseForm?: {
+    viewId: string;
+    capabilityHash: string;
+    maxResponses: number;
+  };
 }
+
+/** Publication changed after the route's capability check but before row create. */
+export class DatabaseFormAccessLostError extends Error {}
+
+/** A fresh create would exceed the durable per-view response ceiling. */
+export class DatabaseFormResponseLimitError extends Error {}
 
 /** Result of a row create that atomically claims an idempotency key. */
 export interface CreateRowResult {
@@ -2936,6 +2950,18 @@ export class PageStore {
     return Number(rows[0]?.n ?? 0);
   }
 
+  /** Count active rows attributed to one database form view, excluding legacy markers. */
+  async countDatabaseFormResponses(databaseId: string, viewId: string): Promise<number> {
+    const rows = await this.db.query<{n: number | string}>(
+      `SELECT count(*) AS n FROM pages
+       WHERE database_id = $1
+         AND deleted_at IS NULL
+         AND properties -> $2::text ->> $3::text = $4`,
+      [databaseId, FORM_SUBMISSION_PROPERTY_ID, DATABASE_FORM_MARKER_VIEW_KEY, viewId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
   /** Update a database's name and/or schema. Only provided fields change. */
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase | null> {
     await this.assertNotLedgerDatabase(id); // LGR-3: the seeded schemas are enforcement-relevant
@@ -3093,9 +3119,44 @@ export class PageStore {
     const scope = opts?.idempotency?.scope.trim();
     const clientKey = opts?.idempotency?.key.trim();
     if (scope && clientKey) {
-      return this.db.begin((tx) =>
-        claimKeyedCreate(tx, scope, clientKey, (id) => this.createRowTx(tx, id, databaseId, input, author)),
-      );
+      return this.db.begin(async (tx) => {
+        const databaseForm = opts?.databaseForm;
+        if (databaseForm) {
+          const marker = input.properties?.[FORM_SUBMISSION_PROPERTY_ID] as Partial<DatabaseFormSubmissionMarker> | undefined;
+          if (
+            marker?.submittedViaViewId !== databaseForm.viewId
+            || typeof marker.submittedAt !== 'string'
+          ) {
+            throw new DatabaseFormAccessLostError();
+          }
+          // Serialize fresh submissions with capability rotation/revocation and
+          // every other submission through this view. Re-checking the digest here
+          // closes the route-check/create TOCTOU window.
+          const publication = await tx.query<{view_id: string}>(
+            `SELECT view_id FROM database_form_capabilities
+             WHERE database_id = $1 AND view_id = $2 AND capability_hash = $3
+             FOR UPDATE`,
+            [databaseId, databaseForm.viewId, databaseForm.capabilityHash],
+          );
+          if (publication.length !== 1) throw new DatabaseFormAccessLostError();
+        }
+
+        return claimKeyedCreate(tx, scope, clientKey, async (id) => {
+          if (databaseForm) {
+            const counts = await tx.query<{n: number | string}>(
+              `SELECT count(*) AS n FROM pages
+               WHERE database_id = $1
+                 AND deleted_at IS NULL
+                 AND properties -> $2::text ->> $3::text = $4`,
+              [databaseId, FORM_SUBMISSION_PROPERTY_ID, DATABASE_FORM_MARKER_VIEW_KEY, databaseForm.viewId],
+            );
+            if (Number(counts[0]?.n ?? 0) >= databaseForm.maxResponses) {
+              throw new DatabaseFormResponseLimitError();
+            }
+          }
+          return this.createRowTx(tx, id, databaseId, input, author);
+        });
+      });
     }
     return this.db.begin((tx) => this.createRowTx(tx, randomUUID(), databaseId, input, author));
   }

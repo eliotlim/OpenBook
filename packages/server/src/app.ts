@@ -18,7 +18,7 @@ import {
   FORM_UPLOAD_MAX_FORM_STAGED_BYTES,
   FORM_UPLOAD_ORPHAN_TTL_MS,
   generateSubmissionKey,
-  isFormWritablePropertyType,
+  projectDatabaseFormDescriptor,
   submissionToRowInput,
   validateRowAgainstForm,
   validateSubmission,
@@ -29,8 +29,7 @@ import {
   type BackupConfig,
   type CommentInput,
   type DatabaseInput,
-  type DatabaseFormConfig,
-  type DatabaseFormDescriptor,
+  type DatabaseFormSubmissionMarker,
   type DatabaseSchema,
   type DatabaseUpdate,
   type FormSubmissionResult,
@@ -66,7 +65,14 @@ import {
   type LedgerTransactionState,
   localPrincipal,
 } from '@book.dev/sdk';
-import {PageStore, AssetBudgetError, BackupFormatError, FormAssetBudgetError} from './store';
+import {
+  PageStore,
+  AssetBudgetError,
+  BackupFormatError,
+  DatabaseFormAccessLostError,
+  DatabaseFormResponseLimitError,
+  FormAssetBudgetError,
+} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
 import {ServerAuthoritativePersister} from './collabPersist';
@@ -109,6 +115,7 @@ import {
   FORM_UPLOAD_MAX_BODY_BYTES,
   currentDatabaseFormView,
   databaseFormCapability,
+  databaseFormResponseCap,
   databaseFormUploadId,
   formSubmissionKey,
   hashDatabaseFormCapability,
@@ -117,7 +124,7 @@ import {
   requireDatabaseFormSubmissionAccess,
   requireFormUploadAccess,
   requireFormSubmissionAccess,
-  requirePublishedDatabaseForm,
+  validateDatabaseFormDescriptorRequest,
   validateDatabaseFormSubmissionRequest,
   validateDatabaseFormUploadRequest,
   validateFormUploadRequest,
@@ -164,8 +171,7 @@ const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?
 const FORM_PUBLIC_WRITE_PATH = /^\/api\/pages\/[^/]+\/forms\/[^/]+\/(?:submissions|uploads)$/;
 const DATABASE_FORM_PUBLIC_PATH = /^\/api\/databases\/[^/]+\/views\/[^/]+\/(?:form|submissions|uploads)$/;
 const isDatabaseFormPublicRequest = (method: string, path: string): boolean => {
-  if (!DATABASE_FORM_PUBLIC_PATH.test(path)) return false;
-  return method === 'GET' ? path.endsWith('/form') : method === 'POST' && !path.endsWith('/form');
+  return method === 'POST' && DATABASE_FORM_PUBLIC_PATH.test(path);
 };
 export function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -282,18 +288,6 @@ function databaseFormPrincipal(viewId: string): Principal {
     issuer: '',
     name: 'Public form',
     verifiedVia: 'guest',
-  };
-}
-
-function publicDatabaseFormConfig(viewName: string, raw: DatabaseFormConfig | undefined): DatabaseFormConfig {
-  return {
-    title: typeof raw?.title === 'string' ? raw.title : viewName,
-    ...(typeof raw?.description === 'string' ? {description: raw.description} : {}),
-    submitLabel: typeof raw?.submitLabel === 'string' ? raw.submitLabel : 'Submit',
-    confirmationMessage: typeof raw?.confirmationMessage === 'string'
-      ? raw.confirmationMessage
-      : 'Thanks — your response was submitted.',
-    acceptingResponses: raw?.acceptingResponses === true,
   };
 }
 
@@ -2248,7 +2242,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       hashDatabaseFormCapability(capability),
     );
     if (!published) return c.json({error: 'form not found'}, 404);
-    const url = new URL(API.databaseFormDescriptor(database.id, view.id), c.req.url);
+    const url = new URL(API.databaseForm(database.id, view.id), c.req.url);
     url.hash = `capability=${capability}`;
     logEdit(c, database.pageId, 'database.form.publish', view.id);
     return c.json({url: url.toString()}, 201);
@@ -2262,42 +2256,29 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.body(null, 204);
   });
 
-  // The sole anonymous read opened by a published form: effective form copy plus
-  // current mapped writable fields. Every property is rebuilt from an allowlist;
-  // full schema/view metadata and row data never enter the response object.
-  app.get(`${API.databases}/:databaseId/views/:viewId/form`, async (c) => {
-    const {database, view} = await requirePublishedDatabaseForm(
-      store,
-      c.req.param('databaseId'),
-      c.req.param('viewId'),
-    );
-    const byId = new Map(database.schema.properties.map((property) => [property.id, property]));
-    const seen = new Set<string>();
-    const fields = (view.visiblePropertyIds ?? []).flatMap((propertyId) => {
-      if (seen.has(propertyId)) return [];
-      seen.add(propertyId);
-      const property = byId.get(propertyId);
-      if (!property || property.id.startsWith('sys_') || !isFormWritablePropertyType(property.type)) return [];
-      return [{
-        id: property.id,
-        name: property.name,
-        type: property.type,
-        ...(property.options
-          ? {options: property.options.map((option) => ({
-            id: option.id,
-            label: option.label,
-            ...(option.color === undefined ? {} : {color: option.color}),
-            ...(option.group === undefined ? {} : {group: option.group}),
-          }))}
-          : {}),
-      }];
-    });
-    const descriptor: DatabaseFormDescriptor = {
-      formConfig: publicDatabaseFormConfig(view.name, view.formConfig),
-      fields,
-    };
-    return c.json(descriptor);
-  });
+  // The sole anonymous read opened by a published form. The raw fragment token
+  // is copied into this POST body; it is never accepted from a query string.
+  app.post(
+    `${API.databases}/:databaseId/views/:viewId/form`,
+    bodyLimit({
+      maxSize: FORM_SUBMISSION_MAX_BODY_BYTES,
+      onError: (c) => c.json({error: 'request body too large'}, 413),
+    }),
+    async (c) => {
+      const body = await c.req.json<unknown>().catch(() => null);
+      const {database, view} = await requireDatabaseFormSubmissionAccess(
+        store,
+        c.req.param('databaseId'),
+        c.req.param('viewId'),
+        databaseFormCapability(body),
+      );
+      validateDatabaseFormDescriptorRequest(body);
+      const descriptor = projectDatabaseFormDescriptor(database.schema, view);
+      return descriptor
+        ? c.json(descriptor)
+        : c.json({error: 'form not found'}, 404);
+    },
+  );
 
   app.post(
     `${API.databases}/:databaseId/views/:viewId/uploads`,
@@ -2315,6 +2296,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         viewId,
         databaseFormCapability(body),
       );
+      if (view.formConfig?.acceptingResponses !== true) {
+        return c.json({error: 'form_closed'}, 403);
+      }
+      const responseCap = databaseFormResponseCap(view);
+      if (responseCap === null) return c.json({error: 'form not found'}, 404);
+      if ((await store.countDatabaseFormResponses(database.id, view.id)) >= responseCap) {
+        return c.json({error: 'response limit reached'}, 429);
+      }
       if (databaseFormRateLimited(c, capabilityHash)) {
         return c.json({error: 'rate limit exceeded'}, 429);
       }
@@ -2379,6 +2368,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         viewId,
         databaseFormCapability(body),
       );
+      if (view.formConfig?.acceptingResponses !== true) {
+        return c.json({error: 'form_closed'}, 403);
+      }
+      const responseCap = databaseFormResponseCap(view);
+      if (responseCap === null) return c.json({error: 'form not found'}, 404);
       if (databaseFormRateLimited(c, capabilityHash)) {
         return c.json({error: 'rate limit exceeded'}, 429);
       }
@@ -2410,17 +2404,42 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
 
       const author = databaseFormPrincipal(view.id);
-      const {page: pageRow, created} = await store.createRow(
-        database.id,
-        {properties: storedFields},
-        author,
-        {
-          idempotency: {
-            scope: `database-form:${database.id}:${view.id}:${capabilityHash}`,
-            key: input.idempotencyKey,
+      const submittedAt = new Date().toISOString();
+      const marker: DatabaseFormSubmissionMarker = {submittedViaViewId: view.id, submittedAt};
+      let pageRow;
+      let created;
+      try {
+        ({page: pageRow, created} = await store.createRow(
+          database.id,
+          {
+            name: validation.name ?? '',
+            properties: {
+              ...storedFields,
+              [FORM_SUBMISSION_PROPERTY_ID]: marker,
+            },
           },
-        },
-      );
+          author,
+          {
+            idempotency: {
+              scope: `database-form:${database.id}:${view.id}:${capabilityHash}`,
+              key: input.idempotencyKey,
+            },
+            databaseForm: {
+              viewId: view.id,
+              capabilityHash,
+              maxResponses: responseCap,
+            },
+          },
+        ));
+      } catch (err) {
+        if (err instanceof DatabaseFormAccessLostError) {
+          return c.json({error: 'form not found'}, 404);
+        }
+        if (err instanceof DatabaseFormResponseLimitError) {
+          return c.json({error: 'response limit reached'}, 429);
+        }
+        throw err;
+      }
       const replayTokens = claimed
         .filter((upload) => upload.consumedBy === pageRow.id)
         .map((upload) => upload.token);
@@ -2446,7 +2465,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           console.error('OpenBook database-form edit-log write failed:', err);
         });
       }
-      const result: FormSubmissionResult = {rowId: pageRow.id, submittedAt: pageRow.createdAt};
+      const storedMarker = pageRow.properties[FORM_SUBMISSION_PROPERTY_ID];
+      const originalSubmittedAt =
+        typeof storedMarker === 'object'
+        && storedMarker !== null
+        && 'submittedAt' in storedMarker
+        && typeof storedMarker.submittedAt === 'string'
+          ? storedMarker.submittedAt
+          : submittedAt;
+      const result: FormSubmissionResult = {rowId: pageRow.id, submittedAt: originalSubmittedAt};
       return c.json(result, 201);
     },
   );

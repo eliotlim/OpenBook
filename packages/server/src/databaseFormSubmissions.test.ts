@@ -3,9 +3,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
+  API,
+  FORM_SUBMISSION_PROPERTY_ID,
   FORM_UPLOAD_ORPHAN_TTL_MS,
+  TITLE_PROPERTY_ID,
   mintIdentityKeypair,
   signIdentity,
+  type DatabaseFormDescriptor,
+  type DatabaseFormSubmissionMarker,
   type DatabaseSchema,
   type DatabaseView,
   type IdentityKeypair,
@@ -22,8 +27,10 @@ import {
   generateAgentToken,
 } from './agentTokens';
 import {
+  databaseFormResponseCap,
   FORM_REQUEST_RATE_LIMIT,
   FORM_REQUEST_RATE_WINDOW_MS,
+  FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS,
   FORM_SUBMISSION_MAX_BODY_BYTES,
 } from './formAccess';
 
@@ -42,6 +49,7 @@ const emptySnapshot = () => ({editorjs: {blocks: []}, values: [], names: []});
 
 const baseProperties: DatabaseSchema['properties'] = [
   {id: 'email', name: 'Email', type: 'email', description: 'private builder help'},
+  {id: 'bio', name: 'Biography', type: 'text'},
   {id: 'score', name: 'Score', type: 'number', numberFormat: 'percent', numberTarget: 100},
   {
     id: 'status',
@@ -69,7 +77,7 @@ const formView = (id: string, over: Partial<DatabaseView> = {}): DatabaseView =>
     title: 'Get in touch',
     description: 'Send us a response',
     submitLabel: 'Send',
-    confirmationMessage: 'Received',
+    confirmation: {type: 'message', message: 'Received'},
     acceptingResponses: true,
   },
   ...over,
@@ -140,7 +148,21 @@ async function publish(
   const {url} = (await response.json()) as {url: string};
   const capability = new URLSearchParams(new URL(url).hash.slice(1)).get('capability');
   expect(capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(new URL(url).pathname).toBe(API.databaseForm(databaseId, viewId));
   return {capability: capability!, url};
+}
+
+function descriptor(
+  a: ReturnType<typeof app>,
+  databaseId: string,
+  viewId: string,
+  capability: string,
+) {
+  return a.request(API.databaseForm(databaseId, viewId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+    body: JSON.stringify({capability}),
+  });
 }
 
 function submit(
@@ -152,7 +174,7 @@ function submit(
   idempotencyKey = `submission-${seq}-${Math.random()}`,
   remoteAddress?: string,
 ) {
-  return a.request(`/api/databases/${databaseId}/views/${viewId}/submissions`, {
+  return a.request(API.databaseFormSubmissions(databaseId, viewId), {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
     body: JSON.stringify({capability, fields, idempotencyKey}),
@@ -212,10 +234,18 @@ describe('database form-view public fill', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       id: result.rowId,
-      name: null,
+      name: '',
       properties: {email: 'reader@example.com', score: 0, status: 'open'},
     });
-    expect(Object.keys(rows[0].properties).sort()).toEqual(['email', 'score', 'status']);
+    expect(Object.keys(rows[0].properties).sort()).toEqual([
+      'email',
+      'score',
+      'status',
+      FORM_SUBMISSION_PROPERTY_ID,
+    ]);
+    const marker = rows[0].properties[FORM_SUBMISSION_PROPERTY_ID] as DatabaseFormSubmissionMarker;
+    expect(marker).toEqual({submittedViaViewId: seeded.view.id, submittedAt: result.submittedAt});
+    expect(await store.countDatabaseFormResponses(seeded.database.id, seeded.view.id)).toBe(1);
     const page = await store.getPage(result.rowId);
     expect(page?.data.authors).toBeUndefined();
     const edits = await store.listEdits(result.rowId);
@@ -337,7 +367,109 @@ describe('database form-view public fill', () => {
     expect(await store.listRows(seeded.database.id)).toHaveLength(0);
   });
 
-  it('returns byte-identical hidden denials for wrong, revoked, stopped, unknown, and managed states', async () => {
+  it('passes the mapped virtual title through to createRow and uses an explicit empty title when unmapped', async () => {
+    const titleView = formView(`title-${seq}`, {
+      visiblePropertyIds: [TITLE_PROPERTY_ID, 'email'],
+      formFields: {
+        [TITLE_PROPERTY_ID]: {required: true, validation: {minLength: 2}},
+        email: {required: true},
+      },
+    });
+    const seeded = await seedForm({view: titleView});
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, titleView.id);
+
+    const missing = await submit(a, seeded.database.id, titleView.id, capability, {email: 'reader@example.com'});
+    expect(await missing.json()).toEqual({errors: [{propertyId: TITLE_PROPERTY_ID, code: 'required'}]});
+
+    const named = await submit(a, seeded.database.id, titleView.id, capability, {
+      [TITLE_PROPERTY_ID]: 'Ada Lovelace',
+      email: 'ada@example.com',
+    });
+    expect(named.status).toBe(201);
+    const namedResult = await named.json() as {rowId: string};
+    const namedRow = await store.getPage(namedResult.rowId);
+    expect(namedRow?.name).toBe('Ada Lovelace');
+    expect(namedRow?.properties).not.toHaveProperty(TITLE_PROPERTY_ID);
+
+    const current = (await store.getDatabase(seeded.database.id))!;
+    await store.updateDatabase(current.id, {
+      schema: {
+        ...current.schema,
+        views: current.schema.views.map((view) => view.id === titleView.id
+          ? {...view, visiblePropertyIds: ['email']}
+          : view),
+      },
+    });
+    const injected = await submit(a, seeded.database.id, titleView.id, capability, {
+      [TITLE_PROPERTY_ID]: 'Not accepted',
+      email: 'reader@example.com',
+    });
+    expect(await injected.json()).toEqual({errors: [{propertyId: TITLE_PROPERTY_ID, code: 'unknown_field'}]});
+
+    const untitled = await submit(a, seeded.database.id, titleView.id, capability, {email: 'reader@example.com'});
+    expect(untitled.status).toBe(201);
+    const untitledResult = await untitled.json() as {rowId: string};
+    expect((await store.getPage(untitledResult.rowId))?.name).toBe('');
+  });
+
+  it('enforces the per-view marker ceiling without counting ordinary, legacy, or other-view rows', async () => {
+    expect(databaseFormResponseCap(formView('default-cap'))).toBe(FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS);
+    const limitedView = formView(`limited-${seq}`, {
+      formConfig: {
+        title: 'Limited',
+        acceptingResponses: true,
+        maxResponses: 1,
+      },
+    });
+    const seeded = await seedForm({view: limitedView});
+    const submittedAt = new Date().toISOString();
+    await store.createRow(seeded.database.id, {properties: {email: 'ordinary@example.com'}});
+    await store.createRow(seeded.database.id, {
+      properties: {[FORM_SUBMISSION_PROPERTY_ID]: {formId: 'legacy-form', submittedAt}},
+    });
+    await store.createRow(seeded.database.id, {
+      properties: {
+        [FORM_SUBMISSION_PROPERTY_ID]: {
+          submittedViaViewId: 'another-view',
+          submittedAt,
+        } satisfies DatabaseFormSubmissionMarker,
+      },
+    });
+
+    const a = app();
+    const {capability} = await publish(a, seeded.database.id, limitedView.id);
+    const firstKey = `limited-first-${seq}`;
+    const first = await submit(
+      a,
+      seeded.database.id,
+      limitedView.id,
+      capability,
+      {email: 'first@example.com'},
+      firstKey,
+    );
+    expect(first.status).toBe(201);
+    const firstResult = await first.json();
+    const replay = await submit(
+      a,
+      seeded.database.id,
+      limitedView.id,
+      capability,
+      {email: 'changed@example.com'},
+      firstKey,
+    );
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toEqual(firstResult);
+
+    const overLimit = await submit(a, seeded.database.id, limitedView.id, capability, {
+      email: 'second@example.com',
+    });
+    expect(`${overLimit.status}\n${await overLimit.text()}`).toBe('429\n{"error":"response limit reached"}');
+    expect(await store.countDatabaseFormResponses(seeded.database.id, limitedView.id)).toBe(1);
+    expect(await store.listRows(seeded.database.id)).toHaveLength(4);
+  });
+
+  it('returns form_closed only after a valid capability and keeps all hidden states byte-identical', async () => {
     const seeded = await seedForm();
     const a = app();
     const first = await publish(a, seeded.database.id, seeded.view.id);
@@ -357,12 +489,21 @@ describe('database form-view public fill', () => {
         ...current.schema,
         views: current.schema.views.map((view) => ({
           ...view,
-          formConfig: {...view.formConfig, acceptingResponses: false},
+          formConfig: {...view.formConfig, acceptingResponses: false, closedMessage: 'Back soon'},
         })),
       },
     });
     const stopped = await submit(a, seeded.database.id, seeded.view.id, second.capability, {email: 'reader@example.com'});
+    const wrongWhileStopped = await submit(a, seeded.database.id, seeded.view.id, 'wrong', {email: 'reader@example.com'});
+    const closedDescriptor = await descriptor(a, seeded.database.id, seeded.view.id, second.capability);
     const unknown = await submit(a, crypto.randomUUID(), seeded.view.id, second.capability, {email: 'reader@example.com'});
+
+    expect(`${stopped.status}\n${await stopped.text()}`).toBe('403\n{"error":"form_closed"}');
+    expect(closedDescriptor.status).toBe(200);
+    expect(await closedDescriptor.json()).toMatchObject({
+      acceptingResponses: false,
+      closedMessage: 'Back soon',
+    });
 
     const reopened = (await store.getDatabase(seeded.database.id))!;
     await store.updateDatabase(reopened.id, {
@@ -381,32 +522,82 @@ describe('database form-view public fill', () => {
     const expected = '404\n{"error":"form not found"}';
     expect(await denied(wrong)).toBe(expected);
     expect(await denied(revoked)).toBe(expected);
-    expect(await denied(stopped)).toBe(expected);
+    expect(await denied(wrongWhileStopped)).toBe(expected);
     expect(await denied(unknown)).toBe(expected);
     expect(await denied(managed)).toBe(expected);
   });
 
-  it('exposes only sanitized form copy and current mapped field descriptors, never rows or schema', async () => {
-    const seeded = await seedForm();
+  it('POSTs the fragment capability in the body and returns only the SDK descriptor projection', async () => {
+    const view = formView(`descriptor-${seq}`, {
+      visiblePropertyIds: ['email', 'bio', 'score', 'status'],
+      formFields: {
+        email: {required: true, label: 'Your email', help: 'We never publish the column description'},
+        bio: {
+          multiline: true,
+          placeholder: 'Tell us about yourself',
+          validation: {minLength: 4, maxLength: 200, pattern: '^[A-Z]'},
+        },
+        score: {validation: {min: 0, max: 100}},
+      },
+    });
+    const seeded = await seedForm({view});
     await store.createRow(seeded.database.id, {properties: {email: 'existing@example.com', unmapped: 'secret'}});
     const a = app();
-    const {url} = await publish(a, seeded.database.id, seeded.view.id);
-    const descriptorResponse = await a.request(new URL(url).pathname);
+    const {capability, url} = await publish(a, seeded.database.id, seeded.view.id);
+    const descriptorResponse = await descriptor(a, seeded.database.id, seeded.view.id, capability);
     expect(descriptorResponse.status).toBe(200);
-    expect(await descriptorResponse.json()).toEqual({
-      formConfig: {
-        title: 'Get in touch',
-        description: 'Send us a response',
-        submitLabel: 'Send',
-        confirmationMessage: 'Received',
-        acceptingResponses: true,
-      },
+    expect(await descriptorResponse.json() as DatabaseFormDescriptor).toEqual({
+      title: 'Get in touch',
+      description: 'Send us a response',
+      submitLabel: 'Send',
+      acceptingResponses: true,
       fields: [
-        {id: 'email', name: 'Email', type: 'email'},
-        {id: 'score', name: 'Score', type: 'number'},
-        {id: 'status', name: 'Status', type: 'select', options: [{id: 'open', label: 'Open', color: 'green'}]},
+        {
+          propertyId: 'email',
+          type: 'email',
+          label: 'Your email',
+          help: 'We never publish the column description',
+          required: true,
+          placeholder: '',
+        },
+        {
+          propertyId: 'bio',
+          type: 'text',
+          label: 'Biography',
+          help: '',
+          required: false,
+          placeholder: 'Tell us about yourself',
+          multiline: true,
+          validation: {minLength: 4, maxLength: 200},
+        },
+        {
+          propertyId: 'score',
+          type: 'number',
+          label: 'Score',
+          help: '',
+          required: false,
+          placeholder: '',
+          validation: {min: 0, max: 100},
+          numberTarget: 100,
+        },
+        {
+          propertyId: 'status',
+          type: 'select',
+          label: 'Status',
+          help: '',
+          required: false,
+          placeholder: '',
+          options: [{id: 'open', label: 'Open', color: 'green'}],
+        },
       ],
     });
+
+    const queryOnly = await a.request(`${new URL(url).pathname}?capability=${encodeURIComponent(capability)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({}),
+    });
+    expect(`${queryOnly.status}\n${await queryOnly.text()}`).toBe('404\n{"error":"form not found"}');
 
     expect((await a.request(`/api/databases/${seeded.database.id}`)).status).toBe(401);
     expect((await a.request(`/api/databases/${seeded.database.id}/rows`)).status).toBe(401);
@@ -455,7 +646,7 @@ describe('database form-view public fill', () => {
   it('fails closed on malformed persisted mappings instead of exposing a public error', async () => {
     const seeded = await seedForm();
     const a = app();
-    const {capability, url} = await publish(a, seeded.database.id, seeded.view.id);
+    const {capability} = await publish(a, seeded.database.id, seeded.view.id);
     const current = (await store.getDatabase(seeded.database.id))!;
     await store.updateDatabase(current.id, {
       schema: {
@@ -466,7 +657,7 @@ describe('database form-view public fill', () => {
       },
     });
 
-    const descriptor = await a.request(new URL(url).pathname);
+    const descriptorResponse = await descriptor(a, seeded.database.id, seeded.view.id, capability);
     const submission = await submit(
       a,
       seeded.database.id,
@@ -474,7 +665,7 @@ describe('database form-view public fill', () => {
       capability,
       {email: 'reader@example.com'},
     );
-    expect(`${descriptor.status}\n${await descriptor.text()}`).toBe('404\n{"error":"form not found"}');
+    expect(`${descriptorResponse.status}\n${await descriptorResponse.text()}`).toBe('404\n{"error":"form not found"}');
     expect(`${submission.status}\n${await submission.text()}`).toBe('404\n{"error":"form not found"}');
   });
 
