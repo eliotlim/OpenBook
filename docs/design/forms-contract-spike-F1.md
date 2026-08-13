@@ -270,6 +270,10 @@ and atomically claim every token to this form capability using the existing
 staged-upload rules, replace it with the retained asset URL, and reject an
 unknown, expired, already-consumed, or cross-form token.
 
+`FORM_DATE_TIME_RE` permits offset-less datetimes, which parse in the host's
+local timezone; mixed offset/no-offset ranges can therefore validate differently
+in the client and server, so authors should include explicit offsets.
+
 ## 6. Fill capability and routes (F-4)
 
 The frozen capability-carrying endpoints are:
@@ -288,7 +292,7 @@ Both are intentionally unauthenticated. The descriptor endpoint is exposed as
 ```
 
 It validates the capability and publication binding up front through the same
-step-2 deny door as submission, then returns
+step-3 deny door as submission, then returns
 `projectDatabaseFormDescriptor(database.schema, view)`. A valid capability can
 therefore fetch a closed descriptor with `acceptingResponses: false` and its
 optional `closedMessage`; a closed form is not treated as missing.
@@ -301,7 +305,7 @@ The submission endpoint is exposed as
 {
   capability: string;
   fields: Record<string, unknown>;
-  idempotencyKey: string;
+  idempotencyKey: string; // 128-bit shape: v4 UUID or ≥22 base64url chars
 }
 ```
 
@@ -332,25 +336,29 @@ and only explicit rotation/revocation of its form capability kills it.
 
 The submission route order is normative:
 
-1. Parse the bounded JSON envelope and require the existing non-simple client
+1. Check the pre-authentication peer meter before parsing the body or matching
+   the capability. An exhausted peer returns
+   `429 {"error":"rate limit exceeded"}` before parse/auth. This supersedes the
+   earlier rule that all rate limits run only after a valid capability match.
+2. Parse the bounded JSON envelope and require the existing non-simple client
    header/CSRF posture used by public forms.
-2. Load `databaseId` and `viewId`; require a current form view, an ordinary
+3. Load `databaseId` and `viewId`; require a current form view, an ordinary
    non-managed database, an active matching capability, and the publication
    binding. Missing or deleted database/view/publication, managed database, and
-   wrong-token states return identical
+   wrong-token states for a non-exhausted peer return identical
    `404 {"error":"form not found"}` bytes so the route is not an existence
    oracle. The descriptor fetch uses this identical step before projecting any
    data.
-3. Only after a valid capability match, reject
+4. Only after a valid capability match, reject
    `acceptingResponses !== true` with the distinct
-   `403 {"error":"form_closed"}`. Then apply the existing public-form rate,
+   `403 {"error":"form_closed"}`. Then apply the capability-scoped rate,
    body, field-count, value-size, upload, and idempotency limits plus the
    per-view `maxResponses` ceiling. An absent ceiling uses
    `FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS`; the count is derived from active
    rows whose durable form marker names this `viewId`. Exhaustion returns `429 {"error":"response limit reached"}`.
-4. Run `validateRowAgainstForm(database.schema, view, body.fields)`. Validation
+5. Run `validateRowAgainstForm(database.schema, view, body.fields)`. Validation
    failure returns `400` with the machine-readable errors and creates nothing.
-5. Claim/resolve file tokens, then create exactly one row with
+6. Claim/resolve file tokens, then create exactly one row with
    `name: validation.name ?? ''` and the validated property record. In the
    existing reserved page-property convention, the same atomic create stamps
    `[FORM_SUBMISSION_PROPERTY_ID]: {submittedViaViewId: viewId, submittedAt}`.
@@ -358,7 +366,7 @@ The submission route order is normative:
    it for per-form response counts and F-4 MUST NOT omit it. The write principal
    is synthetic, with `subject: "form:<viewId>"`; it is attribution for this one
    operation, not a generally authorized guest principal.
-6. Scope `idempotencyKey` to this capability/view. A replay returns the original
+7. Scope `idempotencyKey` to this capability/view. A replay returns the original
    `FormSubmissionResult` (`rowId`, `submittedAt`) with `201` and does not create
    another row or restamp provenance.
 
@@ -393,6 +401,7 @@ does not accept a title key and F-4 creates the row with the explicit empty name
 - **Stop responses:** `acceptingResponses: false` makes the fill route fail
   with `403 {"error":"form_closed"}` after a valid capability match, without
   deleting submissions, field configuration, publication, or descriptor access.
+  An exhausted pre-authentication peer still receives `429` before this check.
 - **Concurrent schema edits:** the form builder and table-header controls each
   send a full schema blob. `updateDatabase` replaces that blob through SQL
   `COALESCE`, so overlapping saves are last-writer-wins: a builder field edit
