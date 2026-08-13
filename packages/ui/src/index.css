@@ -3766,7 +3766,7 @@ a.obe-mention {
   background: hsl(var(--ring) / 0.65);
 }
 .obe-col-divider-trailing {
-  right: -0.5rem;
+  right: -1rem;
   left: auto;
 }
 @container obe-block-editor (max-width: 40rem) {

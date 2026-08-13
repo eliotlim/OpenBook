@@ -529,15 +529,21 @@ export const COLUMN_GRID_UNITS = 12;
 
 /**
  * Make a possibly partial/stale span list fill the 12-unit grid. Authored
- * widths are kept where possible; the last column absorbs a deficit first,
- * and excess is removed from right to left without taking any column below 1.
+ * widths are kept where possible; a wholly missing layout gets an even split,
+ * then any remaining deficit/excess is repaired without taking a column below 1.
  */
 export function normalizeColumnSpans(spans: readonly (number | undefined)[]): number[] {
   if (spans.length === 0) return [];
-  const fallback = Math.floor(COLUMN_GRID_UNITS / spans.length);
-  const normalized = spans.map((span) =>
-    Number.isFinite(span) ? Math.max(1, Math.min(COLUMN_GRID_UNITS, Math.round(span!))) : fallback,
-  );
+  const fallback = Math.max(1, Math.floor(COLUMN_GRID_UNITS / spans.length));
+  let fallbackRemainder = spans.every((span) => !Number.isFinite(span))
+    ? Math.max(0, COLUMN_GRID_UNITS - fallback * spans.length)
+    : 0;
+  const normalized = spans.map((span) => {
+    if (Number.isFinite(span)) return Math.max(1, Math.min(COLUMN_GRID_UNITS, Math.round(span!)));
+    if (fallbackRemainder <= 0) return fallback;
+    fallbackRemainder -= 1;
+    return fallback + 1;
+  });
   let delta = COLUMN_GRID_UNITS - normalized.reduce((sum, span) => sum + span, 0);
   for (let i = normalized.length - 1; i >= 0 && delta !== 0; i -= 1) {
     if (delta > 0) {
@@ -589,21 +595,14 @@ export function resizeColumnBoundary(
   return next;
 }
 
-/** Width of one logical unit after removing the gaps between rendered columns. */
-export function columnGridUnit(width: number, gap: number, columnCount: number): number {
-  return (width - gap * Math.max(0, columnCount - 1)) / COLUMN_GRID_UNITS;
-}
-
 /** Absolute grid boundary under an internal separator's pointer. */
 export function columnBoundaryFromPointer(
   pointerX: number,
   containerLeft: number,
-  unit: number,
+  pitch: number,
   gap: number,
-  boundaryIndex: number,
 ): number {
-  const gapsBeforeSeparatorCentre = boundaryIndex + 0.5;
-  return Math.round((pointerX - containerLeft - gap * gapsBeforeSeparatorCentre) / unit);
+  return Math.round((pointerX - containerLeft + gap / 2) / pitch);
 }
 
 /** Boundary before the last column when its trailing edge is dragged. */
@@ -611,9 +610,9 @@ export function trailingColumnBoundaryFromPointer(
   pointerX: number,
   startPointerX: number,
   startBoundary: number,
-  unit: number,
+  pitch: number,
 ): number {
-  return startBoundary - Math.round((pointerX - startPointerX) / unit);
+  return startBoundary - Math.round((pointerX - startPointerX) / pitch);
 }
 
 /** Spread the 12 grid units across a layout's columns (sum stays 12). */

@@ -70,5 +70,6 @@ describe('column resize styles', () => {
     expect(divider).toMatch(/width:\s*1rem/);
     expect(divider).toMatch(/touch-action:\s*none/);
     expect(ruleBody('.obe-col-divider::after')).toMatch(/width:\s*2px/);
+    expect(ruleBody('.obe-col-divider-trailing')).toMatch(/right:\s*-1rem/);
   });
 });

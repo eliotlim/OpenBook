@@ -29,7 +29,6 @@ import {
   blockChildren,
   COLUMN_GRID_UNITS,
   columnBoundaryFromPointer,
-  columnGridUnit,
   blockId,
   blockProp,
   blockText,
@@ -2571,10 +2570,11 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
   const boundaryAt = (boundaryIndex: number): number =>
     spans.slice(0, boundaryIndex + 1).reduce((sum, span) => sum + span, 0);
 
-  const commitSpans = (next: readonly number[]): void => {
-    if (next.every((span, i) => blockProp<number>(cols.get(i), 'span') === span)) return;
+  const commitSpans = (next: readonly number[], previous: readonly number[] = spans): void => {
+    const changed = next.flatMap((span, i) => (span === previous[i] ? [] : [[i, span] as const]));
+    if (changed.length === 0) return;
     editor.doc.transact(() => {
-      next.forEach((span, i) => setBlockProp(cols.get(i), 'span', span));
+      changed.forEach(([i, span]) => setBlockProp(cols.get(i), 'span', span));
     }, 'local');
   };
 
@@ -2582,33 +2582,57 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
   const onDividerDown = (e: React.PointerEvent, boundaryIndex: number, trailing = false): void => {
     if (editor.readOnly) return;
     e.preventDefault();
+    e.stopPropagation();
     const wrap = wrapRef.current;
     if (!wrap) return;
+    const divider = e.currentTarget as HTMLElement;
     const rect = wrap.getBoundingClientRect();
     const computed = getComputedStyle(wrap);
     const gap = Number.parseFloat(computed.columnGap || computed.gap) || 0;
-    const unit = columnGridUnit(rect.width, gap, cols.length);
-    if (unit <= 0) return;
+    const pitch = (rect.width + gap) / COLUMN_GRID_UNITS;
+    if (pitch <= 0) return;
     const startSpans = spans;
+    let committedSpans = startSpans;
     const startBoundary = boundaryAt(boundaryIndex);
     const startPointerX = e.clientX;
     const pointerId = e.pointerId;
+    const frames = [...wrap.querySelectorAll<HTMLIFrameElement>('iframe')];
+    const framePointerEvents = frames.map((frame) => frame.style.pointerEvents);
     const move = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return;
       const target = trailing
-        ? trailingColumnBoundaryFromPointer(ev.clientX, startPointerX, startBoundary, unit)
-        : columnBoundaryFromPointer(ev.clientX, rect.left, unit, gap, boundaryIndex);
-      commitSpans(resizeColumnBoundary(startSpans, boundaryIndex, target));
+        ? trailingColumnBoundaryFromPointer(ev.clientX, startPointerX, startBoundary, pitch)
+        : columnBoundaryFromPointer(ev.clientX, rect.left, pitch, gap);
+      const next = resizeColumnBoundary(startSpans, boundaryIndex, target);
+      commitSpans(next, committedSpans);
+      committedSpans = next;
     };
-    const up = (ev: PointerEvent): void => {
+    let ended = false;
+    const end = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+      if (ended) return;
+      ended = true;
+      frames.forEach((frame, i) => {
+        frame.style.pointerEvents = framePointerEvents[i];
+      });
+      divider.removeEventListener('pointermove', move);
+      divider.removeEventListener('pointerup', end);
+      divider.removeEventListener('pointercancel', end);
+      divider.removeEventListener('lostpointercapture', end);
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    frames.forEach((frame) => {
+      frame.style.pointerEvents = 'none';
+    });
+    try {
+      divider.setPointerCapture(pointerId);
+    } catch {
+      // Synthetic events have no live pointer; element listeners still cover
+      // their in-parent drag path.
+    }
+    divider.addEventListener('pointermove', move);
+    divider.addEventListener('pointerup', end);
+    divider.addEventListener('pointercancel', end);
+    divider.addEventListener('lostpointercapture', end);
   };
 
   const onDividerKeyDown = (e: React.KeyboardEvent, boundaryIndex: number, trailing = false): void => {
