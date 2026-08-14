@@ -274,7 +274,7 @@ export function UpdatesSection() {
           className={cn(
             'text-sm',
             outcome?.tone === 'error' && 'text-destructive',
-            outcome?.tone === 'available' && 'font-medium text-foreground',
+            outcome?.tone === 'available' && 'text-foreground',
             outcome?.tone === 'ok' && 'text-muted-foreground',
           )}
         >
