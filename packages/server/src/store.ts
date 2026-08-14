@@ -310,6 +310,14 @@ class UnretainedIdempotencyResponse<T> extends Error {
   }
 }
 
+/** A conflict was observed but its claimant row was not visible in this snapshot. */
+class IdempotencyClaimNotVisibleError extends Error {
+  constructor() {
+    super('idempotency response claim completed without a captured response');
+    this.name = 'IdempotencyClaimNotVisibleError';
+  }
+}
+
 interface PageStoreSharedState {
   conflictCopiesMinted: number;
   accessGeneration: number;
@@ -995,85 +1003,92 @@ export class PageStore {
     request: IdempotencyRequest,
     execute: (transactionStore: PageStore) => Promise<IdempotencyResponse<T>>,
   ): Promise<IdempotencyOutcome<T>> {
-    try {
-      return await this.db.begin(async (tx) => {
-        const claimed = await tx.query<{idempotency_key: string}>(
-          `INSERT INTO idempotency_responses
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await this.db.begin(async (tx) => {
+          const claimed = await tx.query<{idempotency_key: string}>(
+            `INSERT INTO idempotency_responses
              (actor_scope, idempotency_key, fingerprint, method, normalized_target)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (actor_scope, idempotency_key) DO NOTHING
            RETURNING idempotency_key`,
-          [
-            request.actorScope,
-            request.key,
-            request.fingerprint,
-            request.method,
-            request.normalizedTarget,
-          ],
-        );
+            [
+              request.actorScope,
+              request.key,
+              request.fingerprint,
+              request.method,
+              request.normalizedTarget,
+            ],
+          );
 
-        if (claimed.length === 0) {
-          // On real Postgres, the unique-key conflict waits for the claimant's
-          // transaction. This statement then reads its committed completion.
-          const prior = await tx.query<IdempotencyResponseRow>(
-            `SELECT fingerprint, status, response_body, content_type, location
+          if (claimed.length === 0) {
+            // On real Postgres, the unique-key conflict waits for the claimant's
+            // transaction. This statement then reads its committed completion.
+            const prior = await tx.query<IdempotencyResponseRow>(
+              `SELECT fingerprint, status, response_body, content_type, location
              FROM idempotency_responses
              WHERE actor_scope = $1 AND idempotency_key = $2`,
-            [request.actorScope, request.key],
-          );
-          if (prior.length === 0 || prior[0].status == null) {
-            throw new Error('idempotency response claim completed without a captured response');
+              [request.actorScope, request.key],
+            );
+            if (prior.length === 0) {
+              throw new IdempotencyClaimNotVisibleError();
+            }
+            if (prior[0].status == null) {
+              throw new Error('idempotency response claim completed without a captured response');
+            }
+            if (prior[0].fingerprint !== request.fingerprint) {
+              throw new IdempotencyKeyReuseError();
+            }
+            const row = prior[0];
+            const body = JSON.parse(row.response_body) as T;
+            return {
+              status: Number(row.status),
+              body,
+              serializedBody: row.response_body,
+              headers: {
+                ...(row.content_type ? {contentType: row.content_type} : {}),
+                ...(row.location ? {location: row.location} : {}),
+              },
+              replayed: true,
+            };
           }
-          if (prior[0].fingerprint !== request.fingerprint) {
-            throw new IdempotencyKeyReuseError();
-          }
-          const row = prior[0];
-          const body = JSON.parse(row.response_body) as T;
-          return {
-            status: Number(row.status),
-            body,
-            serializedBody: row.response_body,
-            headers: {
-              ...(row.content_type ? {contentType: row.content_type} : {}),
-              ...(row.location ? {location: row.location} : {}),
-            },
-            replayed: true,
-          };
-        }
 
-        const response = await execute(new PageStore(inlineTransaction(tx), this.sharedState));
-        if (!Number.isInteger(response.status) || response.status < 200 || response.status > 299) {
-          throw new UnretainedIdempotencyResponse(response);
-        }
-        // Serialization is deliberately inside the transaction: a response that
-        // cannot be completely constructed must not commit its mutation.
-        const serializedBody = JSON.stringify(response.body);
-        if (serializedBody === undefined) throw new Error('idempotent response body is not JSON-serializable');
-        await tx.query(
-          `UPDATE idempotency_responses
+          const response = await execute(new PageStore(inlineTransaction(tx), this.sharedState));
+          if (!Number.isInteger(response.status) || response.status < 200 || response.status > 299) {
+            throw new UnretainedIdempotencyResponse(response);
+          }
+          // Serialization is deliberately inside the transaction: a response that
+          // cannot be completely constructed must not commit its mutation.
+          const serializedBody = JSON.stringify(response.body);
+          if (serializedBody === undefined) throw new Error('idempotent response body is not JSON-serializable');
+          await tx.query(
+            `UPDATE idempotency_responses
            SET status = $3,
                response_body = $4,
                content_type = $5,
                location = $6,
                completed_at = now()
            WHERE actor_scope = $1 AND idempotency_key = $2`,
-          [
-            request.actorScope,
-            request.key,
-            response.status,
-            serializedBody,
-            response.headers?.contentType ?? null,
-            response.headers?.location ?? null,
-          ],
-        );
-        return {...response, serializedBody, replayed: false};
-      });
-    } catch (err) {
-      if (err instanceof UnretainedIdempotencyResponse) {
-        return {...err.response, replayed: false};
+            [
+              request.actorScope,
+              request.key,
+              response.status,
+              serializedBody,
+              response.headers?.contentType ?? null,
+              response.headers?.location ?? null,
+            ],
+          );
+          return {...response, serializedBody, replayed: false};
+        }, {isolationLevel: 'read committed'});
+      } catch (err) {
+        if (err instanceof IdempotencyClaimNotVisibleError && attempt === 0) continue;
+        if (err instanceof UnretainedIdempotencyResponse) {
+          return {...err.response, replayed: false};
+        }
+        throw err;
       }
-      throw err;
     }
+    throw new Error('idempotency response claim retry exhausted');
   }
 
   // ── Ledger (LGR-3): the store-level write guards + the one sanctioned writer ──

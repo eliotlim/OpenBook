@@ -47,4 +47,4 @@ export async function createLocalDataClient(opts: BrowserStoreOptions = {}): Pro
 export {LocalDataClient} from './localClient';
 export {PageStore} from './store';
 export {PageHub} from './hub';
-export {PgliteDb, PgliteQueryableDb, Mutex, type Db} from './dbCore';
+export {PgliteDb, PgliteQueryableDb, Mutex, type Db, type TransactionOptions} from './dbCore';

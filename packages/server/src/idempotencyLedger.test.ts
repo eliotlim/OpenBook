@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {PgliteDb} from './db';
+import {PgliteDb, type Db, type TransactionOptions} from './db';
 import {
   IdempotencyKeyReuseError,
   PageStore,
@@ -17,6 +17,41 @@ const request = (fingerprint = 'a'.repeat(64)): IdempotencyRequest => ({
 
 let db: PgliteDb;
 let store: PageStore;
+
+class OnceInvisibleClaimDb implements Db {
+  readonly transactionOptions: Array<TransactionOptions | undefined> = [];
+  private hidePriorOnce = true;
+
+  constructor(private readonly inner: Db) {}
+
+  query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]> {
+    return this.inner.query<T>(text, params);
+  }
+
+  begin<T>(fn: (tx: Db) => Promise<T>, options?: TransactionOptions): Promise<T> {
+    this.transactionOptions.push(options);
+    return this.inner.begin((tx) => fn(this.wrap(tx)), options);
+  }
+
+  close(): Promise<void> {
+    return this.inner.close();
+  }
+
+  private wrap(db: Db): Db {
+    return {
+      query: async <T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]> => {
+        if (this.hidePriorOnce && text.includes('SELECT fingerprint, status, response_body')) {
+          this.hidePriorOnce = false;
+          return [];
+        }
+        return db.query<T>(text, params);
+      },
+      begin: <T>(fn: (tx: Db) => Promise<T>, options?: TransactionOptions) =>
+        db.begin((tx) => fn(this.wrap(tx)), options),
+      close: () => db.close(),
+    };
+  }
+}
 
 beforeEach(async () => {
   db = await PgliteDb.create('memory://');
@@ -65,6 +100,25 @@ describe('response-capturing idempotency ledger', () => {
 
     const replay = await store.idempotentWrite(request(), async () => ({status: 200, body: {secret: 'wrong'}}));
     expect(replay.body).toEqual({secret: 'first'});
+  });
+
+  it('retries once when a concurrent claimant is not visible and pins read committed', async () => {
+    await store.idempotentWrite(request(), async () => ({status: 200, body: {ok: true}}));
+    const onceInvisible = new OnceInvisibleClaimDb(db);
+    const retryingStore = new PageStore(onceInvisible);
+    let executions = 0;
+
+    const replay = await retryingStore.idempotentWrite(request(), async () => {
+      executions += 1;
+      return {status: 200, body: {ok: false}};
+    });
+
+    expect(replay).toMatchObject({status: 200, body: {ok: true}, replayed: true});
+    expect(executions).toBe(0);
+    expect(onceInvisible.transactionOptions).toEqual([
+      {isolationLevel: 'read committed'},
+      {isolationLevel: 'read committed'},
+    ]);
   });
 
   it('rolls back a mutation and claim when the process fails before response capture', async () => {

@@ -35,10 +35,14 @@ export class Mutex {
  *  - `PostgresDb`        — a real Postgres over the wire (headless server,
  *    remote); Node-only, so it lives in `./db`.
  */
+export interface TransactionOptions {
+  isolationLevel?: 'read committed';
+}
+
 export interface Db {
   query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
   /** Run `fn` inside a transaction. */
-  begin<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
+  begin<T>(fn: (tx: Db) => Promise<T>, options?: TransactionOptions): Promise<T>;
   close(): Promise<void>;
 }
 
