@@ -57,8 +57,10 @@ const jsonParamPassthrough = (value: unknown): string =>
 /** Real Postgres via the `postgres` (porsager) driver. */
 export class PostgresDb implements Db {
   private readonly sql: Sql;
+  private readonly inTransaction: boolean;
 
-  constructor(databaseUrl: string, opts?: {sql?: Sql; max?: number}) {
+  constructor(databaseUrl: string, opts?: {sql?: Sql; max?: number; inTransaction?: boolean}) {
+    this.inTransaction = opts?.inTransaction === true;
     this.sql =
       opts?.sql ??
       postgres(databaseUrl, {
@@ -76,7 +78,14 @@ export class PostgresDb implements Db {
   }
 
   async begin<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-    return this.sql.begin((tx) => fn(new PostgresDb('', {sql: tx as unknown as Sql}))) as Promise<T>;
+    // Match PgliteQueryableDb: a PageStore already bound to this transaction
+    // keeps nested store-level `begin` calls inside the SAME outer transaction.
+    // This is load-bearing for CWD-5's claim + mutation + response capture.
+    if (this.inTransaction) return fn(this);
+    return this.sql.begin((tx) => fn(new PostgresDb('', {
+      sql: tx as unknown as Sql,
+      inTransaction: true,
+    }))) as Promise<T>;
   }
 
   async close(): Promise<void> {

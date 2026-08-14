@@ -123,14 +123,22 @@ describe('(a) CORS app-origin allowlist', () => {
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  it('preflight for an app origin allows the first-party headers incl X-OpenBook-Client', async () => {
+  it('preflight for an app origin pins the complete first-party header allowlist', async () => {
     const app = appWithIdentity();
     const res = await app.request('/api/pages', {
       method: 'OPTIONS',
       headers: {Origin: APP_ORIGIN, 'Access-Control-Request-Method': 'POST'},
     });
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(APP_ORIGIN);
-    expect(res.headers.get('Access-Control-Allow-Headers') ?? '').toContain(CLIENT_HEADER);
+    expect(res.headers.get('Access-Control-Allow-Headers')).toBe([
+      'Content-Type',
+      'Authorization',
+      'X-OpenBook-Identity',
+      'X-OpenBook-Guest-Name',
+      'X-OpenBook-Local',
+      CLIENT_HEADER,
+      'Idempotency-Key',
+    ].join(','));
   });
 
   it('preflight for a foreign origin gets no ACAO', async () => {

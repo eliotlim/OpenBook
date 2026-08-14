@@ -3,6 +3,8 @@ import type {AgentTokenScope, Principal} from '@book.dev/sdk';
 /** Per-request state the principal middleware attaches to the Hono context. */
 export type AppVariables = {
   principal: Principal;
+  /** Exact request bytes captured before a wave-1 idempotent route parses JSON. */
+  idempotencyBody?: Uint8Array;
   /**
    * True when the request presented the host's per-run local-owner secret over a
    * non-forwarded transport (the loopback-owner hatch). Routes that gate on the

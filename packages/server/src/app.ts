@@ -1,9 +1,10 @@
-import {randomUUID} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
 import {Hono, type Context} from 'hono';
 import {cors} from 'hono/cors';
 import {bodyLimit} from 'hono/body-limit';
 import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
+import type {StatusCode} from 'hono/utils/http-status';
 import {
   API,
   AGENT_EDITS_MODES,
@@ -80,6 +81,9 @@ import {
   DatabaseFormAccessLostError,
   DatabaseFormResponseLimitError,
   FormAssetBudgetError,
+  IdempotencyKeyReuseError,
+  type IdempotencyOutcome,
+  type IdempotencyResponse,
 } from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
@@ -144,6 +148,63 @@ export type ServerWriteErrorEnvelope<Code extends string = WriteServerErrorCode>
 
 /** Server-side name for the shared discriminated HTTP 409 CAS response contract. */
 export type ServerWriteConflictEnvelope = WriteConflictEnvelope;
+
+const IDEMPOTENCY_HEADER = 'Idempotency-Key';
+const JSON_CONTENT_TYPE = 'application/json; charset=UTF-8';
+const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+class InvalidIdempotencyInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidIdempotencyInputError';
+  }
+}
+
+/** Exact method/path allowlist from write-contract §4.1. */
+function isWaveOneIdempotencyRoute(method: string, path: string): boolean {
+  const upper = method.toUpperCase();
+  if (upper === 'POST' && path === API.pages) return true;
+  if (upper === 'POST' && path === API.databases) return true;
+  if (upper === 'PUT' && path === API.instance) return true;
+  if (/^\/api\/pages\/[^/]+$/.test(path)) return upper === 'PUT' || upper === 'PATCH' || upper === 'DELETE';
+  if (/^\/api\/pages\/[^/]+\/properties$/.test(path)) return upper === 'PATCH';
+  if (/^\/api\/pages\/[^/]+\/(?:move|visibility|agent-edits)$/.test(path)) return upper === 'PUT';
+  if (/^\/api\/pages\/[^/]+\/restore$/.test(path)) return upper === 'POST';
+  if (/^\/api\/pages\/[^/]+\/versions\/[^/]+\/restore$/.test(path)) return upper === 'POST';
+  if (/^\/api\/databases\/[^/]+$/.test(path)) return upper === 'PATCH' || upper === 'DELETE';
+  if (/^\/api\/databases\/[^/]+\/rows$/.test(path)) return upper === 'POST';
+  if (/^\/api\/databases\/[^/]+\/rows\/order$/.test(path)) return upper === 'PUT';
+  return /^\/api\/databases\/[^/]+\/rows\/[^/]+$/.test(path) && upper === 'PATCH';
+}
+
+function idempotencyActorScope(principal: Principal): string {
+  if (principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat' || principal.verifiedVia === 'local') {
+    return principal.subject;
+  }
+  return `guest:${principal.subject.replace(/^guest:/, '')}`;
+}
+
+/** SHA-256 over four-byte-big-endian-length-prefixed tuple members (§4.2). */
+function idempotencyFingerprint(
+  method: string,
+  normalizedPath: string,
+  mediaType: string,
+  body: Uint8Array,
+): string {
+  const hash = createHash('sha256');
+  for (const part of [
+    Buffer.from(method),
+    Buffer.from(normalizedPath),
+    Buffer.from(mediaType),
+    Buffer.from(body),
+  ]) {
+    const length = Buffer.allocUnsafe(4);
+    length.writeUInt32BE(part.byteLength);
+    hash.update(length);
+    hash.update(part);
+  }
+  return hash.digest('hex');
+}
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -472,6 +533,62 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   const app = new Hono<AppEnv>();
 
+  const executeDurableWrite = async <R extends IdempotencyResponse>(
+    c: Context<AppEnv>,
+    execute: (activeStore: PageStore) => Promise<R>,
+  ): Promise<IdempotencyOutcome<R['body']>> => {
+    const normalizeResponse = async (activeStore: PageStore): Promise<IdempotencyResponse<R['body']>> => {
+      const response = await execute(activeStore);
+      return {
+        ...response,
+        headers: {
+          ...(response.status === 204 ? {} : {contentType: JSON_CONTENT_TYPE}),
+          ...response.headers,
+        },
+      };
+    };
+    if (!c.req.raw.headers.has(IDEMPOTENCY_HEADER)) {
+      return {...await normalizeResponse(store), replayed: false};
+    }
+    const rawKey = c.req.raw.headers.get(IDEMPOTENCY_HEADER) ?? '';
+    if (!IDEMPOTENCY_KEY_PATTERN.test(rawKey)) {
+      throw new InvalidIdempotencyInputError(
+        'Idempotency-Key must be a canonical UUID v4 or v7',
+      );
+    }
+    const url = new URL(c.req.url);
+    if (url.search !== '') {
+      throw new InvalidIdempotencyInputError(
+        'idempotent write routes do not accept query parameters',
+      );
+    }
+    const body = c.get('idempotencyBody');
+    if (!body) throw new Error('idempotent request body was not captured');
+    const method = c.req.method.toUpperCase();
+    const mediaType = (c.req.header('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
+    return store.idempotentWrite(
+      {
+        actorScope: idempotencyActorScope(c.get('principal')),
+        key: rawKey.toLowerCase(),
+        fingerprint: idempotencyFingerprint(method, url.pathname, mediaType, body),
+        method,
+        normalizedTarget: url.pathname,
+      },
+      normalizeResponse,
+    );
+  };
+
+  const durableWriteResponse = <T>(c: Context<AppEnv>, response: IdempotencyOutcome<T>): Response => {
+    const headers: Record<string, string> = {};
+    if (response.headers?.contentType) headers['Content-Type'] = response.headers.contentType;
+    if (response.headers?.location) headers.Location = response.headers.location;
+    return c.newResponse(
+      response.status === 204 ? null : JSON.stringify(response.body),
+      response.status as StatusCode,
+      headers,
+    );
+  };
+
   // Live-collaboration catch-up memory (Collab T1): per-page ephemeral relay docs,
   // seeded from the durable snapshot, so a late joiner can sync to the current doc.
   // Persists nothing — the debounced snapshot save stays the sole durable checkpoint.
@@ -637,6 +754,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         'X-OpenBook-Guest-Name',
         'X-OpenBook-Local',
         CLIENT_HEADER,
+        IDEMPOTENCY_HEADER,
       ],
     }),
   );
@@ -648,6 +766,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // stream — the trash does not). `no-store` keeps every read fresh.
   app.use('/api/*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
+    await next();
+  });
+
+  // Capture exact bytes before principal recovery or a route parses JSON. This is
+  // observation only: authentication and route-specific access gates still run
+  // before executeDurableWrite validates/claims the key or discloses a replay.
+  app.use('/api/*', async (c, next) => {
+    if (
+      c.req.raw.headers.has(IDEMPOTENCY_HEADER)
+      && isWaveOneIdempotencyRoute(c.req.method, c.req.path)
+    ) {
+      c.set('idempotencyBody', new Uint8Array(await c.req.raw.clone().arrayBuffer()));
+    }
     await next();
   });
 
@@ -924,6 +1055,28 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return next();
   });
 
+  // Reads ignore the header. Mutations outside the contract's wave-1 table reject
+  // it after the broad authentication/guest/PAT gates, before any route mutation.
+  app.use('/api/*', async (c, next) => {
+    const mutating = c.req.method === 'POST'
+      || c.req.method === 'PUT'
+      || c.req.method === 'PATCH'
+      || c.req.method === 'DELETE';
+    if (
+      mutating
+      && c.req.raw.headers.has(IDEMPOTENCY_HEADER)
+      && !isWaveOneIdempotencyRoute(c.req.method, c.req.path)
+    ) {
+      const error: ServerWriteErrorEnvelope<'invalid-input'> = {
+        error: 'Idempotency-Key is not supported on this mutation route',
+        code: 'invalid-input',
+        retryable: false,
+      };
+      return c.json(error, 400);
+    }
+    return next();
+  });
+
   // Record one change to the durable edit log, attributed to the request's
   // principal. Best-effort + fire-after-commit: a lost log row never costs data,
   // and provenance must not be able to fail a write.
@@ -1012,19 +1165,35 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // would otherwise clobber the managed host/row) sees the managed 403; a normal
     // create/update is untouched (isManagedPage is false for any other id).
     if (input.id) await rejectManagedPage(input.id);
+    const headerKey = c.req.raw.headers.get(IDEMPOTENCY_HEADER);
+    if (
+      headerKey !== null
+      && input.idempotencyKey !== undefined
+      && input.idempotencyKey !== headerKey
+    ) {
+      throw new InvalidIdempotencyInputError(
+        'header and body idempotency keys must be byte-for-byte equal',
+      );
+    }
     // ER-7: a keyless create carrying an `input.idempotencyKey` is deduped
     // per-principal inside `upsertPage` — a retried/replayed POST returns the page
     // the first call minted instead of a duplicate. The key is scoped to this
     // request's resolved principal, so it can never dedupe against another user's
     // write. (The SDK also pre-mints the page id for keyless creates, so a replay
     // hits the store's `ON CONFLICT` no-op even without a key.)
-    const page = await store.upsertPage(input, c.get('principal'));
-    hub.publishPage(page);
-    await broadcastList();
-    // A row page's content changed — refresh its database's expr columns.
-    if (page.databaseId) await broadcastRows(page.databaseId);
-    logEdit(c, page.id, 'page.create', page.name ?? '');
-    return c.json(page, 201);
+    const response = await executeDurableWrite(c, async (activeStore) => ({
+      status: 201,
+      body: await activeStore.upsertPage(input, c.get('principal')),
+    }));
+    if (!response.replayed) {
+      const page = response.body;
+      hub.publishPage(page);
+      await broadcastList();
+      // A row page's content changed — refresh its database's expr columns.
+      if (page.databaseId) await broadcastRows(page.databaseId);
+      logEdit(c, page.id, 'page.create', page.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // Page-scoped lookup avoids a full-store formId scan. The form capability is
@@ -1163,12 +1332,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireAgentDirectWrite(c, c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
-    const page = await store.upsertPage(input, c.get('principal'));
-    hub.publishPage(page);
-    await broadcastList();
-    if (page.databaseId) await broadcastRows(page.databaseId);
-    logEdit(c, page.id, 'page.save', page.name ?? '');
-    return c.json(page);
+    const response = await executeDurableWrite(c, async (activeStore) => ({
+      status: 200,
+      body: await activeStore.upsertPage(input, c.get('principal')),
+    }));
+    if (!response.replayed) {
+      const page = response.body;
+      hub.publishPage(page);
+      await broadcastList();
+      if (page.databaseId) await broadcastRows(page.databaseId);
+      logEdit(c, page.id, 'page.save', page.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   app.patch(`${API.pages}/:id`, async (c) => {
@@ -1176,12 +1351,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await rejectManagedPage(c.req.param('id'));
     await requireAgentDirectWrite(c, c.req.param('id'));
     const body = await c.req.json<{name?: string | null}>();
-    const page = await store.renamePage(c.req.param('id'), body.name ?? null);
-    if (!page) return c.json({error: 'page not found'}, 404);
-    hub.publishPage(page);
-    await broadcastList();
-    logEdit(c, page.id, 'page.rename', page.name ?? '');
-    return c.json(page);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const page = await activeStore.renamePage(c.req.param('id'), body.name ?? null);
+      return page
+        ? {status: 200, body: page}
+        : {status: 404, body: {error: 'page not found'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const page = response.body as Awaited<ReturnType<typeof store.renamePage>> & {};
+      hub.publishPage(page);
+      await broadcastList();
+      logEdit(c, page.id, 'page.rename', page.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // Shallow-merge structured property values (owner, verification, …) onto a
@@ -1192,15 +1374,22 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await rejectManagedPage(c.req.param('id'));
     await requireAgentDirectWrite(c, c.req.param('id'));
     const body = await c.req.json<{properties?: Record<string, unknown>}>();
-    const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
-    if (!page) return c.json({error: 'page not found'}, 404);
-    hub.publishPage(page);
-    // The icon shows in the sidebar (it's part of PageMeta), so re-stream the
-    // page list when it changes; other properties don't affect the list.
-    if (body.properties && 'sys_icon' in body.properties) await broadcastList();
-    if (page.databaseId) await broadcastRows(page.databaseId);
-    logEdit(c, page.id, 'page.properties');
-    return c.json(page);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const page = await activeStore.setPageProperties(c.req.param('id'), body.properties ?? {});
+      return page
+        ? {status: 200, body: page}
+        : {status: 404, body: {error: 'page not found'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const page = response.body as Awaited<ReturnType<typeof store.setPageProperties>> & {};
+      hub.publishPage(page);
+      // The icon shows in the sidebar (it's part of PageMeta), so re-stream the
+      // page list when it changes; other properties don't affect the list.
+      if (body.properties && 'sys_icon' in body.properties) await broadcastList();
+      if (page.databaseId) await broadcastRows(page.databaseId);
+      logEdit(c, page.id, 'page.properties');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // ── Assets: content-addressed binary store (OB-ASSETS A1) ────────────────────
@@ -1659,21 +1848,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     //  • upsertPage: the restore write, now the final durable write for the page.
     //  • reseed: drop the canonical doc (next access reseeds from the restored pages.data)
     //    and clear the freeze. Runs in `finally` so a failed write never leaks the freeze.
-    await persister?.quiesce(id);
-    let page: Awaited<ReturnType<typeof store.upsertPage>>;
-    try {
-      page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
-    } finally {
-      relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
-      persister?.reseed(id); // Collab T9: drop the canonical doc + clear the restore freeze (restore wins; a
-      // still-connected client's edits are CRDT deltas that re-merge on its next /sync). Called only here, never
-      // from the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      await persister?.quiesce(id);
+      try {
+        return {
+          status: 200,
+          body: await activeStore.upsertPage(
+            {id, name: existing.name, data: version.data},
+            c.get('principal'),
+            {captureMode: 'force'},
+          ),
+        };
+      } finally {
+        relay.forget(id); // Collab T1: next /sync reseeds from the restored snapshot
+        persister?.reseed(id); // Collab T9: clear the restore freeze after the final write
+      }
+    });
+    if (!response.replayed) {
+      const page = response.body;
+      hub.publishPage(page);
+      await broadcastList();
+      if (page.databaseId) await broadcastRows(page.databaseId);
+      logEdit(c, page.id, 'page.version.restore', c.req.param('vid'));
     }
-    hub.publishPage(page);
-    await broadcastList();
-    if (page.databaseId) await broadcastRows(page.databaseId);
-    logEdit(c, page.id, 'page.version.restore', c.req.param('vid'));
-    return c.json(page);
+    return durableWriteResponse(c, response);
   });
 
   // Reorder / re-nest a page in the sidebar tree: set its parent and the new
@@ -1686,12 +1884,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const body = await c.req.json<{parentId?: string | null; orderedIds?: string[]}>();
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
-    const page = await store.movePage(id, body.parentId ?? null, body.orderedIds ?? []);
-    if (!page) return c.json({error: 'invalid move (would create a cycle)'}, 409);
-    hub.publishPage(page);
-    await broadcastList();
-    logEdit(c, page.id, 'page.move');
-    return c.json(page);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const page = await activeStore.movePage(id, body.parentId ?? null, body.orderedIds ?? []);
+      return page
+        ? {status: 200, body: page}
+        : {status: 409, body: {error: 'invalid move (would create a cycle)'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const page = response.body as NonNullable<Awaited<ReturnType<typeof store.movePage>>>;
+      hub.publishPage(page);
+      await broadcastList();
+      logEdit(c, page.id, 'page.move');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // Soft delete: move the page (and its nested subtree) to the trash. It stays
@@ -1703,17 +1908,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Learn the page's database membership before it's gone, so we can refresh
     // the owning database's row list after the delete.
     const existing = await store.getPage(id);
-    const deleted = await store.deletePage(id);
-    if (!deleted) return c.json({error: 'page not found'}, 404);
-    hub.publishDeleted(id);
-    relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
-    persister?.forget(id); // drop the canonical doc WITHOUT persisting (Collab T9) — a
-    // checkpoint of a just-deleted page would resurrect it; saveServerDoc also no-ops on it
-    awarenessRelay.forget(id); // drop any lingering presence (Collab T4)
-    await broadcastList();
-    if (existing?.databaseId) await broadcastRows(existing.databaseId);
-    logEdit(c, id, 'page.delete', existing?.name ?? '');
-    return c.body(null, 204);
+    const response = await executeDurableWrite(c, async (activeStore) => (await activeStore.deletePage(id))
+      ? {status: 204, body: null}
+      : {status: 404, body: {error: 'page not found'}});
+    if (!response.replayed && response.status === 204) {
+      hub.publishDeleted(id);
+      relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
+      persister?.forget(id); // drop the canonical doc WITHOUT persisting (Collab T9)
+      awarenessRelay.forget(id); // drop any lingering presence (Collab T4)
+      await broadcastList();
+      if (existing?.databaseId) await broadcastRows(existing.databaseId);
+      logEdit(c, id, 'page.delete', existing?.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // ── Whole-space backup ───────────────────────────────────────────────────────
@@ -1795,6 +2002,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // the owner claim/repair + forwarding-audience flows all run authenticated.
     const showIdentity = isAuthenticatedPrincipal(c) || config.ownerSubject === undefined;
     const info: InstanceInfo = {
+      writeContract: 1,
       guestAccess: config.guestAccess,
       // The instance-wide agent-edits mode (AGED-1) — so a client can render the
       // policy and resolve a page's `inherit` without a second probe.
@@ -1876,15 +2084,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       if (principal.verifiedVia !== 'jws') {
         return c.json({error: 'only a verified identity can claim instance ownership'}, 403);
       }
-      const {config, claimed} = await store.claimOwnership(principal.subject);
-      if (!claimed) return c.json({error: 'this instance has already been claimed'}, 409);
-      // Apply any other policy fields the claim request carried (the CAS already
-      // owns `ownerSubject` + the §2.6 bootstrap, so it's stripped here).
-      const rest: Partial<InstanceConfig> = {...patch};
-      delete rest.ownerSubject;
-      const next = Object.keys(rest).length > 0 ? await store.updateInstanceConfig(rest) : config;
-      logEdit(c, null, 'instance.claim', principal.subject);
-      return c.json(next);
+      const response = await executeDurableWrite(c, async (activeStore) => {
+        const {config, claimed} = await activeStore.claimOwnership(principal.subject);
+        if (!claimed) return {status: 409, body: {error: 'this instance has already been claimed'}};
+        // Apply any other policy fields the claim request carried (the CAS already
+        // owns `ownerSubject` + the §2.6 bootstrap, so it's stripped here).
+        const rest: Partial<InstanceConfig> = {...patch};
+        delete rest.ownerSubject;
+        const next = Object.keys(rest).length > 0 ? await activeStore.updateInstanceConfig(rest) : config;
+        return {status: 200, body: next};
+      });
+      if (!response.replayed && response.status === 200) {
+        logEdit(c, null, 'instance.claim', principal.subject);
+      }
+      return durableWriteResponse(c, response);
     }
 
     // Ownership repair (the claim-once escape hatch). A claimed `ownerSubject` is
@@ -1902,12 +2115,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       if (principal.verifiedVia !== 'jws' || patch.ownerSubject !== principal.subject) {
         return c.json({error: 'ownership can only be repaired to your own verified identity'}, 403);
       }
-      const repaired = await store.repairOwnership(principal.subject);
-      const rest: Partial<InstanceConfig> = {...patch};
-      delete rest.ownerSubject;
-      const next = Object.keys(rest).length > 0 ? await store.updateInstanceConfig(rest) : repaired;
-      logEdit(c, null, 'instance.repair', `${current.ownerSubject} -> ${principal.subject}`);
-      return c.json(next);
+      const response = await executeDurableWrite(c, async (activeStore) => {
+        const repaired = await activeStore.repairOwnership(principal.subject);
+        const rest: Partial<InstanceConfig> = {...patch};
+        delete rest.ownerSubject;
+        return {
+          status: 200,
+          body: Object.keys(rest).length > 0
+            ? await activeStore.updateInstanceConfig(rest)
+            : repaired,
+        };
+      });
+      if (!response.replayed) {
+        logEdit(c, null, 'instance.repair', `${current.ownerSubject} -> ${principal.subject}`);
+      }
+      return durableWriteResponse(c, response);
     }
 
     // Post-claim (or non-claim) policy update: once claimed, only the owner — or
@@ -1926,7 +2148,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     ) {
       return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
     }
-    const next = await store.updateInstanceConfig(patch);
+    const response = await executeDurableWrite(c, async (activeStore) => ({
+      status: 200,
+      body: await activeStore.updateInstanceConfig(patch),
+    }));
+    const next = response.body;
     // LGR-7 (S4): a change to where the book gets written must be VISIBLE.
     // The edit-log detail previously recorded only `guestAccess`, so an
     // exfiltration destination could be set and later cleared without leaving
@@ -1939,15 +2165,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const detail = exportPathChanged
       ? `guestAccess=${next.guestAccess}, ledgerAutoExportPath=${next.ledgerAutoExportPath ? 'set' : 'cleared'}`
       : `guestAccess=${next.guestAccess}`;
-    logEdit(c, null, 'instance.policy', detail);
-    if (exportPathChanged) {
+    if (!response.replayed) logEdit(c, null, 'instance.policy', detail);
+    if (!response.replayed && exportPathChanged) {
       // Best-effort: policy is already persisted, so a failure here must not
       // fail the request — but it is loud in the server log.
       await store.ledger
         .auditAutoExportPath(current.ledgerAutoExportPath ?? null, next.ledgerAutoExportPath ?? null, principal)
         .catch((err) => console.error('OpenBook: could not audit the ledger auto-export path change:', err));
     }
-    return c.json(next);
+    return durableWriteResponse(c, response);
   });
 
   // ── Sharing: roster invites + per-page ACL (OB-191; §4.3) ─────────────────────
@@ -2111,11 +2337,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       ...(body.visibility !== undefined ? {visibility: body.visibility} : {}),
       ...(body.listed !== undefined ? {listed: body.listed} : {}),
     } as PageVisibilityUpdate;
-    const ok = await store.setPageVisibility(id, update);
-    if (!ok) return c.json({error: 'page not found'}, 404);
-    if (update.listed !== undefined) await broadcastList();
-    logEdit(c, id, 'page.visibility', JSON.stringify(update));
-    return c.json((await store.getPageVisibility(id))!);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const ok = await activeStore.setPageVisibility(id, update);
+      return ok
+        ? {status: 200, body: (await activeStore.getPageVisibility(id))!}
+        : {status: 404, body: {error: 'page not found'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      if (update.listed !== undefined) await broadcastList();
+      logEdit(c, id, 'page.visibility', JSON.stringify(update));
+    }
+    return durableWriteResponse(c, response);
   });
 
   // A page's agent-edits policy (AGED-1). Read is gated on reading the page (a viewer
@@ -2150,10 +2382,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!agentEdits || !AGENT_EDITS_POLICIES.includes(agentEdits)) {
       return c.json({error: 'a valid agent-edits policy is required'}, 400);
     }
-    const ok = await store.setPageAgentEdits(id, agentEdits);
-    if (!ok) return c.json({error: 'page not found'}, 404);
-    logEdit(c, id, 'page.agentEdits', agentEdits);
-    return c.json({agentEdits});
+    const response = await executeDurableWrite(c, async (activeStore) => (await activeStore.setPageAgentEdits(id, agentEdits))
+      ? {status: 200, body: {agentEdits}}
+      : {status: 404, body: {error: 'page not found'}});
+    if (!response.replayed && response.status === 200) {
+      logEdit(c, id, 'page.agentEdits', agentEdits);
+    }
+    return durableWriteResponse(c, response);
   });
 
   // A page's change provenance (the edit log), newest first. The top row is its
@@ -2222,13 +2457,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // decision reads without a deleted_at filter).
   app.post(`${API.pages}/:id/restore`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
-    const page = await store.restorePage(c.req.param('id'));
-    if (!page) return c.json({error: 'page not found in trash'}, 404);
-    hub.publishPage(page);
-    await broadcastList();
-    if (page.databaseId) await broadcastRows(page.databaseId);
-    logEdit(c, page.id, 'page.restore', page.name ?? '');
-    return c.json(page);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const page = await activeStore.restorePage(c.req.param('id'));
+      return page
+        ? {status: 200, body: page}
+        : {status: 404, body: {error: 'page not found in trash'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const page = response.body as NonNullable<Awaited<ReturnType<typeof store.restorePage>>>;
+      hub.publishPage(page);
+      await broadcastList();
+      if (page.databaseId) await broadcastRows(page.databaseId);
+      logEdit(c, page.id, 'page.restore', page.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // Permanently delete a single trashed page (and its subtree, by cascade).
@@ -2317,14 +2559,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.
     await requireAccess(c, store, 'write', input.pageId);
-    const database = await store.createDatabase(input);
-    // The host page now hosts a database: refresh its page event + the list so
-    // the document area renders the view and the sidebar marks it.
-    const host = await store.getPage(database.pageId);
-    if (host) hub.publishPage(host);
-    await broadcastList();
-    logEdit(c, database.pageId, 'database.create', database.name ?? '');
-    return c.json(database, 201);
+    const response = await executeDurableWrite(c, async (activeStore) => ({
+      status: 201,
+      body: await activeStore.createDatabase(input),
+    }));
+    if (!response.replayed) {
+      const database = response.body;
+      // The host page now hosts a database: refresh its page event + the list so
+      // the document area renders the view and the sidebar marks it.
+      const host = await store.getPage(database.pageId);
+      if (host) hub.publishPage(host);
+      await broadcastList();
+      logEdit(c, database.pageId, 'database.create', database.name ?? '');
+    }
+    return durableWriteResponse(c, response);
   });
 
   app.get(`${API.databases}/:id`, async (c) => {
@@ -2337,11 +2585,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireDbAccess(c, store, 'write', c.req.param('id'));
     rejectManaged(c.req.param('id'));
     const patch = await c.req.json<DatabaseUpdate>();
-    const database = await store.updateDatabase(c.req.param('id'), patch);
-    if (!database) return c.json({error: 'database not found'}, 404);
-    // Schema changes (new/removed columns, filters) affect every row view.
-    await broadcastRows(database.id);
-    return c.json(database);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const database = await activeStore.updateDatabase(c.req.param('id'), patch);
+      return database
+        ? {status: 200, body: database}
+        : {status: 404, body: {error: 'database not found'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const database = response.body as NonNullable<Awaited<ReturnType<typeof store.updateDatabase>>>;
+      // Schema changes (new/removed columns, filters) affect every row view.
+      await broadcastRows(database.id);
+    }
+    return durableWriteResponse(c, response);
   });
 
   // F-4 publication lifecycle. POST is both first-publish and rotate: because the
@@ -2636,15 +2891,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireDbAccess(c, store, 'write', id);
     rejectManaged(id);
     const database = await store.getDatabase(id);
-    const deleted = await store.deleteDatabase(id);
-    if (!deleted) return c.json({error: 'database not found'}, 404);
-    // The host page no longer hosts a database; its rows are gone too.
-    if (database) {
-      const host = await store.getPage(database.pageId);
-      if (host) hub.publishPage(host);
+    const response = await executeDurableWrite(c, async (activeStore) => (await activeStore.deleteDatabase(id))
+      ? {status: 204, body: null}
+      : {status: 404, body: {error: 'database not found'}});
+    if (!response.replayed && response.status === 204) {
+      // The host page no longer hosts a database; its rows are gone too.
+      if (database) {
+        const host = await store.getPage(database.pageId);
+        if (host) hub.publishPage(host);
+      }
+      await broadcastList();
     }
-    await broadcastList();
-    return c.body(null, 204);
+    return durableWriteResponse(c, response);
   });
 
   app.get(`${API.pages}/:id/database`, async (c) => {
@@ -2663,11 +2921,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireDbAccess(c, store, 'write', id);
     rejectManaged(id);
     const input = await c.req.json<RowInput>().catch(() => ({}) as RowInput);
-    const page = await store.createRow(id, input, c.get('principal'));
-    hub.publishPage(page);
-    await broadcastRows(id);
-    logEdit(c, page.id, 'row.create');
-    return c.json(page, 201);
+    const response = await executeDurableWrite(c, async (activeStore) => ({
+      status: 201,
+      body: await activeStore.createRow(id, input, c.get('principal')),
+    }));
+    if (!response.replayed) {
+      const page = response.body;
+      hub.publishPage(page);
+      await broadcastRows(id);
+      logEdit(c, page.id, 'row.create');
+    }
+    return durableWriteResponse(c, response);
   });
 
   app.put(`${API.databases}/:id/rows/order`, async (c) => {
@@ -2675,9 +2939,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireDbAccess(c, store, 'write', id);
     rejectManaged(id);
     const {orderedIds} = await c.req.json<{orderedIds: string[]}>();
-    await store.reorderRows(id, orderedIds ?? []);
-    await broadcastRows(id);
-    return c.json({ok: true});
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      await activeStore.reorderRows(id, orderedIds ?? []);
+      return {status: 200, body: {ok: true}};
+    });
+    if (!response.replayed) await broadcastRows(id);
+    return durableWriteResponse(c, response);
   });
 
   app.patch(`${API.databases}/:id/rows/:rowId`, async (c) => {
@@ -2689,11 +2956,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // row page's resolved mode (creating a NEW row, like a new page, is exempt).
     await requireAgentDirectWrite(c, c.req.param('rowId'));
     const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
-    const row = await store.updateRow(id, c.req.param('rowId'), body);
-    if (!row) return c.json({error: 'row not found'}, 404);
-    await broadcastRows(id);
-    logEdit(c, row.id, 'row.update');
-    return c.json(row);
+    const response = await executeDurableWrite(c, async (activeStore) => {
+      const row = await activeStore.updateRow(id, c.req.param('rowId'), body);
+      return row
+        ? {status: 200, body: row}
+        : {status: 404, body: {error: 'row not found'}};
+    });
+    if (!response.replayed && response.status === 200) {
+      const row = response.body as NonNullable<Awaited<ReturnType<typeof store.updateRow>>>;
+      await broadcastRows(id);
+      logEdit(c, row.id, 'row.update');
+    }
+    return durableWriteResponse(c, response);
   });
 
   // ── Ledger: server-enforced double-entry accounting (LGR-3) ─────────────────
@@ -3265,6 +3539,22 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   if (opts.uiDir) mountUi(app, opts.uiDir);
 
   app.onError((err, c) => {
+    if (err instanceof InvalidIdempotencyInputError) {
+      const body: ServerWriteErrorEnvelope<'invalid-input'> = {
+        error: err.message,
+        code: 'invalid-input',
+        retryable: false,
+      };
+      return c.json(body, 400);
+    }
+    if (err instanceof IdempotencyKeyReuseError) {
+      const body: ServerWriteErrorEnvelope<'idempotency-key-reused'> = {
+        error: err.message,
+        code: 'idempotency-key-reused',
+        retryable: false,
+      };
+      return c.json(body, 409);
+    }
     // Access-gate rejections (requireAccess/requireDbAccess/requireCreate) ride
     // HTTPException; surface them as the JSON `{error}` shape the API uses,
     // preserving the gate's 403/404 (never collapse them to a 500 below).
