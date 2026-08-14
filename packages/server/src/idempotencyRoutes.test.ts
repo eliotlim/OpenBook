@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {CLIENT_HEADER, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
 import {createApp} from './app';
 import {PgliteDb} from './db';
@@ -43,6 +43,46 @@ const rowRequest = (body: string, key = KEY, path = `/api/databases/${database.i
   });
 
 describe('Idempotency-Key route contract', () => {
+  it('rejects an unauthenticated keyed write without buffering or touching the ledger', async () => {
+    const request = new Request('http://localhost/api/pages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CLIENT_HEADER]: '1',
+        'Idempotency-Key': KEY,
+      },
+      body: '{}',
+    });
+    const clone = vi.spyOn(request, 'clone');
+    const ledger = vi.spyOn(store, 'idempotentWrite');
+    const response = await createApp(store, undefined, new PageHub(), {accessToken: 'secret'}).fetch(request);
+
+    expect(response.status).toBe(401);
+    expect(clone).not.toHaveBeenCalled();
+    expect(ledger).not.toHaveBeenCalled();
+    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(0);
+  });
+
+  it('rejects a malformed key before buffering or touching the ledger', async () => {
+    const request = new Request('http://localhost/api/pages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer secret',
+        'Idempotency-Key': 'not-a-uuid',
+      },
+      body: '{}',
+    });
+    const clone = vi.spyOn(request, 'clone');
+    const ledger = vi.spyOn(store, 'idempotentWrite');
+    const response = await createApp(store, undefined, new PageHub(), {accessToken: 'secret'}).fetch(request);
+
+    expect(response.status).toBe(400);
+    expect(clone).not.toHaveBeenCalled();
+    expect(ledger).not.toHaveBeenCalled();
+    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(0);
+  });
+
   it('replays duplicate POST /rows with one durable row and a semantically identical response', async () => {
     const body = JSON.stringify({name: 'Only once', properties: {amount: 42}});
     const first = await rowRequest(body);

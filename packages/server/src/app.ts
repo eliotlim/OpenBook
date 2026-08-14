@@ -794,19 +794,6 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await next();
   });
 
-  // Capture exact bytes before principal recovery or a route parses JSON. This is
-  // observation only: authentication and route-specific access gates still run
-  // before executeDurableWrite validates/claims the key or discloses a replay.
-  app.use('/api/*', async (c, next) => {
-    if (
-      c.req.raw.headers.has(IDEMPOTENCY_HEADER)
-      && isWaveOneIdempotencyRoute(c.req.method, c.req.path)
-    ) {
-      c.set('idempotencyBody', new Uint8Array(await c.req.raw.clone().arrayBuffer()));
-    }
-    await next();
-  });
-
   // Access-token gate (only when published on the LAN). A missing/wrong token is
   // rejected before any handler runs. The token may ride the Authorization
   // header or a `?token=` query param so `EventSource` (header-less) can connect.
@@ -1078,6 +1065,25 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       return c.json({error: 'this agent token is not permitted to access this resource'}, 403);
     }
     return next();
+  });
+
+  // Authentication, forwarding, principal, guest-write, and PAT-scope gates are
+  // all header-only and have already passed. Validate the key before cloning, then
+  // capture exact bytes before any route body limit or JSON parser consumes them.
+  app.use('/api/*', async (c, next) => {
+    if (
+      c.req.raw.headers.has(IDEMPOTENCY_HEADER)
+      && isWaveOneIdempotencyRoute(c.req.method, c.req.path)
+    ) {
+      const rawKey = c.req.raw.headers.get(IDEMPOTENCY_HEADER) ?? '';
+      if (!IDEMPOTENCY_KEY_PATTERN.test(rawKey)) {
+        throw new InvalidIdempotencyInputError(
+          'Idempotency-Key must be a canonical UUID v4 or v7',
+        );
+      }
+      c.set('idempotencyBody', new Uint8Array(await c.req.raw.clone().arrayBuffer()));
+    }
+    await next();
   });
 
   // Reads ignore the header. Mutations outside the contract's wave-1 table reject
