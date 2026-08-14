@@ -40,7 +40,7 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
 
   beforeEach(async () => {
     if (!PG_URL) throw new Error('Postgres describe block ran without OPENBOOK_TEST_DATABASE_URL');
-    provisioned = await provisionPostgres(PG_URL);
+    provisioned = await provisionPostgres(PG_URL, 'ob_cwd11_');
   });
 
   afterEach(async () => {

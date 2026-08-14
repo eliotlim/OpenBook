@@ -187,8 +187,8 @@ export async function provisionPglite(prefix = 'ob-lgr15-'): Promise<Provisioned
 
 /** The external-Postgres server URL, or null when none is configured. */
 export function externalPgUrl(): string | null {
-  const url = process.env.OPENBOOK_TEST_DATABASE_URL;
-  return typeof url === 'string' && url.length > 0 ? url : null;
+  const url = process.env.OPENBOOK_TEST_DATABASE_URL?.trim();
+  return url ? url : null;
 }
 
 /** True when the CI durability job demands the external-Postgres half run. */
@@ -202,24 +202,71 @@ export function externalPgRequired(): boolean {
  * tests and reruns never collide. The URL's own database is only used as the
  * admin connection.
  */
-export async function provisionPostgres(url: string): Promise<ProvisionedPostgresDb> {
-  const name = `ob_lgr15_${randomUUID().replaceAll('-', '')}`;
+export async function provisionPostgres(
+  url: string,
+  prefix: 'ob_lgr15_' | 'ob_cwd11_' = 'ob_lgr15_',
+): Promise<ProvisionedPostgresDb> {
+  const name = `${prefix}${randomUUID().replaceAll('-', '')}`;
   let destroying = false;
   const reportUnexpectedClose = (role: string) => (connectionId: number): void => {
     if (!destroying) {
       console.error(`[postgres scratch ${name}] unexpected ${role} connection close (id ${connectionId})`);
     }
   };
-  const admin = new PostgresDb(url, {max: 1, onclose: reportUnexpectedClose('admin')});
-  await admin.query(`CREATE DATABASE ${name}`);
   const scratch = new URL(url);
   scratch.pathname = `/${name}`;
   const scratchUrl = scratch.toString();
-  const db = new PostgresDb(scratchUrl, {max: 4, onclose: reportUnexpectedClose('pool')});
+  const admin = new PostgresDb(url, {max: 1, onclose: reportUnexpectedClose('admin')});
   const participantDbs = new Set<PostgresDb>();
-  await runMigrations(db);
+  let db: PostgresDb | undefined;
+
+  const teardown = async (): Promise<unknown[]> => {
+    const failures: unknown[] = [];
+    const participantResults = await Promise.allSettled(
+      [...participantDbs].map((participant) => participant.close()),
+    );
+    failures.push(
+      ...participantResults.flatMap((result) => result.status === 'rejected' ? [result.reason] : []),
+    );
+    try {
+      await db?.close();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      // WITH (FORCE) needs PG 13+; the pinned CI image and any modern server have it.
+      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await admin.close();
+    } catch (error) {
+      failures.push(error);
+    }
+    return failures;
+  };
+
+  try {
+    await admin.query(`CREATE DATABASE ${name}`);
+  } catch (error) {
+    destroying = true;
+    await admin.close().catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    db = new PostgresDb(scratchUrl, {max: 4, onclose: reportUnexpectedClose('pool')});
+    await runMigrations(db);
+  } catch (error) {
+    destroying = true;
+    await teardown();
+    throw error;
+  }
+  const readyDb = db;
+
   return {
-    db,
+    db: readyDb,
     backend: 'postgres',
     participants: async (count: number) => {
       if (!Number.isInteger(count) || count < 1) {
@@ -241,11 +288,9 @@ export async function provisionPostgres(url: string): Promise<ProvisionedPostgre
     },
     destroy: async () => {
       destroying = true;
-      await Promise.all([...participantDbs].map((participant) => participant.close()));
-      await db.close();
-      // WITH (FORCE) needs PG 13+; the pinned CI image and any modern server have it.
-      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
-      await admin.close();
+      const failures = await teardown();
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures, `${failures.length} Postgres teardown steps failed`);
     },
   };
 }
