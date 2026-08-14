@@ -194,6 +194,28 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     client.destroy();
   });
 
+  it.each([
+    {persist: false, label: 'without data', data: undefined},
+    {persist: false, label: 'with data:null', data: null},
+    {persist: true, label: 'without data', data: undefined},
+    {persist: true, label: 'with data:null', data: null},
+  ])('PUT $label returns 200 when server persistence is $persist', async ({persist, data}) => {
+    const store = await freshStore();
+    const app = persist ? persistedApp(store) : createApp(store, undefined, new PageHub());
+    const {id, client} = await seed(store, `put-optional-data-${persist}-${data === null ? 'null' : 'missing'}`);
+    const body: Record<string, unknown> = {name: 'optional-data'};
+    if (data === null) body.data = null;
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify(body),
+    });
+
+    expect(res.status).toBe(200);
+    client.destroy();
+  });
+
   it('converges after a stale snapshot PUT and accepts the live client\'s dependent delta', async () => {
     const store = await freshStore();
     const app = persistedApp(store);

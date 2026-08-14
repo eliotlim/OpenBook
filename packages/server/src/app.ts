@@ -610,7 +610,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   const upsertSnapshotPage: PageStore['upsertPage'] = persister
     ? (input, author, upsertOpts) => {
       const write = () => store.upsertPage(input, author, upsertOpts);
-      const rawUpdate = (input.data.blockdoc as {update?: unknown} | undefined)?.update;
+      const rawUpdate = (input.data?.blockdoc as {update?: unknown} | undefined)?.update;
       const snapshotUpdate = typeof rawUpdate === 'string' && rawUpdate.length > 0
         ? new Uint8Array(Buffer.from(rawUpdate, 'base64'))
         : null;
