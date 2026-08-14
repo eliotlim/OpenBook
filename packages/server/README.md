@@ -34,6 +34,47 @@ interface with two implementations:
 
 Both speak the same Postgres SQL, so the queries and migrations are identical.
 
+## Real-Postgres concurrency tests
+
+The default `pnpm test` path stays on PGlite, whose store mutex deliberately
+serializes calls. The CWD-11 suite instead uses `PostgresDb` with a connection
+pool so MVCC write races remain observable. Run the pinned local service and
+the dedicated suite from the repository root:
+
+```sh
+docker compose -f docker-compose.test-pg.yml up -d --wait
+OPENBOOK_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/postgres pnpm --filter @book.dev/server test:pg
+docker compose -f docker-compose.test-pg.yml down -v
+```
+
+The URL must name an administrative database on a server where the test user
+may create and drop scratch databases. Each test gets a migrated, uniquely
+named database and drops it afterward. With no URL, `test:pg` exits successfully
+after printing a prominent skip notice. CI sets
+`OPENBOOK_REQUIRE_CONCURRENCY_PG=1`, which forbids that skip.
+
+The test-only primitives in `src/testUtils/concurrency.ts` make interleavings
+repeatable:
+
+- `runConcurrently` launches N store calls behind one start gate.
+- `createBarrier` divides caller work into explicit read and write phases.
+- `withQueryBarrier` decorates `Db`, including transaction handles, and pauses
+  the first N matching queries after their rows have been read. This exposes an
+  internal stale-snapshot window without adding delay hooks to `PageStore`.
+
+The CWD-2, CWD-3, and CWD-4 assertions are `test.fails` while their lost-update
+races are live. Their one-line comments identify the issue that changes each to
+a plain test once fixed. A passing control covers property-patch overlap with
+`renamePage` and `upsertPage`, whose writes currently touch disjoint columns.
+Its three participants each use a pre-opened single-connection client; connection
+setup is therefore outside the measured race, and teardown owns every client.
+
+The stale snapshot-PUT versus collab persister checkpoint stretch is deferred.
+Calling `saveServerDoc` directly could manufacture a store-level overwrite,
+but would bypass the full collab stack's debounce, canonical Yjs document, and
+checkpoint scheduling; such a test would not prove the production race named by
+the criterion. That case belongs in the later collab-backed concurrency leg.
+
 ## HTTP API
 
 Paths come from `@book.dev/sdk` (`API`), so the server and `HttpDataClient`

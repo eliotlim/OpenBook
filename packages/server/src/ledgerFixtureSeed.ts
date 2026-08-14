@@ -162,6 +162,14 @@ export interface ProvisionedDb {
   destroy(): Promise<void>;
 }
 
+export interface ProvisionedPostgresDb extends ProvisionedDb {
+  /**
+   * Open `count` independent, already-connected sessions on this scratch DB.
+   * The provisioner owns them and closes them before dropping the database.
+   */
+  participants(count: number): Promise<Db[]>;
+}
+
 /** A fresh migrated PGlite library in its own temp dir. */
 export async function provisionPglite(prefix = 'ob-lgr15-'): Promise<ProvisionedDb> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -179,8 +187,8 @@ export async function provisionPglite(prefix = 'ob-lgr15-'): Promise<Provisioned
 
 /** The external-Postgres server URL, or null when none is configured. */
 export function externalPgUrl(): string | null {
-  const url = process.env.OPENBOOK_TEST_DATABASE_URL;
-  return typeof url === 'string' && url.length > 0 ? url : null;
+  const url = process.env.OPENBOOK_TEST_DATABASE_URL?.trim();
+  return url ? url : null;
 }
 
 /** True when the CI durability job demands the external-Postgres half run. */
@@ -194,22 +202,95 @@ export function externalPgRequired(): boolean {
  * tests and reruns never collide. The URL's own database is only used as the
  * admin connection.
  */
-export async function provisionPostgres(url: string): Promise<ProvisionedDb> {
-  const name = `ob_lgr15_${randomUUID().replaceAll('-', '')}`;
-  const admin = new PostgresDb(url, {max: 1});
-  await admin.query(`CREATE DATABASE ${name}`);
+export async function provisionPostgres(
+  url: string,
+  prefix: 'ob_lgr15_' | 'ob_cwd11_' = 'ob_lgr15_',
+): Promise<ProvisionedPostgresDb> {
+  const name = `${prefix}${randomUUID().replaceAll('-', '')}`;
+  let destroying = false;
+  const reportUnexpectedClose = (role: string) => (connectionId: number): void => {
+    if (!destroying) {
+      console.error(`[postgres scratch ${name}] unexpected ${role} connection close (id ${connectionId})`);
+    }
+  };
   const scratch = new URL(url);
   scratch.pathname = `/${name}`;
-  const db = new PostgresDb(scratch.toString(), {max: 4});
-  await runMigrations(db);
-  return {
-    db,
-    backend: 'postgres',
-    destroy: async () => {
-      await db.close();
+  const scratchUrl = scratch.toString();
+  const admin = new PostgresDb(url, {max: 1, onclose: reportUnexpectedClose('admin')});
+  const participantDbs = new Set<PostgresDb>();
+  let db: PostgresDb | undefined;
+
+  const teardown = async (): Promise<unknown[]> => {
+    const failures: unknown[] = [];
+    const participantResults = await Promise.allSettled(
+      [...participantDbs].map((participant) => participant.close()),
+    );
+    failures.push(
+      ...participantResults.flatMap((result) => result.status === 'rejected' ? [result.reason] : []),
+    );
+    try {
+      await db?.close();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
       // WITH (FORCE) needs PG 13+; the pinned CI image and any modern server have it.
       await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
       await admin.close();
+    } catch (error) {
+      failures.push(error);
+    }
+    return failures;
+  };
+
+  try {
+    await admin.query(`CREATE DATABASE ${name}`);
+  } catch (error) {
+    destroying = true;
+    await admin.close().catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    db = new PostgresDb(scratchUrl, {max: 4, onclose: reportUnexpectedClose('pool')});
+    await runMigrations(db);
+  } catch (error) {
+    destroying = true;
+    await teardown();
+    throw error;
+  }
+  const readyDb = db;
+
+  return {
+    db: readyDb,
+    backend: 'postgres',
+    participants: async (count: number) => {
+      if (!Number.isInteger(count) || count < 1) {
+        throw new Error(`Postgres participant count must be a positive integer, received ${count}`);
+      }
+      const opened: Db[] = [];
+      // Connect one-by-one so connection establishment is fixture setup, not an
+      // uncontrolled fourth participant in the write race under test.
+      for (let i = 0; i < count; i += 1) {
+        const participant = new PostgresDb(scratchUrl, {
+          max: 1,
+          onclose: reportUnexpectedClose(`participant ${i + 1}`),
+        });
+        participantDbs.add(participant);
+        await participant.query('SELECT 1');
+        opened.push(participant);
+      }
+      return opened;
+    },
+    destroy: async () => {
+      destroying = true;
+      const failures = await teardown();
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures, `${failures.length} Postgres teardown steps failed`);
     },
   };
 }
