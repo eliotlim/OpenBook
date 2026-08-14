@@ -233,10 +233,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       setStatus('saved');
       return;
     }
-    lastSnapshot.current = snapshot;
     setStatus('saving');
     try {
       await onSave(snapshot);
+      lastSnapshot.current = snapshot;
       setStatus('saved');
     } catch (e) {
       setStatus('save failed');
