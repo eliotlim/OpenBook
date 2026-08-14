@@ -2,7 +2,7 @@ import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import postgres from 'postgres';
 import type {PGliteOptions} from '@electric-sql/pglite';
-import {PgliteDb, type Db} from './dbCore';
+import {PgliteDb, type Db, withSavepoint} from './dbCore';
 import {DirLock, DirLockedError} from './dirLock';
 
 // The isomorphic core (Mutex, the `Db` interface, the PGlite-backed `PgliteDb`)
@@ -78,10 +78,7 @@ export class PostgresDb implements Db {
   }
 
   async begin<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-    // Match PgliteQueryableDb: a PageStore already bound to this transaction
-    // keeps nested store-level `begin` calls inside the SAME outer transaction.
-    // This is load-bearing for CWD-5's claim + mutation + response capture.
-    if (this.inTransaction) return fn(this);
+    if (this.inTransaction) return withSavepoint(this, fn);
     return this.sql.begin((tx) => fn(new PostgresDb('', {
       sql: tx as unknown as Sql,
       inTransaction: true,

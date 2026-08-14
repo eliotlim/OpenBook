@@ -42,6 +42,24 @@ export interface Db {
   close(): Promise<void>;
 }
 
+let savepointSerial = 0;
+
+/** Contain a nested transaction so a caught inner failure cannot leak partial writes. */
+export async function withSavepoint<T>(db: Db, fn: (tx: Db) => Promise<T>): Promise<T> {
+  savepointSerial += 1;
+  const name = `openbook_nested_${savepointSerial}`;
+  await db.query(`SAVEPOINT ${name}`);
+  try {
+    const result = await fn(db);
+    await db.query(`RELEASE SAVEPOINT ${name}`);
+    return result;
+  } catch (err) {
+    await db.query(`ROLLBACK TO SAVEPOINT ${name}`);
+    await db.query(`RELEASE SAVEPOINT ${name}`);
+    throw err;
+  }
+}
+
 /** A PGlite instance or transaction — both expose `query`. */
 type PgliteQueryable = Pick<PGlite, 'query'>;
 
@@ -53,9 +71,10 @@ export class PgliteQueryableDb implements Db {
     return result.rows;
   }
 
-  // Inside an existing PGlite transaction, just run statements inline.
+  // A nested begin is a real savepoint: callers may catch an inner failure and
+  // continue the outer transaction without retaining the inner partial writes.
   async begin<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-    return fn(this);
+    return withSavepoint(this, fn);
   }
 
   async close(): Promise<void> {
