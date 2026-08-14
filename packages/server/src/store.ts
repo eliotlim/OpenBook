@@ -2556,8 +2556,10 @@ export class PageStore {
   }
 
   /**
-   * Shallow-merge structured property values into a page's `properties` (jsonb
-   * `||`), leaving its document content and any unmentioned properties intact.
+   * Shallow-merge structured property values into a page's `properties`,
+   * leaving its document content and any unmentioned properties intact.
+   * Unlike {@link updateRow}, `null` is stored rather than deleting a key;
+   * readers currently treat a stored `null` the same as an absent value.
    * This is how a standalone page's owner/verification are set — database rows
    * still go through {@link updateRow}. Returns the updated page, or `null` if
    * it's missing.
@@ -3230,20 +3232,24 @@ export class PageStore {
 
   /**
    * Update a row's title and/or manual property values without touching its
-   * document content. Returns the projected row, or `null` if it does not
+   * document content. Property patches merge per key: an omitted, `null`, or
+   * empty properties bag is a no-op; `undefined` values are ignored; and a
+   * `null` value deletes that key. This deliberately differs from
+   * {@link setPageProperties}, which stores `null` (readers currently treat
+   * both forms as absent). Returns the projected row, or `null` if it does not
    * belong to the given database.
    */
   async updateRow(
     databaseId: string,
     rowId: string,
-    patch: {name?: string | null; properties?: Record<string, unknown>},
+    patch: {name?: string | null; properties?: Record<string, unknown> | null},
   ): Promise<DatabaseRow | null> {
     // LGR-3: ledger row values (amounts, states, refs) change only through the
     // ledger API — the generic row-patch path is rejected at the store layer.
     await this.assertNotLedgerDatabase(databaseId);
     return this.db.begin(async (tx) => {
       let properties: string | null = null;
-      if (patch.properties !== undefined) {
+      if (patch.properties != null) {
         // Serialize the read-merge-write on real Postgres. PGlite's outer
         // transaction mutex supplies the same exclusion in embedded mode.
         const current = await tx.query<Pick<PageRow, 'properties'>>(
@@ -3256,6 +3262,7 @@ export class PageStore {
 
         const merged = {...parseJson<Record<string, unknown>>(current[0].properties, {})};
         for (const [key, value] of Object.entries(patch.properties)) {
+          if (value === undefined) continue;
           if (value === null) delete merged[key];
           else merged[key] = value;
         }

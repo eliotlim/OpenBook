@@ -151,8 +151,9 @@ export interface DataClient {
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /**
    * Shallow-merge structured property values into a page (owner, verification,
-   * …), leaving its document content and other properties untouched. Used by
-   * the page properties panel for non-row pages (database rows use {@link updateRow}).
+   * …), leaving its document content and other properties untouched. Explicit
+   * `null` values are stored; by contrast, {@link updateRow} uses `null` to
+   * delete a row-property key. Readers currently treat either form as absent.
    */
   setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage>;
   /** List the live pages that link to `id` (via `@`-mentions), newest first. */
