@@ -1032,7 +1032,7 @@ const SearchBox: React.FC<{db: UseDatabase}> = ({db}) => (
         if (e.key === 'Escape') db.setSearch('');
       }}
       placeholder="Search"
-      className="w-24 bg-transparent py-1 text-xs outline-hidden placeholder:text-placeholder-foreground focus:w-36"
+      className="w-36 bg-transparent py-1 text-xs outline-hidden placeholder:text-placeholder-foreground"
       aria-label="Search rows"
     />
     {db.search && (
