@@ -177,7 +177,7 @@ test('inline toolbar formats a selection as bold rich-text runs', {tag: ['@edito
   await expect(page.locator('.obe-text strong')).toHaveCount(0);
 });
 
-test('drag a block beside another to create columns; mobile stays stacked', {tag: ['@editor']}, async ({page}) => {
+test('drag a block beside another to create columns; a narrow editor container stays stacked', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   const heading = page.locator('[data-block-row][data-block-type=todo]');
   const target = page.locator('[data-block-row][data-block-type=paragraph]').first();
@@ -191,8 +191,9 @@ test('drag a block beside another to create columns; mobile stays stacked', {tag
   await expect(page.locator('.obe-columns')).toBeVisible();
   await expect(page.locator('.obe-columns .obe-column')).toHaveCount(2);
 
-  // Mobile: the grid collapses to a stack (flex column).
-  await page.setViewportSize({width: 420, height: 800});
+  // Container query: a narrow pane stacks even while the browser window is wide.
+  await page.setViewportSize({width: 1280, height: 800});
+  await page.locator('.obe-root').evaluate((element) => { (element as HTMLElement).style.width = '420px'; });
   const direction = await page.locator('.obe-columns').evaluate((el) => getComputedStyle(el).flexDirection);
   expect(direction).toBe('column');
 });
