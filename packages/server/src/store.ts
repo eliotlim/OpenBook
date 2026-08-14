@@ -347,16 +347,6 @@ interface PageStoreSharedState {
   ledgerIdsCache: LedgerIds | undefined;
 }
 
-/** Bind store-level nested transactions directly to an idempotent write's outer transaction. */
-function inlineTransaction(db: Db): Db {
-  const inline: Db = {
-    query: <T = Record<string, unknown>>(text: string, params?: unknown[]) => db.query<T>(text, params),
-    begin: <T>(fn: (tx: Db) => Promise<T>) => fn(inline),
-    close: async () => undefined,
-  };
-  return inline;
-}
-
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -1033,9 +1023,9 @@ export class PageStore {
    *
    * The claim, callback mutations, JSON serialization, and response capture all
    * use one outer transaction. Methods invoked on the callback store are bound
-   * to that transaction (their nested `begin` calls are deliberately inline), while
-   * cache/access-generation state stays shared with the owning store. A thrown
-   * error or non-2xx callback result rolls the claim and every mutation back.
+   * to that transaction, with their nested `begin` calls contained by savepoints,
+   * while cache/access-generation state stays shared with the owning store. A
+   * thrown error or non-2xx callback result rolls the claim and every mutation back.
    */
   async idempotentWrite<T>(
     request: IdempotencyRequest,
@@ -1074,7 +1064,7 @@ export class PageStore {
             return capturedIdempotencyOutcome<T>(request, prior[0]);
           }
 
-          const response = await execute(new PageStore(inlineTransaction(tx), this.sharedState));
+          const response = await execute(new PageStore(tx, this.sharedState));
           if (!Number.isInteger(response.status) || response.status < 200 || response.status > 299) {
             throw new UnretainedIdempotencyResponse(response);
           }
