@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {Db} from '../dbCore';
 import {createBarrier, runConcurrently, withQueryBarrier} from './concurrency';
 
@@ -6,19 +6,22 @@ describe('concurrency test primitives', () => {
   it('releases a barrier only after every participant arrives', async () => {
     const barrier = createBarrier(2);
     const order: string[] = [];
+    const firstParticipant = {};
 
-    const first = barrier.arriveAndWait().then(() => order.push('first released'));
+    const first = barrier.arriveAndWait(firstParticipant).then(() => order.push('first released'));
+    const duplicate = barrier.arriveAndWait(firstParticipant).then(() => order.push('duplicate released'));
     await Promise.resolve();
     expect(barrier.arrived).toBe(1);
     expect(order).toEqual([]);
 
     const second = barrier.arriveAndWait().then(() => order.push('second released'));
-    await Promise.all([first, second]);
+    await Promise.all([first, duplicate, second]);
     expect(barrier.arrived).toBe(2);
-    expect(order).toHaveLength(2);
+    expect(order).toHaveLength(3);
   });
 
   it('starts every concurrent call behind the same gate', async () => {
+    const harnessFaults: unknown[] = [];
     const started: number[] = [];
     const results = await runConcurrently([
       async () => {
@@ -29,13 +32,16 @@ describe('concurrency test primitives', () => {
         started.push(2);
         return 'b';
       },
-    ]);
+    ], harnessFaults);
 
     expect(started).toEqual([1, 2]);
     expect(results).toEqual(['a', 'b']);
+    expect(harnessFaults).toEqual([]);
   });
 
   it('drains every concurrent call before reporting a participant failure', async () => {
+    const harnessFaults: unknown[] = [];
+    const failure = new Error('first participant failed');
     let releaseSlow: (() => void) | undefined;
     const slow = new Promise<void>((resolve) => {
       releaseSlow = resolve;
@@ -43,13 +49,13 @@ describe('concurrency test primitives', () => {
     let slowFinished = false;
     const pending = runConcurrently([
       async () => {
-        throw new Error('first participant failed');
+        throw failure;
       },
       async () => {
         await slow;
         slowFinished = true;
       },
-    ]);
+    ], harnessFaults);
 
     let rejected = false;
     void pending.catch(() => {
@@ -58,12 +64,25 @@ describe('concurrency test primitives', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(rejected).toBe(false);
+    expect(harnessFaults).toEqual([failure]);
     releaseSlow?.();
     await expect(pending).rejects.toThrow('first participant failed');
     expect(slowFinished).toBe(true);
+    expect(harnessFaults).toEqual([failure]);
+  });
+
+  it('does not report an assertion rejection as an infrastructure fault', async () => {
+    const harnessFaults: unknown[] = [];
+    const pending = runConcurrently([
+      async () => expect('actual').toBe('expected'),
+    ], harnessFaults);
+
+    await expect(pending).rejects.toMatchObject({name: 'AssertionError'});
+    expect(harnessFaults).toEqual([]);
   });
 
   it('gates matching transaction queries once and leaves later reads alone', async () => {
+    const harnessFaults: unknown[] = [];
     let reads = 0;
     const db: Db = {
       async query<T>(): Promise<T[]> {
@@ -73,14 +92,75 @@ describe('concurrency test primitives', () => {
       begin: <T>(fn: (tx: Db) => Promise<T>): Promise<T> => fn(db),
       close: async () => undefined,
     };
-    const gated = withQueryBarrier(db, {parties: 2, matches: (sql) => sql === 'stale read'});
+    const gated = withQueryBarrier(db, {
+      parties: 2,
+      matches: (sql) => sql === 'stale read',
+      rendezvousTimeoutMs: 5_000,
+      harnessFaults,
+    });
 
     const pending = runConcurrently([
       () => gated.begin((tx) => tx.query('stale read')),
       () => gated.begin((tx) => tx.query('stale read')),
-    ]);
+    ], harnessFaults);
     await expect(pending).resolves.toEqual([[], []]);
     await expect(gated.query('stale read')).resolves.toEqual([]);
     expect(reads).toBe(3);
+    expect(harnessFaults).toEqual([]);
+  });
+
+  it('counts repeated matches in one transaction as one participant', async () => {
+    const harnessFaults: unknown[] = [];
+    const db: Db = {
+      query: async <T>(): Promise<T[]> => [],
+      begin: <T>(fn: (tx: Db) => Promise<T>): Promise<T> => fn(db),
+      close: async () => undefined,
+    };
+    const gated = withQueryBarrier(db, {
+      parties: 2,
+      matches: () => true,
+      rendezvousTimeoutMs: 5_000,
+      harnessFaults,
+    });
+    let firstTransactionFinished = false;
+    const firstTransaction = gated.begin(async (tx) => {
+      await Promise.all([tx.query('first match'), tx.query('duplicate match')]);
+      firstTransactionFinished = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(firstTransactionFinished).toBe(false);
+    const secondTransaction = gated.begin((tx) => tx.query('second participant'));
+    await Promise.all([firstTransaction, secondTransaction]);
+    expect(harnessFaults).toEqual([]);
+  });
+
+  it('reports and rejects a rendezvous deadline expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const harnessFaults: unknown[] = [];
+      const db: Db = {
+        query: async <T>(): Promise<T[]> => [],
+        begin: <T>(fn: (tx: Db) => Promise<T>): Promise<T> => fn(db),
+        close: async () => undefined,
+      };
+      const gated = withQueryBarrier(db, {
+        parties: 2,
+        matches: () => true,
+        rendezvousTimeoutMs: 5_000,
+        harnessFaults,
+      });
+
+      const pending = gated.query('only arrival');
+      const rejection = expect(pending).rejects.toThrow(
+        'query barrier rendezvous timed out after 5000ms (1/2 distinct participants arrived)',
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejection;
+      expect(harnessFaults).toHaveLength(1);
+      expect(harnessFaults[0]).toBeInstanceOf(Error);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

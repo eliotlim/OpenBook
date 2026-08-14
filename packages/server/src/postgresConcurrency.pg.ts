@@ -6,6 +6,8 @@ import {createBarrier, runConcurrently, withQueryBarrier} from './testUtils/conc
 
 const PG_URL = externalPgUrl();
 const PG_REQUIRED = process.env.OPENBOOK_REQUIRE_CONCURRENCY_PG === '1';
+const harnessFaults: unknown[] = [];
+const RENDEZVOUS_TIMEOUT_MS = 5_000;
 
 if (!PG_URL && !PG_REQUIRED) {
   console.warn(
@@ -46,8 +48,9 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
     provisioned = undefined;
   });
 
-  // CWD-2: flip test.fails to test after updateRow preserves independently written property keys.
-  test.fails('CWD-2: concurrent updateRow whole-blob writes lose one property key', async () => {
+  // CWD-2: when flipping to `test`, re-point the rendezvous at the fixed SQL shape and hard-assert
+  // `snapshotsRead.arrived === snapshotsRead.parties`; otherwise a missed race can pass silently.
+  test.fails('CWD-2: concurrent updateRow whole-blob writes lose one property key', {timeout: 5_000}, async () => {
     const store = new PageStore(provisioned!.db);
     const host = await store.upsertPage({name: 'CWD-2 database', data: emptyPageSnapshot()});
     const database = await store.createDatabase({pageId: host.id});
@@ -63,26 +66,29 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
       });
     };
 
-    await runConcurrently([writer('left'), writer('right')]);
+    await runConcurrently([writer('left'), writer('right')], harnessFaults);
 
     const final = (await store.listRows(database.id)).find((candidate) => candidate.id === row.id);
     expect(final?.properties).toEqual({seed: true, left: true, right: true});
   });
 
-  // CWD-3: flip test.fails to test after updateInstanceConfig makes its merge atomic.
-  test.fails('CWD-3: concurrent instance-config patches lose one policy key', async () => {
+  // CWD-3: when flipping to `test`, re-point the matcher at the fixed SQL (including `FOR UPDATE`)
+  // and hard-assert `barrier.arrived === barrier.parties`; otherwise a missed race can pass silently.
+  test.fails('CWD-3: concurrent instance-config patches lose one policy key', {timeout: 5_000}, async () => {
     const store = new PageStore(
       withQueryBarrier(provisioned!.db, {
         parties: 2,
         matches: (sql) =>
           sql.includes('SELECT value FROM settings WHERE key = \'instance\'') && !sql.includes('FOR UPDATE'),
+        rendezvousTimeoutMs: RENDEZVOUS_TIMEOUT_MS,
+        harnessFaults,
       }),
     );
 
     await runConcurrently([
       () => store.updateInstanceConfig({guestAccess: 'off'}),
       () => store.updateInstanceConfig({agentEdits: 'direct'}),
-    ]);
+    ], harnessFaults);
 
     expect(await store.getInstanceConfig()).toMatchObject({
       guestAccess: 'off',
@@ -90,8 +96,9 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
     });
   });
 
-  // CWD-4: flip test.fails to test after setPageProperties merges under a row lock or in SQL.
-  test.fails('CWD-4: concurrent page-property patches lose one property key', async () => {
+  // CWD-4: when flipping to `test`, re-point the matcher at the fixed lock/merge SQL and hard-assert
+  // `barrier.arrived === barrier.parties`; otherwise a missed race can pass silently.
+  test.fails('CWD-4: concurrent page-property patches lose one property key', {timeout: 5_000}, async () => {
     const setupStore = new PageStore(provisioned!.db);
     const page = await setupStore.upsertPage({name: 'CWD-4 page', data: emptyPageSnapshot()});
     await setupStore.setPageProperties(page.id, {seed: true});
@@ -100,18 +107,20 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
       withQueryBarrier(provisioned!.db, {
         parties: 2,
         matches: (sql) => sql.includes('SELECT properties FROM pages WHERE id = $1'),
+        rendezvousTimeoutMs: RENDEZVOUS_TIMEOUT_MS,
+        harnessFaults,
       }),
     );
 
     await runConcurrently([
       () => store.setPageProperties(page.id, {left: true}),
       () => store.setPageProperties(page.id, {right: true}),
-    ]);
+    ], harnessFaults);
 
     expect((await store.getPage(page.id))?.properties).toEqual({seed: true, left: true, right: true});
   });
 
-  test('setPageProperties stays disjoint from concurrent rename and content upsert', async () => {
+  test('setPageProperties stays disjoint from concurrent rename and content upsert', {timeout: 5_000}, async () => {
     const setupStore = new PageStore(provisioned!.db);
     const page = await setupStore.upsertPage({name: 'before', data: snapshot('before')});
     const [propertiesDb, renameDb, contentDb] = await provisioned!.participants(3);
@@ -123,7 +132,7 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
       () => propertiesStore.setPageProperties(page.id, {tag: 'kept'}),
       () => renameStore.renamePage(page.id, 'renamed'),
       () => contentStore.upsertPage({id: page.id, name: 'renamed', data: snapshot('after')}),
-    ]);
+    ], harnessFaults);
 
     const final = await setupStore.getPage(page.id);
     expect(final).not.toBeNull();
@@ -132,3 +141,5 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
     expect(snapshotText(final!.data)).toBe('after');
   });
 });
+
+test('harness observed no infrastructure fault', () => expect(harnessFaults).toEqual([]));
