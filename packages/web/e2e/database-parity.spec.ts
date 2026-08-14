@@ -397,7 +397,7 @@ test('per-group summaries: each group footer shows its own sum', {tag: ['@databa
 
   // Set the Amount column's footer calculation to Sum (last footer picker).
   await page.locator('tfoot button').filter({hasText: 'Calculate'}).last().click();
-  await page.getByRole('menuitem', {name: 'Sum', exact: true}).click();
+  await page.getByRole('menuitemradio', {name: 'Sum', exact: true}).click();
 
   // Each group footer sums only its own rows (10 and 5); the table total is 15.
   // Both the group footer and the table footer can show the sum — assert
@@ -671,7 +671,7 @@ test('currency format: pound shows in the summary footer', {tag: ['@database']},
   await price.fill('10');
   await price.blur();
   await page.locator('tfoot button').filter({hasText: 'Calculate'}).last().click();
-  await page.getByRole('menuitem', {name: 'Sum', exact: true}).click();
+  await page.getByRole('menuitemradio', {name: 'Sum', exact: true}).click();
 
   await expect(page.locator('tfoot').getByText('£10.00')).toBeVisible();
 });

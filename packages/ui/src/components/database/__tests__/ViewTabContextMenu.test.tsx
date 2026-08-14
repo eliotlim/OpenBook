@@ -141,3 +141,13 @@ describe('view-tab context menu', () => {
     expect(screen.queryByText('Form')).toBeNull();
   });
 });
+
+describe('database toolbar layout reservation', () => {
+  it('keeps the search input at a roomy fixed width', () => {
+    render(<Harness db={makeDb()} />);
+    const search = screen.getByRole('textbox', {name: 'Search rows'});
+
+    expect(search.classList.contains('w-36')).toBe(true);
+    expect([...search.classList].some((className) => className.startsWith('focus:w-'))).toBe(false);
+  });
+});

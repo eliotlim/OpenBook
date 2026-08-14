@@ -1045,7 +1045,7 @@ const SearchBox: React.FC<{db: UseDatabase}> = ({db}) => (
         if (e.key === 'Escape') db.setSearch('');
       }}
       placeholder="Search"
-      className="w-24 bg-transparent py-1 text-xs outline-hidden placeholder:text-placeholder-foreground focus:w-36"
+      className="w-36 bg-transparent py-1 text-xs outline-hidden placeholder:text-placeholder-foreground"
       aria-label="Search rows"
     />
     {db.search && (
@@ -1248,8 +1248,8 @@ export const Toolbar: React.FC<{
                 }}
                 onClick={() => db.setActiveViewId(v.id)}
                 className={cn(
-                  'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-                  active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
+                  'flex items-center gap-1 rounded px-2 py-1 text-sm font-medium transition-colors',
+                  active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
                   dragView === v.id && 'opacity-40',
                   overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
                 )}

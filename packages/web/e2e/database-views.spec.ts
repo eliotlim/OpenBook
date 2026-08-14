@@ -161,7 +161,7 @@ test('database summaries: a column footer calculation renders', {tag: ['@databas
 
   // Set the Name column footer summary to "Count all" → shows the row count.
   await page.locator('tfoot button').first().click();
-  await page.getByRole('menuitem', {name: 'Count all'}).click();
+  await page.getByRole('menuitemradio', {name: 'Count all'}).click();
   await expect(page.locator('tfoot').getByText('2', {exact: true})).toBeVisible();
 });
 

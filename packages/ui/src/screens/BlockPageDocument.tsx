@@ -578,7 +578,11 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // Full width is a per-page choice (see lib/pageFullWidth); database-hosting
   // pages default to full-width when the user hasn't set an explicit override.
   const fullWidth = usePageFullWidth(pageId ?? '', hasDatabase);
-  const columnClass = cn('mx-auto w-full', fullWidth ? 'max-w-none' : 'max-w-content');
+  const columnClass = cn(
+    'mx-auto w-full',
+    // eslint-disable-next-line tailwind/no-arbitrary-spacing -- BB-6: the gutter reserve is a pane-scoped CSS variable zeroed for read-only and coarse-pointer surfaces.
+    fullWidth ? 'max-w-none pl-[var(--obe-gutter-room)]' : 'max-w-content',
+  );
 
   // Per-page overrides recolor (theme) and restyle (fonts) just this page.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
@@ -589,7 +593,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // open in split, rename, duplicate, trash, …) — same menu as classic pages.
   const body = (
     <div
-      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts', hasBackground && 'ob-page-bg')}
+      className={cn(
+        'obe-editor-pane w-full pb-40',
+        !canWrite && 'obe-readonly',
+        fontStyle && 'ob-page-fonts',
+        hasBackground && 'ob-page-bg',
+      )}
       style={{...pageThemeStyle, ...fontStyle}}
     >
       {/* The cover + title region. Hovering it reveals the header controls
@@ -630,7 +639,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 
       <div className="px-6 md:px-10">
         <div className={columnClass}>
-          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'relative pt-2')}>
+          <div
+            ref={editorWrapRef}
+            className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'obe-editor-wrap relative pt-2')}
+          >
             {doc && (
               <FormOriginContext.Provider value={formOriginUrl(pageId)}>
                 <BlockEditor
