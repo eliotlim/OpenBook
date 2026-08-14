@@ -75,6 +75,10 @@ export interface IndexablePage {
   id: string;
   name: string | null;
   data: unknown;
+  /** Discovery posture is retained in the raw index input. Per-principal
+   * filtering still happens after ranking because owners/admins may discover
+   * unlisted pages while every other principal may not. */
+  listed?: boolean;
 }
 
 /**

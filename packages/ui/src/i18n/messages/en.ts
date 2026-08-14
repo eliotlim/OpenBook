@@ -566,6 +566,7 @@ export const en = {
     exportBooksConfirm: 'Export',
     exportBooksConfirmInclude: 'Export with books',
     exportBooksCaptureFailed: 'Your books couldn’t be included — the records couldn’t be read completely. The file was exported without them.',
+    exportHiddenPagesSkipped: '{count} hidden pages skipped.',
     present: 'Present',
     presentFull: 'Full screen',
     presentPresenter: 'Presenter view',
