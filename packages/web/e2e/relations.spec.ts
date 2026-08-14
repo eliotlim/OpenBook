@@ -138,7 +138,7 @@ test('database types: url and multi-select columns are available', {tag: ['@data
   await expect(page.getByText('Website', {exact: true})).toBeVisible();
 
   await page.getByRole('button', {name: 'New row'}).click();
-  const urlInput = page.getByRole('textbox', {name: 'url'}).first();
+  const urlInput = page.getByRole('table').getByRole('textbox', {name: 'Website', exact: true});
   await urlInput.fill('example.com');
   await urlInput.blur();
   await expect(page.getByRole('link', {name: 'Open'}).first()).toBeVisible();
