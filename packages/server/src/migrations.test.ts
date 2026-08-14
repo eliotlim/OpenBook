@@ -172,8 +172,8 @@ describe('migration 0027 — response-capturing idempotency ledger', () => {
     const db = await freshDb();
     expect(await db.query('SELECT name FROM _migrations WHERE name = \'0027_idempotency_responses\''))
       .toHaveLength(1);
-    const columns = await db.query<{column_name: string}>(
-      `SELECT column_name FROM information_schema.columns
+    const columns = await db.query<{column_name: string; data_type: string; is_nullable: string}>(
+      `SELECT column_name, data_type, is_nullable FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'idempotency_responses'`,
     );
     expect(columns.map((row) => row.column_name)).toEqual(expect.arrayContaining([
@@ -188,6 +188,10 @@ describe('migration 0027 — response-capturing idempotency ledger', () => {
       'location',
       'completed_at',
     ]));
+    expect(columns.find((row) => row.column_name === 'response_body')).toMatchObject({
+      data_type: 'text',
+      is_nullable: 'NO',
+    });
     const indexes = await db.query<{indexname: string}>(
       'SELECT indexname FROM pg_indexes WHERE tablename = \'idempotency_responses\'',
     );

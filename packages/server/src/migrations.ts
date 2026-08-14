@@ -652,15 +652,15 @@ const MIGRATIONS: Migration[] = [
         method            TEXT        NOT NULL,
         normalized_target TEXT        NOT NULL,
         status            INTEGER,
-        response_body     JSONB,
+        response_body     TEXT        NOT NULL DEFAULT '',
         content_type      TEXT,
         location          TEXT,
         completed_at      TIMESTAMPTZ,
         PRIMARY KEY (actor_scope, idempotency_key),
         CHECK (
-          (status IS NULL AND response_body IS NULL AND completed_at IS NULL)
+          (status IS NULL AND response_body = '' AND completed_at IS NULL)
           OR
-          (status BETWEEN 200 AND 299 AND response_body IS NOT NULL AND completed_at IS NOT NULL)
+          (status BETWEEN 200 AND 299 AND response_body <> '' AND completed_at IS NOT NULL)
         )
       )`,
       'CREATE INDEX IF NOT EXISTS idempotency_responses_completed_at_idx ON idempotency_responses (completed_at)',

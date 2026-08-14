@@ -83,14 +83,14 @@ describe('Idempotency-Key route contract', () => {
     expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(0);
   });
 
-  it('replays duplicate POST /rows with one durable row and a semantically identical response', async () => {
+  it('replays duplicate POST /rows with one durable row and a byte-identical response', async () => {
     const body = JSON.stringify({name: 'Only once', properties: {amount: 42}});
     const first = await rowRequest(body);
     const replay = await rowRequest(body);
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(201);
-    expect(await replay.json()).toEqual(await first.json());
+    expect(await replay.text()).toBe(await first.text());
     const rows = await store.listRows(database.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({name: 'Only once', properties: {amount: 42}});

@@ -283,6 +283,8 @@ export interface IdempotencyResponse<T = unknown> {
 /** A fresh execution or an exact replay of its committed response. */
 export interface IdempotencyOutcome<T = unknown> extends IdempotencyResponse<T> {
   replayed: boolean;
+  /** Exact JSON text captured with the successful response. */
+  serializedBody?: string;
 }
 
 /** One actor reused a key with a different method/path/media-type/body tuple. */
@@ -296,7 +298,7 @@ export class IdempotencyKeyReuseError extends Error {
 interface IdempotencyResponseRow {
   fingerprint: string;
   status: number | string | null;
-  response_body: unknown | string | null;
+  response_body: string;
   content_type: string | null;
   location: string | null;
 }
@@ -1016,18 +1018,11 @@ export class PageStore {
             throw new IdempotencyKeyReuseError();
           }
           const row = prior[0];
-          const body = typeof row.response_body === 'string'
-            ? (() => {
-              try {
-                return JSON.parse(row.response_body) as T;
-              } catch {
-                return row.response_body as T;
-              }
-            })()
-            : row.response_body as T;
+          const body = JSON.parse(row.response_body) as T;
           return {
             status: Number(row.status),
             body,
+            serializedBody: row.response_body,
             headers: {
               ...(row.content_type ? {contentType: row.content_type} : {}),
               ...(row.location ? {location: row.location} : {}),
@@ -1047,7 +1042,7 @@ export class PageStore {
         await tx.query(
           `UPDATE idempotency_responses
            SET status = $3,
-               response_body = $4::jsonb,
+               response_body = $4,
                content_type = $5,
                location = $6,
                completed_at = now()
@@ -1061,7 +1056,7 @@ export class PageStore {
             response.headers?.location ?? null,
           ],
         );
-        return {...response, replayed: false};
+        return {...response, serializedBody, replayed: false};
       });
     } catch (err) {
       if (err instanceof UnretainedIdempotencyResponse) {

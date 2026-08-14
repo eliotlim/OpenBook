@@ -608,7 +608,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (response.headers?.contentType) headers['Content-Type'] = response.headers.contentType;
     if (response.headers?.location) headers.Location = response.headers.location;
     return c.newResponse(
-      response.status === 204 ? null : JSON.stringify(response.body),
+      response.status === 204 ? null : response.serializedBody ?? JSON.stringify(response.body),
       response.status as StatusCode,
       headers,
     );
