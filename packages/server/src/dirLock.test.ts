@@ -112,6 +112,14 @@ describe('DirLock single-owner semantics', () => {
 const DIRLOCK_SRC = fileURLToPath(new URL('./dirLock.ts', import.meta.url));
 const SERVER_SRC_DIR = fileURLToPath(new URL('.', import.meta.url));
 
+// CI runners can pause oversubscribed child processes long enough to consume
+// both the shared collision window and the test's completion budget. Scale the
+// barrier, ownership hold, and outer timeout together: claimants still collide
+// and every invariant/assertion remains identical; slow scheduling merely gets
+// enough wall-clock time to exercise them.
+const STRESS_TIMING_MULTIPLIER = process.env.CI ? 2 : 1;
+const stressMs = (baseMs: number): number => baseMs * STRESS_TIMING_MULTIPLIER;
+
 let childScript: string;
 beforeEach(() => {
   // Each child claims at a shared wall-clock barrier (so they collide), holds
@@ -155,9 +163,11 @@ beforeEach(() => {
 
 /** Race `n` child processes to claim `path`; returns each child's verdict. */
 async function raceClaims(path: string, n: number, holdMs = 200): Promise<string[]> {
-  const barrier = String(Date.now() + 800); // time for every child to spawn + reach the spin
+  const barrier = String(Date.now() + stressMs(800)); // time for every child to spawn + reach the spin
   const run = (): Promise<string> =>
-    pexec(process.execPath, ['--import', 'tsx', childScript, path, barrier, String(holdMs)], {cwd: SERVER_SRC_DIR})
+    pexec(process.execPath, ['--import', 'tsx', childScript, path, barrier, String(stressMs(holdMs))], {
+      cwd: SERVER_SRC_DIR,
+    })
       .then((r) => r.stdout.trim())
       .catch((e: Error) => `THROW:${e.message}`);
   return Promise.all(Array.from({length: n}, run));
@@ -217,17 +227,17 @@ describe('DirLock single-owner stress (cross-process)', () => {
     writeHolder({pid: deadPid, host: 'renamed-mac', startedAt: new Date().toISOString()});
     const verdicts = await raceClaims(lockPath(), 2, 5_000);
     expect(verdicts.sort()).toEqual(['DECLINED', 'WON']);
-  }, 15_000);
+  }, stressMs(15_000));
 
   it('free path: N claimants on a fresh lock → never two owners at once', async () => {
     await stress({n: 8, rounds: 5, seedStale: false});
-  }, 90_000);
+  }, stressMs(90_000));
 
   it('stale-takeover path: N claimants over a dead-pid lock → never two owners at once', async () => {
     // This is the case the blind-rm takeover got wrong (multiple SIMULTANEOUS winners).
     // With the breaker-serialized takeover, at most one process owns the dir at a time.
     await stress({n: 8, rounds: 10, seedStale: true});
-  }, 150_000);
+  }, stressMs(150_000));
 
   it('breaker-RECOVERY path: N claimants over a stale lock + leaked breaker → never two owners at once', async () => {
     // Adopts Sasha's recover config: pre-seed a dead-pid stale lock AND a leaked
@@ -238,5 +248,5 @@ describe('DirLock single-owner stress (cross-process)', () => {
     // maximise the contention that exposes a regression; the path is exercised every
     // round regardless of core count because the leaked breaker is pre-seeded.)
     await stress({n: 16, rounds: 20, seedStale: true, seedLeakedBreaker: true});
-  }, 240_000);
+  }, stressMs(240_000));
 });
