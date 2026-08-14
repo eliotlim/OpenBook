@@ -1,6 +1,6 @@
 {
   "name": "@book.dev/server",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "OpenBook server: page store (Postgres) + HTTP API. Runs headless or embedded in the desktop app.",
   "private": true,
   "type": "module",
@@ -28,6 +28,7 @@
     "dev": "tsx watch src/bin.ts --data-dir ./.dev-data --port 4319",
     "start": "node dist/bin.js",
     "test": "vitest run",
+    "test:pg": "node scripts/test-pg.mjs",
     "test:e2e": "tsx scripts/e2e.mts",
     "bench:ledger": "vitest run --config vitest.bench.config.ts",
     "seed": "tsx scripts/seed.mts",

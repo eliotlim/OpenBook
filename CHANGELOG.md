@@ -1,3 +1,34 @@
+## 3.13.0 (2026-08-14)
+
+### 🚀 Features
+
+- **forms:** form publication — isolated public fill surface (F-5) ([#317](https://github.com/lab255/OpenBook/pull/317))
+- **sdk:** freeze the database form contract (F-1) ([#313](https://github.com/lab255/OpenBook/pull/313))
+- **sdk,server:** page listing posture — persisted listed/unlisted flag (UP-1) ([#309](https://github.com/lab255/OpenBook/pull/309))
+- **sdk,ui:** embeddable database form block (F-3) ([#315](https://github.com/lab255/OpenBook/pull/315))
+- **server:** enforce unlisted enumeration privacy + close live-stream leaks (UP-2) ([#310](https://github.com/lab255/OpenBook/pull/310))
+- **server:** public database fill capabilities (F-4) ([#316](https://github.com/lab255/OpenBook/pull/316))
+- **ui:** database form view builder (F-2) ([#314](https://github.com/lab255/OpenBook/pull/314))
+- **ui:** surface unlisted pages to owners — badges + Share toggle (UP-3) ([#311](https://github.com/lab255/OpenBook/pull/311))
+
+### 🩹 Fixes
+
+- **app:** suppress native context menu in production (BB-5) ([#304](https://github.com/lab255/OpenBook/pull/304))
+- **forms:** forms hardening — lifecycle, limits, notices (F-6) ([#318](https://github.com/lab255/OpenBook/pull/318))
+- **ui:** stabilize database editor focus layout (BB-1) ([#300](https://github.com/lab255/OpenBook/pull/300))
+- **ui:** lock the document scroller (BB-4) ([#303](https://github.com/lab255/OpenBook/pull/303))
+- **ui:** HTTP transport + localized guidance for the local MCP connector card (BB-9) ([#308](https://github.com/lab255/OpenBook/pull/308))
+- **ui:** reserve space for hover reveals (BB-3) ([#302](https://github.com/lab255/OpenBook/pull/302))
+- **ui:** pane-aware block gutter + hidden-gutter hit testing (BB-6) ([#305](https://github.com/lab255/OpenBook/pull/305))
+- **ui:** metric-stable active states — no font-weight layout shifts (BB-2) ([#301](https://github.com/lab255/OpenBook/pull/301))
+- **ui:** prevent unlisted site-export leaks (UP-4) ([#312](https://github.com/lab255/OpenBook/pull/312))
+- **ui:** cascade column resizing across layouts (BB-7) ([#306](https://github.com/lab255/OpenBook/pull/306))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.12.0 (2026-08-12)
 
 ### 🚀 Features

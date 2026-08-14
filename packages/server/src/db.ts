@@ -62,13 +62,19 @@ export class PostgresDb implements Db {
   private readonly sql: Sql;
   private readonly inTransaction: boolean;
 
-  constructor(databaseUrl: string, opts?: {sql?: Sql; max?: number; inTransaction?: boolean}) {
+  constructor(databaseUrl: string, opts?: {
+    sql?: Sql;
+    max?: number;
+    inTransaction?: boolean;
+    onclose?: (connectionId: number) => void;
+  }) {
     this.inTransaction = opts?.inTransaction === true;
     this.sql =
       opts?.sql ??
       postgres(databaseUrl, {
         max: opts?.max ?? 10,
         onnotice: () => undefined,
+        onclose: opts?.onclose,
         types: {
           json: {to: 114, from: [114, 3802], serialize: jsonParamPassthrough, parse: (raw: string) => JSON.parse(raw) as unknown},
         },
