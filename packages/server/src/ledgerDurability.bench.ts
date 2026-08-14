@@ -1,7 +1,7 @@
 /**
  * LGR-15 — the ledger performance benchmarks, thresholds ASSERTED.
  *
- * Two board-set budgets, on BOTH storage backends (PGlite embedded; external
+ * Board-set budgets on both storage backends (PGlite embedded; external
  * Postgres via `OPENBOOK_TEST_DATABASE_URL`, REQUIRED under
  * `OPENBOOK_REQUIRE_LEDGER_PG=1` — the CI durability job's setting):
  *
@@ -13,7 +13,7 @@
  *     (`buildTrialBalance` from `examples/plugins/ledger/src/reports`, the
  *     same sources the loader executes — never a re-implementation).
  *
- *  2. 1k-row IMPORT                     < 5 s
+ *  2. 1k-row IMPORT                     < 5 s PGlite / < 7.5 s Postgres
  *     Measured as the LGR-10 import block's apply loop actually writes: 1000
  *     sequential `createDraft` calls of two legs each (bank + category — the
  *     importer's draft shape). Drafts, not posts: the importer creates drafts
@@ -66,7 +66,12 @@ import {
 } from './ledgerFixtureSeed';
 
 const TRIAL_BALANCE_BUDGET_MS = 500;
-const IMPORT_1K_BUDGET_MS = 5_000;
+const IMPORT_1K_BUDGET_MS = {
+  pglite: 5_000,
+  // 2026-08-13 contended-runner Postgres samples: 4,151 / 6,854 / 6,187 ms
+  // (median 6,187 ms); owner-approved headroom keeps the workload unchanged.
+  postgres: 7_500,
+} satisfies Record<'pglite' | 'postgres', number>;
 
 /** Local-machine escape hatch ONLY — CI asserts the board's numbers at ×1. */
 const MULTIPLIER = (() => {
@@ -135,6 +140,8 @@ function backends(): Array<{backend: 'pglite' | 'postgres'; provision: () => Pro
 }
 
 describe.each(backends())('LGR-15 — ledger benchmarks [$backend]', ({backend, provision}) => {
+  const import1kBudgetMs = IMPORT_1K_BUDGET_MS[backend];
+
   it(
     `trial balance over ${LEDGER_BENCH_POSTING_COUNT} postings stays under ${TRIAL_BALANCE_BUDGET_MS} ms`,
     async () => {
@@ -175,7 +182,7 @@ describe.each(backends())('LGR-15 — ledger benchmarks [$backend]', ({backend, 
   );
 
   it(
-    `importing 1k rows as drafts stays under ${IMPORT_1K_BUDGET_MS} ms`,
+    `importing 1k rows as drafts stays under ${import1kBudgetMs} ms`,
     async () => {
       const env = await provision();
       try {
@@ -211,8 +218,8 @@ describe.each(backends())('LGR-15 — ledger benchmarks [$backend]', ({backend, 
         const drafts = await store.ledger.listTransactions({state: 'draft', limit: LEDGER_MAX_TRANSACTION_LIMIT});
         expect(drafts.length).toBe(LEDGER_MAX_TRANSACTION_LIMIT);
         const med = median(samples);
-        results.push({backend, metric: 'import 1k rows (drafts)', medianMs: med, samplesMs: samples, budgetMs: IMPORT_1K_BUDGET_MS});
-        expect(med, `1k-row import median ${med.toFixed(1)} ms over budget (samples: ${samples.map((s) => s.toFixed(1)).join(', ')})`).toBeLessThan(IMPORT_1K_BUDGET_MS * MULTIPLIER);
+        results.push({backend, metric: 'import 1k rows (drafts)', medianMs: med, samplesMs: samples, budgetMs: import1kBudgetMs});
+        expect(med, `1k-row import median ${med.toFixed(1)} ms over budget (samples: ${samples.map((s) => s.toFixed(1)).join(', ')})`).toBeLessThan(import1kBudgetMs * MULTIPLIER);
       } finally {
         await env.destroy();
       }
