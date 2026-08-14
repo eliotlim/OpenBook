@@ -92,14 +92,16 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
 
   // CWD-4: flip test.fails to test after setPageProperties merges under a row lock or in SQL.
   test.fails('CWD-4: concurrent page-property patches lose one property key', async () => {
+    const setupStore = new PageStore(provisioned!.db);
+    const page = await setupStore.upsertPage({name: 'CWD-4 page', data: emptyPageSnapshot()});
+    await setupStore.setPageProperties(page.id, {seed: true});
+
     const store = new PageStore(
       withQueryBarrier(provisioned!.db, {
         parties: 2,
         matches: (sql) => sql.includes('SELECT properties FROM pages WHERE id = $1'),
       }),
     );
-    const page = await store.upsertPage({name: 'CWD-4 page', data: emptyPageSnapshot()});
-    await store.setPageProperties(page.id, {seed: true});
 
     await runConcurrently([
       () => store.setPageProperties(page.id, {left: true}),
