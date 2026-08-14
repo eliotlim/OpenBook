@@ -1,14 +1,14 @@
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp, type AppWithCollab} from './app';
-import {encodeServerBlockDoc} from './collabPersist';
+import {encodeServerBlockDoc, ServerAuthoritativePersister} from './collabPersist';
 
 /**
  * Collab T9 — server-authoritative persistence wired through the real Hono app
@@ -36,6 +36,7 @@ async function freshStore(): Promise<PageStore> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const s of stores.splice(0)) await s.close();
   for (const d of dirs.splice(0)) rmSync(d, {recursive: true, force: true});
 });
@@ -179,6 +180,172 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect('savedSv' in body).toBe(false);
     expect(Object.keys(body)).toEqual(['update']);
+    client.destroy();
+  });
+
+  it('a snapshot PUT waits for an in-flight checkpoint before writing, then reseeds', async () => {
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-fence');
+    const events: string[] = [];
+
+    // Hold the active session's checkpoint inside saveServerDoc. The PUT must reach
+    // quiesce but may not enter upsertPage until this durable write has drained.
+    let releaseCheckpoint!: () => void;
+    const checkpointHeld = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve;
+    });
+    let checkpointReached!: () => void;
+    const checkpointStarted = new Promise<void>((resolve) => {
+      checkpointReached = resolve;
+    });
+    const realSaveServerDoc = store.saveServerDoc.bind(store);
+    vi.spyOn(store, 'saveServerDoc').mockImplementation(async (pageId, blockdoc, authors) => {
+      events.push('checkpoint:start');
+      checkpointReached();
+      await checkpointHeld;
+      const page = await realSaveServerDoc(pageId, blockdoc, authors);
+      events.push('checkpoint:end');
+      return page;
+    });
+
+    const before = Y.encodeStateVector(client);
+    (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'server');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await checkpointStarted;
+    expect(persister.size()).toBe(1); // active canonical session + checkpoint in flight
+
+    const realQuiesce = persister.quiesce.bind(persister);
+    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+      events.push('quiesce:start');
+      await realQuiesce(pageId);
+      events.push('quiesce:end');
+    });
+    const realReseed = persister.reseed.bind(persister);
+    vi.spyOn(persister, 'reseed').mockImplementation((pageId) => {
+      events.push('reseed');
+      realReseed(pageId);
+    });
+    const realUpsertPage = store.upsertPage.bind(store);
+    vi.spyOn(store, 'upsertPage').mockImplementation(async (input, author, opts) => {
+      events.push('snapshot:write');
+      return realUpsertPage(input, author, opts);
+    });
+
+    const put = app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-fence', data: snap('CLIENT')}),
+    });
+    await waitFor(async () => events.includes('quiesce:start'));
+    expect(events).not.toContain('snapshot:write'); // quiesce is still draining the held checkpoint
+
+    releaseCheckpoint();
+    const res = await put;
+    expect(res.status).toBe(200);
+    expect(events).toEqual([
+      'checkpoint:start',
+      'quiesce:start',
+      'checkpoint:end',
+      'quiesce:end',
+      'snapshot:write',
+      'reseed',
+    ]);
+    expect(await textOf(store, id)).toBe('CLIENT');
+    expect(persister.size()).toBe(0);
+    client.destroy();
+  });
+
+  it('reseeds after a failed snapshot PUT so the page never leaks its freeze', async () => {
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-failure');
+
+    const before = Y.encodeStateVector(client);
+    (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'active');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await waitFor(async () => persister.size() === 1);
+
+    const events: string[] = [];
+    const realQuiesce = persister.quiesce.bind(persister);
+    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+      await realQuiesce(pageId);
+      events.push('quiesce');
+    });
+    const realReseed = persister.reseed.bind(persister);
+    vi.spyOn(persister, 'reseed').mockImplementation((pageId) => {
+      events.push('reseed');
+      realReseed(pageId);
+    });
+    vi.spyOn(store, 'upsertPage').mockImplementation(async () => {
+      events.push('snapshot:failure');
+      throw new Error('injected snapshot write failure');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-failure', data: snap('FAIL')}),
+    });
+    expect(res.status).toBe(500);
+    expect(events).toEqual(['quiesce', 'snapshot:failure', 'reseed']);
+    expect(persister.size()).toBe(0);
+    client.destroy();
+  });
+
+  it('the POST /pages upsert arm uses the same snapshot fence for an existing page', async () => {
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-post-fence');
+
+    const before = Y.encodeStateVector(client);
+    (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'active');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await waitFor(async () => persister.size() === 1);
+    const quiesce = vi.spyOn(persister, 'quiesce');
+    const reseed = vi.spyOn(persister, 'reseed');
+
+    const res = await app.request('/api/pages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({id, name: 'snapshot-post-fence', data: snap('POST')}),
+    });
+    expect(res.status).toBe(201);
+    expect(quiesce).toHaveBeenCalledOnce();
+    expect(quiesce).toHaveBeenCalledWith(id);
+    expect(reseed).toHaveBeenCalledOnce();
+    expect(reseed).toHaveBeenCalledWith(id);
+    expect(await textOf(store, id)).toBe('POST');
+    client.destroy();
+  });
+
+  it('persist off: PUT and POST upsert retain the direct path without quiesce/reseed', async () => {
+    const quiesce = vi.spyOn(ServerAuthoritativePersister.prototype, 'quiesce');
+    const reseed = vi.spyOn(ServerAuthoritativePersister.prototype, 'reseed');
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub());
+    const {id, client} = await seed(store, 'snapshot-off');
+
+    const put = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-off', data: snap('OFF-PUT')}),
+    });
+    const post = await app.request('/api/pages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({id, name: 'snapshot-off', data: snap('OFF-POST')}),
+    });
+
+    expect(put.status).toBe(200);
+    expect(post.status).toBe(201);
+    expect(quiesce).not.toHaveBeenCalled();
+    expect(reseed).not.toHaveBeenCalled();
+    expect(await textOf(store, id)).toBe('OFF-POST');
     client.destroy();
   });
 
