@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {AlertTriangle, Check, Copy, Globe2, GripVertical, Plus, RotateCw, Trash2, Unlink} from 'lucide-react';
+import {AlertTriangle, Check, Copy, Globe2, GripVertical, Plus, RotateCw, Trash2, Unlink, X} from 'lucide-react';
 import {
   formPatternIsUnsafe,
   isFormWritablePropertyType,
@@ -144,6 +144,9 @@ export interface DatabaseFormProps {
   onPublish?: () => Promise<{url: string}>;
   /** Revoke the one active capability. */
   onRevoke?: () => Promise<boolean>;
+  /** Deleted fields awaiting this form builder's one-time archive notice. */
+  removedFieldNotice?: readonly string[];
+  onConsumeRemovedFieldNotice?: () => void;
   /** Publication lifecycle requires instance-level manage authority. */
   canManagePublication?: boolean;
 }
@@ -1067,6 +1070,12 @@ const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
 export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
   const {t} = useTranslation();
   const [mode, setMode] = useState<'builder' | 'fill'>(props.canEdit ? 'builder' : 'fill');
+  const [removedFieldNotice, setRemovedFieldNotice] = useState<readonly string[] | null>(props.removedFieldNotice ?? null);
+  useEffect(() => {
+    if (!props.removedFieldNotice || props.removedFieldNotice.length === 0) return;
+    setRemovedFieldNotice(props.removedFieldNotice);
+    props.onConsumeRemovedFieldNotice?.();
+  }, [props.removedFieldNotice, props.onConsumeRemovedFieldNotice]);
   if (!(props.canSubmit ?? props.canEdit)) {
     return (
       <div className="space-y-4" data-database-form>
@@ -1095,6 +1104,26 @@ export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {mode === 'builder' && props.canEdit && removedFieldNotice && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+          data-database-form-field-removed-notice
+          role="status"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            {t('database.formView.deletedFieldNotice', {fields: removedFieldNotice.join(', ')})}
+          </span>
+          <button
+            type="button"
+            className="rounded p-0.5 text-current/70 hover:bg-amber-500/10 hover:text-current"
+            aria-label={t('common.close')}
+            onClick={() => setRemovedFieldNotice(null)}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
       {mode === 'builder' && props.canEdit ? <DatabaseFormBuilder {...props} /> : <DatabaseFormFill {...props} />}

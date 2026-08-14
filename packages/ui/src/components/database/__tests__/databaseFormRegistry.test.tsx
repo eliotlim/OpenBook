@@ -120,10 +120,14 @@ describe('unknown database view guard', () => {
       formFields: {},
       formConfig: {acceptingResponses: false},
     } as DatabaseView;
+    const formDb = {
+      removedFormFieldNotices: {},
+      consumeRemovedFormFieldNotice: () => {},
+    } as unknown as UseDatabase;
     const formRender = render(
       <DataProvider client={{} as DataClient}>
         <I18nProvider>
-          <ViewBody db={{} as UseDatabase} view={form} columns={[]} schema={[]} canEdit={false} />
+          <ViewBody db={formDb} view={form} columns={[]} schema={[]} canEdit={false} />
         </I18nProvider>
       </DataProvider>,
     );

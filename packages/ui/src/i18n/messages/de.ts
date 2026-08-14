@@ -1458,6 +1458,7 @@ export const de: PartialMessages = {
       revokeConfirm: 'Öffentliches Formular widerrufen',
       remove: 'Aus Formular entfernen',
       removeHint: 'Die Datenbankspalte und ihre vorhandenen Werte bleiben erhalten.',
+      deletedFieldNotice: 'Gelöschte Datenbankfelder wurden aus diesem Formular entfernt: {fields}. Vorhandene Zeilenwerte bleiben archiviert.',
       newFieldTitle: 'Formularfeld erstellen',
       newFieldDescription: 'Erstellt eine neue Spalte in dieser Datenbank und fügt sie diesem Formular hinzu.',
       newFieldError: 'Dieses Feld konnte nicht hinzugefügt werden, weil diese Ansicht kein Formular mehr ist.',

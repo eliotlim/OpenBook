@@ -1039,6 +1039,8 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
         onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
         onAddOption={(propertyId, label) => db.addSelectOption(propertyId, label)}
         onSubmit={(fields, name) => db.submitFormRow(fields, name)}
+        removedFieldNotice={db.removedFormFieldNotices[view.id]}
+        onConsumeRemovedFieldNotice={() => db.consumeRemovedFormFieldNotice(view.id)}
         getPublication={client.getDatabaseFormPublication ? getPublication : undefined}
         onPublish={client.publishDatabaseForm ? publishForm : undefined}
         onRevoke={client.revokeDatabaseForm ? revokeForm : undefined}

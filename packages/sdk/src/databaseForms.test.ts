@@ -402,6 +402,63 @@ describe('validateRowAgainstForm', () => {
       ok: true,
       fields: {answer: 'seven'},
     });
+
+    const textProperty: DatabaseProperty = {id: 'choice', name: 'Choice', type: 'text'};
+    const choiceView = formView({visiblePropertyIds: ['choice']});
+    expect(validateRowAgainstForm(schemaWith([textProperty], choiceView), choiceView, {choice: 'stale'})).toEqual({
+      ok: true,
+      fields: {choice: 'stale'},
+    });
+
+    const selectProperty: DatabaseProperty = {
+      ...textProperty,
+      type: 'select',
+      options: [{id: 'current', label: 'Current'}],
+    };
+    expect(validateRowAgainstForm(schemaWith([selectProperty], choiceView), choiceView, {choice: 'stale'})).toEqual({
+      ok: false,
+      errors: [{propertyId: 'choice', code: 'option'}],
+    });
+  });
+
+  it('orders timed date ranges by instant across mixed timezone offsets', () => {
+    const property: DatabaseProperty = {
+      id: 'window',
+      name: 'Window',
+      type: 'date',
+      dateRange: true,
+      includeTime: true,
+    };
+    const currentView = formView({visiblePropertyIds: [property.id]});
+    const currentSchema = schemaWith([property], currentView);
+
+    // Lexically the end is earlier, but its -10:00 offset makes it almost a day
+    // later than the +14:00 start.
+    expect(validateRowAgainstForm(currentSchema, currentView, {
+      window: {
+        start: '2026-08-13T10:00:00+14:00',
+        end: '2026-08-13T09:30:00-10:00',
+      },
+    })).toEqual({
+      ok: true,
+      fields: {
+        window: {
+          start: '2026-08-13T10:00:00+14:00',
+          end: '2026-08-13T09:30:00-10:00',
+        },
+      },
+    });
+
+    // The inverse is lexically increasing but chronologically decreasing.
+    expect(validateRowAgainstForm(currentSchema, currentView, {
+      window: {
+        start: '2026-08-13T09:30:00-10:00',
+        end: '2026-08-13T10:00:00+14:00',
+      },
+    })).toEqual({
+      ok: false,
+      errors: [{propertyId: 'window', code: 'range'}],
+    });
   });
 
   it('rejects malformed options, formats, ranges, and non-form views', () => {

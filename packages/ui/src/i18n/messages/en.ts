@@ -2281,6 +2281,7 @@ export const en = {
       revokeConfirm: 'Revoke public form',
       remove: 'Remove from form',
       removeHint: 'The database column and its existing values are kept.',
+      deletedFieldNotice: 'Deleted database fields were removed from this form: {fields}. Existing row values remain archived.',
       newFieldTitle: 'Create a form field',
       newFieldDescription: 'Creates a new column in this database and adds it to this form.',
       newFieldError: 'This field could not be added because this view is no longer a form.',

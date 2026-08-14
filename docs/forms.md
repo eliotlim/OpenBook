@@ -129,3 +129,7 @@ MCP follows the page's [agent-edits policy](agent-edits.md): the safe default is
 to record a reviewable suggestion rather than mutate the form immediately.
 Submission keys are recursively redacted from tool results, cannot be changed by
 MCP, and remain an author-only UI action.
+
+## Troubleshoot database-view forms
+
+If a form-builder schema edit and a table-header rename save concurrently, both replace the full schema and the last writer wins; refresh the database and reapply whichever change was clobbered.

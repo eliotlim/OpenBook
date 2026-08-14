@@ -95,6 +95,20 @@ describe('database form live projection', () => {
 });
 
 describe('database form builder', () => {
+  it('shows and consumes the one-time deleted-column archive notice', async () => {
+    const props = {
+      ...actions(),
+      removedFieldNotice: ['Email'],
+      onConsumeRemovedFieldNotice: vi.fn(),
+    };
+    render(<DatabaseForm view={formView} properties={[email]} canEdit {...props} />);
+
+    expect(screen.getByText(/Deleted database fields were removed from this form: Email/)).toBeTruthy();
+    await waitFor(() => expect(props.onConsumeRemovedFieldNotice).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', {name: 'Close'}));
+    expect(screen.queryByText(/Deleted database fields were removed/)).toBeNull();
+  });
+
   it('offers the virtual title explicitly without adding it by default', async () => {
     const props = actions();
     render(<DatabaseForm view={formView} properties={[email]} canEdit {...props} />);

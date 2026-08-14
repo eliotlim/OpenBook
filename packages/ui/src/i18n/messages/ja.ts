@@ -1451,6 +1451,7 @@ export const ja: PartialMessages = {
       revokeConfirm: '公開フォームを取り消す',
       remove: 'フォームから削除',
       removeHint: 'データベースの列と既存の値は保持されます。',
+      deletedFieldNotice: '削除されたデータベースフィールドはこのフォームから外されました: {fields}。既存の行の値はアーカイブとして保持されます。',
       newFieldTitle: 'フォームフィールドを作成',
       newFieldDescription: 'このデータベースに新しい列を作成し、このフォームに追加します。',
       newFieldError: 'ビューがフォームではなくなったため、このフィールドを追加できませんでした。',
