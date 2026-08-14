@@ -28,6 +28,7 @@
     "dev": "tsx watch src/bin.ts --data-dir ./.dev-data --port 4319",
     "start": "node dist/bin.js",
     "test": "vitest run",
+    "test:pg": "vitest run --config vitest.pg.config.ts",
     "test:e2e": "tsx scripts/e2e.mts",
     "bench:ledger": "vitest run --config vitest.bench.config.ts",
     "seed": "tsx scripts/seed.mts",
