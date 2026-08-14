@@ -146,7 +146,7 @@ export interface DatabaseFormProps {
   canManagePublication?: boolean;
 }
 
-const fieldClass = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-hidden focus-visible:shadow-[var(--ring-control)]';
+const fieldClass = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-hidden focus-visible:shadow-[var(--ring-field)]';
 
 const MetadataInput: React.FC<{
   label: string;
@@ -213,7 +213,6 @@ const PatternMetadataInput: React.FC<{
     </label>
   );
 };
-
 const NumberMetadataInput: React.FC<{
   label: string;
   value: number | undefined;
@@ -256,35 +255,47 @@ const NewFieldDialog: React.FC<{
   const [type, setType] = useState<FormWritablePropertyType>('text');
   const [pageHidden, setPageHidden] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(false);
+  const changeOpen = (next: boolean): void => {
+    if (!next) setCreateError(false);
+    onOpenChange(next);
+  };
 
   const create = async (): Promise<void> => {
     if (creating || name.trim() === '') return;
+    setCreateError(false);
     setCreating(true);
     try {
       const id = await onCreate({name, type}, {pageHidden});
-      if (!id) return;
+      if (!id) {
+        setCreateError(true);
+        return;
+      }
       setName('');
       setType('text');
       setPageHidden(false);
-      onOpenChange(false);
+      changeOpen(false);
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent size="sm" data-form-new-field-dialog>
         <DialogHeader>
           <DialogTitle>{t('database.formView.newFieldTitle')}</DialogTitle>
-          <DialogDescription>{t('database.formView.builderIntro')}</DialogDescription>
+          <DialogDescription>{t('database.formView.newFieldDescription')}</DialogDescription>
         </DialogHeader>
         <label>
           <span className="mb-1 block text-sm font-medium">{t('database.formView.name')}</span>
           <input
             autoFocus
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              setCreateError(false);
+            }}
             onKeyDown={(event) => event.key === 'Enter' && void create()}
             placeholder={t('database.formView.namePlaceholder')}
             className={fieldClass}
@@ -305,8 +316,11 @@ const NewFieldDialog: React.FC<{
           </div>
           <Switch checked={pageHidden} onCheckedChange={setPageHidden} aria-label={t('database.formView.formOnly')} />
         </div>
+        {createError && (
+          <p className="text-sm text-destructive" role="alert">{t('database.formView.newFieldError')}</p>
+        )}
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+          <Button variant="ghost" onClick={() => changeOpen(false)}>{t('common.cancel')}</Button>
           <Button onClick={() => void create()} disabled={creating || name.trim() === ''}>{t('database.formView.create')}</Button>
         </DialogFooter>
       </DialogContent>
@@ -326,6 +340,7 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [instance, setInstance] = useState(0);
   const fields = projectDatabaseFormFields(properties, view, t('database.formView.rowTitle')).filter((field) => field.writable);
   const errorsByProperty = new Map(errors.filter((error) => error.propertyId).map((error) => [error.propertyId, error]));
   const globalError = errors.find((error) => error.propertyId === '');
@@ -364,6 +379,7 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
     setErrors([]);
     setSubmitError(false);
     setConfirmed(false);
+    setInstance((current) => current + 1);
   };
 
   if (view.formConfig?.acceptingResponses !== true) {
@@ -409,22 +425,35 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
       <div className="mt-6 space-y-5">
         {fields.map(({property, metadata, label}) => {
           const error = errorsByProperty.get(property.id);
-          const inputProperty = label === property.name ? property : {...property, name: label};
+          const accessibleLabel = metadata.required
+            ? `${label} (${t('database.formView.required').toLocaleLowerCase()})`
+            : label;
+          const inputProperty = accessibleLabel === property.name ? property : {...property, name: accessibleLabel};
+          const describedBy = [
+            metadata.help ? `${property.id}-help` : null,
+            error ? `${property.id}-error` : null,
+          ].filter(Boolean).join(' ') || undefined;
+          const common = {
+            'aria-label': accessibleLabel,
+            'aria-invalid': Boolean(error) || undefined,
+            'aria-describedby': describedBy,
+            'aria-required': metadata.required || undefined,
+          };
           return (
-            <div key={`${property.id}:${property.type}`} className="block" data-form-input={property.id}>
+            <div key={`${instance}:${property.id}:${property.type}`} className="block" data-form-input={property.id}>
               <span className="text-sm font-medium">
                 {label}
                 {metadata.required && <span className="ml-1 text-destructive" aria-hidden>*</span>}
               </span>
-              {metadata.help && <span className="mt-1 block text-xs text-muted-foreground">{metadata.help}</span>}
+              {metadata.help && <span id={`${property.id}-help`} className="mt-1 block text-xs text-muted-foreground">{metadata.help}</span>}
               <span className={cn('group mt-2 block min-h-9 overflow-visible rounded-md border bg-background', error ? 'border-destructive' : 'border-border')}>
                 {property.type === 'text' && metadata.multiline ? (
                   <textarea
                     defaultValue={typeof values[property.id] === 'string' ? values[property.id] as string : ''}
                     placeholder={metadata.placeholder}
-                    aria-label={label}
                     onBlur={(event) => updateValue(property.id, event.target.value)}
                     className="min-h-24 w-full resize-y bg-transparent px-2 py-1.5 text-sm outline-hidden"
+                    {...common}
                   />
                 ) : (
                   <PropertyValueCell
@@ -433,10 +462,11 @@ const DatabaseFormFill: React.FC<Pick<DatabaseFormProps, 'view' | 'properties' |
                     placeholder={metadata.placeholder}
                     onChange={(value) => updateValue(property.id, value)}
                     onAddOption={(optionLabel) => onAddOption(property.id, optionLabel)}
+                    controlProps={common}
                   />
                 )}
               </span>
-              {error && <span className="mt-1 block text-xs text-destructive" role="alert">{t(FORM_ERROR_KEY[error.code])}</span>}
+              {error && <span id={`${property.id}-error`} className="mt-1 block text-xs text-destructive" role="alert">{t(FORM_ERROR_KEY[error.code])}</span>}
             </div>
           );
         })}
@@ -599,8 +629,8 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
                   </button>
                 </div>
                 {!writable && (
-                  <div className="mb-3 flex gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs text-amber-800 dark:text-amber-200" role="status">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <div className="mb-3 flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs text-foreground" role="note">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                     {t('database.formView.unsupported')}
                   </div>
                 )}
@@ -687,7 +717,6 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
                     </div>
                   </div>
                 )}
-                <div className="mt-2 text-xs text-muted-foreground">{t('database.formView.removeHint')}</div>
               </article>
             );
           })}
@@ -1036,9 +1065,19 @@ const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
 export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
   const {t} = useTranslation();
   const [mode, setMode] = useState<'builder' | 'fill'>(props.canEdit ? 'builder' : 'fill');
+  if (!props.canEdit) {
+    return (
+      <div className="space-y-4" data-database-form>
+        <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card p-6 text-center shadow-sm" data-database-form-readonly role="note">
+          <h2 className="text-xl font-semibold">{props.view.formConfig?.title?.trim() || props.view.name}</h2>
+          <p className="mt-3 text-sm text-muted-foreground">{t('database.formView.noSubmitAccess')}</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-4" data-database-form>
-      {props.canEdit && props.canManagePublication !== false && <DatabaseFormPublicationControls {...props} />}
+      {props.canManagePublication !== false && <DatabaseFormPublicationControls {...props} />}
       {props.canEdit && (
         <div className="flex justify-center">
           <div className="inline-flex rounded-md bg-muted p-0.5" role="group">

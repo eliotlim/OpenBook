@@ -20,6 +20,9 @@ export const SIDEBAR_HOVER = 'hover:bg-hover hover:text-[hsl(var(--sheet-1-foreg
 /** The selected / active sidebar item — the stronger wash. */
 export const SIDEBAR_ACTIVE = 'bg-hover-strong text-[hsl(var(--sheet-1-foreground))]';
 
+/** A selected page row: keep its stronger wash on hover and add a metric-free rail. */
+export const SIDEBAR_SELECTED_ROW = `${SIDEBAR_ACTIVE} hover:bg-hover-strong before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-[hsl(var(--sheet-1-foreground))]`;
+
 /**
  * Press feedback for sidebar control buttons (settings, menu toggle). Deepens the
  * highlight on press by routing through the shared `bg-hover-strong` token, so ONE

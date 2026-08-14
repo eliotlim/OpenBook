@@ -96,6 +96,7 @@ export const de: PartialMessages = {
     crumbSiblings: 'Gleichrangige Seiten',
     crumbSubpages: 'Unterseiten',
     crumbCollapsed: 'Ausgeblendete Seiten anzeigen',
+    hiddenPage: 'In Navigation und Suche ausgeblendet',
     more: 'Weitere Aktionen',
     pages: 'Seiten',
     newPage: 'Neue Seite',
@@ -234,6 +235,12 @@ export const de: PartialMessages = {
       hint: 'Veröffentliche diese Seite, damit jeder mit dem Link sie unter {host} öffnen kann.',
       action: 'Seite veröffentlichen',
     },
+    listing: {
+      label: 'In Navigation und Suche ausblenden',
+      hint: 'Diese Seite wird nicht in Navigation oder Suche angezeigt. Personen mit Zugriff können sie weiterhin über den Link öffnen.',
+      inheritHint: 'Gilt nur für diese Seite; der Zugriff folgt weiterhin dem Bibliotheks-Standard.',
+      restrictedHint: 'Nur eingeladene Personen können diese Seite öffnen; Sichtbarkeit in Navigation und Suche ist daher nicht relevant.',
+    },
     forms: {
       accepts: 'Diese Seite nimmt öffentliche Einsendungen an',
       settings: 'Formulareinstellungen',
@@ -288,6 +295,7 @@ export const de: PartialMessages = {
       authenticated: 'Jede angemeldete Person, die diesen Link öffnet, kann diese Seite ansehen.',
       members: 'Nur Bibliotheks-Mitglieder, die diesen Link öffnen, können diese Seite ansehen.',
       restricted: 'Nur die von dir eingeladenen Personen können diesen Link öffnen.',
+      hidden: 'Diese Seite bleibt in Navigation und Suche ausgeblendet; Personen mit Zugriff können diesen Link weiterhin verwenden.',
       localOnly: 'Dieser Link funktioniert nur auf diesem Gerät.',
       browserLocal:
         'Dieser Link funktioniert nur in diesem Browser — bei allen anderen öffnet er deren eigene Bibliothek, nicht diese Seite. Veröffentlichen geht über die Desktop-App.',
@@ -396,6 +404,7 @@ export const de: PartialMessages = {
     exportBooksConfirm: 'Exportieren',
     exportBooksConfirmInclude: 'Mit Büchern exportieren',
     exportBooksCaptureFailed: 'Deine Bücher konnten nicht aufgenommen werden — die Datensätze ließen sich nicht vollständig lesen. Die Datei wurde ohne sie exportiert.',
+    exportHiddenPagesSkipped: '{count} ausgeblendete Seiten übersprungen.',
   },
   home: {
     morning: 'Guten Morgen',
@@ -1371,7 +1380,7 @@ export const de: PartialMessages = {
     formView: {
       builder: 'Erstellen',
       fill: 'Ausfüllen',
-      builderIntro: 'Felder bilden das aktuelle Datenbankschema ab. Wird eine Spalte umbenannt oder geändert, aktualisiert sich dieses Formular automatisch.',
+      builderIntro: 'Felder bilden das aktuelle Datenbankschema ab. Wird eine Spalte umbenannt oder geändert, aktualisiert sich dieses Formular automatisch. Beim Entfernen eines Feldes bleiben seine Datenbankspalte und vorhandenen Werte erhalten.',
       fields: 'Formularfelder',
       rowTitle: 'Zeilentitel',
       addField: 'Feld hinzufügen',
@@ -1432,6 +1441,8 @@ export const de: PartialMessages = {
       remove: 'Aus Formular entfernen',
       removeHint: 'Die Datenbankspalte und ihre vorhandenen Werte bleiben erhalten.',
       newFieldTitle: 'Formularfeld erstellen',
+      newFieldDescription: 'Erstellt eine neue Spalte in dieser Datenbank und fügt sie diesem Formular hinzu.',
+      newFieldError: 'Dieses Feld konnte nicht hinzugefügt werden, weil diese Ansicht kein Formular mehr ist.',
       name: 'Feldname',
       namePlaceholder: 'Frage oder Feldname',
       type: 'Feldtyp',
@@ -1460,6 +1471,7 @@ export const de: PartialMessages = {
       submit: 'Senden',
       submitting: 'Wird gesendet…',
       closed: 'Dieses Formular nimmt keine Antworten an.',
+      noSubmitAccess: 'Du hast keine Berechtigung, dieses Formular abzusenden.',
       defaultConfirmation: 'Danke — deine Antwort wurde gespeichert.',
       continue: 'Weiter',
       submitAnother: 'Weitere Antwort senden',

@@ -95,6 +95,7 @@ export const ja: PartialMessages = {
     crumbSiblings: '同じ階層のページ',
     crumbSubpages: 'サブページ',
     crumbCollapsed: '省略されたページを表示',
+    hiddenPage: 'ナビゲーションと検索に表示されません',
     more: 'その他の操作',
     pages: 'ページ',
     newPage: '新規ページ',
@@ -233,6 +234,12 @@ export const ja: PartialMessages = {
       hint: 'このページを公開すると、リンクを知っている人なら誰でも {host} で開けるようになります。',
       action: 'ページを公開',
     },
+    listing: {
+      label: 'ナビゲーションと検索に表示しない',
+      hint: 'このページをナビゲーションと検索に表示しません。アクセス権のある人は引き続きリンクから開けます。',
+      inheritHint: 'このページだけに適用されます。アクセス設定は引き続きライブラリの既定に従います。',
+      restrictedHint: 'このページを開けるのは招待した人だけなので、ナビゲーションと検索での表示設定は適用されません。',
+    },
     forms: {
       accepts: 'このページは公開フォームの回答を受け付けます',
       settings: 'フォーム設定',
@@ -287,6 +294,7 @@ export const ja: PartialMessages = {
       authenticated: 'サインイン済みの人がこのリンクを開くと、このページを閲覧できます。',
       members: 'このリンクを開いたライブラリのメンバーのみがこのページを閲覧できます。',
       restricted: 'あなたが招待した人のみがこのリンクを開けます。',
+      hidden: 'このページはナビゲーションと検索には表示されませんが、アクセス権のある人は引き続きこのリンクを使用できます。',
       localOnly: 'このリンクはこのデバイスでのみ機能します。',
       browserLocal:
         'このリンクはこのブラウザ内でのみ機能します。他の人が開くと、このページではなくその人自身のライブラリが表示されます。公開はデスクトップアプリから行います。',
@@ -395,6 +403,7 @@ export const ja: PartialMessages = {
     exportBooksConfirm: 'エクスポート',
     exportBooksConfirmInclude: '帳簿を含めてエクスポート',
     exportBooksCaptureFailed: '帳簿を含められませんでした——レコードを完全に読み取れなかったため、ファイルは帳簿データなしでエクスポートされました。',
+    exportHiddenPagesSkipped: '{count} 件の非表示ページをスキップしました。',
   },
   home: {
     morning: 'おはようございます',
@@ -1364,7 +1373,7 @@ export const ja: PartialMessages = {
     formView: {
       builder: '作成',
       fill: '入力',
-      builderIntro: 'フィールドは最新のデータベーススキーマを参照します。列名や種類を変更すると、このフォームにも自動で反映されます。',
+      builderIntro: 'フィールドは最新のデータベーススキーマを参照します。列名や種類を変更すると、このフォームにも自動で反映されます。フォームからフィールドを削除しても、データベースの列と既存の値は保持されます。',
       fields: 'フォームフィールド',
       rowTitle: '行のタイトル',
       addField: 'フィールドを追加',
@@ -1425,6 +1434,8 @@ export const ja: PartialMessages = {
       remove: 'フォームから削除',
       removeHint: 'データベースの列と既存の値は保持されます。',
       newFieldTitle: 'フォームフィールドを作成',
+      newFieldDescription: 'このデータベースに新しい列を作成し、このフォームに追加します。',
+      newFieldError: 'ビューがフォームではなくなったため、このフィールドを追加できませんでした。',
       name: 'フィールド名',
       namePlaceholder: '質問またはフィールド名',
       type: 'フィールドの種類',
@@ -1453,6 +1464,7 @@ export const ja: PartialMessages = {
       submit: '送信',
       submitting: '送信中…',
       closed: 'このフォームは回答を受け付けていません。',
+      noSubmitAccess: 'このフォームを送信する権限がありません。',
       defaultConfirmation: 'ありがとうございます。回答を記録しました。',
       continue: '続行',
       submitAnother: '別の回答を送信',

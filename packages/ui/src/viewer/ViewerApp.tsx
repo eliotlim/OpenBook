@@ -31,6 +31,8 @@ const pageIcon = (page: LibraryBundlePage): string | null => {
 /** Normalise either source shape to a flat page list. */
 export function pagesOf(source: ViewerSource): ViewerPage[] {
   if ('pages' in source && Array.isArray(source.pages)) {
+    // TRUST BOUNDARY (UP-4): do not filter `listed` here. Exporters must emit a
+    // clean bundle; a viewer faithfully renders every page it is handed.
     return (source as LibraryBundleJson).pages
       .filter((p) => p && typeof p.id === 'string')
       .map((p) => ({id: p.id, name: p.name ?? null, icon: pageIcon(p), data: p.data ?? {}}));

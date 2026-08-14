@@ -224,17 +224,17 @@ describe('Collab T1 — late-joiner sync', () => {
 });
 
 describe('Collab T1 — live read-gate cache', () => {
-  it('caches canReadPage per page and re-evaluates only when the access epoch bumps', async () => {
+  it('caches canListPage per page and re-evaluates only when the access epoch bumps', async () => {
     const store = await freshStore();
     const page = await store.upsertPage({name: 'Gated', data: emptySnap()}, localPrincipal());
 
     // Count real authorization calls under the gate's cache.
     let calls = 0;
-    const realCanRead = store.canReadPage.bind(store);
-    (store as unknown as {canReadPage: PageStore['canReadPage']}).canReadPage = ((p, id, b) => {
+    const realCanList = store.canListPage.bind(store);
+    (store as unknown as {canListPage: PageStore['canListPage']}).canListPage = ((p, id, b) => {
       calls += 1;
-      return realCanRead(p, id, b);
-    }) as PageStore['canReadPage'];
+      return realCanList(p, id, b);
+    }) as PageStore['canListPage'];
 
     const gates = streamGates(store, localPrincipal());
     const frame = {type: 'yupdate', pageId: page.id, update: 'x', clientId: 1} as const;

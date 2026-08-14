@@ -1577,6 +1577,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const blanket = await store.blanketReadDecision(principal, base);
     if (blanket === false) return c.json({nodes: [], edges: []});
     if (blanket === true && (await store.canListUnlisted(principal, base))) return c.json(await store.pageGraph());
+    if (blanket === true) {
+      // A blanket-readable but non-listing-privileged caller can open every page
+      // directly. Avoid N per-page authorization queries: discovery differs only
+      // by the stored flag, so fetch the live unlisted ids once and use set lookups
+      // while the graph is assembled.
+      const unlistedSet = new Set(await store.listUnlistedPageIds());
+      return c.json(await store.pageGraph((pageId) => !unlistedSet.has(pageId)));
+    }
     return c.json(await store.pageGraph((pageId) => store.canListPage(principal, pageId, base)));
   });
 
@@ -2296,7 +2304,6 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
     });
   };
-
   app.post(API.databases, async (c) => {
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.

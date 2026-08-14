@@ -64,12 +64,20 @@ export default function BreadcrumbCluster() {
   // Walk parent links up from the primary page to build the ancestor path.
   const chain: string[] = [];
   if (primaryPageId) {
-    let id: string | null = primaryPageId;
-    const seen = new Set<string>();
-    while (id && !seen.has(id)) {
-      seen.add(id);
-      chain.unshift(id);
-      id = byId.get(id)?.parentId ?? null;
+    // A visitor may open an unlisted page directly even though the server omits
+    // it (and therefore all of its ancestry) from `pages`. Its title is retained
+    // by NavigationProvider's page hint: render that page as one honest crumb,
+    // without trying to fabricate a chain from a list that cannot contain it.
+    if (!byId.has(primaryPageId)) {
+      chain.push(primaryPageId);
+    } else {
+      let id: string | null = primaryPageId;
+      const seen = new Set<string>();
+      while (id && !seen.has(id)) {
+        seen.add(id);
+        chain.unshift(id);
+        id = byId.get(id)?.parentId ?? null;
+      }
     }
   }
   // Pages on the current path get a "you are here" check in the menus.
@@ -106,7 +114,7 @@ export default function BreadcrumbCluster() {
     return (
       <DropdownMenuItem key={id} onSelect={() => goToCrumb(id)} className="gap-2">
         <PageIcon value={readPageIcon(id)} className="shrink-0 text-[0.95em] leading-none" />
-        <span className={`min-w-0 flex-1 truncate ${here ? 'font-medium' : ''}`}>{pageLabel(id)}</span>
+        <span className="min-w-0 flex-1 truncate">{pageLabel(id)}</span>
         {here && <Check aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
       </DropdownMenuItem>
     );

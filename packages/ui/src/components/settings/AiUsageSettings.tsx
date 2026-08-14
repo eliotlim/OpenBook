@@ -7,7 +7,6 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {SettingsSection} from '@/components/settings/primitives';
 import {isAdminRole, isForbidden} from '@/components/settings/adminGate';
-import {cn} from '@/lib/utils';
 
 /**
  * The admin-only AI usage surface (C2): a recent-usage viewer with totals, an
@@ -262,7 +261,7 @@ export default function AiUsageSettings() {
                     const defOut = def ? String(def.outputPerMtok) : undefined;
                     return (
                       <div key={model} className="grid grid-cols-[1fr_7rem_7rem] items-center gap-2">
-                        <label htmlFor={inId} className={cn('truncate font-mono text-xs', overridden && 'font-semibold')} title={model}>
+                        <label htmlFor={inId} className="truncate font-mono text-xs" title={model}>
                           {model}
                           {overridden && <span className="ml-1.5 text-[10px] font-normal text-primary">{t('aiUsage.overridden')}</span>}
                         </label>

@@ -198,6 +198,7 @@ export const en = {
     crumbSiblings: 'Siblings',
     crumbSubpages: 'Subpages',
     crumbCollapsed: 'Show hidden pages',
+    hiddenPage: 'Hidden from navigation and search',
   },
   tabs: {
     new: 'New tab',
@@ -383,6 +384,12 @@ export const en = {
       hint: 'Publish this page so anyone with the link can open it at {host}.',
       action: 'Publish page',
     },
+    listing: {
+      label: 'Hide from navigation and search',
+      hint: 'Keep this page out of navigation and search. People with access can still open its link.',
+      inheritHint: 'Applies only to this page; access still follows the library default.',
+      restrictedHint: 'Only invited people can reach this page, so navigation and search visibility do not apply.',
+    },
     forms: {
       accepts: 'This page accepts public submissions',
       settings: 'Form settings',
@@ -440,6 +447,7 @@ export const en = {
       authenticated: 'Anyone signed in who opens this link can view this page.',
       members: 'Only library members who open this link can view this page.',
       restricted: 'Only the people you invite can open this link.',
+      hidden: 'This page stays hidden from navigation and search; people with access can still use this link.',
       localOnly: 'This link only works on this device.',
       browserLocal:
         'This link only works in this browser — for anyone else it opens their own library, not this page. Publishing happens from the desktop app.',
@@ -558,6 +566,7 @@ export const en = {
     exportBooksConfirm: 'Export',
     exportBooksConfirmInclude: 'Export with books',
     exportBooksCaptureFailed: 'Your books couldn’t be included — the records couldn’t be read completely. The file was exported without them.',
+    exportHiddenPagesSkipped: '{count} hidden pages skipped.',
     present: 'Present',
     presentFull: 'Full screen',
     presentPresenter: 'Presenter view',
@@ -2194,7 +2203,7 @@ export const en = {
     formView: {
       builder: 'Build',
       fill: 'Fill',
-      builderIntro: 'Fields project the live database schema. Rename or change a column and this form updates automatically.',
+      builderIntro: 'Fields project the live database schema. Rename or change a column and this form updates automatically. Removing a field from the form keeps its database column and existing values.',
       fields: 'Form fields',
       rowTitle: 'Row title',
       addField: 'Add field',
@@ -2255,6 +2264,8 @@ export const en = {
       remove: 'Remove from form',
       removeHint: 'The database column and its existing values are kept.',
       newFieldTitle: 'Create a form field',
+      newFieldDescription: 'Creates a new column in this database and adds it to this form.',
+      newFieldError: 'This field could not be added because this view is no longer a form.',
       name: 'Field name',
       namePlaceholder: 'Question or field name',
       type: 'Field type',
@@ -2283,6 +2294,7 @@ export const en = {
       submit: 'Submit',
       submitting: 'Submitting…',
       closed: 'This form is not accepting responses.',
+      noSubmitAccess: 'You don\'t have access to submit this form.',
       defaultConfirmation: 'Thanks — your response has been recorded.',
       continue: 'Continue',
       submitAnother: 'Submit another response',

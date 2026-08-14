@@ -20,11 +20,14 @@ import { PageIcon } from "@/components/PageIcon";
 import type { DropWhere } from "@/lib/treeMove";
 import useResizeObserver from "use-resize-observer";
 import { MENU_WIDTH_MD } from "@/components/ui/menu-components";
+import { SIDEBAR_SELECTED_ROW } from "@/lib/sidebarStyles";
 
 interface TreeDataItem {
   id: string;
   name: string;
   icon?: LucideIcon | string,
+  /** Persistent metadata rendered after the label (for example a status badge). */
+  badge?: React.ReactNode;
   children?: TreeDataItem[];
 }
 
@@ -339,8 +342,8 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
           // alpha de-emphasis — it fails contrast on the saturated sheet) and a
           // veil-based hover/active. `--sheet-1-foreground` collapses to the app
           // foreground at interface levels 0–1, so this stays correct there too.
-          "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-sheet-1-foreground transition-colors hover:bg-hover",
-          isSelected && "bg-hover-strong font-medium",
+          "group/row relative flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-sheet-1-foreground transition-colors hover:bg-hover",
+          isSelected && SIDEBAR_SELECTED_ROW,
           where === "inside" && "ring-2 ring-inset ring-[hsl(var(--sheet-1-foreground))] bg-hover",
           isDragged && "opacity-50",
         )}
@@ -367,6 +370,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
         )}
         <RowIcon icon={item.icon} Fallback={Icon} />
         <span className="grow truncate text-sm">{item.name}</span>
+        {item.badge}
         {renderRowActions && (
           <span
             // Revealed on hover or when something inside has focus; doesn't shift

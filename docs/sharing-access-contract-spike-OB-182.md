@@ -78,3 +78,5 @@ only when the idempotently created submission row claims them; unclaimed uploads
 remain unreadable and are removed after the orphan TTL. The browser and server
 share the public limits in `packages/sdk/src/forms.ts` (5 MiB/file, 5 files per
 submission, 10 MiB staged and 50 MiB retained per form, 30-minute orphan TTL).
+
+> Future-surface fence: OG metadata, sitemaps, and RSS do not exist today; each MUST consult `listed` when built.
