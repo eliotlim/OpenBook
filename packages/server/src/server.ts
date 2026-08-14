@@ -63,11 +63,11 @@ export interface StartOptions {
    */
   editLogRetentionMs?: number;
   /**
-   * How long the idempotency ledgers (ER-6 `import_log`, ER-7 `write_keys`) are
-   * kept before the cleanup job prunes them, in milliseconds. Defaults to 7 days;
-   * `<= 0` keeps them forever. Doubles as the replay-dedup window: a re-applied
-   * bundle / replayed create older than this is treated as new. Bounds the ledgers'
-   * growth on the autovacuum-less embedded store (OB-164).
+   * How long the idempotency ledgers (`import_log`, `write_keys`, and the CWD-5
+   * captured-response ledger) are kept before cleanup, in milliseconds. Defaults
+   * to 7 days; `<= 0` keeps them forever. Doubles as the replay-dedup window: an
+   * operation older than this is treated as new. Bounds growth on the
+   * autovacuum-less embedded store (OB-164).
    */
   idempotencyRetentionMs?: number;
   /**
@@ -358,8 +358,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // grow unbounded on the autovacuum-less embedded store.
       const prunedEdits = await store.purgeOldEdits(editLogRetentionMs);
       if (prunedEdits > 0) console.log(`OpenBook edit-log cleanup: pruned ${prunedEdits} old entries`);
-      // Prune the idempotency ledgers (ER-6 import_log / ER-7 write_keys) in the
-      // same sweep — the retention doubles as the replay-dedup window.
+      // Prune all three idempotency ledgers in the same sweep — the retention
+      // doubles as the replay-dedup window.
       const prunedKeys = await store.purgeOldIdempotencyKeys(idempotencyRetentionMs);
       if (prunedKeys > 0) console.log(`OpenBook idempotency cleanup: pruned ${prunedKeys} old key(s)`);
       // Bound per-page version history (PVH-2) in the same sweep: keep-N + max-age,
