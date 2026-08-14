@@ -92,9 +92,11 @@ describe('concurrency test primitives', () => {
       begin: <T>(fn: (tx: Db) => Promise<T>): Promise<T> => fn(db),
       close: async () => undefined,
     };
+    const barrier = createBarrier(2);
     const gated = withQueryBarrier(db, {
-      parties: 2,
+      barrier,
       matches: (sql) => sql === 'stale read',
+      rendezvous: 'after-query',
       rendezvousTimeoutMs: 5_000,
       harnessFaults,
     });
@@ -105,7 +107,38 @@ describe('concurrency test primitives', () => {
     ], harnessFaults);
     await expect(pending).resolves.toEqual([[], []]);
     await expect(gated.query('stale read')).resolves.toEqual([]);
+    expect(barrier.arrived).toBe(barrier.parties);
     expect(reads).toBe(3);
+    expect(harnessFaults).toEqual([]);
+  });
+
+  it('can rendezvous before executing matching locking reads', async () => {
+    const harnessFaults: unknown[] = [];
+    const barrier = createBarrier(2);
+    let reads = 0;
+    const db: Db = {
+      async query<T>(): Promise<T[]> {
+        reads += 1;
+        return [];
+      },
+      begin: <T>(fn: (tx: Db) => Promise<T>): Promise<T> => fn(db),
+      close: async () => undefined,
+    };
+    const gated = withQueryBarrier(db, {
+      barrier,
+      matches: (sql) => sql === 'locking read',
+      rendezvous: 'before-query',
+      rendezvousTimeoutMs: 5_000,
+      harnessFaults,
+    });
+
+    const first = gated.begin((tx) => tx.query('locking read'));
+    expect(barrier.arrived).toBe(1);
+    expect(reads).toBe(0);
+    const second = gated.begin((tx) => tx.query('locking read'));
+    await Promise.all([first, second]);
+    expect(barrier.arrived).toBe(barrier.parties);
+    expect(reads).toBe(2);
     expect(harnessFaults).toEqual([]);
   });
 
@@ -117,8 +150,9 @@ describe('concurrency test primitives', () => {
       close: async () => undefined,
     };
     const gated = withQueryBarrier(db, {
-      parties: 2,
+      barrier: createBarrier(2),
       matches: () => true,
+      rendezvous: 'after-query',
       rendezvousTimeoutMs: 5_000,
       harnessFaults,
     });
@@ -145,8 +179,9 @@ describe('concurrency test primitives', () => {
         close: async () => undefined,
       };
       const gated = withQueryBarrier(db, {
-        parties: 2,
+        barrier: createBarrier(2),
         matches: () => true,
+        rendezvous: 'after-query',
         rendezvousTimeoutMs: 5_000,
         harnessFaults,
       });
