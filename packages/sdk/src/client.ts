@@ -127,6 +127,8 @@ export interface AgentTokenList {
  * document code never changes.
  */
 export interface DataClient {
+  /** HTTP origin used by connection-relative public URLs; empty for same-origin transports. */
+  readonly connectionBaseUrl?: string;
   /** List all pages' metadata, most-recently-updated first. */
   listPages(): Promise<PageMeta[]>;
   /** Fetch a page by id, or `null` if it does not exist. */
@@ -1113,6 +1115,7 @@ export class IdentityRejectedError extends Error {
  */
 export class HttpDataClient implements DataClient {
   private readonly baseUrl: string;
+  readonly connectionBaseUrl: string;
   private readonly token?: string;
   private readonly fetchImpl: FetchLike;
   private readonly createLiveSource: (url: string) => LiveSourceLike;
@@ -1132,6 +1135,7 @@ export class HttpDataClient implements DataClient {
    */
   constructor(baseUrl: string, token?: string, opts: HttpDataClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.connectionBaseUrl = this.baseUrl;
     this.token = token && token.length > 0 ? token : undefined;
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);

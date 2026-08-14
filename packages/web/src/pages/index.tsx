@@ -300,10 +300,11 @@ function PublicFormPage({route, forwardedPrefix}: {
   forwardedPrefix: string | null;
 }) {
   const [client, setClient] = useState<HttpDataClient | null>(null);
-  const [capability, setCapability] = useState<string | null>(null);
+  const [publicLocation, setPublicLocation] = useState<{capability: string | null; revision: number}>({
+    capability: null,
+    revision: 0,
+  });
   useEffect(() => {
-    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    setCapability(fragment.get('capability') ?? '');
     // Public fill deliberately omits account identity and the instance-wide LAN
     // bearer. These routes are authorized only by the fragment capability.
     const baseUrl = forwardedPrefix || SAME_ORIGIN_UI
@@ -313,6 +314,44 @@ function PublicFormPage({route, forwardedPrefix}: {
     setClient(next);
     return () => next.dispose();
   }, [forwardedPrefix]);
+  useEffect(() => {
+    const syncPublicLocation = (rawUrl: string, revisit: boolean): void => {
+      const destination = new URL(rawUrl, window.location.href);
+      if (destination.origin !== window.location.origin || destination.pathname !== window.location.pathname) return;
+      if (
+        destination.searchParams.get('form')?.trim() !== route.databaseId
+        || destination.searchParams.get('view')?.trim() !== route.viewId
+      ) {
+        return;
+      }
+      const fragment = new URLSearchParams(destination.hash.replace(/^#/, ''));
+      const capability = fragment.get('capability') ?? '';
+      setPublicLocation((current) => {
+        if (current.capability === null) return {capability, revision: current.revision};
+        if (!revisit && current.capability === capability) return current;
+        return {capability, revision: current.revision + 1};
+      });
+    };
+    const onHashChange = (event: HashChangeEvent): void => syncPublicLocation(event.newURL, false);
+    const onNavigate = (event: NavigateEvent): void => syncPublicLocation(event.destination.url, true);
+    const onPageShow = (event: PageTransitionEvent): void => {
+      if (event.persisted) syncPublicLocation(window.location.href, true);
+    };
+
+    syncPublicLocation(window.location.href, false);
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('pageshow', onPageShow);
+    // A second visit to the exact same fragment URL is a same-document
+    // navigation in Chromium: it does not remount this Next page and emits no
+    // hashchange. The Navigation API observes that revisit so the old capability
+    // is checked again instead of leaving a stale success/form surface mounted.
+    window.navigation?.addEventListener('navigate', onNavigate);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('pageshow', onPageShow);
+      window.navigation?.removeEventListener('navigate', onNavigate);
+    };
+  }, [route.databaseId, route.viewId]);
   return (
     <>
       <Head>
@@ -320,12 +359,13 @@ function PublicFormPage({route, forwardedPrefix}: {
         <meta name="robots" content="noindex,nofollow" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
-      {client && capability !== null && (
+      {client && publicLocation.capability !== null && (
         <PublicDatabaseForm
+          key={`${publicLocation.capability}:${publicLocation.revision}`}
           client={client}
           databaseId={route.databaseId}
           viewId={route.viewId}
-          capability={capability}
+          capability={publicLocation.capability}
         />
       )}
     </>

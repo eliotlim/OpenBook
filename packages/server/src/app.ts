@@ -21,6 +21,7 @@ import {
   isFormWritablePropertyType,
   generateSubmissionKey,
   projectDatabaseFormDescriptor,
+  safeFormRedirectUrl,
   submissionToRowInput,
   validateRowAgainstForm,
   validateSubmission,
@@ -2333,8 +2334,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // descriptor URL's fragment, so navigation/proxy logs never receive the secret.
   app.get(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
     const {database, view} = await requireReadDatabaseForm(c);
+    const maxResponses = databaseFormResponseCap(view);
+    if (maxResponses === null) return c.json({error: 'form not found'}, 404);
     const published = (await store.getDatabaseFormCapabilityHash(database.id, view.id)) !== null;
-    return c.json({published});
+    const responseCount = await store.countDatabaseFormResponses(database.id, view.id);
+    return c.json({published, responseCount, maxResponses});
   });
 
   app.post(`${API.databases}/:databaseId/views/:viewId/capability`, async (c) => {
@@ -2600,6 +2604,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           ? storedMarker.submittedAt
           : submittedAt;
       const result: FormSubmissionResult = {rowId: pageRow.id, submittedAt: originalSubmittedAt};
+      const confirmation = view.formConfig?.confirmation;
+      if (confirmation?.type === 'message' && typeof confirmation.message === 'string' && confirmation.message.trim()) {
+        result.confirmation = {type: 'message', message: confirmation.message.trim()};
+      } else if (confirmation?.type === 'redirect' && typeof confirmation.redirectUrl === 'string') {
+        const redirectUrl = safeFormRedirectUrl(confirmation.redirectUrl);
+        if (redirectUrl) result.confirmation = {type: 'redirect', redirectUrl};
+      }
       return c.json(result, 201);
     },
   );
