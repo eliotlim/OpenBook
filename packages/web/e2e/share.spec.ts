@@ -105,9 +105,9 @@ test('share: the scope picker progressively discloses advanced scopes', {tag: ['
 
 // UP-3 manager-verified visual: do not run locally with Chromium for this task;
 // the manager gate exercises both light/dark snapshots in its browser matrix.
-test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['@sharing', '@visual', '@manager-verified']}, async ({page, request}, testInfo) => {
+test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['@sharing', '@visual', '@manager-verified']}, async ({ownerPage: page, ownerRequest, request}, testInfo) => {
   const name = `Hidden page E2E ${testInfo.workerIndex}`;
-  const id = await newPage(request, name);
+  const id = await newPage(ownerRequest, name);
   await openShare(page, id);
 
   const dialog = page.getByRole('dialog');
@@ -117,7 +117,19 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await expect(hidden).toBeChecked();
   await expect(dialog.getByText(/stays hidden from navigation and search/)).toBeVisible();
   await expect
-    .poll(async () => (await (await request.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
+    .poll(async () => (await (await ownerRequest.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
+    .toBe(false);
+  // UP-2 deliberately removes the page from this fixture's blanket-readable
+  // guest enumeration, while the owner enumeration retains both the row and the
+  // `listed:false` metadata that drives the sidebar badge.
+  await expect
+    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as Array<{id: string}>).some((p) => p.id === id))
+    .toBe(false);
+  await expect
+    .poll(async () => {
+      const pages = (await (await ownerRequest.get(`${SERVER}/api/pages`)).json()) as Array<{id: string; listed?: boolean}>;
+      return pages.find((p) => p.id === id)?.listed;
+    })
     .toBe(false);
   await takeSnapshot(page, testInfo);
 
