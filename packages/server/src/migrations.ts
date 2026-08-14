@@ -660,7 +660,7 @@ const MIGRATIONS: Migration[] = [
         CHECK (
           (status IS NULL AND response_body = '' AND completed_at IS NULL)
           OR
-          (status BETWEEN 200 AND 299 AND response_body <> '' AND completed_at IS NOT NULL)
+          (status BETWEEN 200 AND 299 AND completed_at IS NOT NULL)
         )
       )`,
       'CREATE INDEX IF NOT EXISTS idempotency_responses_completed_at_idx ON idempotency_responses (completed_at)',

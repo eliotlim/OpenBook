@@ -313,9 +313,10 @@ function capturedIdempotencyOutcome<T>(
   if (row.fingerprint !== request.fingerprint) {
     throw new IdempotencyKeyReuseError();
   }
+  const status = Number(row.status);
   return {
-    status: Number(row.status),
-    body: JSON.parse(row.response_body) as T,
+    status,
+    body: (status === 204 ? null : JSON.parse(row.response_body)) as T,
     serializedBody: row.response_body,
     headers: {
       ...(row.content_type ? {contentType: row.content_type} : {}),
@@ -1079,7 +1080,7 @@ export class PageStore {
           }
           // Serialization is deliberately inside the transaction: a response that
           // cannot be completely constructed must not commit its mutation.
-          const serializedBody = JSON.stringify(response.body);
+          const serializedBody = response.status === 204 ? '' : JSON.stringify(response.body);
           if (serializedBody === undefined) throw new Error('idempotent response body is not JSON-serializable');
           await tx.query(
             `UPDATE idempotency_responses

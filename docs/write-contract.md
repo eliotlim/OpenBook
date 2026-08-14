@@ -392,7 +392,7 @@ represent a complete successful JSON response. Each committed row contains:
 
 - actor scope and normalized key (the primary key);
 - fingerprint, method, and normalized target for diagnostics;
-- HTTP status, JSON response body, and the replayable `Content-Type` and
+- HTTP status, exact response body bytes, and the replayable `Content-Type` and
   `Location` response headers; and
 - completion time for garbage collection.
 
@@ -415,7 +415,7 @@ removed its target, although authorization still must.
 On an exact replay after those gates:
 
 1. verify the stored fingerprint;
-2. return the stored status, semantically identical JSON body, and allowlisted
+2. return the stored status, byte-identical body, and allowlisted
    headers; and
 3. do not re-run CAS, mutate storage, increment `rev`, publish a duplicate event,
    or append duplicate edit/history entries.

@@ -156,7 +156,10 @@ describe('Idempotency-Key route contract', () => {
 
     const replay = await destroy();
     expect(replay.status).toBe(204);
-    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(1);
+    expect(await replay.text()).toBe('');
+    expect(await db.query<{response_body: string}>(
+      'SELECT response_body FROM idempotency_responses',
+    )).toEqual([{response_body: ''}]);
   });
 
   it('fingerprints exact body bytes and returns the typed 409 reuse envelope on a mismatch', async () => {
