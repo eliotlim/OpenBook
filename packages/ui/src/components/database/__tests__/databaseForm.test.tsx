@@ -1,13 +1,14 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {
   removeProperty,
+  safeFormRedirectUrl,
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
   type DatabaseSchema,
   type DatabaseView,
 } from '@book.dev/sdk';
-import {DatabaseForm, projectDatabaseFormFields, reorderFormFieldIds, safeFormRedirectUrl} from '../databaseForm';
+import {DatabaseForm, projectDatabaseFormFields, reorderFormFieldIds} from '../databaseForm';
 
 const formSources = import.meta.glob('../databaseForm.tsx', {
   query: '?raw',
@@ -50,7 +51,6 @@ const renderFill = (
   fireEvent.click(screen.getByRole('button', {name: 'Fill'}));
   return {props, rendered};
 };
-
 describe('database form live projection', () => {
   it('reads renamed and retyped columns live without copied schema fields', () => {
     expect(projectDatabaseFormFields([email], formView)[0]).toMatchObject({
@@ -154,6 +154,188 @@ describe('database form builder', () => {
         maxResponses: 250,
       },
     });
+  });
+
+  it('reviews every public field, calls out choices, and requires the untitled acknowledgement', async () => {
+    const select: DatabaseProperty = {
+      id: 'p-select',
+      name: 'Plan',
+      type: 'select',
+      options: [
+        {id: 'free', label: 'Free', color: 'blue'},
+        {id: 'pro', label: 'Pro', color: 'green'},
+        {id: 'team', label: 'Team', color: 'purple'},
+        {id: 'enterprise', label: 'Enterprise', color: 'gray'},
+      ],
+    };
+    const multi: DatabaseProperty = {
+      id: 'p-multi',
+      name: 'Topics',
+      type: 'multi_select',
+      options: [{id: 'forms', label: 'Forms', color: 'blue'}],
+    };
+    const status: DatabaseProperty = {
+      id: 'p-status',
+      name: 'Stage',
+      type: 'status',
+      options: [{id: 'new', label: 'New', color: 'gray'}],
+    };
+    const checkbox: DatabaseProperty = {id: 'p-checkbox', name: 'Consent', type: 'checkbox'};
+    const view = {
+      ...formView,
+      visiblePropertyIds: [email.id, select.id, multi.id, status.id, checkbox.id],
+      formFields: {[email.id]: {required: true}, [select.id]: {}, [multi.id]: {}, [status.id]: {}, [checkbox.id]: {}},
+    } as DatabaseView;
+    const props = {
+      ...actions(),
+      getPublication: vi.fn().mockResolvedValue({published: false, responseCount: 2, maxResponses: 25}),
+      onPublish: vi.fn().mockResolvedValue({
+        url: '/?form=database-id&view=v-form#capability=one-time-secret',
+      }),
+      onRevoke: vi.fn().mockResolvedValue(true),
+    };
+    render(<DatabaseForm view={view} properties={[email, select, multi, status, checkbox]} canEdit {...props} />);
+
+    const openReview = await screen.findByRole('button', {name: 'Publish form'});
+    await waitFor(() => expect(openReview.hasAttribute('disabled')).toBe(false));
+    expect(screen.getByText('2 of 25 responses')).toBeTruthy();
+    fireEvent.click(openReview);
+    const review = await screen.findByRole('dialog');
+    for (const [id, label] of [[email.id, 'Email'], [select.id, 'Plan'], [multi.id, 'Topics'], [status.id, 'Stage'], [checkbox.id, 'Consent']]) {
+      expect(review.querySelector(`[data-publish-review-field="${id}"]`)?.textContent).toContain(label);
+    }
+    expect(review.querySelector(`[data-publish-review-field="${email.id}"]`)?.textContent).toContain('Required');
+    expect(review.querySelector(`[data-publish-review-field="${select.id}"]`)?.textContent).toContain('Free, Pro, Team, +1 more');
+    expect(within(review).getAllByText('Public choice')).toHaveLength(4);
+    expect(within(review).getByText(/Select, multi-select, status, and checkbox fields are publicly writable/)).toBeTruthy();
+    const untitledAcknowledgement = within(review).getByRole('checkbox', {
+      name: /Responses will be untitled/,
+    });
+
+    const confirm = within(review).getByRole('button', {name: 'Publish form'});
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(untitledAcknowledgement);
+    expect(confirm.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(props.onPublish).toHaveBeenCalledTimes(1));
+    const link = await screen.findByRole('link', {name: /capability=one-time-secret/});
+    expect(link.getAttribute('href')).toContain('#capability=one-time-secret');
+    expect(screen.getByText('Copy your public fill URL now')).toBeTruthy();
+    expect(screen.getByText(/only time the full link is shown/)).toBeTruthy();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText}});
+    fireEvent.click(screen.getByRole('button', {name: 'Copy public fill URL'}));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('#capability=one-time-secret')));
+    expect(screen.getByRole('button', {name: 'Copied'})).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', {name: 'Done'}));
+    expect(screen.queryByText(/capability=one-time-secret/)).toBeNull();
+  });
+
+  it('warns before replacing or revoking every distributed link', async () => {
+    const props = {
+      ...actions(),
+      getPublication: vi.fn().mockResolvedValue({published: true, responseCount: 7, maxResponses: 100}),
+      onPublish: vi.fn().mockResolvedValue({url: '/#capability=replacement-secret'}),
+      onRevoke: vi.fn().mockResolvedValue(true),
+    };
+    const rendered = render(<DatabaseForm view={formView} properties={[email]} canEdit {...props} />);
+
+    const rotate = await screen.findByRole('button', {name: 'Rotate link'});
+    fireEvent.click(rotate);
+    const review = await screen.findByRole('dialog');
+    expect(within(review).getByText(/disables every copy of the existing link/)).toBeTruthy();
+    expect(within(review).getByRole('button', {name: 'Replace public link'})).toBeTruthy();
+    fireEvent.click(within(review).getByRole('button', {name: 'Cancel'}));
+
+    fireEvent.click(screen.getByRole('button', {name: 'Revoke'}));
+    const revokeDialog = await screen.findByRole('dialog');
+    expect(within(revokeDialog).getByText(/Every distributed copy/)).toBeTruthy();
+    expect(props.onRevoke).not.toHaveBeenCalled();
+    fireEvent.click(within(revokeDialog).getByRole('button', {name: 'Revoke public form'}));
+    await waitFor(() => expect(props.onRevoke).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Not published')).toBeTruthy();
+    rendered.unmount();
+  });
+
+  it('blocks empty-row publication and hides lifecycle controls without manage authority', async () => {
+    const props = {
+      ...actions(),
+      getPublication: vi.fn().mockResolvedValue({published: false, responseCount: 0, maxResponses: 10_000}),
+      onPublish: vi.fn().mockResolvedValue({url: '/#capability=unused'}),
+      onRevoke: vi.fn().mockResolvedValue(true),
+    };
+    const emptyView = {...formView, visiblePropertyIds: [], formFields: {}} as DatabaseView;
+    const rendered = render(<DatabaseForm view={emptyView} properties={[]} canEdit {...props} />);
+    const publishButton = await screen.findByRole('button', {name: 'Publish form'});
+    expect(publishButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(publishButton);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(props.onPublish).not.toHaveBeenCalled();
+    rendered.unmount();
+
+    render(<DatabaseForm view={formView} properties={[email]} canEdit canManagePublication={false} {...props} />);
+    expect(screen.queryByText('Public form')).toBeNull();
+  });
+
+  it('resolves a one-time fill path against the app origin', async () => {
+    const withTitle = {
+      ...formView,
+      visiblePropertyIds: [TITLE_PROPERTY_ID, email.id],
+      formFields: {[TITLE_PROPERTY_ID]: {}, [email.id]: {}},
+    } as DatabaseView;
+    const props = {
+      ...actions(),
+      getPublication: vi.fn().mockResolvedValue({published: false, responseCount: 0, maxResponses: 10_000}),
+      onPublish: vi.fn().mockResolvedValue({url: '/?form=db&view=v-form#capability=remote-secret'}),
+      onRevoke: vi.fn().mockResolvedValue(true),
+    };
+    render(<DatabaseForm view={withTitle} properties={[email]} canEdit {...props} />);
+    const publishButton = await screen.findByRole('button', {name: 'Publish form'});
+    fireEvent.click(publishButton);
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Publish form'}));
+
+    const link = await screen.findByRole('link', {name: /remote-secret/});
+    expect(link.getAttribute('href')).toBe(
+      new URL('/?form=db&view=v-form#capability=remote-secret', window.location.href).toString(),
+    );
+  });
+
+  it('rejects unsafe patterns while authoring and blocks a hand-authored unsafe pattern at review', async () => {
+    const note: DatabaseProperty = {id: 'p-note', name: 'Note', type: 'text'};
+    const props = {
+      ...actions(),
+      getPublication: vi.fn().mockResolvedValue({published: false, responseCount: 0, maxResponses: 10_000}),
+      onPublish: vi.fn().mockResolvedValue({url: '/#capability=should-not-exist'}),
+      onRevoke: vi.fn().mockResolvedValue(true),
+    };
+    const safeView = {
+      ...formView,
+      visiblePropertyIds: [TITLE_PROPERTY_ID, note.id],
+      formFields: {[TITLE_PROPERTY_ID]: {}, [note.id]: {}},
+    } as DatabaseView;
+    const renderResult = render(<DatabaseForm view={safeView} properties={[note]} canEdit {...props} />);
+    await screen.findByText('Not published');
+    const patternInputs = screen.getAllByLabelText('Pattern');
+    const pattern = patternInputs[patternInputs.length - 1];
+    fireEvent.change(pattern, {target: {value: '(a+)+$'}});
+    fireEvent.blur(pattern);
+    expect(screen.getByText('Enter a valid, safe regular expression.')).toBeTruthy();
+    expect(props.onUpdateView).not.toHaveBeenCalled();
+
+    renderResult.unmount();
+    const unsafeView = {
+      ...safeView,
+      formFields: {[TITLE_PROPERTY_ID]: {}, [note.id]: {validation: {pattern: '(a+)+$'}}},
+    } as DatabaseView;
+    render(<DatabaseForm view={unsafeView} properties={[note]} canEdit {...props} />);
+    const openReview = await screen.findByRole('button', {name: 'Publish form'});
+    await waitFor(() => expect(openReview.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(openReview);
+    const review = await screen.findByRole('dialog');
+    expect(within(review).getByText('Fix every invalid or unsafe validation pattern before publishing.')).toBeTruthy();
+    expect(within(review).getByRole('button', {name: 'Publish form'}).hasAttribute('disabled')).toBe(true);
+    expect(props.onPublish).not.toHaveBeenCalled();
   });
 
   it('explains failed new-field creation when the target is no longer a form', async () => {
@@ -324,7 +506,6 @@ describe('database form fill renderer', () => {
     expect(container.querySelector(`[data-form-input="${email.id}"]`)).toBeTruthy();
     expect(container.querySelector(`[data-form-input="${computed.id}"]`)).toBeNull();
   });
-
   it('never imports or reads the database row projection', () => {
     const source = Object.values(formSources)[0];
     expect(source).not.toContain('visibleRows');
