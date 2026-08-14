@@ -12,9 +12,14 @@ import type {Context} from 'hono';
 import {HTTPException} from 'hono/http-exception';
 import {
   FORM_UPLOAD_MAX_FILE_BYTES,
+  isFormWritablePropertyType,
+  type DatabaseFormDescriptorRequest,
+  type DatabaseFormSubmissionRequest,
+  type DatabaseView,
   type FormSchema,
   type FormSubmissionRequest,
   type FormUploadRequest,
+  type StoredDatabase,
   type StoredPage,
 } from '@book.dev/sdk';
 import type {AppEnv} from './appEnv';
@@ -42,7 +47,15 @@ export const FORM_UPLOAD_MAX_NAME_BYTES = 512;
 export const FORM_UPLOAD_MAX_FIELD_ID_BYTES = 200;
 
 const DUMMY_SUBMISSION_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const DUMMY_DATABASE_FORM_CAPABILITY_HASH = '0'.repeat(64);
+const FORM_IDEMPOTENCY_V4_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const FORM_IDEMPOTENCY_BASE64URL = /^[A-Za-z0-9_-]{22,}$/;
 const textEncoder = new TextEncoder();
+
+/** Require the wire shape of at least 128 bits of caller-generated entropy. */
+function isStrongFormIdempotencyKey(key: string): boolean {
+  return FORM_IDEMPOTENCY_V4_UUID.test(key) || FORM_IDEMPOTENCY_BASE64URL.test(key);
+}
 
 /** The validated subset of a persisted `form` block that the server consumes. */
 export interface StoredFormDefinition {
@@ -63,6 +76,112 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function denyFormSubmission(): never {
   throw new HTTPException(404, {message: FORM_SUBMISSION_DENIED_MESSAGE});
+}
+
+/** SHA-256 hex stored in place of a database form's plaintext capability. */
+export function hashDatabaseFormCapability(capability: string): string {
+  return createHash('sha256').update(capability, 'utf8').digest('hex');
+}
+
+/** Namespace a database form-view in the shared staged-upload table. */
+export function databaseFormUploadId(viewId: string): string {
+  return `database-view:${viewId}`;
+}
+
+/** Resolve one uniquely-id'd current form view, failing closed on duplicate ids. */
+export function currentDatabaseFormView(database: StoredDatabase, viewId: string): DatabaseView | null {
+  if (!Array.isArray(database.schema?.views) || !Array.isArray(database.schema?.properties)) return null;
+  const matching = database.schema.views.filter((view) =>
+    view && typeof view === 'object' && view.id === viewId && view.type === 'form',
+  );
+  if (matching.length !== 1) return null;
+  const view = matching[0];
+  if (
+    view.visiblePropertyIds !== undefined
+    && (!Array.isArray(view.visiblePropertyIds)
+      || !view.visiblePropertyIds.every((propertyId) => typeof propertyId === 'string'))
+  ) {
+    return null;
+  }
+
+  // Database JSON crosses version and hand-authored boundaries. Validate the
+  // mapped subset that the public descriptor/validator will dereference so a
+  // malformed option or property fails closed instead of becoming a public 500.
+  const mappedIds = new Set(view.visiblePropertyIds ?? []);
+  for (const candidate of database.schema.properties as unknown[]) {
+    if (!isRecord(candidate)) return null;
+    if (typeof candidate.id !== 'string' || !mappedIds.has(candidate.id)) continue;
+    if (typeof candidate.name !== 'string' || typeof candidate.type !== 'string') return null;
+    if (candidate.options !== undefined) {
+      if (!Array.isArray(candidate.options)) return null;
+      if (candidate.options.some((option) =>
+        !isRecord(option)
+        || typeof option.id !== 'string'
+        || typeof option.label !== 'string'
+        || (option.color !== undefined && typeof option.color !== 'string')
+        || (option.group !== undefined && typeof option.group !== 'string')
+      )) {
+        return null;
+      }
+    }
+  }
+  return view;
+}
+
+/**
+ * Resolve a valid database-form capability without inspecting response state.
+ * Descriptor reads and submissions share this exact existence-hiding door; only
+ * a caller that passes it may learn that a form is closed.
+ */
+export async function requireDatabaseFormSubmissionAccess(
+  store: PageStore,
+  databaseId: string,
+  viewId: string,
+  providedCapability: string,
+): Promise<{database: StoredDatabase; view: DatabaseView; capabilityHash: string}> {
+  const database = await store.getDatabase(databaseId);
+  const page = database ? await store.getPage(database.pageId) : null;
+  const view = database ? currentDatabaseFormView(database, viewId) : null;
+  const capabilityHash = view
+    ? await store.getDatabaseFormCapabilityHash(databaseId, viewId)
+    : null;
+  const managed = database ? await store.isManagedDatabase(databaseId) : false;
+  const providedHash = hashDatabaseFormCapability(providedCapability);
+  const expectedHash = capabilityHash ?? DUMMY_DATABASE_FORM_CAPABILITY_HASH;
+  const matches = constantTimeSubmissionKeyEqual(providedHash, expectedHash);
+  if (
+    !database
+    || !page
+    || !view
+    || !capabilityHash
+    || managed
+    || !matches
+  ) {
+    denyFormSubmission();
+  }
+  return {database, view, capabilityHash};
+}
+
+/** Resolve the frozen per-view response ceiling, failing closed when malformed. */
+export function databaseFormResponseCap(view: DatabaseView): number | null {
+  const config = view.formConfig;
+  if (!config || !Object.prototype.hasOwnProperty.call(config, 'maxResponses')) {
+    return FORM_SUBMISSION_DEFAULT_MAX_SUBMISSIONS;
+  }
+  return Number.isSafeInteger(config.maxResponses) && (config.maxResponses as number) >= 0
+    ? config.maxResponses as number
+    : null;
+}
+
+/** Whether `fieldId` is a current, mapped files property on this form view. */
+export function isDatabaseFormFilesField(
+  database: StoredDatabase,
+  view: DatabaseView,
+  fieldId: string,
+): boolean {
+  if (!(view.visiblePropertyIds ?? []).includes(fieldId) || fieldId.startsWith('sys_')) return false;
+  const property = database.schema.properties.find((candidate) => candidate.id === fieldId);
+  return property?.type === 'files' && isFormWritablePropertyType(property.type);
 }
 
 /** Whether a validated-enough persisted schema exposes at least one files field. */
@@ -216,6 +335,23 @@ export function formSubmissionKey(body: unknown): string {
   return isRecord(body) && typeof body.key === 'string' ? body.key : '';
 }
 
+/** Extract only the candidate database-form capability for the oracle-safe gate. */
+export function databaseFormCapability(body: unknown): string {
+  return isRecord(body) && typeof body.capability === 'string' ? body.capability : '';
+}
+
+/** Validate the frozen capability-only descriptor POST body after the deny door. */
+export function validateDatabaseFormDescriptorRequest(body: unknown): DatabaseFormDescriptorRequest {
+  if (
+    !isRecord(body)
+    || typeof body.capability !== 'string'
+    || Object.keys(body).some((key) => key !== 'capability')
+  ) {
+    throw new HTTPException(400, {message: 'invalid form descriptor request'});
+  }
+  return {capability: body.capability};
+}
+
 /** Validate upload metadata after the capability gate has passed. */
 export function validateFormUploadRequest(body: unknown): FormUploadRequest {
   if (
@@ -235,6 +371,41 @@ export function validateFormUploadRequest(body: unknown): FormUploadRequest {
   }
   return {
     key: body.key,
+    fieldId: body.fieldId,
+    name: body.name,
+    mime: body.mime || 'application/octet-stream',
+    data: body.data,
+  };
+}
+
+export interface DatabaseFormUploadRequest {
+  capability: string;
+  fieldId: string;
+  name: string;
+  mime: string;
+  data: string;
+}
+
+/** Validate database form upload metadata after its capability gate has passed. */
+export function validateDatabaseFormUploadRequest(body: unknown): DatabaseFormUploadRequest {
+  if (
+    !isRecord(body)
+    || Object.keys(body).some((key) => !['capability', 'fieldId', 'name', 'mime', 'data'].includes(key))
+    || typeof body.capability !== 'string'
+    || typeof body.fieldId !== 'string'
+    || body.fieldId.length === 0
+    || textEncoder.encode(body.fieldId).byteLength > FORM_UPLOAD_MAX_FIELD_ID_BYTES
+    || typeof body.name !== 'string'
+    || body.name.trim().length === 0
+    || textEncoder.encode(body.name).byteLength > FORM_UPLOAD_MAX_NAME_BYTES
+    || typeof body.mime !== 'string'
+    || typeof body.data !== 'string'
+    || body.data.length === 0
+  ) {
+    throw new HTTPException(400, {message: 'invalid form upload'});
+  }
+  return {
+    capability: body.capability,
     fieldId: body.fieldId,
     name: body.name,
     mime: body.mime || 'application/octet-stream',
@@ -304,4 +475,47 @@ export function validateFormSubmissionRequest(body: unknown): FormSubmissionRequ
     values: body.values,
     idempotencyKey,
   };
+}
+
+/** Validate the frozen F-4 submission envelope after the capability gate. */
+export function validateDatabaseFormSubmissionRequest(body: unknown): DatabaseFormSubmissionRequest {
+  if (
+    !isRecord(body)
+    || !isRecord(body.fields)
+    || typeof body.capability !== 'string'
+    || Object.keys(body).some((key) => !['capability', 'fields', 'idempotencyKey'].includes(key))
+  ) {
+    throw new HTTPException(400, {message: 'invalid form submission'});
+  }
+  const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
+  if (
+    typeof body.idempotencyKey !== 'string'
+    || idempotencyKey.length === 0
+    || !isStrongFormIdempotencyKey(idempotencyKey)
+    || textEncoder.encode(idempotencyKey).byteLength > FORM_SUBMISSION_MAX_IDEMPOTENCY_KEY_BYTES
+  ) {
+    throw new HTTPException(400, {message: 'invalid form submission'});
+  }
+
+  const entries = Object.entries(body.fields);
+  const totalBytes = jsonBytes(body.fields);
+  if (
+    entries.length > FORM_SUBMISSION_MAX_FIELDS
+    || totalBytes === null
+    || totalBytes > FORM_SUBMISSION_MAX_VALUES_BYTES
+  ) {
+    throw new HTTPException(400, {message: 'form submission values are too large'});
+  }
+  for (const [, value] of entries) {
+    const valueBytes = jsonBytes(value);
+    if (
+      valueBytes === null
+      || valueBytes > FORM_SUBMISSION_MAX_VALUE_BYTES
+      || !jsonDepthWithin(value, FORM_SUBMISSION_MAX_VALUE_DEPTH)
+    ) {
+      throw new HTTPException(400, {message: 'form submission value is too large or deeply nested'});
+    }
+  }
+
+  return {capability: body.capability, fields: body.fields, idempotencyKey};
 }

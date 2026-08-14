@@ -252,7 +252,7 @@ describe.each(backends())('LGR-15 — backup → destroy → restore → diff [$
     expect(restoredImage?.mime).toBe('image/png');
     expect(Array.from(restoredImage?.bytes ?? [])).toEqual(Array.from(imageBytes));
     expect((await targetStore.pagesReferencingAsset(imageId)).sort()).toEqual([imagePage.id, sharedPage.id].sort());
-    expect(await targetStore.getPageVisibility(imagePage.id)).toBe('authenticated');
+    expect((await targetStore.getPageVisibility(imagePage.id))?.visibility).toBe('authenticated');
     expect(await targetStore.getPageAgentEdits(imagePage.id)).toBe('direct');
     expect(await targetStore.getPageAcl(imagePage.id)).toEqual(sourceAcl);
 

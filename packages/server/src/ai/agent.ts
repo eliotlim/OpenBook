@@ -342,11 +342,11 @@ export class AgentRunner {
         run: async (args) => {
           const principal = this.principal;
           if (!principal) return 'No matching notes.';
-          // Filter ranked hits to the pages THIS caller may read (per-principal),
+          // Filter ranked hits to the pages THIS caller may read and discover,
           // amortising the roster lookup across the candidates — same gate as the
           // /api/ai/search route, so the agent can't surface restricted snippets.
           const base = await this.store.accessBase(principal);
-          const res = await this.ai.search(String(args.query ?? ''), 5, (pageId) => this.store.canReadPage(principal, pageId, base));
+          const res = await this.ai.search(String(args.query ?? ''), 5, (pageId) => this.store.canListPage(principal, pageId, base));
           if (res.results.length === 0) return 'No matching notes.';
           return res.results.map((r) => `- [${r.pageId}] ${r.title}: ${r.snippet}`).join('\n');
         },

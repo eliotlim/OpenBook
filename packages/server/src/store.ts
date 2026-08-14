@@ -15,6 +15,7 @@ import type {
   BackupSkippedItem,
   CommentInput,
   CommentRun,
+  DatabaseFormSubmissionMarker,
   DatabaseInput,
   DatabaseRow,
   DatabaseSchema,
@@ -36,6 +37,8 @@ import type {
   PageSnapshot,
   PageVersionMeta,
   PageVisibility,
+  PageVisibilitySettings,
+  PageVisibilityUpdate,
   StoredPageVersion,
   Principal,
   RowInput,
@@ -50,7 +53,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {AGENT_EDITS_POLICIES, authorize, BACKUP_VERSION, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, PAGE_VISIBILITIES, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {AGENT_EDITS_POLICIES, authorize, BACKUP_VERSION, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, FORM_SUBMISSION_PROPERTY_ID, isEmailAuthoritative, latestSnapshotAuthor, PAGE_VISIBILITIES, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {LedgerError, LEDGER_AUDIT_ACTIONS, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, ledgerRestorePayloadContent, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {compareSemver, isSemver} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
@@ -69,6 +72,7 @@ import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
  * import-overwrite guard test keeps the two literals in sync.
  */
 const USAGE_DB_SETTING_KEY = 'aiUsageDb';
+const DATABASE_FORM_MARKER_VIEW_KEY = 'submittedViaViewId' satisfies keyof DatabaseFormSubmissionMarker;
 
 /**
  * Thrown by {@link PageStore.putAsset} when storing a NEW asset would push the
@@ -163,6 +167,7 @@ interface PageRow {
   position?: number | string | null;
   // Stored access posture; selected only by the v3 manifest query.
   visibility?: string | null;
+  listed?: boolean | null;
   agent_edits?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -235,7 +240,19 @@ export interface CreateRowOptions {
     /** Client-generated replay key within that scope. */
     key: string;
   };
+  /** Atomic F-4 publication binding and per-view response ceiling. */
+  databaseForm?: {
+    viewId: string;
+    capabilityHash: string;
+    maxResponses: number;
+  };
 }
+
+/** Publication changed after the route's capability check but before row create. */
+export class DatabaseFormAccessLostError extends Error {}
+
+/** A fresh create would exceed the durable per-view response ceiling. */
+export class DatabaseFormResponseLimitError extends Error {}
 
 /** Result of a row create that atomically claims an idempotency key. */
 export interface CreateRowResult {
@@ -296,6 +313,7 @@ const agentTokenMetaFromRow = (row: AgentTokenDbRow): AgentTokenMeta => ({
 const metaFromRow = (row: PageRow): PageMeta => ({
   id: row.id,
   name: row.name,
+  listed: row.listed ?? undefined,
   icon: row.icon ?? null,
   hostedDatabaseId: row.hosted_database_id ?? null,
   parentId: row.parent_id ?? null,
@@ -1126,7 +1144,7 @@ export class PageStore {
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
               (p.properties->>'sys_icon') AS icon
        FROM ${PAGE_FROM}
        WHERE p.database_id IS NULL AND p.deleted_at IS NULL
@@ -2385,10 +2403,10 @@ export class PageStore {
       // FROM` compares the *normalized* jsonb value, so a different key order or
       // whitespace alone doesn't count as a change. A skipped update also leaves
       // `updated_at` untouched, so the mirror/watcher don't see a phantom edit.
-      `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
+      `INSERT INTO pages (id, name, data, parent_id, position, listed, updated_at)
        VALUES ($1, $2, $3::jsonb, $4,
          (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
-         now())
+         COALESCE($5, true), now())
        ON CONFLICT (id) DO UPDATE
          SET name = EXCLUDED.name,
              data = EXCLUDED.data,
@@ -2397,7 +2415,7 @@ export class PageStore {
             OR pages.name IS DISTINCT FROM EXCLUDED.name
        RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
          (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-      [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
+      [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null, input.listed ?? null],
     );
     // Empty result ⇒ the no-op `WHERE` skipped the write; the stored row is
     // already current, so return it unchanged.
@@ -2579,7 +2597,7 @@ export class PageStore {
    */
   async listBacklinks(id: string): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
               d.id AS hosted_database_id, (p.properties->>'sys_icon') AS icon
          FROM pages p LEFT JOIN databases d ON d.page_id = p.id
         WHERE p.deleted_at IS NULL AND p.id <> $1
@@ -2612,7 +2630,7 @@ export class PageStore {
    * are readable — so a restricted page can neither appear as a node nor leak via
    * an edge to/from a page you can see.
    */
-  async pageGraph(canRead?: (pageId: string) => Promise<boolean>): Promise<PageGraph> {
+  async pageGraph(canRead?: (pageId: string) => boolean | Promise<boolean>): Promise<PageGraph> {
     const rows = await this.db.query<PageRow>(
       `SELECT p.id, p.name, p.data, p.properties, (p.properties->>'sys_icon') AS icon
          FROM pages p
@@ -2653,6 +2671,16 @@ export class PageStore {
 
     const nodes = rows.filter((row) => isReadable(row.id)).map((row) => ({id: row.id, name: row.name, icon: row.icon ?? null}));
     return {nodes, edges};
+  }
+
+  /** The ids excluded from ordinary discovery among live pages. Used by the
+   * blanket-readable graph fast path so it pays one query instead of a full
+   * `canListPage` authorization round-trip for every node. */
+  async listUnlistedPageIds(): Promise<string[]> {
+    const rows = await this.db.query<{id: string}>(
+      'SELECT id FROM pages WHERE listed = FALSE AND deleted_at IS NULL',
+    );
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -2730,7 +2758,7 @@ export class PageStore {
    */
   async listTrash(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
               (p.properties->>'sys_icon') AS icon
        FROM pages p
        LEFT JOIN databases d ON d.page_id = p.id
@@ -2936,23 +2964,119 @@ export class PageStore {
     return Number(rows[0]?.n ?? 0);
   }
 
+  /** Count active rows attributed to one database form view, excluding legacy markers. */
+  async countDatabaseFormResponses(databaseId: string, viewId: string): Promise<number> {
+    const rows = await this.db.query<{n: number | string}>(
+      `SELECT count(*) AS n FROM pages
+       WHERE database_id = $1
+         AND deleted_at IS NULL
+         AND properties -> $2::text ->> $3::text = $4`,
+      [databaseId, FORM_SUBMISSION_PROPERTY_ID, DATABASE_FORM_MARKER_VIEW_KEY, viewId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
   /** Update a database's name and/or schema. Only provided fields change. */
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase | null> {
     await this.assertNotLedgerDatabase(id); // LGR-3: the seeded schemas are enforcement-relevant
-    const rows = await this.db.query<DatabaseRowRecord>(
-      `UPDATE databases
-         SET name   = COALESCE($2, name),
-             schema = COALESCE($3::jsonb, schema),
-             updated_at = now()
-       WHERE id = $1
-       RETURNING id, page_id, name, schema, created_at, updated_at`,
-      [
-        id,
-        patch.name === undefined ? null : patch.name,
-        patch.schema === undefined ? null : JSON.stringify(patch.schema),
-      ],
+    return this.db.begin(async (tx) => {
+      const rows = await tx.query<DatabaseRowRecord>(
+        `UPDATE databases
+           SET name   = COALESCE($2, name),
+               schema = COALESCE($3::jsonb, schema),
+               updated_at = now()
+         WHERE id = $1
+         RETURNING id, page_id, name, schema, created_at, updated_at`,
+        [
+          id,
+          patch.name === undefined ? null : patch.name,
+          patch.schema === undefined ? null : JSON.stringify(patch.schema),
+        ],
+      );
+      if (rows.length === 0) return null;
+
+      // F-4: publication state is separate from the schema, but deleting a form
+      // view (or retyping it away from `form`) revokes that view's capability in
+      // the SAME transaction as the schema write. A duplicated view has a fresh id,
+      // so it never aliases the source view's row here.
+      if (patch.schema !== undefined) {
+        const formViewCounts = new Map<string, number>();
+        if (Array.isArray(patch.schema.views)) {
+          for (const view of patch.schema.views) {
+            if (view && typeof view === 'object' && view.type === 'form' && typeof view.id === 'string') {
+              formViewCounts.set(view.id, (formViewCounts.get(view.id) ?? 0) + 1);
+            }
+          }
+        }
+        // A duplicate id is not a stable publication binding. Revoke it now so
+        // removing one duplicate later cannot silently reactivate the old link.
+        const liveFormViewIds = [...formViewCounts]
+          .filter(([, count]) => count === 1)
+          .map(([viewId]) => viewId);
+        await tx.query(
+          `DELETE FROM database_form_capabilities capabilities
+           WHERE capabilities.database_id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM jsonb_array_elements_text($2::jsonb) live(view_id)
+               WHERE live.view_id = capabilities.view_id
+             )`,
+          [id, JSON.stringify(liveFormViewIds)],
+        );
+      }
+      return databaseFromRow(rows[0]);
+    });
+  }
+
+  /** Read the at-rest SHA-256 digest for one published database form view. */
+  async getDatabaseFormCapabilityHash(databaseId: string, viewId: string): Promise<string | null> {
+    const rows = await this.db.query<{capability_hash: string}>(
+      `SELECT capability_hash FROM database_form_capabilities
+       WHERE database_id = $1 AND view_id = $2`,
+      [databaseId, viewId],
     );
-    return rows.length > 0 ? databaseFromRow(rows[0]) : null;
+    return rows[0]?.capability_hash ?? null;
+  }
+
+  /** First-publish or rotate one database form capability digest. */
+  async setDatabaseFormCapabilityHash(databaseId: string, viewId: string, capabilityHash: string): Promise<boolean> {
+    return this.db.begin(async (tx) => {
+      // Serialize publication with updateDatabase's schema write. Without this
+      // lock, a concurrent deleteView could revoke and then lose a late INSERT,
+      // leaving a dormant capability that reactivates if the id is ever reused.
+      const rows = await tx.query<DatabaseRowRecord>(
+        `SELECT id, page_id, name, schema, created_at, updated_at
+         FROM databases WHERE id = $1 FOR UPDATE`,
+        [databaseId],
+      );
+      if (rows.length === 0) return false;
+      const database = databaseFromRow(rows[0]);
+      const matching = Array.isArray(database.schema.views)
+        ? database.schema.views.filter((view) =>
+          view && typeof view === 'object' && view.id === viewId && view.type === 'form',
+        )
+        : [];
+      if (matching.length !== 1) return false;
+
+      const stored = await tx.query<{view_id: string}>(
+        `INSERT INTO database_form_capabilities (database_id, view_id, capability_hash)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (database_id, view_id) DO UPDATE
+           SET capability_hash = EXCLUDED.capability_hash, updated_at = now()
+         RETURNING view_id`,
+        [databaseId, viewId, capabilityHash],
+      );
+      return stored.length === 1;
+    });
+  }
+
+  /** Revoke one database form capability. */
+  async revokeDatabaseFormCapability(databaseId: string, viewId: string): Promise<boolean> {
+    const rows = await this.db.query<{view_id: string}>(
+      `DELETE FROM database_form_capabilities
+       WHERE database_id = $1 AND view_id = $2 RETURNING view_id`,
+      [databaseId, viewId],
+    );
+    return rows.length > 0;
   }
 
   /** Delete a database and (by cascade) all of its row pages. */
@@ -3009,9 +3133,44 @@ export class PageStore {
     const scope = opts?.idempotency?.scope.trim();
     const clientKey = opts?.idempotency?.key.trim();
     if (scope && clientKey) {
-      return this.db.begin((tx) =>
-        claimKeyedCreate(tx, scope, clientKey, (id) => this.createRowTx(tx, id, databaseId, input, author)),
-      );
+      return this.db.begin(async (tx) => {
+        const databaseForm = opts?.databaseForm;
+        if (databaseForm) {
+          const marker = input.properties?.[FORM_SUBMISSION_PROPERTY_ID] as Partial<DatabaseFormSubmissionMarker> | undefined;
+          if (
+            marker?.submittedViaViewId !== databaseForm.viewId
+            || typeof marker.submittedAt !== 'string'
+          ) {
+            throw new DatabaseFormAccessLostError();
+          }
+          // Serialize fresh submissions with capability rotation/revocation and
+          // every other submission through this view. Re-checking the digest here
+          // closes the route-check/create TOCTOU window.
+          const publication = await tx.query<{view_id: string}>(
+            `SELECT view_id FROM database_form_capabilities
+             WHERE database_id = $1 AND view_id = $2 AND capability_hash = $3
+             FOR UPDATE`,
+            [databaseId, databaseForm.viewId, databaseForm.capabilityHash],
+          );
+          if (publication.length !== 1) throw new DatabaseFormAccessLostError();
+        }
+
+        return claimKeyedCreate(tx, scope, clientKey, async (id) => {
+          if (databaseForm) {
+            const counts = await tx.query<{n: number | string}>(
+              `SELECT count(*) AS n FROM pages
+               WHERE database_id = $1
+                 AND deleted_at IS NULL
+                 AND properties -> $2::text ->> $3::text = $4`,
+              [databaseId, FORM_SUBMISSION_PROPERTY_ID, DATABASE_FORM_MARKER_VIEW_KEY, databaseForm.viewId],
+            );
+            if (Number(counts[0]?.n ?? 0) >= databaseForm.maxResponses) {
+              throw new DatabaseFormResponseLimitError();
+            }
+          }
+          return this.createRowTx(tx, id, databaseId, input, author);
+        });
+      });
     }
     return this.db.begin((tx) => this.createRowTx(tx, randomUUID(), databaseId, input, author));
   }
@@ -4015,20 +4174,21 @@ export class PageStore {
     return this.resolveMemberRole(principal, config); // rule 4 (roster) → admin | viewer | null
   }
 
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
+  /** A page's stored audience scope plus its independent discovery posture, or
    *  `null` when the page doesn't exist. */
-  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
-    const rows = await this.db.query<{visibility: string}>(
-      'SELECT visibility FROM pages WHERE id = $1',
+  async getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null> {
+    const rows = await this.db.query<{visibility: string; listed: boolean}>(
+      'SELECT visibility, listed FROM pages WHERE id = $1',
       [pageId],
     );
-    return rows.length > 0 ? (rows[0].visibility as PageVisibility) : null;
+    return rows.length > 0 ? {visibility: rows[0].visibility as PageVisibility, listed: rows[0].listed} : null;
   }
 
   /**
-   * Set a page's visibility scope. Returns `false` when the page is missing.
-   * Deliberately does NOT touch `updated_at`: visibility is an access attribute,
-   * not document content, so it must not look like an edit to the mirror/mtimes.
+   * Update a page's audience scope and/or independent discovery posture. Returns
+   * `false` when the page is missing. Deliberately does NOT touch `updated_at`:
+   * neither setting is document content, so they must not look like an edit to
+   * the mirror/mtimes.
    *
    * SECURITY (LGR-3 F3 — "flipping the books public"). The ledger's five host
    * pages MUST stay `restricted`: every ledger ROW is `inherit`, so its read
@@ -4043,19 +4203,36 @@ export class PageStore {
    * which sets `restricted` on pages that are only becoming ledger hosts moments
    * later — it bypasses the guard, and nothing outside the store passes it.
    */
-  async setPageVisibility(pageId: string, visibility: PageVisibility, opts: {internal?: boolean} = {}): Promise<boolean> {
-    if (!opts.internal && visibility !== 'restricted' && (await this.isLedgerHostPage(pageId))) {
+  async setPageVisibility(
+    pageId: string,
+    value: PageVisibility | PageVisibilityUpdate,
+    opts: {internal?: boolean} = {},
+  ): Promise<boolean> {
+    const update: PageVisibilityUpdate = typeof value === 'string' ? {visibility: value} : value;
+    if (!opts.internal && update.visibility !== undefined && update.visibility !== 'restricted' && (await this.isLedgerHostPage(pageId))) {
       throw new LedgerError(
         'managed',
         'the ledger and its databases must stay restricted — share them with per-page ACL grants instead of changing their visibility scope',
       );
     }
-    const rows = await this.db.query(
-      'UPDATE pages SET visibility = $2 WHERE id = $1 RETURNING id',
-      [pageId, visibility],
-    );
-    if (rows.length > 0) this.bumpAccess(); // scope change alters who may read (Collab T1)
-    return rows.length > 0;
+    const changed = await this.db.begin(async (tx) => {
+      const rows = await tx.query<{visibility: string; listed: boolean}>(
+        'SELECT visibility, listed FROM pages WHERE id = $1',
+        [pageId],
+      );
+      if (rows.length === 0) return null;
+      const before = rows[0];
+      await tx.query(
+        `UPDATE pages
+         SET visibility = COALESCE($2, visibility), listed = COALESCE($3, listed)
+         WHERE id = $1`,
+        [pageId, update.visibility ?? null, update.listed ?? null],
+      );
+      return (update.visibility !== undefined && update.visibility !== before.visibility)
+        || (update.listed !== undefined && update.listed !== before.listed);
+    });
+    if (changed) this.bumpAccess(); // audience or discovery flip invalidates stream gates (UP-1 / Collab T1)
+    return changed !== null;
   }
 
   /** A page's raw agent-edits policy (AGED-1; `inherit` not yet resolved against the
@@ -4243,15 +4420,24 @@ export class PageStore {
     };
   }
 
-  /** The page's stored scope + database membership (NO `deleted_at` filter, so it
-   *  resolves a trashed page or a database row alike), or `null` if absent. */
-  private async pageAccessRow(pageId: string): Promise<{visibility: PageVisibility; databaseId: string | null} | null> {
-    const rows = await this.db.query<{visibility: string; database_id: string | null}>(
-      'SELECT visibility, database_id FROM pages WHERE id = $1',
+  /** The page's stored scope, discovery posture, and database membership (NO
+   *  `deleted_at` filter, so it resolves a trashed page or a database row alike),
+   *  or `null` if absent. */
+  private async pageAccessRow(pageId: string): Promise<{
+    visibility: PageVisibility;
+    listed: boolean;
+    databaseId: string | null;
+  } | null> {
+    const rows = await this.db.query<{visibility: string; listed: boolean; database_id: string | null}>(
+      'SELECT visibility, listed, database_id FROM pages WHERE id = $1',
       [pageId],
     );
     if (rows.length === 0) return null;
-    return {visibility: rows[0].visibility as PageVisibility, databaseId: rows[0].database_id ?? null};
+    return {
+      visibility: rows[0].visibility as PageVisibility,
+      listed: rows[0].listed,
+      databaseId: rows[0].database_id ?? null,
+    };
   }
 
   /** Resolve `inherit` to an effective scope (§2.2/N9): a database row via its
@@ -4300,9 +4486,11 @@ export class PageStore {
     principal: Principal,
     pageId: string,
     base?: AccessBase,
-  ): Promise<{decision: Decision; exists: boolean}> {
+  ): Promise<{decision: Decision; exists: boolean; listed: boolean}> {
     const row = await this.pageAccessRow(pageId);
-    if (!row) return {decision: {canRead: false, canWrite: false, reason: 'no-page'}, exists: false};
+    if (!row) {
+      return {decision: {canRead: false, canWrite: false, reason: 'no-page'}, exists: false, listed: false};
+    }
     const b = base ?? (await this.accessBase(principal));
     const effectiveVisibility = await this.effectiveVisibility(row, b);
     const acl = await this.aclEntries(pageId);
@@ -4311,7 +4499,7 @@ export class PageStore {
       {visibility: row.visibility, acl},
       {config: b.config, role: b.role, effectiveVisibility, emailIsAuthoritative: b.emailIsAuthoritative},
     );
-    return {decision, exists: true};
+    return {decision, exists: true, listed: row.listed};
   }
 
   /**
@@ -4362,6 +4550,28 @@ export class PageStore {
     return null;
   }
 
+  /** Whether this principal is exempt from the per-page discovery flag. This is
+   * deliberately narrower than {@link blanketRead}: an unclaimed/blanket guest
+   * can read every page directly but is not an owner or admin and therefore must
+   * still have unlisted pages removed from every enumeration. */
+  private listingPrivileged(principal: Principal, base: AccessBase): boolean {
+    if (principal.verifiedVia === 'local') return true;
+    if (
+      (principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat') &&
+      principal.subject === base.config.ownerSubject
+    ) {
+      return true;
+    }
+    return base.role === 'admin';
+  }
+
+  /** Public batch/route seam for deciding whether an unlisted page may be
+   * enumerated for this principal. */
+  async canListUnlisted(principal: Principal, base?: AccessBase): Promise<boolean> {
+    const b = base ?? (await this.accessBase(principal));
+    return this.listingPrivileged(principal, b);
+  }
+
   /**
    * The page-independent read decision for a whole-library read, or `null` when
    * it must be resolved per page. A thin PUBLIC seam over {@link blanketRead} —
@@ -4381,6 +4591,15 @@ export class PageStore {
     return exists && decision.canRead;
   }
 
+  /** May the principal discover this page in an enumeration? Direct reads do not
+   * use this gate: an unlisted page remains openable when its visibility/ACL
+   * authorizes the caller. */
+  async canListPage(principal: Principal, pageId: string, base?: AccessBase): Promise<boolean> {
+    const b = base ?? (await this.accessBase(principal));
+    const {decision, exists, listed} = await this.decidePageAccess(principal, pageId, b);
+    return exists && decision.canRead && (listed || this.listingPrivileged(principal, b));
+  }
+
   /** May the principal read this database? Inherits its HOST PAGE's read decision. */
   async canReadDatabase(principal: Principal, databaseId: string, base?: AccessBase): Promise<boolean> {
     const db = await this.getDatabase(databaseId);
@@ -4388,14 +4607,21 @@ export class PageStore {
     return this.canReadPage(principal, db.pageId, base);
   }
 
-  /** Filter a page-meta list to the readable subset (default-deny). */
+  /** Filter a page-meta list to the readable + discoverable subset
+   * (default-deny). The listed predicate MUST run before the blanket-read fast
+   * path: a blanket guest reads direct URLs but is not allowed to enumerate
+   * unlisted pages. */
   async filterReadablePages(principal: Principal, metas: PageMeta[], base?: AccessBase): Promise<PageMeta[]> {
     if (metas.length === 0) return metas;
     const b = base ?? (await this.accessBase(principal));
+    const discoverable = this.listingPrivileged(principal, b)
+      ? metas
+      : metas.filter((meta) => meta.listed === true);
+    if (discoverable.length === 0) return discoverable;
     const blanket = this.blanketRead(principal, b);
-    if (blanket !== null) return blanket ? metas : [];
+    if (blanket !== null) return blanket ? discoverable : [];
     const out: PageMeta[] = [];
-    for (const meta of metas) {
+    for (const meta of discoverable) {
       if (await this.canReadPage(principal, meta.id, b)) out.push(meta);
     }
     return out;
@@ -4406,8 +4632,9 @@ export class PageStore {
     return this.filterReadablePages(principal, await this.listPages());
   }
 
-  /** Filter a database's rows to the readable subset (default-deny). A row is a
-   *  page, so its own visibility/ACL governs — defaulting to the host page (N9). */
+  /** Filter a database's rows to the readable + discoverable subset
+   * (default-deny). A row is a page, so its own visibility/ACL governs —
+   * defaulting to the host page (N9) — and its own listed flag is independent. */
   async filterReadableRows(
     principal: Principal,
     rows: DatabaseRow[],
@@ -4415,10 +4642,21 @@ export class PageStore {
   ): Promise<DatabaseRow[]> {
     if (rows.length === 0) return rows;
     const b = base ?? (await this.accessBase(principal));
+    let discoverable = rows;
+    if (!this.listingPrivileged(principal, b)) {
+      const ids = rows.map((row) => row.id);
+      const listed = await this.db.query<{id: string}>(
+        'SELECT id FROM pages WHERE id = ANY($1) AND listed = TRUE',
+        [ids],
+      );
+      const listedIds = new Set(listed.map((row) => row.id));
+      discoverable = rows.filter((row) => listedIds.has(row.id));
+    }
+    if (discoverable.length === 0) return discoverable;
     const blanket = this.blanketRead(principal, b);
-    if (blanket !== null) return blanket ? rows : [];
+    if (blanket !== null) return blanket ? discoverable : [];
     const out: DatabaseRow[] = [];
-    for (const row of rows) {
+    for (const row of discoverable) {
       if (await this.canReadPage(principal, row.id, b)) out.push(row);
     }
     return out;
@@ -4449,7 +4687,15 @@ export class PageStore {
   async stageFormUpload(
     bytes: Uint8Array,
     mime: string,
-    input: {token: string; pageId: string; formId: string; fieldId: string; name: string},
+    input: {
+      token: string;
+      pageId: string;
+      formId: string;
+      fieldId: string;
+      name: string;
+      /** F-4 publication binding; null/absent for legacy block forms. */
+      capabilityHash?: string | null;
+    },
     budgets: {maxFormBytes: number; maxFormStagedBytes: number; maxTotalBytes?: number},
   ): Promise<StagedFormUpload> {
     const assetId = await assetHash(bytes);
@@ -4496,8 +4742,8 @@ export class PageStore {
       // purged, so the budget reflects all form-owned bytes still in retention.
       const staged = await tx.query<{token: string}>(
         `INSERT INTO form_uploads
-           (token, asset_id, page_id, form_id, field_id, file_name, owns_asset)
-         SELECT $1, $2, $3, $4, $5, $6, $7
+           (token, asset_id, page_id, form_id, field_id, file_name, owns_asset, capability_hash)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8
          FROM assets candidate
          WHERE candidate.id = $2
            AND (
@@ -4513,7 +4759,7 @@ export class PageStore {
                    AND existing.form_id = $4
                    AND existing.asset_id = accounted.id
                )
-             ), 0) + candidate.size <= $8::bigint
+             ), 0) + candidate.size <= $9::bigint
            )
            AND (
              EXISTS (
@@ -4532,7 +4778,7 @@ export class PageStore {
                    AND existing.asset_id = accounted.id
                    AND existing.consumed_by IS NULL
                )
-             ), 0) + candidate.size <= $9::bigint
+             ), 0) + candidate.size <= $10::bigint
            )
          RETURNING token`,
         [
@@ -4543,6 +4789,7 @@ export class PageStore {
           input.fieldId,
           input.name,
           ownsAsset,
+          input.capabilityHash ?? null,
           budgets.maxFormBytes,
           budgets.maxFormStagedBytes,
         ],
@@ -4598,6 +4845,8 @@ export class PageStore {
     entries: Array<{fieldId: string; tokens: string[]}>,
     idempotencyKey: string,
     ttlMs: number,
+    /** F-4 publication binding; null for legacy block forms. */
+    capabilityHash: string | null = null,
   ): Promise<StagedFormUpload[] | null> {
     const expected = new Map<string, string>();
     for (const entry of entries) {
@@ -4625,6 +4874,7 @@ export class PageStore {
              AND uploads.asset_id = assets.id
              AND uploads.page_id = $2
              AND uploads.form_id = $3
+             AND uploads.capability_hash IS NOT DISTINCT FROM $6
              AND (uploads.claimed_by IS NULL OR uploads.claimed_by = $4)
              AND (
                uploads.consumed_by IS NOT NULL
@@ -4632,7 +4882,7 @@ export class PageStore {
              )
            RETURNING uploads.token, uploads.asset_id, uploads.field_id, uploads.file_name,
              uploads.consumed_by, assets.size`,
-          [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs))],
+          [tokens, pageId, formId, idempotencyKey, Math.max(0, Math.trunc(ttlMs)), capabilityHash],
         );
         if (
           rows.length !== tokens.length

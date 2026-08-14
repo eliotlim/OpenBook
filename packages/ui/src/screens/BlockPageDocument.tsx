@@ -530,6 +530,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         // A whole-site export can embed images from every reachable page.
         const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
         downloadText(`${base}.html`, toHtmlSite(bundle, assets, appearance.dataColors), 'text/html');
+        if (bundle.hiddenPagesSkipped) {
+          showToast({message: t('page.exportHiddenPagesSkipped', {count: bundle.hiddenPagesSkipped})});
+        }
       }
     } catch (e) {
       console.error('BlockPageDocument: export failed:', e);

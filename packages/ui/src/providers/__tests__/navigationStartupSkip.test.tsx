@@ -6,12 +6,15 @@ import type {PageMeta} from '@book.dev/sdk';
 import {DataProvider} from '../../data/DataProvider';
 import {NavigationProvider, useNavigation} from '../NavigationProvider';
 import {markPageCrashed} from '../../lib/crashRecovery';
+import {pageLinks} from '../../lib/pageLinks';
 
 const LAST_PAGE_KEY = 'openbook.currentPageId';
 
 // A minimal client stub covering only what NavigationProvider touches at mount:
 // list the pages, subscribe to the live list, and probe unknown ids.
-const makeClient = (pages: Array<{id: string; name: string}>): DataClient =>
+type PageFixture = {id: string; name: string; listed?: boolean};
+
+const makeClient = (pages: PageFixture[]): DataClient =>
   ({
     listPages: async () => pages as unknown as PageMeta[],
     getPage: async (id: string) => (pages.some((p) => p.id === id) ? ({id} as never) : null),
@@ -24,7 +27,7 @@ const Probe: React.FC<{onReady: (id: string | null) => void}> = ({onReady}) => {
   return null;
 };
 
-const mount = (pages: Array<{id: string; name: string}>) => {
+const mount = (pages: PageFixture[]) => {
   let resolved: string | null = null;
   render(
     <DataProvider client={makeClient(pages)}>
@@ -34,6 +37,12 @@ const mount = (pages: Array<{id: string; name: string}>) => {
     </DataProvider>,
   );
   return () => resolved;
+};
+
+const DiscoveryProbe: React.FC<{onReady: (pageIds: string[]) => void}> = ({onReady}) => {
+  const {pages} = useNavigation();
+  onReady(pages.map((page) => page.id));
+  return null;
 };
 
 describe('NavigationProvider startup crash-skip', () => {
@@ -72,5 +81,24 @@ describe('NavigationProvider startup crash-skip', () => {
       {id: 'good', name: 'Good'},
     ]);
     await waitFor(() => expect(get()).toBe('home'));
+  });
+
+  it('keeps listed:false pages in owner palette input and @-mention search without assuming they exist', async () => {
+    let pageIds: string[] = [];
+    render(
+      <DataProvider client={makeClient([
+        {id: 'visible', name: 'Visible', listed: true},
+        {id: 'hidden', name: 'Hidden planning', listed: false},
+      ])}>
+        <NavigationProvider>
+          <DiscoveryProbe onReady={(value) => (pageIds = value)} />
+        </NavigationProvider>
+      </DataProvider>,
+    );
+
+    await waitFor(() => expect(pageIds).toContain('hidden'));
+    await waitFor(() => expect(pageLinks.searchPages('Hidden').map((page) => page.id)).toEqual(['hidden']));
+    expect(pageIds).not.toContain('visitor-filtered-page');
+    expect(pageLinks.searchPages('visitor-filtered-page')).toEqual([]);
   });
 });

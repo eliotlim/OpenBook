@@ -1,6 +1,6 @@
 import {describe, it, expect, afterEach, beforeEach, vi} from 'vitest';
 import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
-import type {DataClient, InstanceInfo, PageVisibility, SiteVisibility} from '@book.dev/sdk';
+import type {DataClient, InstanceInfo, PageVisibility, PageVisibilityUpdate, SiteVisibility} from '@book.dev/sdk';
 import {guestPrincipal} from '@book.dev/sdk';
 import ShareDialog from '../ShareDialog';
 import {DataProvider} from '@/data/DataProvider';
@@ -38,17 +38,23 @@ const info = (over: Partial<InstanceInfo> = {}): InstanceInfo => ({
   ...over,
 });
 
-const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instance: Partial<InstanceInfo> = {}) =>
-  render(
+type VisibilityFixture = PageVisibility | {visibility: PageVisibility; listed: boolean};
+
+const wrap = (fixture: VisibilityFixture, over: Partial<DataClient> = {}, instance: Partial<InstanceInfo> = {}) => {
+  const initial = typeof fixture === 'string' ? {visibility: fixture, listed: true} : fixture;
+  return render(
     <I18nProvider>
       <DataProvider
         client={
           {
             getPage: async () => null,
-            getPageVisibility: async () => visibility,
+            getPageVisibility: async () => initial,
             listPageAcl: async () => [],
             getInstanceInfo: async () => info(instance),
-            setPageVisibility: vi.fn(async (_id: string, v: PageVisibility) => v),
+            setPageVisibility: vi.fn(async (_id: string, update: PageVisibilityUpdate) => ({
+              visibility: update.visibility ?? initial.visibility,
+              listed: update.listed ?? initial.listed,
+            })),
             ...over,
           } as unknown as DataClient
         }
@@ -57,6 +63,7 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instan
       </DataProvider>
     </I18nProvider>,
   );
+};
 
 const open = () => fireEvent.click(screen.getByLabelText('Share'));
 
@@ -103,6 +110,85 @@ afterEach(() => {
   closeKitPanel({keepPane: true});
 });
 
+describe('ShareDialog — page discovery (UP-3)', () => {
+  it.each([
+    ['inherit', false],
+    ['public', false],
+    ['authenticated', false],
+    ['members', false],
+    ['restricted', true],
+  ] as const)('renders the hidden-page toggle for %s scope (disabled: %s)', async (visibility, disabled) => {
+    wrap(visibility);
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(disabled));
+  });
+
+  it('keeps the restricted explanation at full muted-text contrast while only the control is disabled', async () => {
+    wrap('restricted');
+    open();
+
+    const hint = await screen.findByText(
+      'Only invited people can reach this page, so navigation and search visibility do not apply.',
+    );
+    expect(hint.closest('label')?.className).not.toContain('opacity');
+    expect(screen.getByRole('switch', {name: 'Hide from navigation and search'}).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('explains that an inherited page keeps library access while discovery applies only to the page', async () => {
+    wrap('inherit');
+    open();
+
+    expect(await screen.findByText('Applies only to this page; access still follows the library default.')).toBeTruthy();
+  });
+
+  it('persists a hidden flip through the SDK client and rehydrates it on reopen', async () => {
+    let settings: {visibility: PageVisibility; listed: boolean} = {visibility: 'public', listed: true};
+    const setPageVisibility = vi.fn(async (_id: string, update: PageVisibilityUpdate) => {
+      settings = {
+        visibility: update.visibility ?? settings.visibility,
+        listed: update.listed ?? settings.listed,
+      };
+      return settings;
+    });
+    const client = {
+      getPageVisibility: vi.fn(async () => settings),
+      setPageVisibility,
+    };
+
+    wrap(settings, client);
+    open();
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {listed: false}));
+    expect(toggle.getAttribute('data-state')).toBe('checked');
+    expect(screen.getByText(/This page stays hidden from navigation and search/)).toBeTruthy();
+
+    cleanup();
+    wrap(settings, client);
+    open();
+    expect((await screen.findByRole('switch', {name: 'Hide from navigation and search'})).getAttribute('data-state'))
+      .toBe('checked');
+  });
+
+  it('renders a listing-save error outside the switch label so clicking it does not retry the toggle', async () => {
+    const setPageVisibility = vi.fn(async () => {
+      throw new Error('failed to fetch');
+    });
+    wrap('public', {setPageVisibility});
+    open();
+
+    fireEvent.click(await screen.findByRole('switch', {name: 'Hide from navigation and search'}));
+    const error = await screen.findByRole('alert');
+    expect(error.closest('label')).toBeNull();
+    fireEvent.click(error);
+    expect(setPageVisibility).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows a "Published" indicator with the address when the page is public on a serving address', async () => {
     wrap('public');
@@ -134,12 +220,15 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   });
 
   it('offers a one-click "Publish page" that sets the page public when it is not yet', async () => {
-    const setPageVisibility = vi.fn(async (_id: string, v: PageVisibility) => v);
+    const setPageVisibility = vi.fn(async (_id: string, update: PageVisibilityUpdate) => ({
+      visibility: update.visibility ?? 'restricted',
+      listed: update.listed ?? true,
+    }));
     wrap('restricted', {setPageVisibility});
     open();
     const btn = await screen.findByRole('button', {name: 'Publish page'});
     fireEvent.click(btn);
-    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', 'public'));
+    await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {visibility: 'public'}));
   });
 
   it('does not claim "Published" when the address does not serve public pages — it prompts the address fix instead', async () => {

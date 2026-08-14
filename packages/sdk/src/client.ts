@@ -18,11 +18,17 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibilitySettings, PageVisibilityUpdate, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import {
+  DatabaseFormRequestError,
   FormSubmissionError,
   FormUploadError,
+  type DatabaseFormDescriptorRequest,
+  type DatabaseFormPublication,
+  type DatabaseFormPublishResult,
+  type DatabaseFormSubmissionRequest,
+  type DatabaseFormUploadInput,
   type FormSubmissionRequest,
   type FormSubmissionResult,
   type FormUploadInput,
@@ -33,6 +39,7 @@ import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LibraryBackup} from './backup';
 import type {LedgerExportSection, LedgerSectionRestoreResult} from './ledgerExportSection';
 import type {
+  DatabaseFormDescriptor,
   DatabaseInput,
   DatabaseRow,
   DatabaseUpdate,
@@ -120,6 +127,8 @@ export interface AgentTokenList {
  * document code never changes.
  */
 export interface DataClient {
+  /** HTTP origin used by connection-relative public URLs; empty for same-origin transports. */
+  readonly connectionBaseUrl?: string;
   /** List all pages' metadata, most-recently-updated first. */
   listPages(): Promise<PageMeta[]>;
   /** Fetch a page by id, or `null` if it does not exist. */
@@ -355,6 +364,36 @@ export interface DataClient {
   getPageDatabase(pageId: string): Promise<StoredDatabase | null>;
   /** Update a database's name and/or schema. */
   updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase>;
+  /** Read publication state without exposing the raw capability (F-3 reference seam). */
+  getDatabaseFormPublication?(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublication>;
+  /** First-publish or rotate a form view, returning the one-time public fill URL. */
+  publishDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublishResult>;
+  /** Revoke the single active public-fill capability for a form view. */
+  revokeDatabaseForm?(databaseId: string, viewId: string): Promise<boolean>;
+  /** Fetch the strict capability-gated public descriptor. */
+  getPublicDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormDescriptorRequest,
+  ): Promise<DatabaseFormDescriptor>;
+  /** Submit one anonymous response through a database form capability. */
+  submitDatabaseForm?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormSubmissionRequest,
+  ): Promise<FormSubmissionResult>;
+  /** Stage one public database-form file and return its opaque submission token. */
+  uploadDatabaseFormFile?(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormUploadInput,
+  ): Promise<FormUploadResult>;
   /** Delete a database and all its row pages. Resolves `true` if removed. */
   deleteDatabase(id: string): Promise<boolean>;
   /** List a database's rows (projected: properties + exported cell values). */
@@ -485,11 +524,12 @@ export interface DataClient {
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]>;
 
   // ── Sharing: per-page visibility scope + ACL (OB-182 §1.1; OB-191/203) ────────
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
-   *  `null` if the page does not exist. */
-  getPageVisibility(pageId: string): Promise<PageVisibility | null>;
-  /** Set a page's visibility scope (manager-only — gated on page write). */
-  setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility>;
+  /** A page's stored audience scope and independent discovery posture, or
+   *  `null` if the page does not exist. `visibility` is raw (`inherit` is not
+   *  resolved). */
+  getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null>;
+  /** Update either or both page visibility settings (manager-only). */
+  setPageVisibility(pageId: string, update: PageVisibilityUpdate): Promise<PageVisibilitySettings>;
   /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against
    *  the instance mode). Gated on read of the page. Use this for the UI tri-state
    *  (which must show `inherit` as its own state); use {@link getEffectiveAgentEdits}
@@ -639,6 +679,12 @@ class LiveStream {
   private source: LiveSourceLike | null = null;
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
   private readonly pageListeners = new Map<string, Set<PageSubscription>>();
+  // `/api/live` deliberately omits content frames for unlisted pages. Once its
+  // list snapshot proves that an actively-open page is absent, receive that
+  // page's durable save/delete events through the already read-gated per-page SSE
+  // endpoint instead. One fallback source is shared by every listener for an id.
+  private streamedPageIds: Set<string> | null = null;
+  private readonly pageFallbackSources = new Map<string, LiveSourceLike>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
   // Live collaboration — per-page incremental Yjs-update listeners (Collab T1).
   // Unlike the others these carry no durable state, so they are NOT resynced on
@@ -681,6 +727,7 @@ class LiveStream {
     private liveUrl: string,
     private readonly fetchers: ResyncFetchers,
     private readonly createSource: (url: string) => LiveSourceLike,
+    private readonly pageStreamUrl: (id: string) => string,
   ) {}
 
   /**
@@ -704,6 +751,10 @@ class LiveStream {
     if (!this.source) return; // not open yet — the next ensureOpen() uses the new URL
     this.source.close();
     this.source = null;
+    this.closePageFallbacks();
+    // The previous identity's filtered list cannot decide which pages need a
+    // fallback under the new identity. Wait for the replacement firehose list.
+    this.streamedPageIds = null;
     // Reset the transport state machine so the reopen is evaluated from scratch
     // (a fresh grace window, no inherited poll/error state).
     this.clearGraceTimer();
@@ -724,7 +775,10 @@ class LiveStream {
       return;
     }
     if (ev.type === 'list') {
-      this.listListeners.forEach((fn) => fn(ev.pages as PageMeta[]));
+      const pages = ev.pages as PageMeta[];
+      this.streamedPageIds = new Set(pages.map((page) => page.id));
+      this.reconcilePageFallbacks();
+      this.listListeners.forEach((fn) => fn(pages));
     } else if (ev.type === 'page') {
       const page = ev.page as StoredPage;
       this.pageListeners.get(page.id)?.forEach((s) => s.onPage?.(page));
@@ -852,6 +906,68 @@ class LiveStream {
     }
   }
 
+  /** Close one page's direct-stream fallback, if it is open. */
+  private closePageFallback(id: string): void {
+    this.pageFallbackSources.get(id)?.close();
+    this.pageFallbackSources.delete(id);
+  }
+
+  /** Close every direct-stream fallback (identity change / final unsubscribe). */
+  private closePageFallbacks(): void {
+    for (const source of this.pageFallbackSources.values()) source.close();
+    this.pageFallbackSources.clear();
+  }
+
+  /**
+   * Reconcile one active page subscription against the most recent filtered
+   * firehose list. Listed/readable pages stay on `/api/live`; an absent page gets
+   * `/api/pages/:id/stream`, whose server route performs the direct-read gate and
+   * therefore keeps a deliberately opened unlisted page live without putting its
+   * content back on the global channel.
+   */
+  private reconcilePageFallback(id: string): void {
+    const needsFallback =
+      this.streamedPageIds !== null &&
+      !this.streamedPageIds.has(id) &&
+      (this.pageListeners.get(id)?.size ?? 0) > 0;
+    if (!needsFallback) {
+      this.closePageFallback(id);
+      return;
+    }
+    if (this.pageFallbackSources.has(id)) return;
+
+    const source = this.createSource(this.pageStreamUrl(id));
+    source.addEventListener('page', (event) => {
+      if (event.data == null) return;
+      try {
+        const page = JSON.parse(event.data) as StoredPage;
+        if (page.id !== id) return;
+        this.pageListeners.get(id)?.forEach((sub) => sub.onPage?.(page));
+      } catch {
+        /* malformed frame — ignore it like the multiplexed dispatcher does */
+      }
+    });
+    source.addEventListener('deleted', (event) => {
+      if (event.data == null) return;
+      try {
+        const deleted = JSON.parse(event.data) as {id?: unknown};
+        if (deleted.id !== id) return;
+        this.pageListeners.get(id)?.forEach((sub) => sub.onDeleted?.(id));
+      } catch {
+        /* malformed frame — ignore it like the multiplexed dispatcher does */
+      }
+    });
+    this.pageFallbackSources.set(id, source);
+  }
+
+  private reconcilePageFallbacks(): void {
+    for (const id of this.pageListeners.keys()) this.reconcilePageFallback(id);
+    // Also close a fallback whose last listener disappeared before this pass.
+    for (const id of [...this.pageFallbackSources.keys()]) {
+      if (!this.pageListeners.has(id)) this.closePageFallback(id);
+    }
+  }
+
   /**
    * Re-fetch and re-dispatch every open subscription after a reconnect or poll.
    *
@@ -911,6 +1027,8 @@ class LiveStream {
     ) {
       this.source?.close();
       this.source = null;
+      this.closePageFallbacks();
+      this.streamedPageIds = null;
       // Tear down both fallbacks and reset, so a later re-subscribe re-evaluates
       // the stream from scratch instead of inheriting a stale poll/grace timer.
       this.clearGraceTimer();
@@ -948,8 +1066,10 @@ class LiveStream {
       this.pageListeners.set(id, set);
     }
     set.add(sub);
+    this.reconcilePageFallback(id);
     return () => {
       this.removeFromMap(this.pageListeners, id, sub);
+      this.reconcilePageFallback(id);
       this.maybeClose();
     };
   }
@@ -1075,6 +1195,7 @@ export class IdentityRejectedError extends Error {
  */
 export class HttpDataClient implements DataClient {
   private readonly baseUrl: string;
+  readonly connectionBaseUrl: string;
   private readonly token?: string;
   private readonly fetchImpl: FetchLike;
   private readonly createLiveSource: (url: string) => LiveSourceLike;
@@ -1094,6 +1215,7 @@ export class HttpDataClient implements DataClient {
    */
   constructor(baseUrl: string, token?: string, opts: HttpDataClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.connectionBaseUrl = this.baseUrl;
     this.token = token && token.length > 0 ? token : undefined;
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);
@@ -1141,13 +1263,17 @@ export class HttpDataClient implements DataClient {
    * string (the server reads `?token=` / `?identity=`). Read fresh each call so a
    * rebuilt stream picks up a refreshed / dropped identity.
    */
-  private buildLiveUrl(): string {
+  private buildStreamUrl(path: string): string {
     const params = new URLSearchParams();
     if (this.token) params.set('token', this.token);
     const id = this.getIdentity?.();
     if (id?.jws) params.set('identity', id.jws);
     const query = params.toString();
-    return `${this.baseUrl}${API.live}${query ? `?${query}` : ''}`;
+    return `${this.baseUrl}${path}${query ? `?${query}` : ''}`;
+  }
+
+  private buildLiveUrl(): string {
+    return this.buildStreamUrl(API.live);
   }
 
   /** Lazily create — or re-point — the shared live connection (browser-only). */
@@ -1162,6 +1288,7 @@ export class HttpDataClient implements DataClient {
           listRows: (databaseId) => this.listRows(databaseId),
         },
         this.createLiveSource,
+        (id) => this.buildStreamUrl(API.pageStream(id)),
       );
     } else {
       // A credential change since the stream opened (identity refresh / account
@@ -1474,6 +1601,109 @@ export class HttpDataClient implements DataClient {
 
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase> {
     return this.request<StoredDatabase>('PATCH', API.database(id), patch);
+  }
+
+  async getDatabaseFormPublication(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublication> {
+    return this.request<DatabaseFormPublication>('GET', API.databaseFormCapability(databaseId, viewId));
+  }
+
+  async publishDatabaseForm(
+    databaseId: string,
+    viewId: string,
+  ): Promise<DatabaseFormPublishResult> {
+    return this.request<DatabaseFormPublishResult>('POST', API.databaseFormCapability(databaseId, viewId));
+  }
+
+  async revokeDatabaseForm(databaseId: string, viewId: string): Promise<boolean> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormCapability(databaseId, viewId)}`, {
+      method: 'DELETE',
+      cache: 'no-store',
+    });
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  async getPublicDatabaseForm(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormDescriptorRequest,
+  ): Promise<DatabaseFormDescriptor> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseForm(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown};
+      throw new DatabaseFormRequestError(res.status, typeof payload.error === 'string' ? payload.error : undefined);
+    }
+    return (await res.json()) as DatabaseFormDescriptor;
+  }
+
+  async submitDatabaseForm(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormSubmissionRequest,
+  ): Promise<FormSubmissionResult> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormSubmissions(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown; errors?: unknown};
+      const errors = Array.isArray(payload.errors)
+        ? payload.errors.flatMap((candidate) => {
+          if (
+            candidate
+            && typeof candidate === 'object'
+            && 'propertyId' in candidate
+            && typeof candidate.propertyId === 'string'
+            && 'code' in candidate
+            && typeof candidate.code === 'string'
+          ) {
+            return [{propertyId: candidate.propertyId, code: candidate.code}];
+          }
+          return [];
+        })
+        : [];
+      throw new DatabaseFormRequestError(
+        res.status,
+        typeof payload.error === 'string' ? payload.error : undefined,
+        errors,
+      );
+    }
+    return (await res.json()) as FormSubmissionResult;
+  }
+
+  async uploadDatabaseFormFile(
+    databaseId: string,
+    viewId: string,
+    input: DatabaseFormUploadInput,
+  ): Promise<FormUploadResult> {
+    const res = await this.authFetch(`${this.baseUrl}${API.databaseFormUploads(databaseId, viewId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        capability: input.capability,
+        fieldId: input.fieldId,
+        name: input.name,
+        mime: input.mime,
+        data: bytesToBase64(input.bytes),
+      }),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as {error?: unknown};
+      throw new DatabaseFormRequestError(res.status, typeof payload.error === 'string' ? payload.error : undefined);
+    }
+    return (await res.json()) as FormUploadResult;
   }
 
   async deleteDatabase(id: string): Promise<boolean> {
@@ -1801,17 +2031,14 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
-   *  `null` if the page does not exist. Gated on read of the page. */
-  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
-    const {visibility} = await this.request<{visibility: PageVisibility}>('GET', API.pageVisibility(pageId));
-    return visibility;
+  /** A page's stored audience scope and independent discovery posture. */
+  async getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null> {
+    return this.request<PageVisibilitySettings>('GET', API.pageVisibility(pageId));
   }
 
-  /** Set a page's visibility scope. Gated on write of the page (manage = write). */
-  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
-    const res = await this.request<{visibility: PageVisibility}>('PUT', API.pageVisibility(pageId), {visibility});
-    return res.visibility;
+  /** Update its audience scope and/or discovery posture. Gated on page write. */
+  async setPageVisibility(pageId: string, update: PageVisibilityUpdate): Promise<PageVisibilitySettings> {
+    return this.request<PageVisibilitySettings>('PUT', API.pageVisibility(pageId), update);
   }
 
   /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against

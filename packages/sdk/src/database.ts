@@ -1730,7 +1730,7 @@ interface FormPatternFrame {
 }
 
 /** Conservative structural screen for common exponential-backtracking forms. */
-function formPatternIsUnsafe(pattern: string): boolean {
+export function formPatternIsUnsafe(pattern: string): boolean {
   if (/\\(?:[1-9]|k<)/.test(pattern)) return true;
   const frames: FormPatternFrame[] = [{hasAlternation: false, hasQuantifier: false}];
   let inClass = false;

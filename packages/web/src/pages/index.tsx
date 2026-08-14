@@ -8,6 +8,7 @@ import {
   DocumentArea,
   NavigationProvider,
   PlatformCapabilitiesProvider,
+  PublicDatabaseForm,
   type PlatformCapabilities,
 } from '@book.dev/ui';
 import SettingsDeepLink from '@/components/SettingsDeepLink';
@@ -205,15 +206,28 @@ function useUpdatesPreview(): PlatformCapabilities['updates'] | undefined {
 // in-browser store. Absent on the canonical app.book.pub, so that stays local-first.
 const PREFIX_HEADER = 'x-openbook-prefix';
 
-type HomeProps = {forwardedPrefix: string | null; forwardedHost: string | null};
+type PublicFormRoute = {databaseId: string; viewId: string};
+type HomeProps = {
+  forwardedPrefix: string | null;
+  forwardedHost: string | null;
+  publicForm: PublicFormRoute | null;
+};
 
-const forwardedPrefixGssp: GetServerSideProps<HomeProps> = async ({req}) => {
+const forwardedPrefixGssp: GetServerSideProps<HomeProps> = async ({req, query}) => {
   const raw = req.headers[PREFIX_HEADER];
   const forwardedPrefix = (Array.isArray(raw) ? raw[0] : raw) || null;
   // On a forwarded site the request host is the `<prefix>.book.cloud` origin the
   // viewer is on — the label the workspace switcher shows for the connection.
   const forwardedHost = forwardedPrefix ? req.headers.host || null : null;
-  return {props: {forwardedPrefix, forwardedHost}};
+  const databaseId = typeof query.form === 'string' ? query.form.trim() : '';
+  const viewId = typeof query.view === 'string' ? query.view.trim() : '';
+  return {
+    props: {
+      forwardedPrefix,
+      forwardedHost,
+      publicForm: databaseId && viewId ? {databaseId, viewId} : null,
+    },
+  };
 };
 
 // STAB-7: a static export (`output: 'export'`) can't run `getServerSideProps`, so
@@ -223,7 +237,7 @@ const forwardedPrefixGssp: GetServerSideProps<HomeProps> = async ({req}) => {
 // both props to null and takes its same-origin path from `SAME_ORIGIN_UI` instead.
 export const getServerSideProps = SAME_ORIGIN_UI ? undefined : forwardedPrefixGssp;
 
-export default function Home({forwardedPrefix = null, forwardedHost = null}: Partial<HomeProps> = {}) {
+function WorkspaceHome({forwardedPrefix = null, forwardedHost = null}: Partial<HomeProps> = {}) {
   const {client, browserLocal, connKey} = useWebClient(forwardedPrefix);
   const shellPreview = useDesktopShellPreview();
   const updatesPreview = useUpdatesPreview();
@@ -272,4 +286,105 @@ export default function Home({forwardedPrefix = null, forwardedHost = null}: Par
       </PlatformCapabilitiesProvider>
     </>
   );
+}
+
+function routeFromLocation(): PublicFormRoute | null {
+  const params = new URLSearchParams(window.location.search);
+  const databaseId = params.get('form')?.trim() ?? '';
+  const viewId = params.get('view')?.trim() ?? '';
+  return databaseId && viewId ? {databaseId, viewId} : null;
+}
+
+function PublicFormPage({route, forwardedPrefix}: {
+  route: PublicFormRoute;
+  forwardedPrefix: string | null;
+}) {
+  const [client, setClient] = useState<HttpDataClient | null>(null);
+  const [publicLocation, setPublicLocation] = useState<{capability: string | null; revision: number}>({
+    capability: null,
+    revision: 0,
+  });
+  useEffect(() => {
+    // Public fill deliberately omits account identity and the instance-wide LAN
+    // bearer. These routes are authorized only by the fragment capability.
+    const baseUrl = forwardedPrefix || SAME_ORIGIN_UI
+      ? ''
+      : getServerUrlOverride() ?? REMOTE_SERVER_URL ?? '';
+    const next = new HttpDataClient(baseUrl);
+    setClient(next);
+    return () => next.dispose();
+  }, [forwardedPrefix]);
+  useEffect(() => {
+    const syncPublicLocation = (rawUrl: string, revisit: boolean): void => {
+      const destination = new URL(rawUrl, window.location.href);
+      if (destination.origin !== window.location.origin || destination.pathname !== window.location.pathname) return;
+      if (
+        destination.searchParams.get('form')?.trim() !== route.databaseId
+        || destination.searchParams.get('view')?.trim() !== route.viewId
+      ) {
+        return;
+      }
+      const fragment = new URLSearchParams(destination.hash.replace(/^#/, ''));
+      const capability = fragment.get('capability') ?? '';
+      setPublicLocation((current) => {
+        if (current.capability === null) return {capability, revision: current.revision};
+        if (!revisit && current.capability === capability) return current;
+        return {capability, revision: current.revision + 1};
+      });
+    };
+    const onHashChange = (event: HashChangeEvent): void => syncPublicLocation(event.newURL, false);
+    const onNavigate = (event: NavigateEvent): void => syncPublicLocation(event.destination.url, true);
+    const onPageShow = (event: PageTransitionEvent): void => {
+      if (event.persisted) syncPublicLocation(window.location.href, true);
+    };
+
+    syncPublicLocation(window.location.href, false);
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('pageshow', onPageShow);
+    // A second visit to the exact same fragment URL is a same-document
+    // navigation in Chromium: it does not remount this Next page and emits no
+    // hashchange. The Navigation API observes that revisit so the old capability
+    // is checked again instead of leaving a stale success/form surface mounted.
+    window.navigation?.addEventListener('navigate', onNavigate);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('pageshow', onPageShow);
+      window.navigation?.removeEventListener('navigate', onNavigate);
+    };
+  }, [route.databaseId, route.viewId]);
+  return (
+    <>
+      <Head>
+        <title>Form</title>
+        <meta name="robots" content="noindex,nofollow" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
+      {client && publicLocation.capability !== null && (
+        <PublicDatabaseForm
+          key={`${publicLocation.capability}:${publicLocation.revision}`}
+          client={client}
+          databaseId={route.databaseId}
+          viewId={route.viewId}
+          capability={publicLocation.capability}
+        />
+      )}
+    </>
+  );
+}
+
+export default function Home(props: Partial<HomeProps> = {}) {
+  // A static sidecar build cannot run getServerSideProps. Keep its first render
+  // blank, resolve the query immediately after mount, and only then choose the
+  // public form or workspace tree. That prevents a form link from briefly
+  // initializing navigation/page/database chrome before the query is known.
+  const [clientRoute, setClientRoute] = useState<PublicFormRoute | null | undefined>(props.publicForm);
+  useEffect(() => {
+    if (props.publicForm !== undefined) return;
+    setClientRoute(routeFromLocation());
+  }, [props.publicForm]);
+  if (clientRoute === undefined) return null;
+  if (clientRoute) {
+    return <PublicFormPage route={clientRoute} forwardedPrefix={props.forwardedPrefix ?? null} />;
+  }
+  return <WorkspaceHome {...props} />;
 }

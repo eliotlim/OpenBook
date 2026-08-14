@@ -60,6 +60,9 @@ export const emptyPageSnapshot = (): PageSnapshot => ({
 export interface PageMeta {
   id: string;
   name: string | null;
+  /** Whether the page participates in discovery surfaces. Independent of who
+   *  may read it; omitted by older servers. */
+  listed?: boolean;
   /** The page's emoji icon, or `null` when none is set — projected from
    *  `page.properties` so lists (sidebar, tabs, mentions) resolve it directly,
    *  without a per-page fetch. */
@@ -178,6 +181,8 @@ export interface PageInput {
   id?: string;
   name?: string | null;
   data: PageSnapshot;
+  /** Initial discovery posture for a new page. Independent of visibility. */
+  listed?: boolean;
   /**
    * The page to nest this new page under. Applied only when the page is first
    * created; a later content save with the same id leaves the parent untouched.
@@ -223,6 +228,18 @@ export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
   'members',
   'restricted',
 ];
+
+/** The state returned by the co-located page visibility/listing endpoint.
+ * `listed` is a discovery flag, not another rung in {@link PageVisibility}. */
+export interface PageVisibilitySettings {
+  visibility: PageVisibility;
+  listed: boolean;
+}
+
+/** A non-empty update accepted by the page visibility/listing endpoint. */
+export type PageVisibilityUpdate =
+  | {visibility: PageVisibility; listed?: boolean}
+  | {visibility?: PageVisibility; listed: boolean};
 
 /**
  * The two INSTANCE-level agent-edits modes (AGED-1). Governs whether an agent (an

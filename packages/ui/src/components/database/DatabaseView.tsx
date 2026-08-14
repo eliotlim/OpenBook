@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
@@ -46,11 +46,13 @@ import {Button} from '@/components/ui/button';
 import {EmptyState} from '@/components/ui/empty-state';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
+import {useData} from '@/data';
 import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components/ui/menu-components';
 import {readPageIcon} from '@/lib/pageIcon';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {useNavigation, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
+import {useCanManageSharing} from '@/components/ShareDialog';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
 import {canDeleteDatabaseView, useDatabase, type UseDatabase} from './useDatabase';
@@ -983,13 +985,28 @@ const NewerClientRequiredView: React.FC<{type: unknown}> = ({type}) => (
 );
 
 /** Render the active view's body for its layout type. */
-export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]; canEdit?: boolean}> = ({
+export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]; canEdit?: boolean; canManagePublication?: boolean}> = ({
   db,
   view,
   columns,
   schema,
   canEdit = true,
+  canManagePublication = true,
 }) => {
+  const client = useData();
+  const databaseId = db.database?.id ?? '';
+  const getPublication = useCallback(async () => {
+    if (!client.getDatabaseFormPublication || !databaseId) throw new Error('database form publication unavailable');
+    return client.getDatabaseFormPublication(databaseId, view.id);
+  }, [client, databaseId, view.id]);
+  const publishForm = useCallback(async () => {
+    if (!client.publishDatabaseForm || !databaseId) throw new Error('database form publication unavailable');
+    return client.publishDatabaseForm(databaseId, view.id);
+  }, [client, databaseId, view.id]);
+  const revokeForm = useCallback(async () => {
+    if (!client.revokeDatabaseForm || !databaseId) throw new Error('database form publication unavailable');
+    return client.revokeDatabaseForm(databaseId, view.id);
+  }, [client, databaseId, view.id]);
   if (!isDatabaseViewType(view.type)) return <NewerClientRequiredView type={view.type} />;
 
   // The dense date layouts only show property chips once the user opts in (picks
@@ -1017,10 +1034,14 @@ export const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: Databas
         view={view}
         properties={schema}
         canEdit={canEdit}
+        canManagePublication={canManagePublication}
         onUpdateView={(patch) => db.updateView(view.id, patch)}
         onCreateProperty={(input, opts) => db.addPropertyForViewList(view.id, input, opts)}
         onAddOption={(propertyId, label) => db.addSelectOption(propertyId, label)}
         onSubmit={(fields, name) => db.submitFormRow(fields, name)}
+        getPublication={client.getDatabaseFormPublication ? getPublication : undefined}
+        onPublish={client.publishDatabaseForm ? publishForm : undefined}
+        onRevoke={client.revokeDatabaseForm ? revokeForm : undefined}
       />
     );
   case 'bar':
@@ -1599,6 +1620,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   inline,
 }) => {
   const canEdit = useCanWrite();
+  const canManagePublication = useCanManageSharing() === true;
   // A page-level database (the `?page='d host, not an inline embed) mirrors its
   // active view into the URL (`?view=`); the hook further gates on this being
   // the primary pane, so a split-pane database never fights for the param.
@@ -1668,7 +1690,14 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
               <MetricsBar db={db} view={view} />
             </>
           )}
-          <ViewBody db={db} view={view} columns={columns} schema={schema} canEdit={canEdit} />
+          <ViewBody
+            db={db}
+            view={view}
+            columns={columns}
+            schema={schema}
+            canEdit={canEdit}
+            canManagePublication={canManagePublication}
+          />
         </div>
       </DatabaseContextMenu>
     </>

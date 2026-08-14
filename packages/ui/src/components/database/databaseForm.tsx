@@ -1,9 +1,12 @@
-import React, {useState} from 'react';
-import {AlertTriangle, GripVertical, Plus, Trash2} from 'lucide-react';
+import React, {useEffect, useState} from 'react';
+import {AlertTriangle, Check, Copy, Globe2, GripVertical, Plus, RotateCw, Trash2, Unlink} from 'lucide-react';
 import {
+  formPatternIsUnsafe,
   isFormWritablePropertyType,
+  safeFormRedirectUrl,
   TITLE_PROPERTY_ID,
   validateRowAgainstForm,
+  type DatabaseFormPublication,
   type DatabaseFormField,
   type DatabaseFormFieldValidation,
   type DatabaseProperty,
@@ -14,6 +17,7 @@ import {
   type FormWritablePropertyType,
 } from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
+import {Badge} from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -134,6 +138,14 @@ export interface DatabaseFormProps {
   ) => Promise<string | undefined>;
   onAddOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
   onSubmit: (fields: Record<string, unknown>, name?: string) => Promise<string | undefined>;
+  /** Read-only publication seam also consumed by F-3 reference blocks. */
+  getPublication?: () => Promise<DatabaseFormPublication>;
+  /** First publish or rotation; returns the one-time fill URL carrying the fragment capability. */
+  onPublish?: () => Promise<{url: string}>;
+  /** Revoke the one active capability. */
+  onRevoke?: () => Promise<boolean>;
+  /** Publication lifecycle requires instance-level manage authority. */
+  canManagePublication?: boolean;
 }
 
 const fieldClass = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-hidden focus-visible:shadow-[var(--ring-field)]';
@@ -161,6 +173,48 @@ const MetadataInput: React.FC<{
   </label>
 );
 
+/** Authoring/publish-time screen for regexes the server validator deliberately rejects. */
+export function databaseFormPatternIsInvalid(pattern: string | undefined): boolean {
+  if (pattern === undefined || pattern === '') return false;
+  if (pattern.length > 256 || formPatternIsUnsafe(pattern)) return true;
+  try {
+    void new RegExp(pattern);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+const PatternMetadataInput: React.FC<{
+  value: string | undefined;
+  onCommit: (value: string | undefined) => void;
+}> = ({value, onCommit}) => {
+  const {t} = useTranslation();
+  const [draft, setDraft] = useState(value ?? '');
+  const next = draft === '' ? undefined : draft;
+  const invalid = databaseFormPatternIsInvalid(next);
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block text-xs font-medium text-muted-foreground">{t('database.formView.pattern')}</span>
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (!invalid && next !== value) onCommit(next);
+        }}
+        placeholder={t('database.formView.patternPlaceholder')}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? 'database-form-pattern-error' : undefined}
+        className={cn(fieldClass, invalid && 'border-destructive')}
+      />
+      {invalid && (
+        <span id="database-form-pattern-error" className="mt-1 block text-xs text-destructive" role="alert">
+          {t('database.formView.patternInvalid')}
+        </span>
+      )}
+    </label>
+  );
+};
 const NumberMetadataInput: React.FC<{
   label: string;
   value: number | undefined;
@@ -192,22 +246,6 @@ const NumberMetadataInput: React.FC<{
     />
   </label>
 );
-
-/** Accept only browser-safe HTTP(S) destinations, including relative URLs. */
-export function safeFormRedirectUrl(raw: string | undefined): string | null {
-  const value = raw?.trim();
-  if (!value) return null;
-  try {
-    const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
-    const base = currentOrigin && currentOrigin !== 'null' ? currentOrigin : 'https://openbook.local';
-    const parsed = new URL(value, base);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) return parsed.href;
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return null;
-  }
-}
 
 const NewFieldDialog: React.FC<{
   open: boolean;
@@ -673,11 +711,8 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
                         </>
                       )}
                       {hasPatternValidation && (
-                        <MetadataInput
-                          label={t('database.formView.pattern')}
+                        <PatternMetadataInput
                           value={metadata.validation?.pattern}
-                          placeholder={t('database.formView.patternPlaceholder')}
-                          trim={false}
                           onCommit={(value) => updateValidation(property.id, 'pattern', value)}
                         />
                       )}
@@ -768,6 +803,267 @@ const DatabaseFormBuilder: React.FC<DatabaseFormProps> = ({view, properties, onU
   );
 };
 
+const PUBLIC_REVIEW_CALLOUT_TYPES = new Set<FormWritablePropertyType>(['select', 'multi_select', 'status', 'checkbox']);
+
+const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
+  view,
+  properties,
+  getPublication,
+  onPublish,
+  onRevoke,
+}) => {
+  const {t} = useTranslation();
+  const [publication, setPublication] = useState<DatabaseFormPublication | null>(null);
+  const [fillUrl, setFillUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const [untitledAcknowledged, setUntitledAcknowledged] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const fields = projectDatabaseFormFields(properties, view, t('database.formView.rowTitle'))
+    .filter((field) => field.writable);
+  const hasTitle = fields.some((field) => field.property.id === TITLE_PROPERTY_ID);
+  const invalidPatternIds = fields
+    .filter((field) => databaseFormPatternIsInvalid(field.metadata.validation?.pattern))
+    .map((field) => field.property.id);
+  const published = publication?.published ?? null;
+  const hasPublicChoice = fields.some((field) =>
+    PUBLIC_REVIEW_CALLOUT_TYPES.has(field.property.type as FormWritablePropertyType));
+  const optionSummary = (field: ProjectedDatabaseFormField): string | null => {
+    if (!['select', 'multi_select', 'status'].includes(field.property.type)) return null;
+    const labels = field.property.options?.map((option) => option.label) ?? [];
+    const shown = labels.slice(0, 3);
+    if (labels.length > shown.length) shown.push(t('database.formView.reviewMoreOptions', {count: labels.length - shown.length}));
+    return shown.join(', ');
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setPublication(null);
+    if (!getPublication) return;
+    void getPublication()
+      .then((next) => {
+        if (!cancelled) setPublication(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getPublication]);
+
+  if (!getPublication || !onPublish || !onRevoke) return null;
+
+  const openReview = (): void => {
+    setFailed(false);
+    setUntitledAcknowledged(false);
+    setReviewOpen(true);
+  };
+  const publish = async (): Promise<void> => {
+    if (working || fields.length === 0 || invalidPatternIds.length > 0 || (!hasTitle && !untitledAcknowledged)) return;
+    setWorking(true);
+    setFailed(false);
+    try {
+      const result = await onPublish();
+      if (!result.url.startsWith('/') || result.url.startsWith('//')) {
+        throw new Error('form fill URL must be application-relative');
+      }
+      // This is an app route, even when the app is connected to a remote data
+      // server. Resolving it against the transport origin sends visitors to an
+      // API-only server in that configuration instead of the public form UI.
+      const base = typeof window === 'undefined' ? 'https://openbook.local' : window.location.href;
+      const absolute = new URL(result.url, base).toString();
+      setFillUrl(absolute);
+      setCopied(false);
+      setPublication((current) => current ? {...current, published: true} : current);
+      setReviewOpen(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setWorking(false);
+    }
+  };
+  const revoke = async (): Promise<void> => {
+    if (working) return;
+    setWorking(true);
+    setFailed(false);
+    try {
+      const removed = await onRevoke();
+      if (!removed) throw new Error('form capability was not active');
+      setPublication((current) => current ? {...current, published: false} : current);
+      setFillUrl(null);
+      setCopied(false);
+      setRevokeOpen(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setWorking(false);
+    }
+  };
+  const copyFillUrl = async (): Promise<void> => {
+    if (!fillUrl || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(fillUrl);
+    setCopied(true);
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm" data-database-form-publication>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Globe2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+            <h2 className="text-sm font-semibold">{t('database.formView.publishTitle')}</h2>
+            {published !== null && (
+              <Badge
+                variant="secondary"
+                className={cn('rounded-full px-2 py-0.5 text-[11px]', published && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300')}
+              >
+                {t(published ? 'database.formView.published' : 'database.formView.notPublished')}
+              </Badge>
+            )}
+          </div>
+          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{t('database.formView.publishIndependent')}</p>
+          {publication && (
+            <p className="mt-1 text-xs text-muted-foreground" data-database-form-response-count>
+              {t('database.formView.responseCount', {count: publication.responseCount, max: publication.maxResponses})}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {published && (
+            <Button size="sm" variant="outline" onClick={() => setRevokeOpen(true)} disabled={working}>
+              <Unlink className="mr-1.5 h-4 w-4" />{t('database.formView.revoke')}
+            </Button>
+          )}
+          <Button size="sm" onClick={openReview} disabled={working || published === null || fields.length === 0}>
+            {published && <RotateCw className="mr-1.5 h-4 w-4" />}
+            {t(published ? 'database.formView.rotate' : 'database.formView.publish')}
+          </Button>
+        </div>
+      </div>
+
+      {fillUrl && (
+        <div className="mt-4 flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3" data-database-form-fill-url>
+          <span className="text-sm font-medium">{t('database.formView.revealTitle')}</span>
+          <span className="text-xs text-muted-foreground">{t('database.formView.revealHint')}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <a href={fillUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate rounded bg-background px-2.5 py-1.5 font-mono text-xs text-primary underline-offset-2 hover:underline">
+              {fillUrl}
+            </a>
+            <Button size="sm" variant="secondary" onClick={() => void copyFillUrl()}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {t(copied ? 'database.formView.copiedFillUrl' : 'database.formView.copyFillUrl')}
+            </Button>
+          </div>
+          <div>
+            <Button size="sm" variant="ghost" onClick={() => {
+              setFillUrl(null);
+              setCopied(false);
+            }}>
+              {t('database.formView.revealDone')}
+            </Button>
+          </div>
+        </div>
+      )}
+      {published && !fillUrl && (
+        <p className="mt-3 text-xs text-muted-foreground">{t('database.formView.rotateForUrl')}</p>
+      )}
+      {failed && <p className="mt-3 text-sm text-destructive" role="alert">{t('database.formView.publishError')}</p>}
+
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent size="sm" data-database-form-publish-review>
+          <DialogHeader>
+            <DialogTitle>{t('database.formView.reviewTitle')}</DialogTitle>
+            <DialogDescription>{t('database.formView.reviewDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto pr-1">
+            {fields.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+                {t('database.formView.reviewNoFields')}
+              </div>
+            ) : fields.map((field) => {
+              const options = optionSummary(field);
+              return (
+                <div key={field.property.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2" data-publish-review-field={field.property.id}>
+                  <span className="min-w-0 truncate text-sm font-medium">
+                    {field.label}
+                    {field.metadata.required && <span className="ml-1 text-destructive" aria-hidden>*</span>}
+                  </span>
+                  <span className="min-w-0 text-right text-xs text-muted-foreground">
+                    {options && <span className="block max-w-48 truncate" title={options}>{options}</span>}
+                    <span className="flex justify-end gap-2">
+                      {field.metadata.required && <span>{t('database.formView.required')}</span>}
+                      {PUBLIC_REVIEW_CALLOUT_TYPES.has(field.property.type as FormWritablePropertyType) && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-foreground">
+                          {t('database.formView.reviewChoiceField')}
+                        </span>
+                      )}
+                      {t(FORM_TYPE_KEY[field.property.type as FormWritablePropertyType])}
+                    </span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {(hasPublicChoice || published || !hasTitle) && (
+            <div className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+              {hasPublicChoice && <p>{t('database.formView.reviewChoiceWarning')}</p>}
+              {published && <p>{t('database.formView.rotateWarning')}</p>}
+              {!hasTitle && (
+                <label className="flex items-start gap-2 font-normal">
+                  <input
+                    type="checkbox"
+                    checked={untitledAcknowledged}
+                    onChange={(event) => setUntitledAcknowledged(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-primary"
+                  />
+                  <span>
+                    <span className="block font-medium">{t('database.formView.untitledWarning')}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {t('database.formView.untitledAcknowledgement')}
+                    </span>
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
+          {invalidPatternIds.length > 0 && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              {t('database.formView.reviewInvalidPattern')}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReviewOpen(false)} disabled={working}>{t('common.cancel')}</Button>
+            <Button
+              onClick={() => void publish()}
+              disabled={working || fields.length === 0 || invalidPatternIds.length > 0 || (!hasTitle && !untitledAcknowledged)}
+            >
+              {t(published ? 'database.formView.rotateConfirm' : 'database.formView.publishConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={revokeOpen} onOpenChange={(open) => !working && setRevokeOpen(open)}>
+        <DialogContent size="sm" data-database-form-revoke-confirm>
+          <DialogHeader>
+            <DialogTitle>{t('database.formView.revokeTitle')}</DialogTitle>
+            <DialogDescription>{t('database.formView.revokeDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRevokeOpen(false)} disabled={working}>{t('common.cancel')}</Button>
+            <Button variant="destructive" onClick={() => void revoke()} disabled={working}>
+              {t('database.formView.revokeConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
 export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
   const {t} = useTranslation();
   const [mode, setMode] = useState<'builder' | 'fill'>(props.canEdit ? 'builder' : 'fill');
@@ -783,6 +1079,7 @@ export const DatabaseForm: React.FC<DatabaseFormProps> = (props) => {
   }
   return (
     <div className="space-y-4" data-database-form>
+      {props.canManagePublication !== false && <DatabaseFormPublicationControls {...props} />}
       {props.canEdit && (
         <div className="flex justify-center">
           <div className="inline-flex rounded-md bg-muted p-0.5" role="group">

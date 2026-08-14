@@ -17,6 +17,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Select} from '@/components/ui/select';
+import {Switch} from '@/components/ui/switch';
 import {copyPageLink} from '@/lib/pageActions';
 import {clearShareTarget, readShareTarget, shareDialogVersion, subscribeShareDialog} from '@/lib/shareDialog';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
@@ -436,6 +437,11 @@ export default function ShareDialog({
   const open = openProp ?? openState;
   const setOpen = onOpenChange ?? setOpenState;
   const [scope, setScope] = useState<PageVisibility>('inherit');
+  // Older servers omit the discovery flag, which means their historical
+  // behaviour is listed. The authoritative value replaces this on each open.
+  const [listed, setListed] = useState(true);
+  const [listingBusy, setListingBusy] = useState(false);
+  const [listingError, setListingError] = useState<TKey | null>(null);
   // Progressive disclosure for the scope picker (SHR-4): collapsed by default so
   // only the primary two scopes (+ the current value) show; the "Advanced" reveal
   // adds `inherit`/`authenticated`.
@@ -500,8 +506,9 @@ export default function ShareDialog({
     setLoading(true);
     setLoadError(false);
     try {
-      const visibility = await client.getPageVisibility(pageId);
-      setScope(visibility ?? 'inherit');
+      const settings = await client.getPageVisibility(pageId);
+      setScope(settings?.visibility ?? 'inherit');
+      setListed(settings?.listed ?? true);
     } catch {
       setLoadError(true);
       setLoading(false);
@@ -523,6 +530,7 @@ export default function ShareDialog({
     if (!open) return;
     // Don't carry a prior scope/add failure across a close→reopen (F4).
     setScopeError(null);
+    setListingError(null);
     setAddError(null);
     void refresh();
   }, [open, refresh]);
@@ -581,13 +589,32 @@ export default function ShareDialog({
       setScope(next); // optimistic
       setScopeError(null);
       try {
-        await client.setPageVisibility(pageId, next);
+        await client.setPageVisibility(pageId, {visibility: next});
       } catch (e) {
         setScope(prev); // revert on failure
         setScopeError(shareErrorKey(e)); // …and surface why (F2)
       }
     },
     [client, pageId, scope],
+  );
+
+  const changeHidden = useCallback(
+    async (hidden: boolean) => {
+      const prev = listed;
+      setListed(!hidden); // optimistic: the control is phrased as "Hide"
+      setListingBusy(true);
+      setListingError(null);
+      try {
+        const saved = await client.setPageVisibility(pageId, {listed: !hidden});
+        setListed(saved.listed);
+      } catch (e) {
+        setListed(prev);
+        setListingError(shareErrorKey(e));
+      } finally {
+        setListingBusy(false);
+      }
+    },
+    [client, listed, pageId],
   );
 
   const addPerson = useCallback(async () => {
@@ -754,6 +781,40 @@ export default function ShareDialog({
                 busy={loading}
                 onPublish={() => void changeScope('public')}
               />
+            )}
+
+            {/* Discovery is independent from access. Keep the setting visible at
+                the private end of the scope ladder so a stored hidden posture is
+                legible, but disable it where navigation/search have no link-based
+                discovery relevance. `inherit` remains page-local and available. */}
+            {canManage && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
+                <label className="flex items-center justify-between gap-4">
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-medium text-foreground">{t('share.listing.label')}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t(
+                        scope === 'inherit'
+                          ? 'share.listing.inheritHint'
+                          : scope === 'restricted'
+                            ? 'share.listing.restrictedHint'
+                            : 'share.listing.hint',
+                      )}
+                    </span>
+                  </span>
+                  <Switch
+                    checked={!listed}
+                    disabled={loading || listingBusy || scope === 'restricted'}
+                    aria-label={t('share.listing.label')}
+                    onCheckedChange={(hidden) => void changeHidden(hidden)}
+                  />
+                </label>
+                {listingError && (
+                  <span role="alert" aria-live="assertive" className="mt-1.5 block text-xs text-destructive">
+                    {t(listingError)}
+                  </span>
+                )}
+              </div>
             )}
 
             {formDisclosure && (
@@ -1060,6 +1121,9 @@ export default function ShareDialog({
                   ) : (
                     <>
                       {t(LINK_HINT[scope])}
+                      {!listed && scope !== 'restricted' && (
+                        <> {t('share.linkHints.hidden')}</>
+                      )}
                       {publishedHost && (
                         <>
                           {' '}

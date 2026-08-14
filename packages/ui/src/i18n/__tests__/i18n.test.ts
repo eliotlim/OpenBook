@@ -60,6 +60,19 @@ describe('t', () => {
     }
   });
 
+  it('ships the unlisted-page UI copy in all four locales', () => {
+    for (const locale of [en, de, ja, zh]) {
+      expect([
+        locale.nav?.hiddenPage,
+        locale.share?.listing?.label,
+        locale.share?.listing?.hint,
+        locale.share?.listing?.inheritHint,
+        locale.share?.listing?.restrictedHint,
+        locale.share?.linkHints?.hidden,
+      ].every((message) => typeof message === 'string' && message.length > 0)).toBe(true);
+    }
+  });
+
   it('ships every database-form block string in all four locales', () => {
     const keys = Object.keys(en.formBlock.databaseReference).sort();
     for (const locale of [de, ja, zh]) {

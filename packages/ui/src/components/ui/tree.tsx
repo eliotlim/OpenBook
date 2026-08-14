@@ -26,6 +26,8 @@ interface TreeDataItem {
   id: string;
   name: string;
   icon?: LucideIcon | string,
+  /** Persistent metadata rendered after the label (for example a status badge). */
+  badge?: React.ReactNode;
   children?: TreeDataItem[];
 }
 
@@ -368,6 +370,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
         )}
         <RowIcon icon={item.icon} Fallback={Icon} />
         <span className="grow truncate text-sm">{item.name}</span>
+        {item.badge}
         {renderRowActions && (
           <span
             // Revealed on hover or when something inside has focus; doesn't shift
