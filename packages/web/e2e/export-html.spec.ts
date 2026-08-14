@@ -154,7 +154,7 @@ test('interactive HTML export: served bundle has no unlisted subpage, mention, o
     route.fulfill({status: 200, contentType: 'text/html', body: html}),
   );
   await page.goto('http://up4-export.test/export.html');
-  await expect(page.getByText('UP4 Visible Row E2E')).toBeVisible();
+  await expect(page.getByRole('link', {name: /UP4 Visible Row E2E/})).toBeVisible();
   await expect(page.getByText(/UP4 Hidden/)).toHaveCount(0);
   await expect(page.locator(`[data-page-id="${visibleRow.id}"]`)).toBeVisible();
   await page.getByRole('link', {name: /UP4 Visible Child E2E/}).first().click();
