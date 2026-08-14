@@ -99,7 +99,7 @@ describe('Idempotency-Key route contract', () => {
   it('serializes concurrent same-key claimants onto one row and one response', async () => {
     const app = createApp(store);
     const body = JSON.stringify({name: 'Concurrent singleton', properties: {amount: 7}});
-    const send = (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
+    const send = async (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -124,7 +124,7 @@ describe('Idempotency-Key route contract', () => {
     const logEdit = vi.spyOn(store, 'logEdit').mockResolvedValue();
     const app = createApp(store, undefined, hub);
     const body = JSON.stringify({name: 'One observable write'});
-    const send = (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
+    const send = async (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -145,7 +145,7 @@ describe('Idempotency-Key route contract', () => {
 
   it('replays a completed database destroy as 204 after the target no longer exists', async () => {
     const app = createApp(store);
-    const destroy = (): Promise<Response> => app.request(`/api/databases/${database.id}`, {
+    const destroy = async (): Promise<Response> => app.request(`/api/databases/${database.id}`, {
       method: 'DELETE',
       headers: {[CLIENT_HEADER]: '1', 'Idempotency-Key': KEY},
     });
