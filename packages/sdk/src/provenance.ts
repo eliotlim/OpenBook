@@ -208,6 +208,8 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
  * *current* request, so a client can render "you are signed in as …" / "guest".
  */
 export interface InstanceInfo {
+  /** Durable-write capability; absent on servers that cannot safely deduplicate replay. */
+  writeContract?: 1;
   /** Optimistic-concurrency token; absent only when reading from a legacy server. */
   rev?: EntityRev;
   guestAccess: GuestAccess;

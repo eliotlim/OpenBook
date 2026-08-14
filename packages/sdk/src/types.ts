@@ -69,11 +69,13 @@ export type StablePosition = string;
 /** Stable page-id → position mapping; unlike `orderedIds`, identity survives insertion. */
 export type PagePositionRecord = Readonly<Record<string, StablePosition>>;
 
-/** Target input for moving one page without rewriting any sibling row. */
+/** Additive move input spanning wave 1 and the post-CWD-12 position contract. */
 export interface PageMoveInput extends ExpectedRevInput {
   parentId: string | null;
-  /** Wave 1 requires exactly the route page id as this record's sole key. */
-  positions: PagePositionRecord;
+  /** Post-CWD-12 input; exactly the route page id is normally the sole key. */
+  positions?: PagePositionRecord;
+  /** @deprecated Wave-1 LWW sibling order; use {@link positions} after CWD-12. */
+  orderedIds?: string[];
 }
 
 /** Target input for position-record row ordering after the CWD-12 migration. */
@@ -153,11 +155,23 @@ interface WriteConflictBase extends WriteErrorEnvelope<'rev-conflict'> {
   readonly links: WriteConflictLinks;
 }
 
-/** CAS response from a page, row-content, visibility, or agent-policy route. */
-export interface PageConflict extends WriteConflictBase {
-  readonly entity: Extract<WriteEntityRef, {kind: 'page'}>;
-  readonly current: WithRev<StoredPage | PageVisibilitySettings | AgentEditsPolicySettings> | null;
-}
+/** CAS response from a page route, secondarily discriminated by route projection. */
+export type PageConflict =
+  | (WriteConflictBase & {
+      readonly entity: Extract<WriteEntityRef, {kind: 'page'}>;
+      readonly projection: 'page';
+      readonly current: WithRev<StoredPage> | null;
+    })
+  | (WriteConflictBase & {
+      readonly entity: Extract<WriteEntityRef, {kind: 'page'}>;
+      readonly projection: 'visibility';
+      readonly current: WithRev<PageVisibilitySettings> | null;
+    })
+  | (WriteConflictBase & {
+      readonly entity: Extract<WriteEntityRef, {kind: 'page'}>;
+      readonly projection: 'agent-edits';
+      readonly current: WithRev<AgentEditsPolicySettings> | null;
+    });
 
 /** CAS response from a database-row property route. */
 export interface DatabaseRowConflict extends WriteConflictBase {
@@ -242,6 +256,7 @@ export interface WriteAuthorizationErrorInfo extends WriteErrorInfo<'authorizati
 
 export interface WriteRateLimitErrorInfo extends WriteErrorInfo<'rate-limit', 429> {
   readonly retryable: true;
+  /** Milliseconds parsed from an HTTP `Retry-After` seconds value, when present. */
   readonly retryAfterMs?: number;
 }
 
@@ -603,8 +618,6 @@ export interface PageAcl {
 
 /** Status of a desktop install's local server. */
 export interface ServerInfo {
-  /** Durable-write capability; absent on servers that cannot safely deduplicate replay. */
-  writeContract?: 1;
   /** Whether the local server is currently running. */
   running: boolean;
   /** Bound base URL the local UI connects to, when running (loopback). */
