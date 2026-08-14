@@ -3,12 +3,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import * as Y from 'yjs';
-import type {PageSnapshot} from '@book.dev/sdk';
+import {mintIdentityKeypair, signIdentity, type PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp, type AppWithCollab} from './app';
 import {encodeServerBlockDoc, ServerAuthoritativePersister} from './collabPersist';
+import {IdentityService} from './instanceConfig';
+import {IDENTITY_HEADER} from './principal';
 
 /**
  * Collab T9 — server-authoritative persistence wired through the real Hono app
@@ -73,11 +75,17 @@ async function seed(store: PageStore, name: string): Promise<{id: string; client
   return {id: page.id, client};
 }
 
-const postUpdate = (app: ReturnType<typeof createApp>, id: string, update: Uint8Array, clientId: number): Promise<Response> =>
+const postUpdate = (
+  app: ReturnType<typeof createApp>,
+  id: string,
+  update: Uint8Array,
+  clientId: number,
+  headers: Record<string, string> = {},
+): Promise<Response> =>
   Promise.resolve(
     app.request(`/api/pages/${id}/updates`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers},
       body: JSON.stringify({update: Buffer.from(update).toString('base64'), clientId}),
     }),
   );
@@ -91,6 +99,9 @@ const textOf = async (store: PageStore, id: string): Promise<string> => {
   const t = (await blocksOf(store, id))[0]?.text;
   return Array.isArray(t) ? (t as Array<{t: string}>).map((op) => op.t).join('') : '';
 };
+
+const authorOf = async (store: PageStore, id: string, blockId: string): Promise<string | undefined> =>
+  new Map(((await store.getPage(id))?.data as {authors?: Array<[string, string]>} | undefined)?.authors ?? []).get(blockId);
 
 const snapshotOf = (doc: Y.Doc): PageSnapshot =>
   ({editor: 'blocks', blockdoc: encodeServerBlockDoc(doc)}) as unknown as PageSnapshot;
@@ -268,6 +279,56 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     expected.destroy();
   });
 
+  it('preserves an authenticated snapshot PUT author through the live-session merge checkpoint', async () => {
+    const store = await freshStore();
+    const issuer = 'https://account.book.pub';
+    const subject = `${issuer}#alice`;
+    const keys = await mintIdentityKeypair('server-persist-author');
+    await store.updateInstanceConfig({trustedIssuers: [{issuer, jwks: {keys: [keys.publicJwk]}}]});
+    const app = createApp(store, undefined, new PageHub(), {
+      serverPersist: true,
+      identity: new IdentityService(store),
+    });
+    const persister = (app as AppWithCollab).collabPersist!;
+    persisters.push(persister);
+    const identity = await signIdentity(
+      keys.privateKey,
+      {iss: issuer, sub: 'alice', name: 'Alice', exp: Math.floor(Date.now() / 1000) + 3600, jti: 'put-author'},
+      'server-persist-author',
+    );
+    const auth = {[IDENTITY_HEADER]: identity};
+    const {id, client: liveClient} = await seed(store, 'snapshot-put-author');
+    const staleClient = new Y.Doc();
+    Y.applyUpdate(staleClient, Y.encodeStateAsUpdate(liveClient));
+
+    // Advance and checkpoint the live canonical doc so its pending-author map is empty.
+    const liveBefore = Y.encodeStateVector(liveClient);
+    (liveClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'LIVE');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(liveClient, liveBefore), liveClient.clientID, auth);
+    await waitFor(async () => (await textOf(store, id)).includes('LIVE'));
+    expect(persister.size()).toBe(1);
+
+    // Alice's stale snapshot contributes a concurrent operation. The direct PUT stamps
+    // Alice, then the canonical-union checkpoint changes the block again by restoring
+    // LIVE; that follow-up write must carry Alice's merge attribution instead of wiping it.
+    (staleClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'PUT');
+    const put = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...auth},
+      body: JSON.stringify({name: 'snapshot-put-author', data: snapshotOf(staleClient)}),
+    });
+    expect(put.status).toBe(200);
+    expect(new Map(((await put.json()) as {data: {authors?: Array<[string, string]>}}).data.authors ?? []).get('a')).toBe(subject);
+
+    await waitFor(async () => {
+      const text = await textOf(store, id);
+      return text.includes('LIVE') && text.includes('PUT') && (await authorOf(store, id, 'a')) === subject;
+    });
+    expect(await authorOf(store, id, 'a')).toBe(subject);
+    liveClient.destroy();
+    staleClient.destroy();
+  });
+
   it('a snapshot PUT waits for an in-flight checkpoint before writing, then merges', async () => {
     const store = await freshStore();
     const app = persistedApp(store);
@@ -436,7 +497,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     // Hold the first fence after its DB write but before its canonical merge. The
     // second route has entered withSnapshotWriteFence, yet may not begin quiescing.
     const mergeSeam = persister as unknown as {
-      mergeSnapshot(pageId: string, update: Uint8Array | null): Promise<void>;
+      mergeSnapshot(pageId: string, update: Uint8Array | null, subject: string): Promise<void>;
     };
     const realMerge = mergeSeam.mergeSnapshot.bind(persister);
     let releaseMerge!: () => void;
@@ -444,11 +505,11 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
       releaseMerge = resolve;
     });
     let mergeCall = 0;
-    vi.spyOn(mergeSeam, 'mergeSnapshot').mockImplementation(async (pageId, update) => {
+    vi.spyOn(mergeSeam, 'mergeSnapshot').mockImplementation(async (pageId, update, subject) => {
       const call = ++mergeCall;
       events.push(`merge:${call}:start`);
       if (call === 1) await mergeHeld;
-      await realMerge(pageId, update);
+      await realMerge(pageId, update, subject);
       events.push(`merge:${call}:end`);
     });
 

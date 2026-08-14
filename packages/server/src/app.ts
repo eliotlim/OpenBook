@@ -615,7 +615,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         ? new Uint8Array(Buffer.from(rawUpdate, 'base64'))
         : null;
       return input.id
-        ? persister.withSnapshotWriteFence(input.id, write, {intent: 'merge', snapshotUpdate})
+        ? persister.withSnapshotWriteFence(input.id, write, {
+          intent: 'merge',
+          snapshotUpdate,
+          subject: authoredSubject(author),
+        })
         : write();
     }
     : store.upsertPage.bind(store);

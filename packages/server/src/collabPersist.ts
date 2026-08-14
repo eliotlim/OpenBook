@@ -130,6 +130,34 @@ function topLevelDigest(doc: Y.Doc): Array<[string, string]> {
   return snapshotBlocks(snap).map((d): [string, string] => [d.id, d.hash]);
 }
 
+/** Compare a pre-update digest with the doc's current projection, recording the
+ *  authenticated subject for every block whose content changed. Returns whether the
+ *  update changed content or top-level order. Shared by incremental ingests and
+ *  whole-snapshot merges so both persistence entrances apply identical attribution. */
+function recordTopLevelChanges(
+  before: Array<[string, string]>,
+  doc: Y.Doc,
+  pendingAuthors: Map<string, string>,
+  subject: string,
+): boolean {
+  const after = topLevelDigest(doc);
+  const beforeById = new Map(before);
+  // A pure top-level reorder (same length, same ids IN A DIFFERENT ORDER) changes the
+  // document without changing any block's content hash — detect it via the ORDERED
+  // id sequence, not just an id→hash map, or the reorder would never be persisted.
+  let changed = before.length !== after.length || after.some((e, i) => e[0] !== before[i]?.[0]);
+  for (const [id, hash] of after) {
+    if (beforeById.get(id) !== hash) {
+      changed = true;
+      // Last writer of a block since the last checkpoint wins its attribution. (A pure
+      // reorder changes no block's hash, so it dirties the doc without re-attributing
+      // any block — exactly as the client saver's per-block author stamp does.)
+      pendingAuthors.set(id, subject);
+    }
+  }
+  return changed;
+}
+
 interface PersistDoc {
   doc: Y.Doc;
   /** `true` once seeded from the durable snapshot; a Promise while seeding. */
@@ -177,7 +205,7 @@ export interface ServerPersistOptions {
  *  that distinction explicit at the write fence prevents a stale PUT from being treated
  *  like a destructive restore. */
 export type SnapshotWriteIntent =
-  | {intent: 'merge'; snapshotUpdate: Uint8Array | null}
+  | {intent: 'merge'; snapshotUpdate: Uint8Array | null; subject: string}
   | {intent: 'overwrite'; afterWrite?: () => void | Promise<void>};
 
 export class ServerAuthoritativePersister {
@@ -223,23 +251,7 @@ export class ServerAuthoritativePersister {
       // A malformed update can't corrupt a CRDT doc, but guard the apply anyway.
       return;
     }
-    const after = topLevelDigest(entry.doc);
-    const beforeById = new Map(before);
-    // A pure top-level reorder (same length, same ids IN A DIFFERENT ORDER) changes the
-    // document without changing any block's content hash — detect it via the ORDERED
-    // id sequence, not just an id→hash map, or the reorder would never be persisted.
-    let changed =
-      before.length !== after.length || after.some((e, i) => e[0] !== before[i]?.[0]);
-    for (const [id, hash] of after) {
-      if (beforeById.get(id) !== hash) {
-        changed = true;
-        // Last writer of a block since the last checkpoint wins its attribution. (A pure
-        // reorder changes no block's hash, so it dirties the doc without re-attributing
-        // any block — exactly as the client saver's per-block author stamp does.)
-        entry.pendingAuthors.set(id, subject);
-      }
-    }
-    if (changed) {
+    if (recordTopLevelChanges(before, entry.doc, entry.pendingAuthors, subject)) {
       entry.dirty = true;
       this.schedule(pageId);
     }
@@ -335,7 +347,7 @@ export class ServerAuthoritativePersister {
       try {
         const result = await write();
         if (options.intent === 'merge') {
-          await this.mergeSnapshot(pageId, options.snapshotUpdate);
+          await this.mergeSnapshot(pageId, options.snapshotUpdate, options.subject);
         }
         return result;
       } finally {
@@ -479,12 +491,13 @@ export class ServerAuthoritativePersister {
    *  doc: the DB was just replaced by that stale snapshot, so the next checkpoint must
    *  write the retained union back. Legacy snapshots without an update dirty an already
    *  live canonical doc, but do not manufacture an empty canonical doc on a cold page. */
-  private async mergeSnapshot(pageId: string, snapshotUpdate: Uint8Array | null): Promise<void> {
+  private async mergeSnapshot(pageId: string, snapshotUpdate: Uint8Array | null, subject: string): Promise<void> {
     const hadCanonical = this.docs.has(pageId);
     if (!hadCanonical && !snapshotUpdate) return;
     const entry = await this.ensure(pageId);
     if (!entry) return;
     if (snapshotUpdate) {
+      const before = topLevelDigest(entry.doc);
       try {
         Y.applyUpdate(entry.doc, snapshotUpdate);
       } catch {
@@ -496,6 +509,7 @@ export class ServerAuthoritativePersister {
           return;
         }
       }
+      recordTopLevelChanges(before, entry.doc, entry.pendingAuthors, subject);
     }
     entry.touched = Date.now();
     entry.dirty = true;
