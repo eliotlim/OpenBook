@@ -598,15 +598,25 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       },
     })
     : null;
-  // One boundary for every route-level whole-snapshot write. The persister owns the
-  // quiesce→write→reseed protocol (including same-page writer serialization), while
-  // the store's internal `saveServerDoc` checkpoint keeps bypassing it — no feedback
-  // loop. Select the direct bound store method once when persistence is off, so the
-  // default production path performs no fence work and retains its existing behavior.
+  // One boundary for client-originated route-level whole-snapshot writes. The persister
+  // owns quiesce→write→merge (including same-page writer serialization), while the store's
+  // internal `saveServerDoc` checkpoint bypasses it — no feedback loop. A stale PUT/POST
+  // is therefore only a transient durable replacement: its blockdoc update is folded into
+  // the retained canonical doc and the next checkpoint writes the CRDT union back.
+  //
+  // Coverage assumption (F3): localClient.ts calls store.upsertPage directly, but that
+  // in-webview transport does not construct a persister today. If it gains one, its save
+  // and restore methods must cross this same intent-discriminating boundary.
   const upsertSnapshotPage: PageStore['upsertPage'] = persister
     ? (input, author, upsertOpts) => {
       const write = () => store.upsertPage(input, author, upsertOpts);
-      return input.id ? persister.withSnapshotWriteFence(input.id, write) : write();
+      const rawUpdate = (input.data.blockdoc as {update?: unknown} | undefined)?.update;
+      const snapshotUpdate = typeof rawUpdate === 'string' && rawUpdate.length > 0
+        ? new Uint8Array(Buffer.from(rawUpdate, 'base64'))
+        : null;
+      return input.id
+        ? persister.withSnapshotWriteFence(input.id, write, {intent: 'merge', snapshotUpdate})
+        : write();
     }
     : store.upsertPage.bind(store);
   // Expose the persister so the host (server.ts) can flush every dirty canonical doc
@@ -1649,23 +1659,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Preserve the page's current name — only the document content rolls back.
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
-    // A restore writes the old snapshot straight through `upsertPage` — an EXTERNAL write
-    // that bypasses the /updates collab stream. Any live collab doc for this page still
-    // holds the PRE-restore state, so we make the restore's write the LAST durable write the
-    // persister allows for the page, then reseed so connected clients converge onto the
-    // restored content (PVH-8). Order matters — quiesce BEFORE the write, reseed AFTER it:
-    //  • quiesce: freeze new checkpoints, cancel the debounce, and DRAIN any in-flight
-    //    checkpoint so a stale pre-restore write lands (or is refused) BEFORE this write —
-    //    never behind it on the write mutex, where it would durably clobber the restore.
-    //  • upsertPage: the restore write, now the final durable write for the page.
-    //  • reseed: drop the canonical doc (next access reseeds from the restored pages.data)
-    //    and clear the freeze. Runs in `finally` so a failed write never leaks the freeze.
-    let page: Awaited<ReturnType<typeof store.upsertPage>>;
-    try {
-      page = await upsertSnapshotPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
-    } finally {
-      relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
-    }
+    // Restore is the overwrite arm of `withSnapshotWriteFence` (PVH-8), not the client
+    // snapshot merge arm above. The fence owns this full ordered interval:
+    //  • quiesce drains every pre-restore checkpoint before the durable restore write;
+    //  • afterWrite forgets the relay while the canonical doc is still frozen;
+    //  • reseed then drops the canonical doc and releases the freeze.
+    // Keeping relay invalidation inside the fence closes the window where an unfrozen
+    // restored canonical doc could coexist with the relay's pre-restore state.
+    const writeRestore = () => store.upsertPage(
+      {id, name: existing.name, data: version.data},
+      c.get('principal'),
+      {captureMode: 'force'},
+    );
+    const page = persister
+      ? await persister.withSnapshotWriteFence(id, writeRestore, {
+        intent: 'overwrite',
+        afterWrite: () => relay.forget(id),
+      })
+      : await (async () => {
+        try {
+          return await writeRestore();
+        } finally {
+          relay.forget(id);
+        }
+      })();
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
