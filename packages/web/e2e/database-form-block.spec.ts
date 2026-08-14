@@ -64,7 +64,7 @@ test(
     await expect(formBlock.getByRole('table')).toHaveCount(0);
     await expect(formBlock.getByRole('button', {name: 'Add view'})).toHaveCount(0);
 
-    const email = formBlock.getByRole('textbox', {name: 'email'});
+    const email = formBlock.getByRole('textbox', {name: 'Contact email', exact: true});
     await email.fill('embedded@example.com');
     await email.blur();
     await formBlock.getByRole('button', {name: 'Submit', exact: true}).click();

@@ -30,7 +30,7 @@ test(
     await expect(page.locator('[data-form-field-id]').filter({hasText: 'Contact email'})).toBeVisible();
 
     await page.getByRole('button', {name: 'Fill', exact: true}).click();
-    const email = page.getByRole('textbox', {name: 'email'});
+    const email = page.getByRole('textbox', {name: 'Contact email', exact: true});
     await email.fill('reader@example.com');
     await email.blur();
     await page.getByRole('button', {name: 'Submit', exact: true}).click();
