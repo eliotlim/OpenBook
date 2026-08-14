@@ -2929,8 +2929,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.delete(`${API.databases}/:id`, async (c) => {
     const id = c.req.param('id');
-    // Global authentication/authorization middleware has passed. Probe before
-    // target existence: a completed destroy has intentionally removed the row.
+    // Authentication has passed, but a completed destroy leaves no target on
+    // which to re-evaluate resource authorization. For this bodyless replay only,
+    // the actor-scoped key is the proof; response-bearing routes must authorize first.
     const replay = await executeDurableWrite.probe<null>(c);
     if (replay) return durableWriteResponse(c, replay);
     await requireDbAccess(c, store, 'write', id);

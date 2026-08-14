@@ -410,7 +410,9 @@ current state rather than a cached 409. Authentication, authorization, access,
 managed-entity, and body-size gates run before claim/replay, preventing an old
 success from bypassing a later permission revocation.
 The existence gate must not precede replay, because a completed destroy has
-removed its target, although authorization still must.
+removed its target; for that destroy replay, the actor-scoped key is the
+authorization proof because per-resource authorization can no longer be
+re-evaluated.
 
 On an exact replay after those gates:
 
