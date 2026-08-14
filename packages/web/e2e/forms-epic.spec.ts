@@ -236,7 +236,7 @@ async function buildAndBindForm(page: Page): Promise<void> {
 
   await textRow.getByRole('button', {name: 'Settings for Short text'}).click();
   let settings = page.locator('[data-form-field-settings]');
-  await settings.getByLabel('Label').fill('Name');
+  await settings.getByLabel('Label for Short text', {exact: true}).fill('Name');
   await settings.getByLabel('Required').check();
   await settings.getByRole('combobox', {name: 'Database column'}).click();
   await page.getByRole('option', {name: 'Auto-create a compatible column'}).click();
@@ -246,7 +246,7 @@ async function buildAndBindForm(page: Page): Promise<void> {
   const filesRow = page.locator('[data-form-field-kind="files"]');
   await filesRow.getByRole('button', {name: 'Settings for Files'}).click();
   settings = page.locator('[data-form-field-settings]');
-  await settings.getByLabel('Label').fill('Attachment');
+  await settings.getByLabel('Label for Files', {exact: true}).fill('Attachment');
   await settings.getByLabel('Required').check();
   await settings.getByRole('combobox', {name: 'Database column'}).click();
   await page.getByRole('option', {name: 'Auto-create a compatible column'}).click();

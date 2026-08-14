@@ -668,6 +668,7 @@ export const ja: PartialMessages = {
       removeField: 'フィールドを削除',
       keyboardHint: 'フォーカスしたフィールドは Alt または Command + 矢印キーで移動できます。',
       label: 'ラベル',
+      labelForField: '{label}のラベル',
       placeholder: 'プレースホルダー',
       required: '必須',
       validation: '検証',

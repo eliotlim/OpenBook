@@ -673,6 +673,7 @@ export const de: PartialMessages = {
       removeField: 'Feld entfernen',
       keyboardHint: 'Alt oder Befehlstaste + Pfeiltasten verschiebt das fokussierte Feld.',
       label: 'Beschriftung',
+      labelForField: 'Beschriftung für {label}',
       placeholder: 'Platzhalter',
       required: 'Erforderlich',
       validation: 'Validierung',

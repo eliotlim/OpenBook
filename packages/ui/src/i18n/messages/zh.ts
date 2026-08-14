@@ -664,6 +664,7 @@ export const zh: PartialMessages = {
       removeField: '移除字段',
       keyboardHint: '聚焦字段后，按 Alt 或 Command + 方向键可移动。',
       label: '标签',
+      labelForField: '{label}的标签',
       placeholder: '占位文本',
       required: '必填',
       validation: '验证',

@@ -1111,6 +1111,7 @@ export const en = {
       removeField: 'Remove field',
       keyboardHint: 'Alt or Command + arrow keys moves a focused field.',
       label: 'Label',
+      labelForField: 'Label for {label}',
       placeholder: 'Placeholder',
       required: 'Required',
       validation: 'Validation',
