@@ -500,8 +500,8 @@ export default function ShareDialog({
     setLoading(true);
     setLoadError(false);
     try {
-      const visibility = await client.getPageVisibility(pageId);
-      setScope(visibility ?? 'inherit');
+      const settings = await client.getPageVisibility(pageId);
+      setScope(settings?.visibility ?? 'inherit');
     } catch {
       setLoadError(true);
       setLoading(false);
@@ -581,7 +581,7 @@ export default function ShareDialog({
       setScope(next); // optimistic
       setScopeError(null);
       try {
-        await client.setPageVisibility(pageId, next);
+        await client.setPageVisibility(pageId, {visibility: next});
       } catch (e) {
         setScope(prev); // revert on failure
         setScopeError(shareErrorKey(e)); // …and surface why (F2)

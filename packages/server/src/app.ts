@@ -42,6 +42,7 @@ import {
   type MemberStatus,
   type PageInput,
   type PageVisibility,
+  type PageVisibilityUpdate,
   type Principal,
   type RowInput,
   type SuggestionInput,
@@ -1566,14 +1567,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(API.pageGraph, async (c) => {
     const principal = c.get('principal');
     const base = await store.accessBase(principal);
-    // Blanket fast path (mirrors filterReadablePages): when the whole library is
-    // uniformly readable (owner/admin/blanket-guest) or uniformly denied, skip the
-    // per-page `canReadPage` predicate — a linear N-await over every page.
+    // Blanket fast path (mirrors filterReadablePages): only an owner/admin may
+    // bypass the discovery predicate. A blanket-read guest can open every page
+    // directly but still needs the per-page listed check here.
     const blanket = await store.blanketReadDecision(principal, base);
-    if (blanket !== null) {
-      return c.json(blanket ? await store.pageGraph() : {nodes: [], edges: []});
+    if (blanket === false) return c.json({nodes: [], edges: []});
+    if (blanket === true && (await store.canListUnlisted(principal, base))) return c.json(await store.pageGraph());
+    if (blanket === true) {
+      // A blanket-readable but non-listing-privileged caller can open every page
+      // directly. Avoid N per-page authorization queries: discovery differs only
+      // by the stored flag, so fetch the live unlisted ids once and use set lookups
+      // while the graph is assembled.
+      const unlistedSet = new Set(await store.listUnlistedPageIds());
+      return c.json(await store.pageGraph((pageId) => !unlistedSet.has(pageId)));
     }
-    return c.json(await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base)));
+    return c.json(await store.pageGraph((pageId) => store.canListPage(principal, pageId, base)));
   });
 
   // ── Page version history (PVH-3) ───────────────────────────────────────────────
@@ -2068,7 +2076,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'read', id);
-    return c.json({visibility: (await store.getPageVisibility(id)) ?? 'inherit'});
+    return c.json((await store.getPageVisibility(id)) ?? {visibility: 'inherit', listed: true});
   });
 
   app.put(`${API.pages}/:id/visibility`, async (c) => {
@@ -2076,14 +2084,25 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
-    const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
-    if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
-      return c.json({error: 'a valid visibility scope is required'}, 400);
+    const body = await c.req.json<{visibility?: PageVisibility; listed?: boolean}>();
+    if (body.visibility === undefined && body.listed === undefined) {
+      return c.json({error: 'visibility or listed is required'}, 400);
     }
-    const ok = await store.setPageVisibility(id, visibility);
+    if (body.visibility !== undefined && !PAGE_VISIBILITIES.includes(body.visibility)) {
+      return c.json({error: 'visibility must be a valid scope'}, 400);
+    }
+    if (body.listed !== undefined && typeof body.listed !== 'boolean') {
+      return c.json({error: 'listed must be a boolean'}, 400);
+    }
+    const update: PageVisibilityUpdate = {
+      ...(body.visibility !== undefined ? {visibility: body.visibility} : {}),
+      ...(body.listed !== undefined ? {listed: body.listed} : {}),
+    } as PageVisibilityUpdate;
+    const ok = await store.setPageVisibility(id, update);
     if (!ok) return c.json({error: 'page not found'}, 404);
-    logEdit(c, id, 'page.visibility', visibility);
-    return c.json({visibility});
+    if (update.listed !== undefined) await broadcastList();
+    logEdit(c, id, 'page.visibility', JSON.stringify(update));
+    return c.json((await store.getPageVisibility(id))!);
   });
 
   // A page's agent-edits policy (AGED-1). Read is gated on reading the page (a viewer

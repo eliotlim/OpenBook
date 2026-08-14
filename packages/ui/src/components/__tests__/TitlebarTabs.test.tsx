@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   selectTab: vi.fn(),
   toggleFavorite: vi.fn(),
   desktop: true,
+  activeTabId: 'tab-1',
   tabs: [
     {id: 'tab-1', pageId: 'page-1'},
     {id: 'tab-2', pageId: 'page-2'},
@@ -33,7 +34,7 @@ vi.mock('@/providers', () => ({
   useNavigation: () => ({
     inWindowTabs: true,
     tabs: mocks.tabs,
-    activeTabId: 'tab-1',
+    activeTabId: mocks.activeTabId,
     selectTab: mocks.selectTab,
     closeTab: mocks.closeTab,
     openInNew: mocks.openInNew,
@@ -66,6 +67,7 @@ vi.mock('@/lib/favorites', () => ({isFavorite: () => false, toggleFavorite: mock
 
 beforeEach(() => {
   mocks.desktop = true;
+  mocks.activeTabId = 'tab-1';
   vi.clearAllMocks();
 });
 
@@ -90,6 +92,27 @@ describe('tab close target helpers', () => {
   it('has no right-side targets at the last or only-tab edges', () => {
     expect(tabIdsToCloseRight(tabs, 'last')).toEqual([]);
     expect(tabIdsToCloseRight([{id: 'only'}], 'only')).toEqual([]);
+  });
+});
+
+describe('TitlebarTabs layout reservation', () => {
+  it('keeps transparent borders on inactive tabs across selection changes', () => {
+    const {rerender} = render(<TitlebarTabs />);
+    let tabs = screen.getAllByRole('tab');
+
+    for (const className of ['border', 'border-b-0', 'border-border']) {
+      expect(tabs[0].classList.contains(className)).toBe(true);
+    }
+    for (const className of ['border', 'border-b-0', 'border-transparent']) {
+      expect(tabs[1].classList.contains(className)).toBe(true);
+    }
+
+    mocks.activeTabId = 'tab-2';
+    rerender(<TitlebarTabs />);
+    tabs = screen.getAllByRole('tab');
+
+    expect(tabs[0].classList.contains('border-transparent')).toBe(true);
+    expect(tabs[1].classList.contains('border-border')).toBe(true);
   });
 });
 

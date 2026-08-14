@@ -179,6 +179,13 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
           }
           onSelectRow(row);
         }}
+        onKeyDown={(e) => {
+          if (canRemove && (e.key === 'Delete' || e.key === 'Backspace')) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeLibrary(ws.id);
+          }
+        }}
         className={`group flex items-center gap-2${blocked ? ' opacity-60' : ''}`}
       >
         <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">{ws.icon}</span>
@@ -215,20 +222,25 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
           <span className="shrink-0 text-xs font-medium text-brand">{t('library.connectFromAccount')}</span>
         )}
         {canRemove && (
-          <button
-            type="button"
-            aria-label={t('library.removeLibrary', {name: ws.name})}
-            title={t('common.remove')}
-            className="pointer-events-none flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-hover hover:text-destructive group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              removeLibrary(ws.id);
-            }}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          // Keep the flex reservation on a non-interactive shell. The button's
+          // reveal and focus border can then change only its paint, never the
+          // width used to position the status dot immediately before it.
+          <span className="relative h-6 w-6 shrink-0">
+            <button
+              type="button"
+              aria-label={t('library.removeLibrary', {name: ws.name})}
+              title={t('common.remove')}
+              className="pointer-events-none absolute inset-0 flex items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-[color,background-color,border-color,opacity] hover:bg-hover hover:text-destructive focus-visible:border-ring group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                removeLibrary(ws.id);
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </span>
         )}
       </DropdownMenuItem>
     );

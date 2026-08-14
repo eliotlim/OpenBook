@@ -504,7 +504,7 @@ describe('the usage DB host page is restricted from creation', () => {
   it('records the host page id and seeds it restricted (before the DB is linked)', async () => {
     const usage = await seededUsage();
     expect(usage.hostPage).not.toBeNull();
-    expect(await store.getPageVisibility(usage.hostPage!)).toBe('restricted');
+    expect((await store.getPageVisibility(usage.hostPage!))?.visibility).toBe('restricted');
     // The recorded host page really hosts the usage DB.
     const hostDb = await store.getDatabaseByPage(usage.hostPage!);
     expect(hostDb?.id).toBe(usage.databaseId);
@@ -546,7 +546,7 @@ describe('the managed usage DB is locked against the generic page routes', () =>
     expect((await del(app, `/api/pages/${rowId}`)).status).toBe(404); // guest
 
     // Nothing above mutated the DB: the host stays restricted and the row survives.
-    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    expect((await store.getPageVisibility(hostId))?.visibility).toBe('restricted');
     expect((await rowsOf(usage)).length).toBe(1);
   });
 
@@ -595,7 +595,7 @@ describe('the managed usage DB is locked against the content-body page routes', 
     expect((await put(app, `/api/pages/${rowId}`, {name: 'pwn'})).status).toBe(404); // guest
 
     // Nothing above mutated the page: the host keeps its title + restricted visibility.
-    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    expect((await store.getPageVisibility(hostId))?.visibility).toBe('restricted');
     expect((await store.getPage(hostId))?.name).toBe('AI usage');
   });
 });
@@ -658,7 +658,7 @@ describe('a hostile import-overwrite bundle cannot rewrite the server-managed us
     // The host page survives (name + restricted visibility) and still hosts the DB;
     // the DB keeps its managed marker + 30-day retention (schema NOT overwritten).
     expect((await store.getPage(hostId))?.name).toBe('AI usage');
-    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    expect((await store.getPageVisibility(hostId))?.visibility).toBe('restricted');
     const dbAfter = await store.getDatabase(dbId);
     expect(dbAfter?.schema.managed).toBe(true);
     expect(dbAfter?.schema.autoExpiry).toEqual({enabled: true, days: 30, basis: 'created'});

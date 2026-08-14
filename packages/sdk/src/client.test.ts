@@ -55,6 +55,56 @@ function makeClient() {
   return {client, paths, getSource: (): FakeSource => source as FakeSource};
 }
 
+describe('LiveStream unlisted-page fallback (UP-2 security round)', () => {
+  it('uses the read-gated per-page SSE only while an open page is absent from the firehose list', () => {
+    const sources: Array<{url: string; source: FakeSource}> = [];
+    const client = new HttpDataClient('https://remote.example', 'instance-token', {
+      fetchImpl: () => Promise.resolve(new Response('[]', {status: 200})),
+      getIdentity: () => ({jws: 'visitor-jws'}),
+      createLiveSource: (url) => {
+        const source = new FakeSource();
+        sources.push({url, source});
+        return source;
+      },
+    });
+    const pages: string[] = [];
+    const deleted: string[] = [];
+    const unsubscribe = client.subscribePage('hidden/page', {
+      onPage: (page) => pages.push(page.name ?? ''),
+      onDeleted: (id) => deleted.push(id),
+    });
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0].url).toBe(
+      'https://remote.example/api/live?token=instance-token&identity=visitor-jws',
+    );
+
+    // The filtered firehose list omits this deliberately-opened unlisted page,
+    // which starts exactly one direct page stream with the same credentials.
+    sources[0].source.emit('list', JSON.stringify({type: 'list', pages: []}));
+    expect(sources).toHaveLength(2);
+    expect(sources[1].url).toBe(
+      'https://remote.example/api/pages/hidden%2Fpage/stream?token=instance-token&identity=visitor-jws',
+    );
+
+    sources[1].source.emit('page', JSON.stringify({id: 'hidden/page', name: 'updated'}));
+    sources[1].source.emit('deleted', JSON.stringify({id: 'hidden/page'}));
+    expect(pages).toEqual(['updated']);
+    expect(deleted).toEqual(['hidden/page']);
+
+    // If the page later becomes discoverable, the multiplexed firehose owns it
+    // again and the exceptional extra connection is closed.
+    sources[0].source.emit(
+      'list',
+      JSON.stringify({type: 'list', pages: [{id: 'hidden/page', name: 'updated'}]}),
+    );
+    expect(sources[1].source.closed).toBe(true);
+
+    unsubscribe();
+    expect(sources[0].source.closed).toBe(true);
+  });
+});
+
 describe('LiveStream poll fallback', () => {
   afterEach(() => {
     vi.useRealTimers();
