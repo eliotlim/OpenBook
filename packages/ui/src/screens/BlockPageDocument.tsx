@@ -157,6 +157,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
+  const saveSeqRef = useRef(0);
   // The editor's positioned wrapper — inline review indicators portal into it.
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
   // The title and the editor form one continuous caret surface: each holds an
@@ -233,12 +234,16 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       setStatus('saved');
       return;
     }
-    lastSnapshot.current = snapshot;
     setStatus('saving');
     try {
+      const seq = ++saveSeqRef.current;
       await onSave(snapshot);
+      // Safe only because ConnectedPageDocument.tsx:240 keys the ErrorBoundary by pageId;
+      // in-place page switching must also guard this assignment by pageId.
+      if (seq === saveSeqRef.current) lastSnapshot.current = snapshot;
       setStatus('saved');
     } catch (e) {
+      // The 600ms constant-interval retry is unbounded until CWD-6/7 lands backoff/queueing.
       setStatus('save failed');
       throw e;
     }

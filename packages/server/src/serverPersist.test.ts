@@ -1,14 +1,16 @@
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import * as Y from 'yjs';
-import type {PageSnapshot} from '@book.dev/sdk';
+import {mintIdentityKeypair, signIdentity, type PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp, type AppWithCollab} from './app';
-import {encodeServerBlockDoc} from './collabPersist';
+import {encodeServerBlockDoc, ServerAuthoritativePersister} from './collabPersist';
+import {IdentityService} from './instanceConfig';
+import {IDENTITY_HEADER} from './principal';
 
 /**
  * Collab T9 — server-authoritative persistence wired through the real Hono app
@@ -23,6 +25,18 @@ import {encodeServerBlockDoc} from './collabPersist';
 let seq = 0;
 const dirs: string[] = [];
 const stores: PageStore[] = [];
+const persisters: ServerAuthoritativePersister[] = [];
+
+type PersisterFenceInternals = {
+  quiesce(pageId: string): Promise<void>;
+  reseed(pageId: string): void;
+  mergeSnapshot(pageId: string, update: Uint8Array | null, subject: string): Promise<void>;
+};
+
+// Fence finalizers are intentionally private production details; tests use this narrow
+// seam only to force/observe ordering that cannot be made deterministic from the routes.
+const fenceInternals = (persister: ServerAuthoritativePersister): PersisterFenceInternals =>
+  persister as unknown as PersisterFenceInternals;
 
 async function freshStore(): Promise<PageStore> {
   seq += 1;
@@ -35,7 +49,15 @@ async function freshStore(): Promise<PageStore> {
   return store;
 }
 
+function persistedApp(store: PageStore): ReturnType<typeof createApp> {
+  const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+  persisters.push((app as AppWithCollab).collabPersist!);
+  return app;
+}
+
 afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const persister of persisters.splice(0)) await persister.close();
   for (const s of stores.splice(0)) await s.close();
   for (const d of dirs.splice(0)) rmSync(d, {recursive: true, force: true});
 });
@@ -64,11 +86,17 @@ async function seed(store: PageStore, name: string): Promise<{id: string; client
   return {id: page.id, client};
 }
 
-const postUpdate = (app: ReturnType<typeof createApp>, id: string, update: Uint8Array, clientId: number): Promise<Response> =>
+const postUpdate = (
+  app: ReturnType<typeof createApp>,
+  id: string,
+  update: Uint8Array,
+  clientId: number,
+  headers: Record<string, string> = {},
+): Promise<Response> =>
   Promise.resolve(
     app.request(`/api/pages/${id}/updates`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers},
       body: JSON.stringify({update: Buffer.from(update).toString('base64'), clientId}),
     }),
   );
@@ -83,10 +111,16 @@ const textOf = async (store: PageStore, id: string): Promise<string> => {
   return Array.isArray(t) ? (t as Array<{t: string}>).map((op) => op.t).join('') : '';
 };
 
+const authorOf = async (store: PageStore, id: string, blockId: string): Promise<string | undefined> =>
+  new Map(((await store.getPage(id))?.data as {authors?: Array<[string, string]>} | undefined)?.authors ?? []).get(blockId);
+
+const snapshotOf = (doc: Y.Doc): PageSnapshot =>
+  ({editor: 'blocks', blockdoc: encodeServerBlockDoc(doc)}) as unknown as PageSnapshot;
+
 // A block-doc page snapshot with block 'a' carrying `text` (for durable seeding + versions).
 const snap = (text: string): PageSnapshot => {
   const d = blockDoc('a', text);
-  const s = {editor: 'blocks', blockdoc: encodeServerBlockDoc(d)} as unknown as PageSnapshot;
+  const s = snapshotOf(d);
   d.destroy();
   return s;
 };
@@ -115,7 +149,7 @@ async function within(ms: number, predicate: () => Promise<boolean>): Promise<bo
 describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
   it('durably persists FROM the server doc on a /updates alone (no client PUT)', async () => {
     const store = await freshStore();
-    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const app = persistedApp(store);
     const {id, client} = await seed(store, 'T9-on');
 
     const before = Y.encodeStateVector(client);
@@ -131,7 +165,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
 
   it('/sync reports the durable checkpoint state vector (savedSv reconciliation seam)', async () => {
     const store = await freshStore();
-    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const app = persistedApp(store);
     const {id, client} = await seed(store, 'T9-sync');
 
     const before = Y.encodeStateVector(client);
@@ -182,13 +216,446 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     client.destroy();
   });
 
+  it.each([
+    {persist: false, label: 'without data', data: undefined},
+    {persist: false, label: 'with data:null', data: null},
+    {persist: true, label: 'without data', data: undefined},
+    {persist: true, label: 'with data:null', data: null},
+  ])('PUT $label returns 200 when server persistence is $persist', async ({persist, data}) => {
+    const store = await freshStore();
+    const app = persist ? persistedApp(store) : createApp(store, undefined, new PageHub());
+    const {id, client} = await seed(store, `put-optional-data-${persist}-${data === null ? 'null' : 'missing'}`);
+    const body: Record<string, unknown> = {name: 'optional-data'};
+    if (data === null) body.data = null;
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify(body),
+    });
+
+    expect(res.status).toBe(200);
+    client.destroy();
+  });
+
+  it('a cold snapshot PUT does not manufacture a canonical doc or extra checkpoint', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-cold');
+    const saveServerDoc = vi.spyOn(store, 'saveServerDoc');
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-cold', data: snap('COLD')}),
+    });
+    expect(res.status).toBe(200);
+
+    // Deterministically force every pending checkpoint instead of waiting on the 600ms
+    // debounce. A cold PUT has no live union to persist, so there must be nothing to flush.
+    await persister.flushAll();
+    expect(persister.size()).toBe(0);
+    expect(saveServerDoc).not.toHaveBeenCalled();
+    client.destroy();
+  });
+
+  it('converges after a stale snapshot PUT and accepts the live client\'s dependent delta', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const {id, client: liveClient} = await seed(store, 'snapshot-put-convergence');
+    const baseUpdate = Buffer.from(
+      ((await store.getPage(id))!.data as {blockdoc: {update: string}}).blockdoc.update,
+      'base64',
+    );
+    const staleClient = new Y.Doc();
+    const expected = new Y.Doc();
+    Y.applyUpdate(staleClient, baseUpdate);
+    Y.applyUpdate(expected, baseUpdate);
+
+    // C2 advances and checkpoints. C1 remains on the seed and later writes a stale
+    // whole snapshot carrying a concurrent operation.
+    const liveText = liveClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const liveBefore = Y.encodeStateVector(liveClient);
+    liveText.insert(0, 'LIVE');
+    const liveUpdate = Y.encodeStateAsUpdate(liveClient, liveBefore);
+    Y.applyUpdate(expected, liveUpdate);
+    await postUpdate(app, id, liveUpdate, liveClient.clientID);
+    await waitFor(async () => (await textOf(store, id)) === 'LIVE');
+
+    const staleText = staleClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    staleText.insert(0, 'STALE');
+    Y.applyUpdate(expected, Y.encodeStateAsUpdate(staleClient));
+    const put = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-convergence', data: snapshotOf(staleClient)}),
+    });
+    expect(put.status).toBe(200);
+
+    // This delta is causally dependent on C2's earlier LIVE operations. Reseeding the
+    // canonical doc from C1's stale snapshot makes Yjs pend it forever; retaining the
+    // canonical union accepts it and the next checkpoint durably converges.
+    const againBefore = Y.encodeStateVector(liveClient);
+    liveText.insert(liveText.length, '-AGAIN');
+    const againUpdate = Y.encodeStateAsUpdate(liveClient, againBefore);
+    Y.applyUpdate(expected, againUpdate);
+    await postUpdate(app, id, againUpdate, liveClient.clientID);
+    const expectedText = (expected.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).toString();
+    await waitFor(async () => (await textOf(store, id)) === expectedText);
+    expect(await textOf(store, id)).toBe(expectedText);
+    expect(expectedText).toContain('STALE');
+    expect(expectedText).toContain('LIVE-AGAIN');
+
+    liveClient.destroy();
+    staleClient.destroy();
+    expected.destroy();
+  });
+
+  it('preserves an authenticated snapshot PUT author through the live-session merge checkpoint', async () => {
+    const store = await freshStore();
+    const issuer = 'https://account.book.pub';
+    const subject = `${issuer}#alice`;
+    const keys = await mintIdentityKeypair('server-persist-author');
+    await store.updateInstanceConfig({trustedIssuers: [{issuer, jwks: {keys: [keys.publicJwk]}}]});
+    const app = createApp(store, undefined, new PageHub(), {
+      serverPersist: true,
+      identity: new IdentityService(store),
+    });
+    const persister = (app as AppWithCollab).collabPersist!;
+    persisters.push(persister);
+    const identity = await signIdentity(
+      keys.privateKey,
+      {iss: issuer, sub: 'alice', name: 'Alice', exp: Math.floor(Date.now() / 1000) + 3600, jti: 'put-author'},
+      'server-persist-author',
+    );
+    const auth = {[IDENTITY_HEADER]: identity};
+    const {id, client: liveClient} = await seed(store, 'snapshot-put-author');
+    const staleClient = new Y.Doc();
+    Y.applyUpdate(staleClient, Y.encodeStateAsUpdate(liveClient));
+
+    // Advance and checkpoint the live canonical doc so its pending-author map is empty.
+    const liveBefore = Y.encodeStateVector(liveClient);
+    (liveClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'LIVE');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(liveClient, liveBefore), liveClient.clientID, auth);
+    await waitFor(async () => (await textOf(store, id)).includes('LIVE'));
+    expect(persister.size()).toBe(1);
+
+    // Alice's stale snapshot contributes a concurrent operation. The direct PUT stamps
+    // Alice, then the canonical-union checkpoint changes the block again by restoring
+    // LIVE; that follow-up write must carry Alice's merge attribution instead of wiping it.
+    (staleClient.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'PUT');
+    const put = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...auth},
+      body: JSON.stringify({name: 'snapshot-put-author', data: snapshotOf(staleClient)}),
+    });
+    expect(put.status).toBe(200);
+    expect(new Map(((await put.json()) as {data: {authors?: Array<[string, string]>}}).data.authors ?? []).get('a')).toBe(subject);
+
+    await waitFor(async () => {
+      const text = await textOf(store, id);
+      return text.includes('LIVE') && text.includes('PUT') && (await authorOf(store, id, 'a')) === subject;
+    });
+    expect(await authorOf(store, id, 'a')).toBe(subject);
+    liveClient.destroy();
+    staleClient.destroy();
+  });
+
+  it('a snapshot PUT waits for an in-flight checkpoint before writing, then merges', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-fence');
+    const events: string[] = [];
+
+    // Hold the active session's checkpoint inside saveServerDoc. The PUT must reach
+    // quiesce but may not enter upsertPage until this durable write has drained.
+    let releaseCheckpoint!: () => void;
+    const checkpointHeld = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve;
+    });
+    let checkpointReached!: () => void;
+    const checkpointStarted = new Promise<void>((resolve) => {
+      checkpointReached = resolve;
+    });
+    const realSaveServerDoc = store.saveServerDoc.bind(store);
+    vi.spyOn(store, 'saveServerDoc').mockImplementation(async (pageId, blockdoc, authors) => {
+      events.push('checkpoint:start');
+      checkpointReached();
+      await checkpointHeld;
+      const page = await realSaveServerDoc(pageId, blockdoc, authors);
+      events.push('checkpoint:end');
+      return page;
+    });
+
+    const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const before = Y.encodeStateVector(client);
+    clientText.insert(0, 'server');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await checkpointStarted;
+    expect(persister.size()).toBe(1); // active canonical session + checkpoint in flight
+
+    // The whole snapshot comes from this same client lineage: it replaces `server`
+    // with `CLIENT`, and the fence must merge those Yjs operations into the canonical doc.
+    clientText.delete(0, clientText.length);
+    clientText.insert(0, 'CLIENT');
+
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
+      events.push('quiesce:start');
+      await realQuiesce(pageId);
+      events.push('quiesce:end');
+    });
+    const reseed = vi.spyOn(internals, 'reseed');
+    const realUpsertPage = store.upsertPage.bind(store);
+    vi.spyOn(store, 'upsertPage').mockImplementation(async (input, author, opts) => {
+      events.push('snapshot:write');
+      return realUpsertPage(input, author, opts);
+    });
+
+    const put = app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-fence', data: snapshotOf(client)}),
+    });
+    await waitFor(async () => events.includes('quiesce:start'));
+    expect(events).not.toContain('snapshot:write'); // quiesce is still draining the held checkpoint
+
+    releaseCheckpoint();
+    const res = await put;
+    expect(res.status).toBe(200);
+    expect(events).toEqual([
+      'checkpoint:start',
+      'quiesce:start',
+      'checkpoint:end',
+      'quiesce:end',
+      'snapshot:write',
+    ]);
+    expect(reseed).not.toHaveBeenCalled();
+    expect(await textOf(store, id)).toBe('CLIENT');
+    expect(persister.size()).toBe(1); // merge intent retains the canonical doc
+    client.destroy();
+  });
+
+  it('releases the merge fence after a failed snapshot PUT without dropping the canonical doc', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-failure');
+
+    const before = Y.encodeStateVector(client);
+    (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'active');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await waitFor(async () => (await textOf(store, id)) === 'active');
+
+    const events: string[] = [];
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
+      await realQuiesce(pageId);
+      events.push('quiesce');
+    });
+    const reseed = vi.spyOn(internals, 'reseed');
+    vi.spyOn(store, 'upsertPage').mockImplementation(async () => {
+      events.push('snapshot:failure');
+      throw new Error('injected snapshot write failure');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-failure', data: snap('FAIL')}),
+    });
+    expect(res.status).toBe(500);
+    expect(events).toEqual(['quiesce', 'snapshot:failure']);
+    expect(reseed).not.toHaveBeenCalled();
+    expect(persister.size()).toBe(1);
+
+    // A later live edit checkpoints, proving the failed PUT's freeze was released.
+    const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const afterFailure = Y.encodeStateVector(client);
+    clientText.insert(clientText.length, '-AFTER');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, afterFailure), client.clientID);
+    await waitFor(async () => (await textOf(store, id)) === 'active-AFTER');
+    client.destroy();
+  });
+
+  it('the POST /pages upsert arm uses the same snapshot fence for an existing page', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-post-fence');
+
+    const before = Y.encodeStateVector(client);
+    (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'active');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await waitFor(async () => (await textOf(store, id)) === 'active');
+    const internals = fenceInternals(persister);
+    const quiesce = vi.spyOn(internals, 'quiesce');
+    const reseed = vi.spyOn(internals, 'reseed');
+
+    const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    clientText.delete(0, clientText.length);
+    clientText.insert(0, 'POST');
+
+    const res = await app.request('/api/pages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({id, name: 'snapshot-post-fence', data: snapshotOf(client)}),
+    });
+    expect(res.status).toBe(201);
+    expect(quiesce).toHaveBeenCalledOnce();
+    expect(quiesce).toHaveBeenCalledWith(id);
+    expect(reseed).not.toHaveBeenCalled();
+    expect(await textOf(store, id)).toBe('POST');
+    expect(persister.size()).toBe(1);
+    client.destroy();
+  });
+
+  it('serializes same-page snapshot PUT fences through the first canonical merge', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-same-page');
+    const events: string[] = [];
+
+    const fence = vi.spyOn(persister, 'withSnapshotWriteFence');
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    let quiesceCall = 0;
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
+      events.push(`quiesce:${++quiesceCall}`);
+      await realQuiesce(pageId);
+    });
+
+    // Hold the first fence after its DB write but before its canonical merge. The
+    // second route has entered withSnapshotWriteFence, yet may not begin quiescing.
+    const mergeSeam = internals;
+    const realMerge = mergeSeam.mergeSnapshot.bind(persister);
+    let releaseMerge!: () => void;
+    const mergeHeld = new Promise<void>((resolve) => {
+      releaseMerge = resolve;
+    });
+    let mergeCall = 0;
+    vi.spyOn(mergeSeam, 'mergeSnapshot').mockImplementation(async (pageId, update, subject) => {
+      const call = ++mergeCall;
+      events.push(`merge:${call}:start`);
+      if (call === 1) await mergeHeld;
+      await realMerge(pageId, update, subject);
+      events.push(`merge:${call}:end`);
+    });
+
+    const first = app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-same-page', data: snap('FIRST')}),
+    });
+    await waitFor(async () => events.includes('merge:1:start'));
+    const second = app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-same-page', data: snap('SECOND')}),
+    });
+    await waitFor(async () => fence.mock.calls.length === 2);
+    expect(events.filter((event) => event.startsWith('quiesce:'))).toEqual(['quiesce:1']);
+
+    releaseMerge();
+    const [firstRes, secondRes] = await Promise.all([first, second]);
+    expect(firstRes.status).toBe(200);
+    expect(secondRes.status).toBe(200);
+    expect(events.indexOf('merge:1:end')).toBeLessThan(events.indexOf('quiesce:2'));
+    client.destroy();
+  });
+
+  it('does not serialize snapshot PUT fences across different pages', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const firstPage = await seed(store, 'snapshot-page-one');
+    const secondPage = await seed(store, 'snapshot-page-two');
+    const quiesced: string[] = [];
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
+      quiesced.push(pageId);
+      await realQuiesce(pageId);
+    });
+
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstWriteReached!: () => void;
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      firstWriteReached = resolve;
+    });
+    const realUpsert = store.upsertPage.bind(store);
+    vi.spyOn(store, 'upsertPage').mockImplementation(async (input, author, opts) => {
+      if (input.id === firstPage.id) {
+        firstWriteReached();
+        await firstHeld;
+      }
+      return realUpsert(input, author, opts);
+    });
+
+    const first = app.request(`/api/pages/${firstPage.id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-page-one', data: snap('FIRST')}),
+    });
+    await firstWriteStarted;
+    const second = await app.request(`/api/pages/${secondPage.id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-page-two', data: snap('SECOND')}),
+    });
+
+    expect(second.status).toBe(200); // completes while page one's fence is still held
+    expect(quiesced).toContain(firstPage.id);
+    expect(quiesced).toContain(secondPage.id);
+    releaseFirst();
+    expect((await first).status).toBe(200);
+    firstPage.client.destroy();
+    secondPage.client.destroy();
+  });
+
+  it('persist off: PUT and POST upsert retain the direct path without quiesce/reseed', async () => {
+    const prototype = fenceInternals(ServerAuthoritativePersister.prototype);
+    const quiesce = vi.spyOn(prototype, 'quiesce');
+    const reseed = vi.spyOn(prototype, 'reseed');
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub());
+    const {id, client} = await seed(store, 'snapshot-off');
+
+    const put = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-off', data: snap('OFF-PUT')}),
+    });
+    const post = await app.request('/api/pages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({id, name: 'snapshot-off', data: snap('OFF-POST')}),
+    });
+
+    expect(put.status).toBe(200);
+    expect(post.status).toBe(201);
+    expect(quiesce).not.toHaveBeenCalled();
+    expect(reseed).not.toHaveBeenCalled();
+    expect(await textOf(store, id)).toBe('OFF-POST');
+    client.destroy();
+  });
+
   // PVH-8: a restore writes the old snapshot straight through `upsertPage`, bypassing the
   // /updates stream. When server-persist holds a LIVE canonical doc for that page, the
   // canonical doc must adopt the restored state — otherwise it keeps the pre-restore
   // content (and its next checkpoint would clobber the restore back).
   it('a restore reseeds a page whose canonical doc is LIVE (canonical adopts the restored state)', async () => {
     const store = await freshStore();
-    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const app = persistedApp(store);
     const persister = (app as AppWithCollab).collabPersist!;
 
     // Durable history: create 'RESTORED', then change to 'LIVE' — the change captures the
@@ -260,7 +727,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
   // can't arm a checkpoint either.
   it('a pre-restore checkpoint IN FLIGHT during a restore does NOT clobber it (quiesce drains + freezes)', async () => {
     const store = await freshStore();
-    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const app = persistedApp(store);
     const persister = (app as AppWithCollab).collabPersist!;
 
     // Durable history: RESTORED (the version we roll back to), then LIVE (current content).

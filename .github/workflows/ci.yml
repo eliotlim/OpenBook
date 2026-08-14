@@ -154,6 +154,44 @@ jobs:
       - name: Ledger benchmarks (thresholds asserted, both backends)
         run: pnpm run bench:ledger
 
+  # Real-Postgres lost-update proof (CWD-11). This stays in the PR gate rather
+  # than nightly: the suite has four small store scenarios, each in an isolated
+  # scratch database, and needs no browser or server listener. The expected-live
+  # CWD-2/3/4 races use `test.fails`; their fixes flip those cases to plain tests.
+  postgres-concurrency:
+    name: Postgres concurrency (write races)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OPENBOOK_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      OPENBOOK_REQUIRE_CONCURRENCY_PG: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build SDK dependency
+        run: pnpm --filter @book.dev/sdk run build
+      - name: Exercise deterministic write races on real Postgres
+        run: pnpm --filter @book.dev/server run test:pg
+
   # Fast P1 core gate — a quick early canary on pull requests (OB-225). Runs only
   # the @p1 specs minus anything tagged @flaky (`test:e2e:core`): ~15 tests in a
   # single job (~1.4min), so no shard matrix. It surfaces core breakage fast; the

@@ -52,6 +52,9 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  type WriteConflictEnvelope,
+  type WriteErrorEnvelope,
+  type WriteServerErrorCode,
   LEDGER_RECONCILIATION_STATUSES,
   LedgerError,
   MoneyError,
@@ -135,6 +138,12 @@ import {
   validateFormUploadRequest,
   validateFormSubmissionRequest,
 } from './formAccess';
+
+/** Server-side name for the shared durable-write error response contract. */
+export type ServerWriteErrorEnvelope<Code extends string = WriteServerErrorCode> = WriteErrorEnvelope<Code>;
+
+/** Server-side name for the shared discriminated HTTP 409 CAS response contract. */
+export type ServerWriteConflictEnvelope = WriteConflictEnvelope;
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -587,9 +596,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // fans out exactly like a PUT save (hub publish → live peers + the OB-241 disk
   // mirror), so the mirror/conflict/mtimes machinery is untouched. Constructed only
   // when enabled, so the default path allocates nothing and behaves identically.
-  let persister: ServerAuthoritativePersister | null = null;
-  if (opts.serverPersist) {
-    persister = new ServerAuthoritativePersister({
+  const persister = opts.serverPersist
+    ? new ServerAuthoritativePersister({
       loadBase: loadRelayBase,
       saveDoc: (id, blockdoc, authorsByBlock) => store.saveServerDoc(id, blockdoc, authorsByBlock),
       onPersisted: (page) => {
@@ -597,8 +605,33 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         void broadcastList();
         if (page.databaseId) void broadcastRows(page.databaseId);
       },
-    });
-  }
+    })
+    : null;
+  // One boundary for client-originated route-level whole-snapshot writes. The persister
+  // owns quiesce→write→merge (including same-page writer serialization), while the store's
+  // internal `saveServerDoc` checkpoint bypasses it — no feedback loop. A stale PUT/POST
+  // is therefore only a transient durable replacement: its blockdoc update is folded into
+  // the retained canonical doc and the next checkpoint writes the CRDT union back.
+  //
+  // Coverage assumption (F3): localClient.ts calls store.upsertPage directly, but that
+  // in-webview transport does not construct a persister today. If it gains one, its save
+  // and restore methods must cross this same intent-discriminating boundary.
+  const upsertSnapshotPage: PageStore['upsertPage'] = persister
+    ? (input, author, upsertOpts) => {
+      const write = () => store.upsertPage(input, author, upsertOpts);
+      const rawUpdate = (input.data?.blockdoc as {update?: unknown} | undefined)?.update;
+      const snapshotUpdate = typeof rawUpdate === 'string' && rawUpdate.length > 0
+        ? new Uint8Array(Buffer.from(rawUpdate, 'base64'))
+        : null;
+      return input.id
+        ? persister.withSnapshotWriteFence(input.id, write, {
+          intent: 'merge',
+          snapshotUpdate,
+          subject: authoredSubject(author),
+        })
+        : write();
+    }
+    : store.upsertPage.bind(store);
   // Expose the persister so the host (server.ts) can flush every dirty canonical doc
   // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
   (app as AppWithCollab).collabPersist = persister;
@@ -1009,7 +1042,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // request's resolved principal, so it can never dedupe against another user's
     // write. (The SDK also pre-mints the page id for keyless creates, so a replay
     // hits the store's `ON CONFLICT` no-op even without a key.)
-    const page = await store.upsertPage(input, c.get('principal'));
+    const page = await upsertSnapshotPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     // A row page's content changed — refresh its database's expr columns.
@@ -1154,7 +1187,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireAgentDirectWrite(c, c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
-    const page = await store.upsertPage(input, c.get('principal'));
+    const page = await upsertSnapshotPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
@@ -1639,27 +1672,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Preserve the page's current name — only the document content rolls back.
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
-    // A restore writes the old snapshot straight through `upsertPage` — an EXTERNAL write
-    // that bypasses the /updates collab stream. Any live collab doc for this page still
-    // holds the PRE-restore state, so we make the restore's write the LAST durable write the
-    // persister allows for the page, then reseed so connected clients converge onto the
-    // restored content (PVH-8). Order matters — quiesce BEFORE the write, reseed AFTER it:
-    //  • quiesce: freeze new checkpoints, cancel the debounce, and DRAIN any in-flight
-    //    checkpoint so a stale pre-restore write lands (or is refused) BEFORE this write —
-    //    never behind it on the write mutex, where it would durably clobber the restore.
-    //  • upsertPage: the restore write, now the final durable write for the page.
-    //  • reseed: drop the canonical doc (next access reseeds from the restored pages.data)
-    //    and clear the freeze. Runs in `finally` so a failed write never leaks the freeze.
-    await persister?.quiesce(id);
-    let page: Awaited<ReturnType<typeof store.upsertPage>>;
-    try {
-      page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
-    } finally {
-      relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
-      persister?.reseed(id); // Collab T9: drop the canonical doc + clear the restore freeze (restore wins; a
-      // still-connected client's edits are CRDT deltas that re-merge on its next /sync). Called only here, never
-      // from the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
-    }
+    // Restore is the overwrite arm of `withSnapshotWriteFence` (PVH-8), not the client
+    // snapshot merge arm above. The fence owns this full ordered interval:
+    //  • quiesce drains every pre-restore checkpoint before the durable restore write;
+    //  • afterWrite forgets the relay while the canonical doc is still frozen;
+    //  • reseed then drops the canonical doc and releases the freeze.
+    // Keeping relay invalidation inside the fence closes the window where an unfrozen
+    // restored canonical doc could coexist with the relay's pre-restore state.
+    const writeRestore = () => store.upsertPage(
+      {id, name: existing.name, data: version.data},
+      c.get('principal'),
+      {captureMode: 'force'},
+    );
+    const page = persister
+      ? await persister.withSnapshotWriteFence(id, writeRestore, {
+        intent: 'overwrite',
+        afterWrite: () => relay.forget(id),
+      })
+      : await (async () => {
+        try {
+          return await writeRestore();
+        } finally {
+          relay.forget(id);
+        }
+      })();
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
