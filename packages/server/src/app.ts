@@ -52,6 +52,9 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  type WriteConflictEnvelope,
+  type WriteErrorEnvelope,
+  type WriteServerErrorCode,
   LEDGER_RECONCILIATION_STATUSES,
   LedgerError,
   MoneyError,
@@ -135,6 +138,12 @@ import {
   validateFormUploadRequest,
   validateFormSubmissionRequest,
 } from './formAccess';
+
+/** Server-side name for the shared durable-write error response contract. */
+export type ServerWriteErrorEnvelope<Code extends string = WriteServerErrorCode> = WriteErrorEnvelope<Code>;
+
+/** Server-side name for the shared HTTP 409 CAS response contract. */
+export type ServerWriteConflictEnvelope<Current = unknown> = WriteConflictEnvelope<Current>;
 
 /**
  * Build the Hono app over a page store. Routes implement the shared

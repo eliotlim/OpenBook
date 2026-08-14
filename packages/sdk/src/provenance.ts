@@ -8,7 +8,14 @@
 
 import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, RevocationSet, VerifiedVia} from './identity';
-import type {AgentEditsMode, EffectiveRole, MemberRole, PageVisibility} from './types';
+import type {
+  AgentEditsMode,
+  EffectiveRole,
+  EntityVersion,
+  ExpectedVersionInput,
+  MemberRole,
+  PageVisibility,
+} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
 export type GuestAccess =
@@ -112,6 +119,17 @@ export interface InstanceConfig {
   ledgerAutoExportPath?: string | null;
 }
 
+/** Flat instance-policy write body with opt-in CAS metadata. */
+export type InstanceConfigUpdate = Partial<InstanceConfig> & ExpectedVersionInput;
+
+/**
+ * Instance policy returned by a version-aware write. The token is stored beside
+ * the policy JSON and is not itself an editable {@link InstanceConfig} field.
+ */
+export interface VersionedInstanceConfig extends InstanceConfig {
+  version: EntityVersion;
+}
+
 /**
  * Binds a managed instance to an account library (OB-199; LIB-5 renamed from
  * `WorkspaceBinding`). Non-secret coordinates only — the roster-read credential is
@@ -190,6 +208,8 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
  * *current* request, so a client can render "you are signed in as …" / "guest".
  */
 export interface InstanceInfo {
+  /** Optimistic-concurrency token; absent only when reading from a legacy server. */
+  version?: EntityVersion;
   guestAccess: GuestAccess;
   /**
    * The instance-wide agent-edits mode (AGED-1) — see {@link InstanceConfig.agentEdits}.

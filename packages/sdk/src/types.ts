@@ -49,6 +49,167 @@ export interface PageSnapshot {
   authors?: Array<[string, string]>;
 }
 
+/**
+ * Monotonic optimistic-concurrency token for one durable entity. Implementing
+ * servers return positive safe integers; see `docs/write-contract.md`.
+ */
+export type EntityVersion = number;
+
+/** A representation that is guaranteed to carry its concurrency token. */
+export type Versioned<Shape> = Shape & {version: EntityVersion};
+
+/** Additive CAS input shared by version-aware write payloads. Omission is LWW. */
+export interface ExpectedVersionInput {
+  expectedVersion?: EntityVersion;
+}
+
+/** UUID v4/v7 value carried in the `Idempotency-Key` request header. */
+export type IdempotencyKey = string;
+
+/** Request metadata accepted by the SDK write chokepoint (not part of JSON bodies). */
+export interface IdempotentWriteOptions {
+  idempotencyKey?: IdempotencyKey;
+}
+
+/** The durable entity whose guarded write conflicted. */
+export type WriteEntityRef =
+  | {kind: 'page'; id: string}
+  | {kind: 'database-row'; id: string; databaseId: string}
+  | {kind: 'database'; id: string}
+  | {kind: 'instance-config'; id: 'instance'};
+
+/** Stable server codes introduced for the durable-write contract. */
+export type WriteServerErrorCode =
+  | 'version-conflict'
+  | 'idempotency-key-reused'
+  | 'invalid-input'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not-found'
+  | 'rate-limited'
+  | 'server-error';
+
+/** Minimum non-2xx JSON body returned by durable write routes. */
+export interface WriteErrorEnvelope<Code extends string = WriteServerErrorCode> {
+  readonly error: string;
+  readonly code: Code;
+  readonly retryable: boolean;
+}
+
+/** Optional field-level detail on an {@link WriteValidationEnvelope}. */
+export interface WriteValidationIssue {
+  readonly path?: string;
+  readonly code?: string;
+  readonly message: string;
+}
+
+/** Structured invalid-input response; `issues` is omitted for request-wide errors. */
+export interface WriteValidationEnvelope extends WriteErrorEnvelope<'invalid-input'> {
+  readonly retryable: false;
+  readonly issues?: WriteValidationIssue[];
+}
+
+/** A key was previously committed for a different request fingerprint. */
+export interface WriteIdempotencyKeyReuseEnvelope extends WriteErrorEnvelope<'idempotency-key-reused'> {
+  readonly retryable: false;
+}
+
+/** Links offered by wave-1 conflict resolution. */
+export interface WriteConflictLinks {
+  /** Page/row history endpoint; `null` for entities without version history. */
+  readonly versionHistory: string | null;
+}
+
+/**
+ * HTTP 409 body for an opt-in CAS miss. `current` is the permission-filtered
+ * representation returned by the corresponding GET and carries `currentVersion`.
+ */
+export interface WriteConflictEnvelope<Current = unknown> extends WriteErrorEnvelope<'version-conflict'> {
+  readonly retryable: false;
+  readonly entity: WriteEntityRef;
+  readonly expectedVersion: EntityVersion;
+  readonly currentVersion: EntityVersion;
+  readonly current: Versioned<Current>;
+  readonly links: WriteConflictLinks;
+}
+
+/** Stable discriminators used by the SDK's future runtime `WriteError` classes. */
+export type WriteErrorKind =
+  | 'timeout'
+  | 'abort'
+  | 'conflict'
+  | 'validation'
+  | 'authorization'
+  | 'rate-limit'
+  | 'transport'
+  | 'server'
+  | 'http';
+
+/** Shared structural contract implemented by every SDK `WriteError` class. */
+export interface WriteErrorInfo<
+  Kind extends WriteErrorKind = WriteErrorKind,
+  Status extends number | null = number | null,
+  Details = unknown,
+> {
+  readonly kind: Kind;
+  readonly status: Status;
+  readonly retryable: boolean;
+  readonly code: string;
+  readonly message: string;
+  readonly details?: Details;
+}
+
+export interface WriteTimeoutErrorInfo extends WriteErrorInfo<'timeout', null | 408 | 504> {
+  readonly retryable: true;
+}
+
+export interface WriteAbortErrorInfo extends WriteErrorInfo<'abort', null> {
+  readonly retryable: false;
+}
+
+export interface WriteConflictErrorInfo<Current = unknown>
+  extends WriteErrorInfo<'conflict', 409, WriteConflictEnvelope<Current>> {
+  readonly retryable: false;
+  readonly code: 'version-conflict';
+}
+
+export interface WriteValidationErrorInfo
+  extends WriteErrorInfo<'validation', 400 | 413 | 422, WriteValidationEnvelope> {
+  readonly retryable: false;
+}
+
+export interface WriteAuthorizationErrorInfo extends WriteErrorInfo<'authorization', 401 | 403> {
+  readonly retryable: false;
+}
+
+export interface WriteRateLimitErrorInfo extends WriteErrorInfo<'rate-limit', 429> {
+  readonly retryable: true;
+}
+
+export interface WriteTransportErrorInfo extends WriteErrorInfo<'transport', null> {
+  readonly retryable: true;
+}
+
+export interface WriteServerErrorInfo extends WriteErrorInfo<'server', 500 | 502 | 503> {
+  readonly retryable: true;
+}
+
+export interface WriteHttpErrorInfo extends WriteErrorInfo<'http', number> {
+  readonly retryable: false;
+}
+
+/** Exhaustive structural taxonomy implemented by the SDK error classes. */
+export type WriteErrorContract<Current = unknown> =
+  | WriteTimeoutErrorInfo
+  | WriteAbortErrorInfo
+  | WriteConflictErrorInfo<Current>
+  | WriteValidationErrorInfo
+  | WriteAuthorizationErrorInfo
+  | WriteRateLimitErrorInfo
+  | WriteTransportErrorInfo
+  | WriteServerErrorInfo
+  | WriteHttpErrorInfo;
+
 /** An empty snapshot, for initializing a brand-new page. */
 export const emptyPageSnapshot = (): PageSnapshot => ({
   editorjs: {blocks: []},
@@ -59,6 +220,8 @@ export const emptyPageSnapshot = (): PageSnapshot => ({
 /** Lightweight page record for listings (no `data` payload). */
 export interface PageMeta {
   id: string;
+  /** Optimistic-concurrency token; absent only when reading from a legacy server. */
+  version?: EntityVersion;
   name: string | null;
   /** Whether the page participates in discovery surfaces. Independent of who
    *  may read it; omitted by older servers. */
@@ -120,6 +283,8 @@ export interface PageGraph {
 /** A full page as returned by the store. `data` is the document snapshot. */
 export interface StoredPage {
   id: string;
+  /** Optimistic-concurrency token; absent only when reading from a legacy server. */
+  version?: EntityVersion;
   name: string | null;
   data: PageSnapshot;
   /** The database this page *hosts*, if any (mirrors {@link PageMeta.hostedDatabaseId}). */
@@ -177,7 +342,7 @@ export interface StoredPageVersion extends PageVersionMeta {
  * not set through this payload — they are managed by the database row APIs so a
  * routine content save never clobbers them.
  */
-export interface PageInput {
+export interface PageInput extends ExpectedVersionInput {
   id?: string;
   name?: string | null;
   data: PageSnapshot;

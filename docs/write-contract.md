@@ -182,7 +182,8 @@ guard an ordered set.
 
 ### 3.4 Version-conflict response
 
-A failed guard returns HTTP 409 and the full current, permission-filtered value:
+A failed guard returns HTTP 409 and the full current, permission-filtered value
+(the example abbreviates unchanged page fields):
 
 ```json
 {
@@ -319,8 +320,8 @@ later permission revocation.
 On an exact replay after those gates:
 
 1. verify the stored fingerprint;
-2. return the stored status, body, and allowlisted headers byte-for-byte in JSON
-   meaning; and
+2. return the stored status, semantically identical JSON body, and allowlisted
+   headers; and
 3. do not re-run CAS, mutate storage, bump a version, publish a duplicate event,
    or append duplicate edit/history entries.
 
