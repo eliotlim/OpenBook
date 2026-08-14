@@ -58,8 +58,7 @@ export async function withSavepoint<T>(db: Db, fn: (tx: Db) => Promise<T>): Prom
     await db.query(`RELEASE SAVEPOINT ${name}`);
     return result;
   } catch (err) {
-    await db.query(`ROLLBACK TO SAVEPOINT ${name}`);
-    await db.query(`RELEASE SAVEPOINT ${name}`);
+    await db.query(`ROLLBACK TO SAVEPOINT ${name}`).then(() => db.query(`RELEASE SAVEPOINT ${name}`)).catch(() => undefined);
     throw err;
   }
 }
