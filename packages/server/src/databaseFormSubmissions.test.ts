@@ -561,6 +561,12 @@ describe('database form-view public fill', () => {
       {method: 'DELETE', headers: {[IDENTITY_HEADER]: ownerJws, 'X-OpenBook-Client': '1'}},
     );
     expect(revokedResponse.status).toBe(204);
+    const revokedDescriptor = await descriptor(
+      a,
+      seeded.database.id,
+      seeded.view.id,
+      first.capability,
+    );
     const revoked = await submit(a, seeded.database.id, seeded.view.id, first.capability, {email: 'reader@example.com'});
 
     const second = await publish(a, seeded.database.id, seeded.view.id);
@@ -576,8 +582,20 @@ describe('database form-view public fill', () => {
     });
     const stopped = await submit(a, seeded.database.id, seeded.view.id, second.capability, {email: 'reader@example.com'});
     const wrongWhileStopped = await submit(a, seeded.database.id, seeded.view.id, 'wrong', {email: 'reader@example.com'});
+    const wrongDescriptorWhileStopped = await descriptor(
+      a,
+      seeded.database.id,
+      seeded.view.id,
+      'wrong',
+    );
     const closedDescriptor = await descriptor(a, seeded.database.id, seeded.view.id, second.capability);
     const unknown = await submit(a, crypto.randomUUID(), seeded.view.id, second.capability, {email: 'reader@example.com'});
+    const unknownDescriptor = await descriptor(
+      a,
+      crypto.randomUUID(),
+      seeded.view.id,
+      second.capability,
+    );
 
     expect(`${stopped.status}\n${await stopped.text()}`).toBe('403\n{"error":"form_closed"}');
     expect(closedDescriptor.status).toBe(200);
@@ -602,10 +620,14 @@ describe('database form-view public fill', () => {
     const denied = async (response: Response) => `${response.status}\n${await response.text()}`;
     const expected = '404\n{"error":"form not found"}';
     expect(await denied(wrong)).toBe(expected);
+    expect(await denied(revokedDescriptor)).toBe(expected);
     expect(await denied(revoked)).toBe(expected);
     expect(await denied(wrongWhileStopped)).toBe(expected);
+    expect(await denied(wrongDescriptorWhileStopped)).toBe(expected);
     expect(await denied(unknown)).toBe(expected);
+    expect(await denied(unknownDescriptor)).toBe(expected);
     expect(await denied(managed)).toBe(expected);
+    expect(await store.countDatabaseFormResponses(seeded.database.id, seeded.view.id)).toBe(0);
   });
 
   it('denies submissions while the host page is trashed and accepts them after restore', async () => {

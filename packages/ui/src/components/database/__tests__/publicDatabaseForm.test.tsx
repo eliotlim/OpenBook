@@ -147,6 +147,16 @@ describe('public database form surface', () => {
     expect(document.querySelector('[data-public-form-not-found]')).toBeTruthy();
   });
 
+  it('keeps transport failures distinct from existence-hiding denials', async () => {
+    renderPublic(client({
+      getPublicDatabaseForm: vi.fn().mockRejectedValue(new TypeError('network unavailable')),
+    }));
+
+    expect(await screen.findByText('Form unavailable')).toBeTruthy();
+    expect(screen.getByText('The form could not be loaded. Try again later.')).toBeTruthy();
+    expect(document.querySelector('[data-public-form-not-found]')).toBeNull();
+  });
+
   it('replaces the form with the exhausted surface after the response ceiling returns 429', async () => {
     renderPublic(client({
       submitDatabaseForm: vi.fn().mockRejectedValue(
