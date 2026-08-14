@@ -95,6 +95,7 @@ export const zh: PartialMessages = {
     crumbSiblings: '同级页面',
     crumbSubpages: '子页面',
     crumbCollapsed: '显示省略的页面',
+    hiddenPage: '已从导航和搜索中隐藏',
     more: '更多操作',
     pages: '页面',
     newPage: '新建页面',
@@ -232,6 +233,12 @@ export const zh: PartialMessages = {
       hint: '发布此页面后，任何拥有链接的人都能在 {host} 打开它。',
       action: '发布页面',
     },
+    listing: {
+      label: '从导航和搜索中隐藏',
+      hint: '此页面不会显示在导航或搜索结果中。有权访问的人仍可通过链接打开。',
+      inheritHint: '仅适用于此页面；访问权限仍沿用资料库默认设置。',
+      restrictedHint: '只有受邀者能打开此页面，因此导航和搜索可见性不适用。',
+    },
     forms: {
       accepts: '此页面接受公开提交',
       settings: '表单设置',
@@ -286,6 +293,7 @@ export const zh: PartialMessages = {
       authenticated: '任何已登录的人打开此链接即可查看此页面。',
       members: '只有打开此链接的资料库成员才能查看此页面。',
       restricted: '只有你邀请的人才能打开此链接。',
+      hidden: '此页面不会显示在导航和搜索中；有权访问的人仍可使用此链接。',
       localOnly: '此链接仅在本设备上有效。',
       browserLocal: '此链接仅在此浏览器中有效——其他人打开时看到的是他们自己的资料库，而不是此页面。发布需通过桌面应用进行。',
       publishedAt: '链接使用你的发布地址 {host}。',

@@ -258,9 +258,14 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
         else expect(actual, message).not.toContain(id);
       };
 
-      const list = await getJson<Array<{id: string}>>('/api/pages');
+      const list = await getJson<PageMeta[]>('/api/pages');
       expect(ids(list), `${label}: list visible`).toContain(visible.id);
       expectPresence(ids(list), hidden.id, privileged, `${label}: list hidden`);
+      if (privileged) {
+        expect(list.find((meta) => meta.id === hidden.id), `${label}: list preserves hidden metadata`).toMatchObject({
+          listed: false,
+        });
+      }
 
       const frame = (await streamGates(store, actor).list({
         type: 'list',
@@ -268,6 +273,11 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
       })) as ListEvent;
       expect(ids(frame.pages), `${label}: stream visible`).toContain(visible.id);
       expectPresence(ids(frame.pages), hidden.id, privileged, `${label}: stream hidden`);
+      if (privileged) {
+        expect(frame.pages.find((meta) => meta.id === hidden.id), `${label}: stream preserves hidden metadata`).toMatchObject({
+          listed: false,
+        });
+      }
 
       const graph = await getJson<{
         nodes: Array<{id: string}>;

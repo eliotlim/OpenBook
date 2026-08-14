@@ -198,6 +198,7 @@ export const en = {
     crumbSiblings: 'Siblings',
     crumbSubpages: 'Subpages',
     crumbCollapsed: 'Show hidden pages',
+    hiddenPage: 'Hidden from navigation and search',
   },
   tabs: {
     new: 'New tab',
@@ -383,6 +384,12 @@ export const en = {
       hint: 'Publish this page so anyone with the link can open it at {host}.',
       action: 'Publish page',
     },
+    listing: {
+      label: 'Hide from navigation and search',
+      hint: 'Keep this page out of navigation and search. People with access can still open its link.',
+      inheritHint: 'Applies only to this page; access still follows the library default.',
+      restrictedHint: 'Only invited people can reach this page, so navigation and search visibility do not apply.',
+    },
     forms: {
       accepts: 'This page accepts public submissions',
       settings: 'Form settings',
@@ -440,6 +447,7 @@ export const en = {
       authenticated: 'Anyone signed in who opens this link can view this page.',
       members: 'Only library members who open this link can view this page.',
       restricted: 'Only the people you invite can open this link.',
+      hidden: 'This page stays hidden from navigation and search; people with access can still use this link.',
       localOnly: 'This link only works on this device.',
       browserLocal:
         'This link only works in this browser — for anyone else it opens their own library, not this page. Publishing happens from the desktop app.',

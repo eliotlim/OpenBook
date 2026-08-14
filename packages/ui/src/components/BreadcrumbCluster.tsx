@@ -64,12 +64,20 @@ export default function BreadcrumbCluster() {
   // Walk parent links up from the primary page to build the ancestor path.
   const chain: string[] = [];
   if (primaryPageId) {
-    let id: string | null = primaryPageId;
-    const seen = new Set<string>();
-    while (id && !seen.has(id)) {
-      seen.add(id);
-      chain.unshift(id);
-      id = byId.get(id)?.parentId ?? null;
+    // A visitor may open an unlisted page directly even though the server omits
+    // it (and therefore all of its ancestry) from `pages`. Its title is retained
+    // by NavigationProvider's page hint: render that page as one honest crumb,
+    // without trying to fabricate a chain from a list that cannot contain it.
+    if (!byId.has(primaryPageId)) {
+      chain.push(primaryPageId);
+    } else {
+      let id: string | null = primaryPageId;
+      const seen = new Set<string>();
+      while (id && !seen.has(id)) {
+        seen.add(id);
+        chain.unshift(id);
+        id = byId.get(id)?.parentId ?? null;
+      }
     }
   }
   // Pages on the current path get a "you are here" check in the menus.

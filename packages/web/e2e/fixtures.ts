@@ -79,6 +79,8 @@ type TestFixtures = {
   freshWorkspace: boolean;
   /** Stamp local-owner auth only on host-sensitive API requests made by the browser. */
   ownerGatedRequests: boolean;
+  /** Browser page whose API traffic uses the desktop host's local-owner transport. */
+  ownerPage: Page;
   /** Auto fixture that performs the reset; never requested directly. */
   _workspaceReset: void;
   /** Auto fixture that installs the opt-in owner-gated fetch transport. */
@@ -160,6 +162,18 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     },
     {auto: true},
   ],
+
+  // Owner-facing content/navigation assertions need the browser itself (including
+  // its EventSource `/api/live` request) to present the desktop host credential.
+  // Keep the secret in Playwright's routing layer, outside the browser JS context,
+  // just as the real Tauri IPC bridge keeps it outside the webview.
+  ownerPage: async ({page, dataServer}, use) => {
+    await page.route(`${dataServer}/api/**`, async (route) => {
+      const headers = {...route.request().headers(), 'x-openbook-local': LOCAL_OWNER_SECRET};
+      await route.continue({headers});
+    });
+    await use(page);
+  },
 
   // Auto: when the spec opted in, start every test from an empty workspace;
   // otherwise make sure at least one page exists (see {@link ensureAnyPage}).

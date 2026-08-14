@@ -53,7 +53,7 @@ describe('LocalDataClient — page lifecycle', () => {
 
   it('keeps unlisted pages visible to the implicit local owner', async () => {
     const page = await client.savePage({name: 'Private shortcut', listed: false, data: snap('owner only')});
-    expect((await client.listPages()).map((meta) => meta.id)).toContain(page.id);
+    expect((await client.listPages()).find((meta) => meta.id === page.id)).toMatchObject({listed: false});
     expect(await client.getPage(page.id)).toMatchObject({id: page.id});
   });
 });
