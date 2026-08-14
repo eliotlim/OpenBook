@@ -1146,7 +1146,7 @@ export class PageStore {
    * lexical content search works with no server.
    */
   async indexablePages(): Promise<IndexablePage[]> {
-    return this.db.query<IndexablePage>('SELECT id, name, data, listed FROM pages WHERE deleted_at IS NULL');
+    return this.db.query<IndexablePage>('SELECT id, name, data FROM pages WHERE deleted_at IS NULL');
   }
 
   // ── Whole-space backup ───────────────────────────────────────────────────────
@@ -2616,7 +2616,7 @@ export class PageStore {
    * are readable — so a restricted page can neither appear as a node nor leak via
    * an edge to/from a page you can see.
    */
-  async pageGraph(canRead?: (pageId: string) => Promise<boolean>): Promise<PageGraph> {
+  async pageGraph(canRead?: (pageId: string) => boolean | Promise<boolean>): Promise<PageGraph> {
     const rows = await this.db.query<PageRow>(
       `SELECT p.id, p.name, p.data, p.properties, (p.properties->>'sys_icon') AS icon
          FROM pages p
@@ -2657,6 +2657,16 @@ export class PageStore {
 
     const nodes = rows.filter((row) => isReadable(row.id)).map((row) => ({id: row.id, name: row.name, icon: row.icon ?? null}));
     return {nodes, edges};
+  }
+
+  /** The ids excluded from ordinary discovery among live pages. Used by the
+   * blanket-readable graph fast path so it pays one query instead of a full
+   * `canListPage` authorization round-trip for every node. */
+  async listUnlistedPageIds(): Promise<string[]> {
+    const rows = await this.db.query<{id: string}>(
+      'SELECT id FROM pages WHERE listed = FALSE AND deleted_at IS NULL',
+    );
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -4461,7 +4471,7 @@ export class PageStore {
     const b = base ?? (await this.accessBase(principal));
     const discoverable = this.listingPrivileged(principal, b)
       ? metas
-      : metas.filter((meta) => meta.listed !== false);
+      : metas.filter((meta) => meta.listed === true);
     if (discoverable.length === 0) return discoverable;
     const blanket = this.blanketRead(principal, b);
     if (blanket !== null) return blanket ? discoverable : [];

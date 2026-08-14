@@ -107,7 +107,7 @@ function PageNode({id, data}: NodeProps<GraphFlowNode>) {
     >
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-border !bg-muted-foreground/40" />
       <PageIcon value={node.icon ?? null} className="shrink-0 leading-none" />
-      <span className={cn('min-w-0 truncate text-xs', isCurrent ? 'font-semibold' : 'font-medium')}>{label}</span>
+      <span className="min-w-0 truncate text-xs font-medium">{label}</span>
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-border !bg-muted-foreground/40" />
     </div>
   );

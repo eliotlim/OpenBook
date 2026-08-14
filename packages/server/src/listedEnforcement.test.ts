@@ -4,10 +4,14 @@ import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
   guestPrincipal,
+  HttpDataClient,
   mintIdentityKeypair,
   signIdentity,
+  type FetchLike,
   type IdentityKeypair,
   type Jwks,
+  type LiveSourceLike,
+  type PageMeta,
   type Principal,
 } from '@book.dev/sdk';
 import {PgliteDb} from './db';
@@ -60,6 +64,67 @@ const idFor = (sub: string): Promise<string> =>
     kp.publicJwk.kid,
   );
 
+type App = ReturnType<typeof createApp>;
+const appFetch = (app: App): FetchLike => (input, init) => Promise.resolve(app.request(input, init));
+
+/** Read a real app SSE response through the SDK's EventSource-shaped seam. */
+function appLiveSource(app: App, openedUrls: string[] = []): (url: string) => LiveSourceLike {
+  return (url) => {
+    openedUrls.push(url);
+    const handlers = new Map<string, Array<(event: {data?: string}) => void>>();
+    const fire = (type: string, data?: string): void => {
+      for (const handler of handlers.get(type) ?? []) handler({data});
+    };
+    let cancelled = false;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    void (async () => {
+      const response = await app.request(url);
+      fire('open');
+      if (!response.body) return;
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let event = 'message';
+      let data = '';
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done || cancelled) break;
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data = line.slice(5).trim();
+          else if (line === '') {
+            if (data.length > 0 || event !== 'message') fire(event, data);
+            event = 'message';
+            data = '';
+          }
+        }
+      }
+    })();
+    return {
+      addEventListener(type, handler) {
+        const list = handlers.get(type) ?? [];
+        list.push(handler);
+        handlers.set(type, list);
+      },
+      close() {
+        cancelled = true;
+        void reader?.cancel().catch(() => undefined);
+      },
+    };
+  };
+}
+
+const waitFor = async (predicate: () => boolean, ms = 2000): Promise<void> => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > ms) throw new Error('timed out');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+};
+
 beforeEach(async () => {
   seq += 1;
   dir = join(tmpdir(), `ob-listed-enforcement-${process.pid}-${seq}`);
@@ -77,6 +142,17 @@ afterEach(async () => {
 });
 
 describe('listed:false enumeration enforcement (UP-2)', () => {
+  it('fails closed when a future PageMeta producer omits listed', async () => {
+    const page = await store.upsertPage({name: `producer-${seq}`, data: snapshot()});
+    const meta = (await store.listPages()).find((entry) => entry.id === page.id)!;
+    expect(meta.listed).toBe(true);
+    expect(await store.filterReadablePages(guestPrincipal(), [meta])).toEqual([meta]);
+
+    const missingListed: PageMeta = {...meta};
+    delete missingListed.listed;
+    expect(await store.filterReadablePages(guestPrincipal(), [missingListed])).toEqual([]);
+  });
+
   it('applies per page across public/members/restricted scopes with no parent inheritance', async () => {
     await store.updateInstanceConfig({
       trustedIssuers: [{issuer: ISS, jwks}],
@@ -161,6 +237,7 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
     await store.deletePage(hiddenTrash.id);
 
     const ai = new AiService(db, join(dir, 'models'));
+    let nonPrivilegedContentCases = 0;
 
     const assertSurfaces = async (
       label: string,
@@ -227,6 +304,25 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
 
       // `listed` is discovery-only: a readable direct URL remains readable.
       expect((await a.request(`/api/pages/${hidden.id}`, {headers})).status, `${label}: direct GET`).toBe(200);
+
+      // The multiplexed stream is a discovery surface too: snapshots, incremental
+      // collaboration, presence and even tombstone ids for an unlisted page are
+      // absent for every non-listing-privileged principal. Owner/admin retain them.
+      const hiddenPage = (await store.getPage(hidden.id))!;
+      const liveGate = streamGates(store, actor).live;
+      for (const event of [
+        {type: 'page' as const, page: hiddenPage},
+        {type: 'yupdate' as const, pageId: hidden.id, update: 'secret-update', clientId: 41},
+        {type: 'awareness' as const, pageId: hidden.id, update: 'secret-presence', clientId: 42},
+        // Use a row that is actually soft-deleted: the gate must inspect its
+        // retained listed posture rather than relying on the live-page query.
+        {type: 'deleted' as const, id: hiddenTrash.id},
+      ]) {
+        const gated = await liveGate(event);
+        if (privileged) expect(gated, `${label}: ${event.type} hidden frame`).not.toBeNull();
+        else expect(gated, `${label}: ${event.type} hidden frame`).toBeNull();
+      }
+      if (!privileged) nonPrivilegedContentCases += 1;
     };
 
     // Rule-0 makes this guest blanket-readable, but it is not an owner/admin and
@@ -249,6 +345,8 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
     });
     await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
     await store.addMember({subject: `${ISS}#member`, role: 'viewer', status: 'active'});
+    await store.setPageAcl(hidden.id, {subject: `${ISS}#acl-reader`, level: 'read'});
+    await store.setPageAcl(hidden.id, {subject: `${ISS}#acl-writer`, level: 'write'});
     const shared = createApp(store, ai, new PageHub(), {identity: new IdentityService(store)});
     const cases = [
       {label: 'owner', actor: principal('owner'), jws: await idFor('owner'), privileged: true},
@@ -256,10 +354,68 @@ describe('listed:false enumeration enforcement (UP-2)', () => {
       {label: 'member', actor: principal('member'), jws: await idFor('member'), privileged: false},
       {label: 'authenticated', actor: principal('stranger'), jws: await idFor('stranger'), privileged: false},
       {label: 'anonymous guest', actor: guestPrincipal(), jws: undefined, privileged: false},
+      {label: 'ACL reader', actor: principal('acl-reader'), jws: await idFor('acl-reader'), privileged: false},
+      {label: 'ACL writer', actor: principal('acl-writer'), jws: await idFor('acl-writer'), privileged: false},
     ];
     for (const entry of cases) {
       await assertSurfaces(entry.label, shared, entry.actor, entry.jws, entry.privileged);
     }
+    expect(nonPrivilegedContentCases).toBe(6);
+  });
+
+  it('keeps a visitor-opened unlisted page live through the direct page-stream fallback', async () => {
+    await store.updateInstanceConfig({
+      trustedIssuers: [{issuer: ISS, jwks}],
+      ownerSubject: `${ISS}#owner`,
+      defaultVisibility: 'public',
+      guestAccess: 'read',
+    });
+    const hidden = await store.upsertPage({
+      name: `fallback-${seq}`,
+      data: snapshot('initial'),
+      listed: false,
+    });
+    await store.setPageVisibility(hidden.id, 'public');
+
+    const hub = new PageHub();
+    const a = createApp(store, undefined, hub, {identity: new IdentityService(store)});
+    const openedUrls: string[] = [];
+    const visitor = new HttpDataClient('', undefined, {
+      fetchImpl: appFetch(a),
+      createLiveSource: appLiveSource(a, openedUrls),
+    });
+    const seen: string[] = [];
+    const deleted: string[] = [];
+    const unsubscribe = visitor.subscribePage(hidden.id, {
+      onPage: (page) => seen.push(JSON.stringify(page.data)),
+      onDeleted: (id) => deleted.push(id),
+    });
+
+    await waitFor(() => openedUrls.includes('/api/live'));
+    await waitFor(() => openedUrls.includes(`/api/pages/${hidden.id}/stream`));
+    await waitFor(() => seen.some((body) => body.includes('initial')));
+
+    const ownerHeaders = {
+      'Content-Type': 'application/json',
+      'X-OpenBook-Client': '1',
+      [IDENTITY_HEADER]: await idFor('owner'),
+    };
+    const save = await a.request(`/api/pages/${hidden.id}`, {
+      method: 'PUT',
+      headers: ownerHeaders,
+      body: JSON.stringify({id: hidden.id, name: hidden.name, data: snapshot('fallback-update')}),
+    });
+    expect(save.status).toBe(200);
+    await waitFor(() => seen.some((body) => body.includes('fallback-update')));
+
+    const remove = await a.request(`/api/pages/${hidden.id}`, {method: 'DELETE', headers: ownerHeaders});
+    expect(remove.status).toBe(204);
+    await waitFor(() => deleted.includes(hidden.id));
+
+    unsubscribe();
+    // Let the firehose's asynchronous canListPage tombstone gate settle before
+    // afterEach closes PGlite; the page-stream deletion arrives independently.
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
   it('removes a listed→false page from an open hub stream in the next list frame', async () => {

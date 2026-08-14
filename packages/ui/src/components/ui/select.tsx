@@ -226,7 +226,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
                   onClick={() => pick(it.value)}
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden",
-                    it.value === current ? "bg-hover font-medium" : "hover:bg-hover focus:bg-hover",
+                    it.value === current ? "bg-hover" : "hover:bg-hover focus:bg-hover",
                     it.disabled && "pointer-events-none opacity-50",
                   )}
                 >
