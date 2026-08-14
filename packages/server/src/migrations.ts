@@ -652,6 +652,34 @@ const MIGRATIONS: Migration[] = [
         method            TEXT        NOT NULL,
         normalized_target TEXT        NOT NULL,
         status            INTEGER,
+        response_body     JSONB,
+        content_type      TEXT,
+        location          TEXT,
+        completed_at      TIMESTAMPTZ,
+        PRIMARY KEY (actor_scope, idempotency_key),
+        CHECK (
+          (status IS NULL AND response_body IS NULL AND completed_at IS NULL)
+          OR
+          (status BETWEEN 200 AND 299 AND response_body IS NOT NULL AND completed_at IS NOT NULL)
+        )
+      )`,
+      'CREATE INDEX IF NOT EXISTS idempotency_responses_completed_at_idx ON idempotency_responses (completed_at)',
+    ],
+  },
+  {
+    // 0027 existed briefly on feature-branch history with a JSONB response body.
+    // Replace the unreleased ledger so any persistent dev database that applied
+    // it stores exact response bytes instead of normalized JSON values.
+    name: '0028_idempotency_response_bytes',
+    statements: [
+      'DROP TABLE IF EXISTS idempotency_responses',
+      `CREATE TABLE idempotency_responses (
+        actor_scope       TEXT        NOT NULL,
+        idempotency_key   TEXT        NOT NULL,
+        fingerprint       TEXT        NOT NULL,
+        method            TEXT        NOT NULL,
+        normalized_target TEXT        NOT NULL,
+        status            INTEGER,
         response_body     TEXT        NOT NULL DEFAULT '',
         content_type      TEXT,
         location          TEXT,
@@ -663,7 +691,7 @@ const MIGRATIONS: Migration[] = [
           (status BETWEEN 200 AND 299 AND completed_at IS NOT NULL)
         )
       )`,
-      'CREATE INDEX IF NOT EXISTS idempotency_responses_completed_at_idx ON idempotency_responses (completed_at)',
+      'CREATE INDEX idempotency_responses_completed_at_idx ON idempotency_responses (completed_at)',
     ],
   },
 ];

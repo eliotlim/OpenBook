@@ -167,10 +167,10 @@ describe('migration 0026 — database form capabilities', () => {
   });
 });
 
-describe('migration 0027 — response-capturing idempotency ledger', () => {
-  it('creates the actor-scoped response table and completion-time index', async () => {
+describe('migration 0028 — byte-exact idempotency responses', () => {
+  it('creates the text response table and replaces a previously applied JSONB ledger', async () => {
     const db = await freshDb();
-    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0027_idempotency_responses\''))
+    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0028_idempotency_response_bytes\''))
       .toHaveLength(1);
     const columns = await db.query<{column_name: string; data_type: string; is_nullable: string}>(
       `SELECT column_name, data_type, is_nullable FROM information_schema.columns
@@ -196,6 +196,22 @@ describe('migration 0027 — response-capturing idempotency ledger', () => {
       'SELECT indexname FROM pg_indexes WHERE tablename = \'idempotency_responses\'',
     );
     expect(indexes.map((row) => row.indexname)).toContain('idempotency_responses_completed_at_idx');
+
+    // Recreate the brief feature-branch 0027 state and prove 0028 repairs a
+    // persistent database that already recorded it, discarding its unreleased rows.
+    await db.query('DELETE FROM _migrations WHERE name = \'0028_idempotency_response_bytes\'');
+    await db.query('DROP TABLE idempotency_responses');
+    await db.query('CREATE TABLE idempotency_responses (actor_scope TEXT, response_body JSONB)');
+    await db.query('INSERT INTO idempotency_responses VALUES ($1, $2)', ['actor', {ok: true}]);
+    await runMigrations(db);
+    const repaired = await db.query<{data_type: string; is_nullable: string}>(
+      `SELECT data_type, is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'idempotency_responses' AND column_name = 'response_body'`,
+    );
+    expect(repaired[0]).toMatchObject({data_type: 'text', is_nullable: 'NO'});
+    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(0);
+    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0028_idempotency_response_bytes\''))
+      .toHaveLength(1);
     await db.close();
   });
 });
