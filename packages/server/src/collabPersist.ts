@@ -298,7 +298,7 @@ export class ServerAuthoritativePersister {
    * durably clobbering it. After `quiesce`, no such checkpoint can be issued or be in
    * flight, and the snapshot `upsertPage` is the final durable write inside the fence.
    */
-  async quiesce(pageId: string): Promise<void> {
+  private async quiesce(pageId: string): Promise<void> {
     this.frozen.set(pageId, (this.frozen.get(pageId) ?? 0) + 1);
     const entry = this.docs.get(pageId);
     if (!entry) return;
@@ -400,7 +400,7 @@ export class ServerAuthoritativePersister {
    * (which cancels the debounce, freezes new checkpoints, and drains the in-flight one), a
    * checkpoint of pre-write content can neither fire after the snapshot nor race its write.
    */
-  reseed(pageId: string): void {
+  private reseed(pageId: string): void {
     this.drop(pageId);
     this.unfreeze(pageId);
   }
@@ -489,11 +489,17 @@ export class ServerAuthoritativePersister {
   /** Merge a client whole-snapshot's CRDT state into the canonical doc after its direct
    *  DB write. Even a stale update that contributes no new operation dirties the canonical
    *  doc: the DB was just replaced by that stale snapshot, so the next checkpoint must
-   *  write the retained union back. Legacy snapshots without an update dirty an already
-   *  live canonical doc, but do not manufacture an empty canonical doc on a cold page. */
+   *  write the retained union back. A cold-page PUT remains solely a direct store write;
+   *  there is no live union to protect, so it must not manufacture a canonical doc.
+   *
+   *  Mixed-editor decision: a legacy editorjs PUT has no CRDT update to merge. If a blocks
+   *  canonical doc is already live, server-authoritative collaboration deliberately wins
+   *  and its checkpoint restores that canonical blocks state. Converting or merging the two
+   *  editor formats is unsupported; keeping the canonical doc authoritative avoids silently
+   *  abandoning already-accepted live CRDT edits. */
   private async mergeSnapshot(pageId: string, snapshotUpdate: Uint8Array | null, subject: string): Promise<void> {
     const hadCanonical = this.docs.has(pageId);
-    if (!hadCanonical && !snapshotUpdate) return;
+    if (!hadCanonical) return;
     const entry = await this.ensure(pageId);
     if (!entry) return;
     if (snapshotUpdate) {
@@ -502,12 +508,8 @@ export class ServerAuthoritativePersister {
         Y.applyUpdate(entry.doc, snapshotUpdate);
       } catch {
         // The route historically accepts opaque snapshots. If its CRDT update is malformed,
-        // retain and re-checkpoint an existing canonical doc; on a cold page, leave the direct
-        // snapshot untouched rather than replacing it with a newly-created empty doc.
-        if (!hadCanonical) {
-          this.drop(pageId);
-          return;
-        }
+        // retain and re-checkpoint the existing canonical doc rather than abandoning edits
+        // the live session already accepted.
       }
       recordTopLevelChanges(before, entry.doc, entry.pendingAuthors, subject);
     }

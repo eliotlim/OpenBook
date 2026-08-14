@@ -27,6 +27,17 @@ const dirs: string[] = [];
 const stores: PageStore[] = [];
 const persisters: ServerAuthoritativePersister[] = [];
 
+type PersisterFenceInternals = {
+  quiesce(pageId: string): Promise<void>;
+  reseed(pageId: string): void;
+  mergeSnapshot(pageId: string, update: Uint8Array | null, subject: string): Promise<void>;
+};
+
+// Fence finalizers are intentionally private production details; tests use this narrow
+// seam only to force/observe ordering that cannot be made deterministic from the routes.
+const fenceInternals = (persister: ServerAuthoritativePersister): PersisterFenceInternals =>
+  persister as unknown as PersisterFenceInternals;
+
 async function freshStore(): Promise<PageStore> {
   seq += 1;
   const dir = join(tmpdir(), `ob-t9app-${process.pid}-${seq}`);
@@ -227,6 +238,28 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     client.destroy();
   });
 
+  it('a cold snapshot PUT does not manufacture a canonical doc or extra checkpoint', async () => {
+    const store = await freshStore();
+    const app = persistedApp(store);
+    const persister = (app as AppWithCollab).collabPersist!;
+    const {id, client} = await seed(store, 'snapshot-put-cold');
+    const saveServerDoc = vi.spyOn(store, 'saveServerDoc');
+
+    const res = await app.request(`/api/pages/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
+      body: JSON.stringify({name: 'snapshot-put-cold', data: snap('COLD')}),
+    });
+    expect(res.status).toBe(200);
+
+    // Deterministically force every pending checkpoint instead of waiting on the 600ms
+    // debounce. A cold PUT has no live union to persist, so there must be nothing to flush.
+    await persister.flushAll();
+    expect(persister.size()).toBe(0);
+    expect(saveServerDoc).not.toHaveBeenCalled();
+    client.destroy();
+  });
+
   it('converges after a stale snapshot PUT and accepts the live client\'s dependent delta', async () => {
     const store = await freshStore();
     const app = persistedApp(store);
@@ -368,13 +401,14 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     clientText.delete(0, clientText.length);
     clientText.insert(0, 'CLIENT');
 
-    const realQuiesce = persister.quiesce.bind(persister);
-    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
       events.push('quiesce:start');
       await realQuiesce(pageId);
       events.push('quiesce:end');
     });
-    const reseed = vi.spyOn(persister, 'reseed');
+    const reseed = vi.spyOn(internals, 'reseed');
     const realUpsertPage = store.upsertPage.bind(store);
     vi.spyOn(store, 'upsertPage').mockImplementation(async (input, author, opts) => {
       events.push('snapshot:write');
@@ -417,12 +451,13 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     await waitFor(async () => (await textOf(store, id)) === 'active');
 
     const events: string[] = [];
-    const realQuiesce = persister.quiesce.bind(persister);
-    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
       await realQuiesce(pageId);
       events.push('quiesce');
     });
-    const reseed = vi.spyOn(persister, 'reseed');
+    const reseed = vi.spyOn(internals, 'reseed');
     vi.spyOn(store, 'upsertPage').mockImplementation(async () => {
       events.push('snapshot:failure');
       throw new Error('injected snapshot write failure');
@@ -458,8 +493,9 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     (client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text).insert(0, 'active');
     await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
     await waitFor(async () => (await textOf(store, id)) === 'active');
-    const quiesce = vi.spyOn(persister, 'quiesce');
-    const reseed = vi.spyOn(persister, 'reseed');
+    const internals = fenceInternals(persister);
+    const quiesce = vi.spyOn(internals, 'quiesce');
+    const reseed = vi.spyOn(internals, 'reseed');
 
     const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
     clientText.delete(0, clientText.length);
@@ -487,18 +523,17 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     const events: string[] = [];
 
     const fence = vi.spyOn(persister, 'withSnapshotWriteFence');
-    const realQuiesce = persister.quiesce.bind(persister);
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
     let quiesceCall = 0;
-    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
       events.push(`quiesce:${++quiesceCall}`);
       await realQuiesce(pageId);
     });
 
     // Hold the first fence after its DB write but before its canonical merge. The
     // second route has entered withSnapshotWriteFence, yet may not begin quiescing.
-    const mergeSeam = persister as unknown as {
-      mergeSnapshot(pageId: string, update: Uint8Array | null, subject: string): Promise<void>;
-    };
+    const mergeSeam = internals;
     const realMerge = mergeSeam.mergeSnapshot.bind(persister);
     let releaseMerge!: () => void;
     const mergeHeld = new Promise<void>((resolve) => {
@@ -542,8 +577,9 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     const firstPage = await seed(store, 'snapshot-page-one');
     const secondPage = await seed(store, 'snapshot-page-two');
     const quiesced: string[] = [];
-    const realQuiesce = persister.quiesce.bind(persister);
-    vi.spyOn(persister, 'quiesce').mockImplementation(async (pageId) => {
+    const internals = fenceInternals(persister);
+    const realQuiesce = internals.quiesce.bind(persister);
+    vi.spyOn(internals, 'quiesce').mockImplementation(async (pageId) => {
       quiesced.push(pageId);
       await realQuiesce(pageId);
     });
@@ -587,8 +623,9 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
   });
 
   it('persist off: PUT and POST upsert retain the direct path without quiesce/reseed', async () => {
-    const quiesce = vi.spyOn(ServerAuthoritativePersister.prototype, 'quiesce');
-    const reseed = vi.spyOn(ServerAuthoritativePersister.prototype, 'reseed');
+    const prototype = fenceInternals(ServerAuthoritativePersister.prototype);
+    const quiesce = vi.spyOn(prototype, 'quiesce');
+    const reseed = vi.spyOn(prototype, 'reseed');
     const store = await freshStore();
     const app = createApp(store, undefined, new PageHub());
     const {id, client} = await seed(store, 'snapshot-off');
