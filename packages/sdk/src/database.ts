@@ -28,7 +28,7 @@
  * record — properties, views, filters — lives in its own `databases` table.
  */
 
-import type {PageSnapshot} from './types';
+import type {EntityRev, ExpectedRevInput, PageSnapshot} from './types';
 import {evaluateFormula, FormulaError, type FormulaResolver} from './formula';
 
 /**
@@ -724,6 +724,8 @@ export interface DatabaseSchema {
 /** A database as returned by the store. */
 export interface StoredDatabase {
   id: string;
+  /** Optimistic-concurrency token; absent only when reading from a legacy server. */
+  rev?: EntityRev;
   /** The host page that contains this database. */
   pageId: string;
   name: string | null;
@@ -741,7 +743,7 @@ export interface DatabaseInput {
 }
 
 /** Payload for editing a database's name and/or schema in place. */
-export interface DatabaseUpdate {
+export interface DatabaseUpdate extends ExpectedRevInput {
   name?: string | null;
   schema?: DatabaseSchema;
 }
@@ -755,6 +757,8 @@ export interface DatabaseUpdate {
 export interface DatabaseRow {
   /** The row's page id. */
   id: string;
+  /** The underlying page's token; absent only when reading from a legacy server. */
+  rev?: EntityRev;
   /** The row's page title. */
   name: string | null;
   /** Manual property values, keyed by property id. */
@@ -815,7 +819,7 @@ export function flattenRowTree(nodes: RowTreeNode[], collapsed: Set<string>): Ro
 }
 
 /** Payload for editing a row's title and/or manual property values. */
-export interface RowUpdate {
+export interface RowUpdate extends ExpectedRevInput {
   name?: string | null;
   properties?: Record<string, unknown>;
 }

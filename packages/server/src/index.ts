@@ -1,5 +1,5 @@
 export {PageStore} from './store';
-export {createApp} from './app';
+export {createApp, type ServerWriteConflictEnvelope, type ServerWriteErrorEnvelope} from './app';
 export {type Db, Mutex, PgliteDb, PostgresDb, createPgliteDb, PgliteDataDirLockedError} from './db';
 export {DirLock, DirLockedError, type DirLockInfo} from './dirLock';
 export {startServer, type StartOptions, type RunningServer} from './server';
