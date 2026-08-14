@@ -83,6 +83,7 @@ import {
   FormAssetBudgetError,
   IdempotencyKeyReuseError,
   type IdempotencyOutcome,
+  type IdempotencyRequest,
   type IdempotencyResponse,
 } from './store';
 import {PageHub} from './hub';
@@ -558,23 +559,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   const app = new Hono<AppEnv>();
 
-  const executeDurableWrite = async <R extends IdempotencyResponse>(
-    c: Context<AppEnv>,
-    execute: (activeStore: PageStore) => Promise<R>,
-  ): Promise<IdempotencyOutcome<R['body']>> => {
-    const normalizeResponse = async (activeStore: PageStore): Promise<IdempotencyResponse<R['body']>> => {
-      const response = await execute(activeStore);
-      return {
-        ...response,
-        headers: {
-          ...(response.status === 204 ? {} : {contentType: JSON_CONTENT_TYPE}),
-          ...response.headers,
-        },
-      };
-    };
-    if (!c.req.raw.headers.has(IDEMPOTENCY_HEADER)) {
-      return {...await normalizeResponse(store), replayed: false};
-    }
+  const durableWriteRequest = (c: Context<AppEnv>): IdempotencyRequest | null => {
+    if (!c.req.raw.headers.has(IDEMPOTENCY_HEADER)) return null;
     const rawKey = c.req.raw.headers.get(IDEMPOTENCY_HEADER) ?? '';
     if (!IDEMPOTENCY_KEY_PATTERN.test(rawKey)) {
       throw new InvalidIdempotencyInputError(
@@ -591,17 +577,41 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!body) throw new Error('idempotent request body was not captured');
     const method = c.req.method.toUpperCase();
     const mediaType = (c.req.header('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
-    return store.idempotentWrite(
-      {
-        actorScope: idempotencyActorScope(c.get('principal')),
-        key: rawKey.toLowerCase(),
-        fingerprint: idempotencyFingerprint(method, url.pathname, mediaType, body),
-        method,
-        normalizedTarget: url.pathname,
-      },
-      normalizeResponse,
-    );
+    return {
+      actorScope: idempotencyActorScope(c.get('principal')),
+      key: rawKey.toLowerCase(),
+      fingerprint: idempotencyFingerprint(method, url.pathname, mediaType, body),
+      method,
+      normalizedTarget: url.pathname,
+    };
   };
+
+  const executeDurableWriteBase = async <R extends IdempotencyResponse>(
+    c: Context<AppEnv>,
+    execute: (activeStore: PageStore) => Promise<R>,
+  ): Promise<IdempotencyOutcome<R['body']>> => {
+    const normalizeResponse = async (activeStore: PageStore): Promise<IdempotencyResponse<R['body']>> => {
+      const response = await execute(activeStore);
+      return {
+        ...response,
+        headers: {
+          ...(response.status === 204 ? {} : {contentType: JSON_CONTENT_TYPE}),
+          ...response.headers,
+        },
+      };
+    };
+    const request = durableWriteRequest(c);
+    if (!request) {
+      return {...await normalizeResponse(store), replayed: false};
+    }
+    return store.idempotentWrite(request, normalizeResponse);
+  };
+  const executeDurableWrite = Object.assign(executeDurableWriteBase, {
+    probe: async <T = unknown>(c: Context<AppEnv>): Promise<IdempotencyOutcome<T> | null> => {
+      const request = durableWriteRequest(c);
+      return request ? store.probeIdempotentWrite<T>(request) : null;
+    },
+  });
 
   const durableWriteResponse = <T>(c: Context<AppEnv>, response: IdempotencyOutcome<T>): Response => {
     const headers: Record<string, string> = {};
@@ -2919,6 +2929,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.delete(`${API.databases}/:id`, async (c) => {
     const id = c.req.param('id');
+    // Global authentication/authorization middleware has passed. Probe before
+    // target existence: a completed destroy has intentionally removed the row.
+    const replay = await executeDurableWrite.probe<null>(c);
+    if (replay) return durableWriteResponse(c, replay);
     await requireDbAccess(c, store, 'write', id);
     rejectManaged(id);
     const database = await store.getDatabase(id);

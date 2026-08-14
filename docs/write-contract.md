@@ -409,6 +409,8 @@ mutation and may be evaluated again; notably, a retried stale CAS gets fresh
 current state rather than a cached 409. Authentication, authorization, access,
 managed-entity, and body-size gates run before claim/replay, preventing an old
 success from bypassing a later permission revocation.
+The existence gate must not precede replay, because a completed destroy has
+removed its target, although authorization still must.
 
 On an exact replay after those gates:
 

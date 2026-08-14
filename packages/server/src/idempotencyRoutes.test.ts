@@ -96,6 +96,69 @@ describe('Idempotency-Key route contract', () => {
     expect(rows[0]).toMatchObject({name: 'Only once', properties: {amount: 42}});
   });
 
+  it('serializes concurrent same-key claimants onto one row and one response', async () => {
+    const app = createApp(store);
+    const body = JSON.stringify({name: 'Concurrent singleton', properties: {amount: 7}});
+    const send = (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CLIENT_HEADER]: '1',
+        'Idempotency-Key': KEY,
+      },
+      body,
+    });
+
+    const [first, duplicate] = await Promise.all([send(), send()]);
+    expect(first.status).toBe(201);
+    expect(duplicate.status).toBe(201);
+    expect(await duplicate.text()).toBe(await first.text());
+    expect(await store.listRows(database.id)).toHaveLength(1);
+    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(1);
+  });
+
+  it('suppresses hub broadcasts and edit-log appends on replay', async () => {
+    const hub = new PageHub();
+    const events: string[] = [];
+    hub.subscribeLive((event) => events.push(event.type));
+    const logEdit = vi.spyOn(store, 'logEdit').mockResolvedValue();
+    const app = createApp(store, undefined, hub);
+    const body = JSON.stringify({name: 'One observable write'});
+    const send = (): Promise<Response> => app.request(`/api/databases/${database.id}/rows`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CLIENT_HEADER]: '1',
+        'Idempotency-Key': KEY,
+      },
+      body,
+    });
+
+    expect((await send()).status).toBe(201);
+    expect(events).toEqual(['page', 'rows']);
+    expect(logEdit).toHaveBeenCalledTimes(1);
+
+    expect((await send()).status).toBe(201);
+    expect(events).toEqual(['page', 'rows']);
+    expect(logEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays a completed database destroy as 204 after the target no longer exists', async () => {
+    const app = createApp(store);
+    const destroy = (): Promise<Response> => app.request(`/api/databases/${database.id}`, {
+      method: 'DELETE',
+      headers: {[CLIENT_HEADER]: '1', 'Idempotency-Key': KEY},
+    });
+
+    const first = await destroy();
+    expect(first.status).toBe(204);
+    expect(await store.getDatabase(database.id)).toBeNull();
+
+    const replay = await destroy();
+    expect(replay.status).toBe(204);
+    expect(await db.query('SELECT * FROM idempotency_responses')).toHaveLength(1);
+  });
+
   it('fingerprints exact body bytes and returns the typed 409 reuse envelope on a mismatch', async () => {
     expect((await rowRequest('{"name":"same semantics"}')).status).toBe(201);
     const mismatch = await rowRequest('{ "name": "same semantics" }');

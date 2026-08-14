@@ -303,6 +303,28 @@ interface IdempotencyResponseRow {
   location: string | null;
 }
 
+function capturedIdempotencyOutcome<T>(
+  request: IdempotencyRequest,
+  row: IdempotencyResponseRow,
+): IdempotencyOutcome<T> {
+  if (row.status == null) {
+    throw new Error('idempotency response claim completed without a captured response');
+  }
+  if (row.fingerprint !== request.fingerprint) {
+    throw new IdempotencyKeyReuseError();
+  }
+  return {
+    status: Number(row.status),
+    body: JSON.parse(row.response_body) as T,
+    serializedBody: row.response_body,
+    headers: {
+      ...(row.content_type ? {contentType: row.content_type} : {}),
+      ...(row.location ? {location: row.location} : {}),
+    },
+    replayed: true,
+  };
+}
+
 /** Internal control flow: return a non-2xx response after rolling its claim back. */
 class UnretainedIdempotencyResponse<T> extends Error {
   constructor(readonly response: IdempotencyResponse<T>) {
@@ -991,6 +1013,21 @@ export class PageStore {
   }
 
   /**
+   * Return a completed matching response without claiming or executing a write.
+   * Used by destroy routes before their target-existence precondition.
+   */
+  async probeIdempotentWrite<T>(request: IdempotencyRequest): Promise<IdempotencyOutcome<T> | null> {
+    const prior = await this.db.query<IdempotencyResponseRow>(
+      `SELECT fingerprint, status, response_body, content_type, location
+       FROM idempotency_responses
+       WHERE actor_scope = $1 AND idempotency_key = $2`,
+      [request.actorScope, request.key],
+    );
+    if (prior.length === 0 || prior[0].status == null) return null;
+    return capturedIdempotencyOutcome<T>(request, prior[0]);
+  }
+
+  /**
    * Execute one durable HTTP write under the response-capturing ledger.
    *
    * The claim, callback mutations, JSON serialization, and response capture all
@@ -1033,24 +1070,7 @@ export class PageStore {
             if (prior.length === 0) {
               throw new IdempotencyClaimNotVisibleError();
             }
-            if (prior[0].status == null) {
-              throw new Error('idempotency response claim completed without a captured response');
-            }
-            if (prior[0].fingerprint !== request.fingerprint) {
-              throw new IdempotencyKeyReuseError();
-            }
-            const row = prior[0];
-            const body = JSON.parse(row.response_body) as T;
-            return {
-              status: Number(row.status),
-              body,
-              serializedBody: row.response_body,
-              headers: {
-                ...(row.content_type ? {contentType: row.content_type} : {}),
-                ...(row.location ? {location: row.location} : {}),
-              },
-              replayed: true,
-            };
+            return capturedIdempotencyOutcome<T>(request, prior[0]);
           }
 
           const response = await execute(new PageStore(inlineTransaction(tx), this.sharedState));
