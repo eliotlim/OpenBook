@@ -3,7 +3,9 @@ import {
   applyView,
   defaultStatusOptions,
   defaultView,
+  FORM_SUBMISSION_PROPERTY_ID,
   FormulaError,
+  isDatabaseViewType,
   relationSides,
   removeProperty,
   rowValue,
@@ -12,6 +14,8 @@ import {
   syncInverseUpdates,
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
+  type DatabaseFormField,
+  type DatabaseFormSubmissionMarker,
   type RelationCardinality,
   type DatabasePropertyType,
   type DatabaseRow,
@@ -32,6 +36,12 @@ import {parseCsv} from './databaseCells';
 
 const activeViewKey = (databaseId: string): string => `openbook.dbview.${databaseId}`;
 
+/** Forms never count toward the safety floor: deleting `viewId` must leave at
+ *  least one non-form view from which the database's rows can be managed. */
+export function canDeleteDatabaseView(views: readonly DatabaseView[], viewId: string): boolean {
+  return views.some((view) => view.id !== viewId && view.type !== 'form');
+}
+
 export interface NewPropertyInput {
   name: string;
   type: DatabasePropertyType;
@@ -51,6 +61,14 @@ export interface NewPropertyInput {
   relationCardinality?: RelationCardinality;
   /** A short helper description. */
   description?: string;
+}
+
+/** Form-specific options for atomically creating and mapping a property. */
+export interface AddPropertyForViewListOptions {
+  /** Initial presentation metadata for the mapped field. */
+  formField?: DatabaseFormField;
+  /** Hide the new column from row page-property panels (not from table views). */
+  pageHidden?: boolean;
 }
 
 /** The view fields that name a property id — the slots the one-click
@@ -128,6 +146,9 @@ export interface UseDatabase {
   // Row mutations
   /** Create a row, optionally pre-setting property values. Returns the new id. */
   addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
+  /** Create one row from an in-app form without loading or refreshing the row
+   *  stream. The table view will load it when the user switches back. */
+  submitFormRow: (initial: Record<string, unknown>, name?: string) => Promise<string | undefined>;
   /** Create a sub-item nested under `parentId`. Returns the new row id. */
   addSubItem: (parentId: string) => Promise<string | undefined>;
   /** Re-parent a row (`null` = top level). Reverts if the server refuses (e.g. a cycle). */
@@ -168,6 +189,13 @@ export interface UseDatabase {
   /** Create a property and point `viewId`'s `field` at it, in one atomic schema
    *  write (the view-setup "create it and use it" path). Returns the new id. */
   addPropertyForView: (viewId: string, input: NewPropertyInput, field: ViewPropertyField) => Promise<string | undefined>;
+  /** Create a property and append it to a form's ordered field list in one
+   *  schema write. The field metadata entry is created in that same write. */
+  addPropertyForViewList: (
+    viewId: string,
+    input: NewPropertyInput,
+    opts?: AddPropertyForViewListOptions,
+  ) => Promise<string | undefined>;
   /** Clone a property (its full config) just after it, including in the active
    *  view's pinned visible-property list, in one atomic schema write. */
   duplicateProperty: (propertyId: string) => Promise<void>;
@@ -253,6 +281,13 @@ export function useDatabase(
   const [activeViewId, setActiveViewIdState] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
+  // Forms (and unknown future layouts) are deliberately row-blind. This flag is
+  // also used by the row effects below so selecting a form tears down the row
+  // stream instead of merely hiding rows after they have already been loaded.
+  const activeViewType = database?.schema.views.find((view) => view.id === activeViewId)?.type
+    ?? database?.schema.views[0]?.type;
+  const rowBlind = activeViewType !== undefined && (activeViewType === 'form' || !isDatabaseViewType(activeViewType));
+
   // Read the latest URL-view / ownership inside the DB-resolution effect without
   // making it a dependency (which would refetch the database on every switch).
   const ownsUrlViewRef = useRef(ownsUrlView);
@@ -305,6 +340,10 @@ export function useDatabase(
   // only carries *updates*, so the initial row set is fetched over REST.
   useEffect(() => {
     if (!database) return;
+    if (rowBlind) {
+      setRows([]);
+      return;
+    }
     let cancelled = false;
     void client
       .listRows(database.id)
@@ -317,7 +356,7 @@ export function useDatabase(
       cancelled = true;
       unsubscribe();
     };
-  }, [client, database]);
+  }, [client, database, rowBlind]);
 
   // Rows AND property definitions of OTHER databases this schema's rollups fold
   // (a rollup whose relation property targets another database): `computeRollup`
@@ -333,7 +372,7 @@ export function useDatabase(
   // a `count` would flash 0 — so the cells suppress it (see pendingRollups).
   const [foreignLoaded, setForeignLoaded] = useState<ReadonlySet<string>>(new Set());
   const foreignDbIds = useMemo(() => {
-    if (!database) return '';
+    if (!database || rowBlind) return '';
     const ids = new Set<string>();
     for (const p of database.schema.properties) {
       if (p.type !== 'rollup' || !p.rollup) continue;
@@ -343,7 +382,7 @@ export function useDatabase(
       }
     }
     return [...ids].sort().join(','); // a stable key, so the effect runs once per set
-  }, [database]);
+  }, [database, rowBlind]);
   useEffect(() => {
     if (!foreignDbIds) {
       setForeignRows([]);
@@ -411,7 +450,7 @@ export function useDatabase(
   // high-water mark and stops once every row is numbered — which covers new rows,
   // imports, and backfilling existing rows when the property is first added.
   useEffect(() => {
-    if (!database) return;
+    if (!database || rowBlind) return;
     const idProps = database.schema.properties.filter((p) => p.type === 'unique_id');
     if (idProps.length === 0) return;
     let next = rows;
@@ -434,7 +473,7 @@ export function useDatabase(
         if (r !== rows[i]) void client.updateRow(database.id, r.id, {properties: r.properties}).catch(() => {});
       });
     }
-  }, [database, rows, client]);
+  }, [database, rows, client, rowBlind]);
 
   const setActiveViewId = useCallback(
     (viewId: string) => {
@@ -460,8 +499,8 @@ export function useDatabase(
   // sidebar list, so hydrate them from the loaded rows for the views that show
   // a row icon (board/gallery/cards/…).
   useEffect(() => {
-    if (rows.length > 0) hydratePageIcons(rows.map((r) => ({id: r.id, icon: r.properties[ICON_PROPERTY_ID] as string | null | undefined})));
-  }, [rows]);
+    if (!rowBlind && rows.length > 0) hydratePageIcons(rows.map((r) => ({id: r.id, icon: r.properties[ICON_PROPERTY_ID] as string | null | undefined})));
+  }, [rows, rowBlind]);
 
   const activeView = useMemo<DatabaseView | null>(() => {
     if (!database) return null;
@@ -469,6 +508,7 @@ export function useDatabase(
   }, [database, activeViewId]);
 
   const visibleRows = useMemo<DatabaseRow[]>(() => {
+    if (rowBlind) return [];
     if (!database || !activeView) return rows;
     // Resolve derived values (cross-database rollups) against the same
     // rows/properties the cells display, so filters and sorts on a rollup see
@@ -477,7 +517,7 @@ export function useDatabase(
     const query = search.trim().toLowerCase();
     if (!query) return viewed;
     return viewed.filter((row) => rowMatchesSearch(row, query, database.schema.properties, rollupProperties, rollupRows));
-  }, [rows, database, activeView, search, rollupProperties, rollupRows]);
+  }, [rows, database, activeView, search, rollupProperties, rollupRows, rowBlind]);
 
   // Persist a schema edit and adopt the returned database.
   const saveSchema = useCallback(
@@ -508,6 +548,22 @@ export function useDatabase(
       return page.id;
     },
     [client, database],
+  );
+
+  const submitFormRow = useCallback(
+    async (initial: Record<string, unknown>, name?: string): Promise<string | undefined> => {
+      if (!database || activeView?.type !== 'form') return undefined;
+      const marker: DatabaseFormSubmissionMarker = {
+        submittedViaViewId: activeView.id,
+        submittedAt: new Date().toISOString(),
+      };
+      const page = await client.createRow(database.id, {
+        name: name ?? null,
+        properties: {...initial, [FORM_SUBMISSION_PROPERTY_ID]: marker},
+      });
+      return page.id;
+    },
+    [activeView, client, database],
   );
 
   const addSubItem = useCallback(
@@ -805,6 +861,35 @@ export function useDatabase(
         ...database.schema,
         properties: [...database.schema.properties, property],
         views: database.schema.views.map((v) => (v.id === viewId ? {...v, [field]: property.id} : v)),
+      });
+      return property.id;
+    },
+    [database, saveSchema],
+  );
+
+  const addPropertyForViewList = useCallback(
+    async (
+      viewId: string,
+      input: NewPropertyInput,
+      opts?: AddPropertyForViewListOptions,
+    ): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const target = database.schema.views.find((view) => view.id === viewId);
+      if (target?.type !== 'form') return undefined;
+      const property = buildProperty(input, database.schema.properties);
+      if (opts?.pageHidden) property.pageHidden = true;
+      await saveSchema({
+        ...database.schema,
+        properties: [...database.schema.properties, property],
+        views: database.schema.views.map((view) => {
+          if (view.id !== viewId) return view;
+          const visiblePropertyIds = [...(view.visiblePropertyIds ?? []).filter((id) => id !== property.id), property.id];
+          return {
+            ...view,
+            visiblePropertyIds,
+            formFields: {...(view.formFields ?? {}), [property.id]: opts?.formField ?? {}},
+          };
+        }),
       });
       return property.id;
     },
@@ -1110,8 +1195,12 @@ export function useDatabase(
 
   const deleteView = useCallback(
     async (viewId: string): Promise<void> => {
-      if (!database || database.schema.views.length <= 1) return; // keep at least one
+      if (!database) return;
       const remaining = database.schema.views.filter((v) => v.id !== viewId);
+      // A form cannot stand in for a data-management view: forms never load the
+      // row stream, so keep at least one non-form view from which submissions
+      // can be inspected and managed.
+      if (!canDeleteDatabaseView(database.schema.views, viewId)) return;
       await saveSchema({...database.schema, views: remaining});
       if (activeViewId === viewId) setActiveViewId(remaining[0].id);
     },
@@ -1155,6 +1244,7 @@ export function useDatabase(
     search,
     setSearch,
     addRow,
+    submitFormRow,
     addSubItem,
     setRowParent,
     renameRow,
@@ -1174,6 +1264,7 @@ export function useDatabase(
     deleteTemplate,
     addProperty,
     addPropertyForView,
+    addPropertyForViewList,
     duplicateProperty,
     insertProperty,
     updateProperty,
