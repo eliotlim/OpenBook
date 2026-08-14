@@ -87,16 +87,16 @@ describe('PgliteDb serialization', () => {
     await db.query('CREATE TABLE nested_writes (value TEXT PRIMARY KEY)');
 
     await db.begin(async (tx) => {
-      await tx.query("INSERT INTO nested_writes (value) VALUES ('outer')");
+      await tx.query('INSERT INTO nested_writes (value) VALUES ($1)', ['outer']);
       try {
         await tx.begin(async (nested) => {
-          await nested.query("INSERT INTO nested_writes (value) VALUES ('rolled-back')");
+          await nested.query('INSERT INTO nested_writes (value) VALUES ($1)', ['rolled-back']);
           throw new Error('contain me');
         });
       } catch (err) {
         expect(err).toMatchObject({message: 'contain me'});
       }
-      await tx.query("INSERT INTO nested_writes (value) VALUES ('after')");
+      await tx.query('INSERT INTO nested_writes (value) VALUES ($1)', ['after']);
     });
 
     expect(await db.query<{value: string}>('SELECT value FROM nested_writes ORDER BY value')).toEqual([
