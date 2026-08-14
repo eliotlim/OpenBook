@@ -224,13 +224,12 @@ const WRITE_PREFIXES = ['/api/pages', '/api/suggestions', '/api/comments', '/api
 const DB_ROWS_RE = /^\/api\/databases\/[^/]+\/rows(\/.*)?$/;
 
 /**
- * Page SHARING / EXPOSURE sub-paths (`…/acl`, `…/visibility`). DENIED for ANY PAT of
- * ANY scope, even though they sit under the `/api/pages` prefix: they gate only on
- * page-write, so a write-PAT would otherwise re-share a page (a durable grant that
- * SURVIVES the token's revocation — a permanent backdoor) or flip a restricted page
- * to `public` (a confidentiality break). Carved out here AND independently refused at
- * the two handlers (`denyPatPolicy`). */
-const SHARING_CONTROL_RE = /\/(acl|visibility)$/;
+ * SHARING / EXPOSURE sub-paths (`…/acl`, `…/visibility`, and F-4's per-view
+ * `…/capability`). DENIED for ANY PAT of ANY scope: a PAT must not create a durable
+ * public-fill grant that survives the PAT's own revocation, just as it must not
+ * re-share a page or flip one public. Carved out here AND independently refused at
+ * the handlers (`denyPatPolicy`). */
+const SHARING_CONTROL_RE = /\/(acl|visibility|capability)$/;
 
 /**
  * Page AGENT-EDITS policy sub-path (`…/agent-edits`, AGED-1). The WRITE is jws-only —

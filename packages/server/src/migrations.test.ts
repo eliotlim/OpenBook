@@ -132,6 +132,41 @@ describe('migration 0025 — page listing posture', () => {
   });
 });
 
+describe('migration 0026 — database form capabilities', () => {
+  it('creates the digest-only publication table and lifecycle index', async () => {
+    const db = await freshDb();
+    const applied = await db.query<{name: string}>(
+      'SELECT name FROM _migrations WHERE name = \'0026_database_form_capabilities\'',
+    );
+    expect(applied).toHaveLength(1);
+    const columns = await db.query<{column_name: string}>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'database_form_capabilities'`,
+    );
+    expect(columns.map((row) => row.column_name)).toEqual(expect.arrayContaining([
+      'database_id',
+      'view_id',
+      'capability_hash',
+      'created_at',
+      'updated_at',
+    ]));
+    const uploadColumns = await db.query<{column_name: string}>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'form_uploads'`,
+    );
+    expect(uploadColumns.map((row) => row.column_name)).toContain('capability_hash');
+    const indexes = await db.query<{indexname: string}>(
+      'SELECT indexname FROM pg_indexes WHERE tablename = \'database_form_capabilities\'',
+    );
+    expect(indexes.map((row) => row.indexname)).toContain('database_form_capabilities_updated_idx');
+    const uploadIndexes = await db.query<{indexname: string}>(
+      'SELECT indexname FROM pg_indexes WHERE tablename = \'form_uploads\'',
+    );
+    expect(uploadIndexes.map((row) => row.indexname)).toContain('form_uploads_capability_idx');
+    await db.close();
+  });
+});
+
 describe('migration 0011 — existing database with data', () => {
   it('back-fills visibility=inherit on pre-existing pages and is idempotent', async () => {
     // Simulate a pre-0011 workspace: a real pages table with a row, with 0001..0010
@@ -147,6 +182,10 @@ describe('migration 0011 — existing database with data', () => {
       database_id UUID, position DOUBLE PRECISION NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       deleted_at TIMESTAMPTZ)`);
+    await db.query(`CREATE TABLE databases (
+      id UUID PRIMARY KEY, page_id UUID NOT NULL, name TEXT,
+      schema JSONB NOT NULL DEFAULT '{"properties":[],"views":[]}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     for (const n of [
       '0001_init', '0002_databases', '0003_page_nesting', '0004_soft_delete', '0005_page_order',
       '0006_settings', '0007_plugins', '0008_suggestions', '0009_provenance', '0010_review_authors',

@@ -611,6 +611,31 @@ const MIGRATIONS: Migration[] = [
     name: '0025_page_listed',
     statements: ['ALTER TABLE pages ADD COLUMN IF NOT EXISTS listed BOOLEAN NOT NULL DEFAULT true'],
   },
+  {
+    // F-4 — publication state for database-backed form views. The plaintext
+    // 256-bit fill capability is never stored: only its SHA-256 digest is keyed to
+    // one (database, view) pair. Presence is the publication binding; replacing the
+    // digest rotates the link and deleting the row revokes it. Database deletion
+    // cascades, while schema updates explicitly remove records for deleted/retyped
+    // views in PageStore.updateDatabase.
+    name: '0026_database_form_capabilities',
+    statements: [
+      // Legacy block forms leave this null. Database form views stamp their
+      // publication digest so a token staged before rotation cannot be consumed
+      // by the new capability for the same view.
+      'ALTER TABLE form_uploads ADD COLUMN IF NOT EXISTS capability_hash TEXT',
+      `CREATE TABLE IF NOT EXISTS database_form_capabilities (
+        database_id       UUID        NOT NULL REFERENCES databases(id) ON DELETE CASCADE,
+        view_id           TEXT        NOT NULL,
+        capability_hash   TEXT        NOT NULL UNIQUE,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (database_id, view_id)
+      )`,
+      'CREATE INDEX IF NOT EXISTS database_form_capabilities_updated_idx ON database_form_capabilities (updated_at)',
+      'CREATE INDEX IF NOT EXISTS form_uploads_capability_idx ON form_uploads (capability_hash) WHERE capability_hash IS NOT NULL',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
