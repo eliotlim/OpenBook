@@ -968,7 +968,8 @@ export function toHtml(
   dbSeries?: DbChartSeriesMap,
 ): string {
   const {images, artifactText} = normalizeAssets(assets);
-  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
+  const originPageUrl = formOriginUrl(meta.id ?? '');
+  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries, undefined, {originPageUrl});
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
@@ -986,7 +987,7 @@ export function toHtml(
     assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
-    originPageUrl: formOriginUrl(meta.id ?? ''),
+    originPageUrl,
     pageExists: () => false,
     titleOf: (id) => id,
     iconOf: () => '',
@@ -1073,7 +1074,8 @@ export function toSlideDeck(
   dbSeries?: DbChartSeriesMap,
 ): string {
   const {images} = normalizeAssets(assets);
-  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
+  const originPageUrl = formOriginUrl(meta.id ?? '');
+  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries, undefined, {originPageUrl});
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
@@ -1091,7 +1093,7 @@ export function toSlideDeck(
     assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
-    originPageUrl: formOriginUrl(meta.id ?? ''),
+    originPageUrl,
     pageExists: () => false,
     titleOf: (id) => id,
     iconOf: () => '',

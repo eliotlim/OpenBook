@@ -344,7 +344,11 @@ const FieldSettings: React.FC<{
         <div className="obe-form-field-settings" data-form-field-settings={field.id}>
           <strong className="text-sm">{t('formBlock.builder.fieldSettings', {label})}</strong>
           <ConfigField label={t('formBlock.builder.label')}>
-            <ConfigInput value={field.label} onChange={(event) => onChange({...field, label: event.target.value})} />
+            <ConfigInput
+              value={field.label}
+              aria-label={t('formBlock.builder.labelForField', {label})}
+              onChange={(event) => onChange({...field, label: event.target.value})}
+            />
           </ConfigField>
           <ConfigField label={t('formBlock.builder.placeholder')}>
             <ConfigInput

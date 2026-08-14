@@ -524,15 +524,104 @@ export function patchBlock(block: BlockMap, patch: {type?: string; props?: Recor
 /** Most columns a layout can hold (a 12-unit grid stays legible up to six). */
 export const MAX_COLUMNS = 6;
 
-/** Spread the 12 grid units evenly across a layout's columns (sum stays 12). */
+/** Total units in a columns layout. */
+export const COLUMN_GRID_UNITS = 12;
+
+/**
+ * Make a possibly partial/stale span list fill the 12-unit grid. Authored
+ * widths are kept where possible; a wholly missing layout gets an even split,
+ * then any remaining deficit/excess is repaired without taking a column below 1.
+ */
+export function normalizeColumnSpans(spans: readonly (number | undefined)[]): number[] {
+  if (spans.length === 0) return [];
+  const fallback = Math.max(1, Math.floor(COLUMN_GRID_UNITS / spans.length));
+  let fallbackRemainder = spans.every((span) => !Number.isFinite(span))
+    ? Math.max(0, COLUMN_GRID_UNITS - fallback * spans.length)
+    : 0;
+  const normalized = spans.map((span) => {
+    if (Number.isFinite(span)) return Math.max(1, Math.min(COLUMN_GRID_UNITS, Math.round(span!)));
+    if (fallbackRemainder <= 0) return fallback;
+    fallbackRemainder -= 1;
+    return fallback + 1;
+  });
+  let delta = COLUMN_GRID_UNITS - normalized.reduce((sum, span) => sum + span, 0);
+  for (let i = normalized.length - 1; i >= 0 && delta !== 0; i -= 1) {
+    if (delta > 0) {
+      normalized[i] += delta;
+      delta = 0;
+    } else {
+      const shrink = Math.min(normalized[i] - 1, -delta);
+      normalized[i] -= shrink;
+      delta += shrink;
+    }
+  }
+  return normalized;
+}
+
+/**
+ * Move the boundary after `boundaryIndex` to an absolute grid unit. The
+ * adjacent donor is consumed first, then columns farther away, so a 1-unit
+ * neighbour never pins the resize handle.
+ */
+export function resizeColumnBoundary(
+  spans: readonly number[],
+  boundaryIndex: number,
+  target: number,
+): number[] {
+  const next = normalizeColumnSpans(spans);
+  if (boundaryIndex < 0 || boundaryIndex >= next.length - 1) return next;
+  const leftCount = boundaryIndex + 1;
+  const rightCount = next.length - leftCount;
+  const wanted = Math.max(leftCount, Math.min(COLUMN_GRID_UNITS - rightCount, Math.round(target)));
+  const current = next.slice(0, leftCount).reduce((sum, span) => sum + span, 0);
+
+  if (wanted > current) {
+    let remaining = wanted - current;
+    for (let i = boundaryIndex + 1; i < next.length && remaining > 0; i += 1) {
+      const taken = Math.min(next[i] - 1, remaining);
+      next[i] -= taken;
+      next[boundaryIndex] += taken;
+      remaining -= taken;
+    }
+  } else if (wanted < current) {
+    let remaining = current - wanted;
+    for (let i = boundaryIndex; i >= 0 && remaining > 0; i -= 1) {
+      const taken = Math.min(next[i] - 1, remaining);
+      next[i] -= taken;
+      next[boundaryIndex + 1] += taken;
+      remaining -= taken;
+    }
+  }
+  return next;
+}
+
+/** Absolute grid boundary under an internal separator's pointer. */
+export function columnBoundaryFromPointer(
+  pointerX: number,
+  containerLeft: number,
+  pitch: number,
+  gap: number,
+): number {
+  return Math.round((pointerX - containerLeft + gap / 2) / pitch);
+}
+
+/** Boundary before the last column when its trailing edge is dragged. */
+export function trailingColumnBoundaryFromPointer(
+  pointerX: number,
+  startPointerX: number,
+  startBoundary: number,
+  pitch: number,
+): number {
+  return startBoundary - Math.round((pointerX - startPointerX) / pitch);
+}
+
+/** Spread the 12 grid units across a layout's columns (sum stays 12). */
 function distributeSpans(columns: Y.Array<BlockMap>): void {
   const n = columns.length;
   if (n === 0) return;
-  const base = Math.floor(12 / n);
-  let rem = 12 - base * n;
+  const spans = normalizeColumnSpans(Array<number | undefined>(n).fill(undefined));
   for (let i = 0; i < n; i += 1) {
-    setBlockProp(columns.get(i), 'span', base + (rem > 0 ? 1 : 0));
-    if (rem > 0) rem -= 1;
+    setBlockProp(columns.get(i), 'span', spans[i]);
   }
 }
 

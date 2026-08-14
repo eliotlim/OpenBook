@@ -178,6 +178,12 @@ describe('prop value validation (permissive but typed)', () => {
     expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
   });
 
+  it('catalogues dbform as a plain database-form reference', () => {
+    expect(blockTypeInfo('dbform')?.props).toEqual({databaseId: 'string', viewId: 'string'});
+    expect(invalidBlockProps('dbform', {databaseId: 'db-1', viewId: 'form-1'})).toBeNull();
+    expect(invalidBlockProps('dbform', {databaseId: 'db-1', viewId: 1})).toContain('"viewId"');
+  });
+
   it('props named after Object.prototype members read as undeclared, not inherited', () => {
     expect(invalidBlockProps('paragraph', {toString: 'x'})).toBeNull();
     expect(invalidBlockProps('heading', {constructor: 1, hasOwnProperty: true})).toBeNull();

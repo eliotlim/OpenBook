@@ -898,8 +898,23 @@
    editor renders identically in exported standalone HTML. Minimalist: quiet
    chrome, hover-revealed gutters, 8px radii, the document is the hero. */
 
+/* The named outer container exposes the real pane width even when the standard
+   editor column is capped at 46rem. Popup safety fence: container-type
+   deliberately does NOT capture the fixed-position editor popups (verified
+   Chromium+WebKit); adding `contain:`, `transform`, or `filter` to this element
+   or .obe-editor-wrap WOULD break every fixed popup
+   (slash/mention/emoji/link/toolbar) — don't. */
+.obe-editor-pane {
+  --obe-gutter-room: 3.4rem;
+  container-name: obe-editor-pane;
+  container-type: inline-size;
+}
+.obe-editor-pane.obe-readonly { --obe-gutter-room: 0; }
+
 .obe-root {
   --obe-indent-step: 1.5rem;
+  container-name: obe-block-editor;
+  container-type: inline-size;
   position: relative;
   /* Match the page's title/header column (max-w-content) so block text lines
      up with the title and icon on both edges — the drag gutter floats in the
@@ -977,24 +992,32 @@
   align-items: center;
   gap: 4px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
 /* Inside columns there's no page gutter — a compact, handle-only grip
-   floats in the column gap. */
-.obe-gutter-nested { left: -1.45rem; }
+   floats in the column gap. Keep the visible grip above the resize divider;
+   hidden gutters remain inert, so the divider owns the gap at rest. */
+.obe-gutter-nested {
+  left: -1.45rem;
+  z-index: var(--z-index-local-overlay);
+}
 .obe-gutter-icon { width: 14px; height: 14px; }
 /* Touch devices: the gutter is a hover affordance that a tap only reveals
    AFTER the fact, and at phone margins it overlaps the first characters of
    the line — hide it (Enter adds blocks; long-press opens block actions). */
 @media (pointer: coarse) {
+  .obe-editor-pane { --obe-gutter-room: 0; }
   .obe-gutter { display: none; }
 }
-/* Narrow fine-pointer windows: not enough left margin for both buttons —
-   keep just the drag handle, tucked into the slim margin. The "+" is the
-   first button in the gutter (Enter covers adding blocks). */
-@media (max-width: 640px) and (pointer: fine) {
-  .obe-gutter { left: -1.6rem; }
-  .obe-gutter > button:first-child { display: none; }
+/* A standard column needs 3.4rem to show both gutter buttons. Below 47.8rem,
+   the pane's 2.5rem desktop padding plus its centring slack provides less than
+   that; phone padding is smaller still. Keep only the 1.5rem grip, tucked
+   exactly inside the minimum 1.5rem page padding. Full-width roots reserve
+   their own gutter below and therefore keep both buttons at every pane width. */
+@container obe-editor-pane (max-width: 47.8rem) {
+  .obe-root:not(.obe-full) .obe-gutter:not(.obe-gutter-nested) { left: -1.5rem; }
+  .obe-root:not(.obe-full) .obe-gutter:not(.obe-gutter-nested) > button:first-child { display: none; }
 }
 /* Align the hover gutter (drag handle + add button) with each block type's
    FIRST text line. The default `top` is tuned for a paragraph; headings push
@@ -1009,8 +1032,10 @@
    divider spacing. Centre the 1.5rem gutter on the .85rem × 1.55 code line. */
 .obe-row[data-block-type='code'] > .obe-gutter { top: 3rem; }
 .obe-row:hover > .obe-gutter,
+.obe-row:focus-within > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 .obe-gutter-btn {
   width: 1.5rem;
@@ -1805,7 +1830,7 @@ a.obe-mention {
 .dark .obe-tok-num { color: hsl(30 80% 66%); }
 .dark .obe-tok-lit { color: hsl(208 78% 70%); }
 
-/* Columns: a 12-col grid that collapses on small screens */
+/* Columns: a 12-col grid that collapses with its editor container. */
 .obe-columns {
   flex: 1;
   min-width: 0;
@@ -1814,9 +1839,6 @@ a.obe-mention {
   gap: 1.25rem;
 }
 .obe-column { min-width: 0; }
-@media (max-width: 640px) {
-  .obe-columns { display: flex; flex-direction: column; gap: 0.25rem; }
-}
 
 /* Group: a titled, lockable, syncable container that namespaces its inputs. */
 .obe-group {
@@ -3726,26 +3748,45 @@ a.obe-mention {
    stay a plain draggable button — a Radix trigger suppresses dragging). */
 .obe-handle-anchor { position: absolute; width: 0; height: 0; }
 
-/* Column resize divider: a slim grab zone in the column gap */
+/* Column resize divider: a one-rem hit zone centred in the column gap. */
 .obe-column { position: relative; }
 .obe-col-divider {
   position: absolute;
-  left: -0.85rem;
+  z-index: 4;
+  left: -1.125rem;
   top: 0;
   bottom: 0;
-  width: 0.6rem;
+  width: 1rem;
   cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.obe-col-divider::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
   border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background 120ms ease;
 }
-.obe-col-divider:hover,
-.obe-col-divider:active {
-  background: hsl(var(--ring) / 0.35);
+.obe-col-divider:hover::after,
+.obe-col-divider:active::after,
+.obe-col-divider:focus-visible::after {
+  background: hsl(var(--ring) / 0.65);
 }
-@media (max-width: 640px) {
+.obe-col-divider-trailing {
+  right: -1rem;
+  left: auto;
+}
+@container obe-block-editor (max-width: 40rem) {
+  .obe-columns { display: flex; flex-direction: column; gap: 0.25rem; }
   .obe-col-divider { display: none; }
 }
 
-/* Full-width page mode widens the editor column to its container. */
+/* Full-width page mode widens the editor root to its shared document column. */
 .obe-root.obe-full { max-width: none; }
 
 /* Pages with content below the editor (a hosted database view) don't reserve

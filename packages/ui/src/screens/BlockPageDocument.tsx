@@ -30,6 +30,7 @@ import {RemoteCursors} from '@/components/presence/RemoteCursors';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
+import {registerDatabaseFormBlock} from '@/components/database/DatabaseFormBlock';
 import {FormOriginContext, formOriginUrl, registerFormBlock} from '@/blockeditor/FormBlockView';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {ExportBooksDialog, type ExportBooksChoice} from '@/components/ExportBooksDialog';
@@ -69,6 +70,7 @@ import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageCh
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
 registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
 registerDatabaseBlock(); // inline database-view embeds ("Link to database")
+registerDatabaseFormBlock(); // reference-only database form embeds (F-3)
 registerFormBlock(); // provider-aware form shell (database summary + frozen preview)
 
 /**
@@ -528,6 +530,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         // A whole-site export can embed images from every reachable page.
         const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
         downloadText(`${base}.html`, toHtmlSite(bundle, assets, appearance.dataColors), 'text/html');
+        if (bundle.hiddenPagesSkipped) {
+          showToast({message: t('page.exportHiddenPagesSkipped', {count: bundle.hiddenPagesSkipped})});
+        }
       }
     } catch (e) {
       console.error('BlockPageDocument: export failed:', e);
@@ -576,7 +581,11 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // Full width is a per-page choice (see lib/pageFullWidth); database-hosting
   // pages default to full-width when the user hasn't set an explicit override.
   const fullWidth = usePageFullWidth(pageId ?? '', hasDatabase);
-  const columnClass = cn('mx-auto w-full', fullWidth ? 'max-w-none' : 'max-w-content');
+  const columnClass = cn(
+    'mx-auto w-full',
+    // eslint-disable-next-line tailwind/no-arbitrary-spacing -- BB-6: the gutter reserve is a pane-scoped CSS variable zeroed for read-only and coarse-pointer surfaces.
+    fullWidth ? 'max-w-none pl-[var(--obe-gutter-room)]' : 'max-w-content',
+  );
 
   // Per-page overrides recolor (theme) and restyle (fonts) just this page.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
@@ -587,7 +596,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // open in split, rename, duplicate, trash, …) — same menu as classic pages.
   const body = (
     <div
-      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts', hasBackground && 'ob-page-bg')}
+      className={cn(
+        'obe-editor-pane w-full pb-40',
+        !canWrite && 'obe-readonly',
+        fontStyle && 'ob-page-fonts',
+        hasBackground && 'ob-page-bg',
+      )}
       style={{...pageThemeStyle, ...fontStyle}}
     >
       {/* The cover + title region. Hovering it reveals the header controls
@@ -628,7 +642,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 
       <div className="px-6 md:px-10">
         <div className={columnClass}>
-          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'relative pt-2')}>
+          <div
+            ref={editorWrapRef}
+            className={cn(hasDatabase ? 'min-h-[52px]' : 'min-h-[40vh]', 'obe-editor-wrap relative pt-2')}
+          >
             {doc && (
               <FormOriginContext.Provider value={formOriginUrl(pageId)}>
                 <BlockEditor

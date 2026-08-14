@@ -10,6 +10,7 @@ import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {planTreeMove, type DropWhere} from '@/lib/treeMove';
 import {LayoutTemplate, MoreHorizontal, Plus, Table2} from 'lucide-react';
 import {t} from '@/i18n';
+import {HiddenPageBadge} from '@/components/HiddenPageBadge';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : t('common.untitled');
@@ -31,6 +32,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
       id: page.id,
       name: displayName(page.name),
       icon: readPageIcon(page.id),
+      badge: page.listed === false ? <HiddenPageBadge /> : undefined,
     });
   }
   const roots: TreeDataItem[] = [];

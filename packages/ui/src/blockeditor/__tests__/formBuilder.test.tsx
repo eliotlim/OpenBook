@@ -104,7 +104,7 @@ describe('form builder canvas', () => {
 
     fireEvent.click(screen.getByRole('button', {name: 'Settings for Name'}));
     const nameSettings = screen.getByText('Settings for Name').closest<HTMLElement>('[data-form-field-settings]')!;
-    fireEvent.change(within(nameSettings).getByLabelText('Label'), {target: {value: 'Full name'}});
+    fireEvent.change(within(nameSettings).getByLabelText('Label for Name'), {target: {value: 'Full name'}});
     fireEvent.change(within(nameSettings).getByLabelText('Placeholder'), {target: {value: 'Ada Lovelace'}});
     fireEvent.click(within(nameSettings).getByLabelText('Required'));
     fireEvent.change(within(nameSettings).getByLabelText('Minimum length'), {target: {value: '2'}});
@@ -125,6 +125,7 @@ describe('form builder canvas', () => {
 
     fireEvent.click(screen.getByRole('button', {name: 'Settings for Choice'}));
     const choiceSettings = screen.getByText('Settings for Choice').closest<HTMLElement>('[data-form-field-settings]')!;
+    expect(within(choiceSettings).getByRole('textbox', {name: 'Label for Choice'})).toBeTruthy();
     fireEvent.click(within(choiceSettings).getByRole('button', {name: /Add option/}));
     fireEvent.change(within(choiceSettings).getByLabelText('Option label 1'), {target: {value: 'First option'}});
     fireEvent.change(within(choiceSettings).getByLabelText('Option ID 1'), {target: {value: 'first'}});

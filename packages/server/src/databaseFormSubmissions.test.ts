@@ -325,7 +325,6 @@ describe('database form-view public fill', () => {
     expect(unsafeResponse.status).toBe(201);
     expect(await unsafeResponse.json()).not.toHaveProperty('confirmation');
   });
-
   it('rejects unmapped, managed, and reserved column injection without creating a row', async () => {
     const seeded = await seedForm();
     const a = app();
@@ -978,7 +977,6 @@ describe('database form-view public fill', () => {
     expect(submitted.status).toBe(201);
     expect(await store.countDatabaseFormResponses(seeded.database.id, seeded.view.id)).toBe(1);
   });
-
   it('fails closed on malformed persisted mappings instead of exposing a public error', async () => {
     const seeded = await seedForm();
     const a = app();

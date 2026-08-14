@@ -1,6 +1,12 @@
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import type {DatabaseProperty, DatabaseView, StoredDatabase} from '@book.dev/sdk';
+import {
+  FORM_SUBMISSION_PROPERTY_ID,
+  type DatabaseFormSubmissionMarker,
+  type DatabaseProperty,
+  type DatabaseView,
+  type StoredDatabase,
+} from '@book.dev/sdk';
 import {useDatabase} from '../useDatabase';
 
 const {client} = vi.hoisted(() => ({
@@ -154,10 +160,31 @@ describe('database form mutations and row blindness', () => {
     const {result} = await loadDatabase();
 
     await act(() => result.current.submitFormRow({[source.id]: 'ready'}));
-    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {name: null, properties: {[source.id]: 'ready'}});
+    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {
+      name: null,
+      properties: {
+        [source.id]: 'ready',
+        [FORM_SUBMISSION_PROPERTY_ID]: {
+          submittedViaViewId: formView.id,
+          submittedAt: expect.any(String),
+        },
+      },
+    });
+    const lastCreate = client.createRow.mock.calls[client.createRow.mock.calls.length - 1];
+    const marker = lastCreate?.[1].properties?.[FORM_SUBMISSION_PROPERTY_ID] as DatabaseFormSubmissionMarker;
+    expect(new Date(marker.submittedAt).toISOString()).toBe(marker.submittedAt);
 
     await act(() => result.current.submitFormRow({[source.id]: 'named'}, 'Intake response'));
-    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {name: 'Intake response', properties: {[source.id]: 'named'}});
+    expect(client.createRow).toHaveBeenLastCalledWith(formDatabase.id, {
+      name: 'Intake response',
+      properties: {
+        [source.id]: 'named',
+        [FORM_SUBMISSION_PROPERTY_ID]: {
+          submittedViaViewId: formView.id,
+          submittedAt: expect.any(String),
+        },
+      },
+    });
     expect(client.listRows).not.toHaveBeenCalled();
     expect(client.subscribeRows).not.toHaveBeenCalled();
   });

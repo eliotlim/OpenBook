@@ -1,9 +1,38 @@
 # Forms
 
-A form is an interactive block that collects structured answers into an
-OpenBook database. You build it on an ordinary page, publish that page, and
-visitors fill it in from the locked (read-only) page without receiving general
-edit access to your library.
+OpenBook has database form views and the older standalone **Form** block. Both
+collect structured answers into database rows, and they coexist without an
+automatic migration between them.
+
+## Database form views
+
+A database form is a `form` view over an existing database schema. Its fields
+project live database columns: renaming, retyping, or removing a column is
+reflected by the form rather than copied into a second schema. Authors choose
+which compatible columns appear, reorder them, and configure reader-facing
+labels, help, required state, and validation. The virtual row-title field maps
+to the row name; all other submitted values remain property-ID keyed.
+
+The form view owns its title, description, open/closed state, submit label, and
+message-or-redirect confirmation. Publishing and filling are explicit actions:
+publishing creates the scoped fill surface, while closing the view stops new
+responses without removing its configuration. Validation is repeated at the
+write boundary before a response becomes a database row.
+
+Insert **Database form** from the slash menu to embed a form view from another
+database. The block stores only the database and view IDs, resolves the current
+schema when rendered, and submits through the signed-in app session. It never
+copies a schema or stores a submission capability. Static exports link back only
+when a safe origin page URL is known; otherwise they show an inert labelled
+placeholder that retains the reference for rehydration.
+
+## Legacy standalone form blocks
+
+The rest of this guide covers the legacy standalone **Form** block. It remains
+supported for existing pages and for page-owned public response workflows.
+A standalone form is an interactive block that you build on an ordinary page,
+publish with that page, and fill from the locked (read-only) page without
+receiving general edit access to the library.
 
 ## Build a form
 

@@ -42,6 +42,8 @@ export interface IslandPageJson {
 export interface LibraryBundlePage {
   id: string;
   name?: string | null;
+  /** Discovery posture may be present in foreign/legacy bundles; the viewer does not enforce it. */
+  listed?: boolean;
   parentId?: string | null;
   position?: number;
   properties?: Record<string, unknown>;

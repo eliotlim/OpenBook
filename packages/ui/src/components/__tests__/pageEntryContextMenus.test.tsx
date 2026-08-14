@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   pages: [] as PageMeta[],
   currentPageId: null as string | null,
   panes: [] as Array<{pageId: string}>,
+  pageLabels: {} as Record<string, string>,
   listBacklinks: vi.fn(),
   getPage: vi.fn(),
   aiSearch: vi.fn(),
@@ -48,7 +49,7 @@ vi.mock('@/providers', async () => {
       pages: mocks.pages,
       panes: mocks.panes,
       currentPageId: mocks.currentPageId,
-      pageLabel: (id: string) => mocks.pages.find((page) => page.id === id)?.name ?? id,
+      pageLabel: (id: string) => mocks.pages.find((page) => page.id === id)?.name ?? mocks.pageLabels[id] ?? id,
       selectPage: mocks.selectPage,
       selectPageAtBlock: mocks.selectPageAtBlock,
       selectPageInPane: mocks.selectPageInPane,
@@ -96,6 +97,7 @@ afterEach(() => {
   mocks.pages = [];
   mocks.currentPageId = null;
   mocks.panes = [];
+  mocks.pageLabels = {};
   mocks.listBacklinks.mockReset();
   mocks.getPage.mockReset();
   mocks.aiSearch.mockReset();
@@ -126,6 +128,20 @@ describe('page entry-point context menus', () => {
     fireEvent.contextMenu(screen.getByTitle(HOME_PAGE_ID));
     expect(screen.queryByText('Open in new tab')).toBeNull();
     expect(mocks.pageAction).not.toHaveBeenCalled();
+  });
+
+  it('renders a self-only page crumb when a direct-link page is absent from the visitor list', () => {
+    mocks.pages = [page('listed', 'Listed page')];
+    mocks.currentPageId = 'hidden';
+    mocks.panes = [{pageId: 'hidden'}];
+    mocks.pageLabels.hidden = 'Hidden landing page';
+    render(<BreadcrumbCluster />);
+
+    const crumb = screen.getByTitle('Hidden landing page');
+    expect(crumb.textContent).toContain('Hidden landing page');
+    expect(crumb.querySelector('span')?.textContent).toBe('📄');
+    expect(crumb.closest('nav')?.querySelectorAll('button')).toHaveLength(1);
+    expect(screen.queryByTitle('Listed page')).toBeNull();
   });
 
   it('opens the shared page-row menu from a Home tile', () => {
