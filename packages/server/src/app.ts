@@ -587,9 +587,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // fans out exactly like a PUT save (hub publish → live peers + the OB-241 disk
   // mirror), so the mirror/conflict/mtimes machinery is untouched. Constructed only
   // when enabled, so the default path allocates nothing and behaves identically.
-  let persister: ServerAuthoritativePersister | null = null;
-  if (opts.serverPersist) {
-    persister = new ServerAuthoritativePersister({
+  const persister = opts.serverPersist
+    ? new ServerAuthoritativePersister({
       loadBase: loadRelayBase,
       saveDoc: (id, blockdoc, authorsByBlock) => store.saveServerDoc(id, blockdoc, authorsByBlock),
       onPersisted: (page) => {
@@ -597,8 +596,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         void broadcastList();
         if (page.databaseId) void broadcastRows(page.databaseId);
       },
-    });
-  }
+    })
+    : null;
+  // One boundary for every route-level whole-snapshot write. The persister owns the
+  // quiesce→write→reseed protocol (including same-page writer serialization), while
+  // the store's internal `saveServerDoc` checkpoint keeps bypassing it — no feedback
+  // loop. Select the direct bound store method once when persistence is off, so the
+  // default production path performs no fence work and retains its existing behavior.
+  const upsertSnapshotPage: PageStore['upsertPage'] = persister
+    ? (input, author, upsertOpts) => {
+      const write = () => store.upsertPage(input, author, upsertOpts);
+      return input.id ? persister.withSnapshotWriteFence(input.id, write) : write();
+    }
+    : store.upsertPage.bind(store);
   // Expose the persister so the host (server.ts) can flush every dirty canonical doc
   // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
   (app as AppWithCollab).collabPersist = persister;
@@ -1009,7 +1019,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // request's resolved principal, so it can never dedupe against another user's
     // write. (The SDK also pre-mints the page id for keyless creates, so a replay
     // hits the store's `ON CONFLICT` no-op even without a key.)
-    const page = await store.upsertPage(input, c.get('principal'));
+    const page = await upsertSnapshotPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     // A row page's content changed — refresh its database's expr columns.
@@ -1154,7 +1164,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireAgentDirectWrite(c, c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
-    const page = await store.upsertPage(input, c.get('principal'));
+    const page = await upsertSnapshotPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
@@ -1650,15 +1660,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     //  • upsertPage: the restore write, now the final durable write for the page.
     //  • reseed: drop the canonical doc (next access reseeds from the restored pages.data)
     //    and clear the freeze. Runs in `finally` so a failed write never leaks the freeze.
-    await persister?.quiesce(id);
     let page: Awaited<ReturnType<typeof store.upsertPage>>;
     try {
-      page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
+      page = await upsertSnapshotPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
     } finally {
       relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
-      persister?.reseed(id); // Collab T9: drop the canonical doc + clear the restore freeze (restore wins; a
-      // still-connected client's edits are CRDT deltas that re-merge on its next /sync). Called only here, never
-      // from the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
     }
     hub.publishPage(page);
     await broadcastList();
