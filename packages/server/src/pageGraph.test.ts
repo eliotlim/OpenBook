@@ -1,7 +1,7 @@
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
   guestPrincipal,
   mintIdentityKeypair,
@@ -279,6 +279,23 @@ describe('GET /api/page-graph — blanket-read fast path (Sasha)', () => {
     const res = await createApp(store, undefined, new PageHub()).request('/api/page-graph');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({nodes: [], edges: []});
+  });
+
+  it('blanket-readable non-privileged callers use one unlisted-id query, not per-page authorization', async () => {
+    const hidden = await store.upsertPage({name: 'hidden', data: emptySnapshot(), listed: false});
+    const visible = await store.upsertPage({name: 'visible', data: mentionSnapshot([hidden.id])});
+    const listUnlisted = vi.spyOn(store, 'listUnlistedPageIds');
+    const canListPage = vi.spyOn(store, 'canListPage');
+
+    // Unclaimed rule-0 makes the guest blanket-readable, but it is not listing
+    // privileged. The route should scan the false flags once and use set lookups.
+    const res = await createApp(store, undefined, new PageHub()).request('/api/page-graph');
+    expect(res.status).toBe(200);
+    const graph = (await res.json()) as {nodes: {id: string}[]; edges: {from: string; to: string}[]};
+    expect(graph.nodes.map((node) => node.id)).toEqual([visible.id]);
+    expect(graph.edges).toEqual([]);
+    expect(listUnlisted).toHaveBeenCalledOnce();
+    expect(canListPage).not.toHaveBeenCalled();
   });
 
   it('mixed-filtered: blanket-null threads the per-page predicate (guest drops a restricted node)', async () => {

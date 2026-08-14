@@ -10,7 +10,8 @@
  *    the central default-deny gate every content route calls. `!canRead` ⇒ 404
  *    (hide existence), a writer-only need with `!canWrite` ⇒ 403.
  *  - {@link streamGates} — per-subscriber {@link EventGate}s for the live channels,
- *    so the `PageHub` fan-out filters unreadable pages/rows per subscriber (S4).
+ *    so the `PageHub` fan-out filters unreadable pages/rows per subscriber and the
+ *    library-wide firehose also excludes undiscoverable page content (S4 / UP-2).
  */
 
 import {HTTPException} from 'hono/http-exception';
@@ -168,10 +169,12 @@ export async function requireDbAccess(c: Ctx, store: PageStore, need: AccessNeed
 /**
  * Per-subscriber {@link EventGate}s for the live channels (S4). Each filters an
  * outbound event against the connection's principal: list/firehose frames drop
- * unreadable pages/rows; a per-page/per-db event is dropped when read access is
- * lost (the stream simply stops emitting — "never emits"). A `deleted` tombstone
- * carries no content, so it always passes (an open editor still learns its page
- * is gone).
+ * unreadable or undiscoverable pages/rows; a per-page/per-db event is dropped when
+ * direct read access is lost (the stream simply stops emitting — "never emits").
+ * A per-page `deleted` tombstone carries no content, so it always passes to the
+ * editor that deliberately opened that read-gated stream. On the library-wide
+ * firehose, even tombstones are discovery-gated because their ids disclose an
+ * unlisted page's existence (UP-2).
  */
 export function streamGates(store: PageStore, principal: Principal): {
   list: EventGate<ListEvent>;
@@ -188,19 +191,34 @@ export function streamGates(store: PageStore, principal: Principal): {
   // frame, while steady-state collaboration pays one decision per page, not per
   // frame. Coarse-but-safe: an epoch bump clears the whole cache (never stale-allow).
   const readCache = new Map<string, boolean>();
+  const listCache = new Map<string, boolean>();
   let cacheGen = store.accessGeneration();
-  const canReadPageCached = async (pageId: string): Promise<boolean> => {
+  const pageDecisionCached = async (
+    cache: Map<string, boolean>,
+    pageId: string,
+    decide: (id: string) => Promise<boolean>,
+  ): Promise<boolean> => {
     const gen = store.accessGeneration();
     if (gen !== cacheGen) {
       readCache.clear();
+      listCache.clear();
       cacheGen = gen;
     }
-    const hit = readCache.get(pageId);
+    const hit = cache.get(pageId);
     if (hit !== undefined) return hit;
-    const can = await store.canReadPage(principal, pageId);
-    readCache.set(pageId, can);
+    const can = await decide(pageId);
+    cache.set(pageId, can);
     return can;
   };
+  const canReadPageCached = (pageId: string): Promise<boolean> =>
+    pageDecisionCached(readCache, pageId, (id) => store.canReadPage(principal, id));
+  // The multiplexed firehose is itself a whole-library discovery surface. A
+  // non-listing-privileged reader may still open an unlisted page by URL, but its
+  // snapshots, collaboration frames, presence and tombstone must never ride the
+  // global channel. `canListPage` preserves owner/admin/PAT exemptions while also
+  // retaining the ordinary read gate for them.
+  const canListPageCached = (pageId: string): Promise<boolean> =>
+    pageDecisionCached(listCache, pageId, (id) => store.canListPage(principal, id));
 
   return {
     list: async (event) => ({type: 'list', pages: await store.filterReadablePages(principal, event.pages)}),
@@ -215,22 +233,23 @@ export function streamGates(store: PageStore, principal: Principal): {
       case 'list':
         return {type: 'list', pages: await store.filterReadablePages(principal, event.pages)};
       case 'deleted':
-        return event;
+        return (await canListPageCached(event.id)) ? event : null;
       case 'page':
-        return (await canReadPageCached(event.page.id)) ? event : null;
+        return (await canListPageCached(event.page.id)) ? event : null;
       case 'rows':
         return (await store.canReadDatabase(principal, event.databaseId))
           ? {type: 'rows', databaseId: event.databaseId, rows: await store.filterReadableRows(principal, event.rows)}
           : null;
       case 'yupdate':
-        // An incremental update rides the same per-page read gate as a full `page`
-        // snapshot (and shares the cache), so the relay can't become a read bypass.
-        return (await canReadPageCached(event.pageId)) ? event : null;
+        // An incremental update rides the same firehose discovery gate as a full
+        // `page` snapshot (and shares the cache), so the relay cannot reveal an
+        // unlisted page to every connected reader.
+        return (await canListPageCached(event.pageId)) ? event : null;
       case 'awareness':
-        // Presence rides the SAME per-page read gate (Collab T4): a peer who can
-        // READ the page sees who's present (so viewers appear), and a non-reader
-        // gets neither presence nor doc updates — the channel can't leak existence.
-        return (await canReadPageCached(event.pageId)) ? event : null;
+        // Presence rides the SAME firehose discovery gate (Collab T4 / UP-2):
+        // viewers of listed pages still appear, while an unlisted page's presence
+        // cannot disclose that page to unrelated firehose subscribers.
+        return (await canListPageCached(event.pageId)) ? event : null;
       }
     },
   };

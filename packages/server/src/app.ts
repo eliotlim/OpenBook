@@ -1440,14 +1440,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(API.pageGraph, async (c) => {
     const principal = c.get('principal');
     const base = await store.accessBase(principal);
-    // Blanket fast path (mirrors filterReadablePages): when the whole library is
-    // uniformly readable (owner/admin/blanket-guest) or uniformly denied, skip the
-    // per-page `canReadPage` predicate — a linear N-await over every page.
+    // Blanket fast path (mirrors filterReadablePages): only an owner/admin may
+    // bypass the discovery predicate. A blanket-read guest can open every page
+    // directly but still needs the per-page listed check here.
     const blanket = await store.blanketReadDecision(principal, base);
-    if (blanket !== null) {
-      return c.json(blanket ? await store.pageGraph() : {nodes: [], edges: []});
+    if (blanket === false) return c.json({nodes: [], edges: []});
+    if (blanket === true && (await store.canListUnlisted(principal, base))) return c.json(await store.pageGraph());
+    if (blanket === true) {
+      // A blanket-readable but non-listing-privileged caller can open every page
+      // directly. Avoid N per-page authorization queries: discovery differs only
+      // by the stored flag, so fetch the live unlisted ids once and use set lookups
+      // while the graph is assembled.
+      const unlistedSet = new Set(await store.listUnlistedPageIds());
+      return c.json(await store.pageGraph((pageId) => !unlistedSet.has(pageId)));
     }
-    return c.json(await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base)));
+    return c.json(await store.pageGraph((pageId) => store.canListPage(principal, pageId, base)));
   });
 
   // ── Page version history (PVH-3) ───────────────────────────────────────────────

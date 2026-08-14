@@ -88,12 +88,12 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     // filtering below (cost control), not a replacement for it.
     await requirePaidInferenceAccess(c, store, (await ai.getConfig()).provider);
     // The index spans every page; filter ranked hits to the ones THIS principal may
-    // read so search can't surface restricted/members snippets on a shared instance.
+    // read and discover so search can't surface restricted or unlisted snippets.
     // The access base is resolved once and amortised across the per-page checks.
     const principal = c.get('principal');
     const base = await store.accessBase(principal);
     return c.json(
-      await ai.search(query, Math.min(Math.max(limit ?? 8, 1), 25), (pageId) => store.canReadPage(principal, pageId, base)),
+      await ai.search(query, Math.min(Math.max(limit ?? 8, 1), 25), (pageId) => store.canListPage(principal, pageId, base)),
     );
   });
 

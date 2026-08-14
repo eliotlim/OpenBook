@@ -114,7 +114,7 @@ export default function BreadcrumbCluster() {
     return (
       <DropdownMenuItem key={id} onSelect={() => goToCrumb(id)} className="gap-2">
         <PageIcon value={readPageIcon(id)} className="shrink-0 text-[0.95em] leading-none" />
-        <span className={`min-w-0 flex-1 truncate ${here ? 'font-medium' : ''}`}>{pageLabel(id)}</span>
+        <span className="min-w-0 flex-1 truncate">{pageLabel(id)}</span>
         {here && <Check aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
       </DropdownMenuItem>
     );

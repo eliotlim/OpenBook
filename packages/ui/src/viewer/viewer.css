@@ -47,6 +47,7 @@
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   font-size: 0.85rem;
+  font-weight: 600;
   color: hsl(var(--muted-foreground));
   text-decoration: none;
 }
@@ -54,7 +55,6 @@
 .ob-viewer-nav-on {
   color: hsl(var(--foreground));
   border-color: hsl(var(--foreground) / 0.35);
-  font-weight: 600;
 }
 
 .ob-viewer-empty {

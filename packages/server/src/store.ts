@@ -2583,7 +2583,7 @@ export class PageStore {
    */
   async listBacklinks(id: string): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
               d.id AS hosted_database_id, (p.properties->>'sys_icon') AS icon
          FROM pages p LEFT JOIN databases d ON d.page_id = p.id
         WHERE p.deleted_at IS NULL AND p.id <> $1
@@ -2616,7 +2616,7 @@ export class PageStore {
    * are readable — so a restricted page can neither appear as a node nor leak via
    * an edge to/from a page you can see.
    */
-  async pageGraph(canRead?: (pageId: string) => Promise<boolean>): Promise<PageGraph> {
+  async pageGraph(canRead?: (pageId: string) => boolean | Promise<boolean>): Promise<PageGraph> {
     const rows = await this.db.query<PageRow>(
       `SELECT p.id, p.name, p.data, p.properties, (p.properties->>'sys_icon') AS icon
          FROM pages p
@@ -2657,6 +2657,16 @@ export class PageStore {
 
     const nodes = rows.filter((row) => isReadable(row.id)).map((row) => ({id: row.id, name: row.name, icon: row.icon ?? null}));
     return {nodes, edges};
+  }
+
+  /** The ids excluded from ordinary discovery among live pages. Used by the
+   * blanket-readable graph fast path so it pays one query instead of a full
+   * `canListPage` authorization round-trip for every node. */
+  async listUnlistedPageIds(): Promise<string[]> {
+    const rows = await this.db.query<{id: string}>(
+      'SELECT id FROM pages WHERE listed = FALSE AND deleted_at IS NULL',
+    );
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -2734,7 +2744,7 @@ export class PageStore {
    */
   async listTrash(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+      `SELECT p.id, p.name, p.listed, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
               (p.properties->>'sys_icon') AS icon
        FROM pages p
        LEFT JOIN databases d ON d.page_id = p.id
@@ -4265,15 +4275,24 @@ export class PageStore {
     };
   }
 
-  /** The page's stored scope + database membership (NO `deleted_at` filter, so it
-   *  resolves a trashed page or a database row alike), or `null` if absent. */
-  private async pageAccessRow(pageId: string): Promise<{visibility: PageVisibility; databaseId: string | null} | null> {
-    const rows = await this.db.query<{visibility: string; database_id: string | null}>(
-      'SELECT visibility, database_id FROM pages WHERE id = $1',
+  /** The page's stored scope, discovery posture, and database membership (NO
+   *  `deleted_at` filter, so it resolves a trashed page or a database row alike),
+   *  or `null` if absent. */
+  private async pageAccessRow(pageId: string): Promise<{
+    visibility: PageVisibility;
+    listed: boolean;
+    databaseId: string | null;
+  } | null> {
+    const rows = await this.db.query<{visibility: string; listed: boolean; database_id: string | null}>(
+      'SELECT visibility, listed, database_id FROM pages WHERE id = $1',
       [pageId],
     );
     if (rows.length === 0) return null;
-    return {visibility: rows[0].visibility as PageVisibility, databaseId: rows[0].database_id ?? null};
+    return {
+      visibility: rows[0].visibility as PageVisibility,
+      listed: rows[0].listed,
+      databaseId: rows[0].database_id ?? null,
+    };
   }
 
   /** Resolve `inherit` to an effective scope (§2.2/N9): a database row via its
@@ -4322,9 +4341,11 @@ export class PageStore {
     principal: Principal,
     pageId: string,
     base?: AccessBase,
-  ): Promise<{decision: Decision; exists: boolean}> {
+  ): Promise<{decision: Decision; exists: boolean; listed: boolean}> {
     const row = await this.pageAccessRow(pageId);
-    if (!row) return {decision: {canRead: false, canWrite: false, reason: 'no-page'}, exists: false};
+    if (!row) {
+      return {decision: {canRead: false, canWrite: false, reason: 'no-page'}, exists: false, listed: false};
+    }
     const b = base ?? (await this.accessBase(principal));
     const effectiveVisibility = await this.effectiveVisibility(row, b);
     const acl = await this.aclEntries(pageId);
@@ -4333,7 +4354,7 @@ export class PageStore {
       {visibility: row.visibility, acl},
       {config: b.config, role: b.role, effectiveVisibility, emailIsAuthoritative: b.emailIsAuthoritative},
     );
-    return {decision, exists: true};
+    return {decision, exists: true, listed: row.listed};
   }
 
   /**
@@ -4384,6 +4405,28 @@ export class PageStore {
     return null;
   }
 
+  /** Whether this principal is exempt from the per-page discovery flag. This is
+   * deliberately narrower than {@link blanketRead}: an unclaimed/blanket guest
+   * can read every page directly but is not an owner or admin and therefore must
+   * still have unlisted pages removed from every enumeration. */
+  private listingPrivileged(principal: Principal, base: AccessBase): boolean {
+    if (principal.verifiedVia === 'local') return true;
+    if (
+      (principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat') &&
+      principal.subject === base.config.ownerSubject
+    ) {
+      return true;
+    }
+    return base.role === 'admin';
+  }
+
+  /** Public batch/route seam for deciding whether an unlisted page may be
+   * enumerated for this principal. */
+  async canListUnlisted(principal: Principal, base?: AccessBase): Promise<boolean> {
+    const b = base ?? (await this.accessBase(principal));
+    return this.listingPrivileged(principal, b);
+  }
+
   /**
    * The page-independent read decision for a whole-library read, or `null` when
    * it must be resolved per page. A thin PUBLIC seam over {@link blanketRead} —
@@ -4403,6 +4446,15 @@ export class PageStore {
     return exists && decision.canRead;
   }
 
+  /** May the principal discover this page in an enumeration? Direct reads do not
+   * use this gate: an unlisted page remains openable when its visibility/ACL
+   * authorizes the caller. */
+  async canListPage(principal: Principal, pageId: string, base?: AccessBase): Promise<boolean> {
+    const b = base ?? (await this.accessBase(principal));
+    const {decision, exists, listed} = await this.decidePageAccess(principal, pageId, b);
+    return exists && decision.canRead && (listed || this.listingPrivileged(principal, b));
+  }
+
   /** May the principal read this database? Inherits its HOST PAGE's read decision. */
   async canReadDatabase(principal: Principal, databaseId: string, base?: AccessBase): Promise<boolean> {
     const db = await this.getDatabase(databaseId);
@@ -4410,14 +4462,21 @@ export class PageStore {
     return this.canReadPage(principal, db.pageId, base);
   }
 
-  /** Filter a page-meta list to the readable subset (default-deny). */
+  /** Filter a page-meta list to the readable + discoverable subset
+   * (default-deny). The listed predicate MUST run before the blanket-read fast
+   * path: a blanket guest reads direct URLs but is not allowed to enumerate
+   * unlisted pages. */
   async filterReadablePages(principal: Principal, metas: PageMeta[], base?: AccessBase): Promise<PageMeta[]> {
     if (metas.length === 0) return metas;
     const b = base ?? (await this.accessBase(principal));
+    const discoverable = this.listingPrivileged(principal, b)
+      ? metas
+      : metas.filter((meta) => meta.listed === true);
+    if (discoverable.length === 0) return discoverable;
     const blanket = this.blanketRead(principal, b);
-    if (blanket !== null) return blanket ? metas : [];
+    if (blanket !== null) return blanket ? discoverable : [];
     const out: PageMeta[] = [];
-    for (const meta of metas) {
+    for (const meta of discoverable) {
       if (await this.canReadPage(principal, meta.id, b)) out.push(meta);
     }
     return out;
@@ -4428,8 +4487,9 @@ export class PageStore {
     return this.filterReadablePages(principal, await this.listPages());
   }
 
-  /** Filter a database's rows to the readable subset (default-deny). A row is a
-   *  page, so its own visibility/ACL governs — defaulting to the host page (N9). */
+  /** Filter a database's rows to the readable + discoverable subset
+   * (default-deny). A row is a page, so its own visibility/ACL governs —
+   * defaulting to the host page (N9) — and its own listed flag is independent. */
   async filterReadableRows(
     principal: Principal,
     rows: DatabaseRow[],
@@ -4437,10 +4497,21 @@ export class PageStore {
   ): Promise<DatabaseRow[]> {
     if (rows.length === 0) return rows;
     const b = base ?? (await this.accessBase(principal));
+    let discoverable = rows;
+    if (!this.listingPrivileged(principal, b)) {
+      const ids = rows.map((row) => row.id);
+      const listed = await this.db.query<{id: string}>(
+        'SELECT id FROM pages WHERE id = ANY($1) AND listed = TRUE',
+        [ids],
+      );
+      const listedIds = new Set(listed.map((row) => row.id));
+      discoverable = rows.filter((row) => listedIds.has(row.id));
+    }
+    if (discoverable.length === 0) return discoverable;
     const blanket = this.blanketRead(principal, b);
-    if (blanket !== null) return blanket ? rows : [];
+    if (blanket !== null) return blanket ? discoverable : [];
     const out: DatabaseRow[] = [];
-    for (const row of rows) {
+    for (const row of discoverable) {
       if (await this.canReadPage(principal, row.id, b)) out.push(row);
     }
     return out;
