@@ -58,7 +58,7 @@ export async function runConcurrently<T>(
       await started;
       return await call();
     } catch (error) {
-      if (!isAssertionError(error)) harnessFaults.push(error);
+      if (!isAssertionError(error) && !harnessFaults.includes(error)) harnessFaults.push(error);
       throw error;
     }
   });

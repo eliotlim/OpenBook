@@ -34,8 +34,8 @@ if (!url) {
     preflightPassed = true;
   } catch (error) {
     console.error(
-      `[CWD-11] Postgres preflight failed for ${url}: something is listening on this port but it is not a ` +
-        'Postgres server / lacks CREATE DATABASE — check for a stale process squatting the port.',
+      `[CWD-11] Postgres preflight failed for ${url}: unreachable, not a Postgres server, or lacks ` +
+        'CREATE DATABASE — check the URL, permissions, and whether a stale process is squatting the port.',
     );
     console.error(error);
     process.exitCode = 1;

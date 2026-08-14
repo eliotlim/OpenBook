@@ -7,7 +7,7 @@ import {createBarrier, runConcurrently, withQueryBarrier} from './testUtils/conc
 const PG_URL = externalPgUrl();
 const PG_REQUIRED = process.env.OPENBOOK_REQUIRE_CONCURRENCY_PG === '1';
 const harnessFaults: unknown[] = [];
-const RENDEZVOUS_TIMEOUT_MS = 5_000;
+const RENDEZVOUS_TIMEOUT_MS = 2_000;
 
 if (!PG_URL && !PG_REQUIRED) {
   console.warn(
@@ -40,12 +40,23 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
 
   beforeEach(async () => {
     if (!PG_URL) throw new Error('Postgres describe block ran without OPENBOOK_TEST_DATABASE_URL');
-    provisioned = await provisionPostgres(PG_URL, 'ob_cwd11_');
+    try {
+      provisioned = await provisionPostgres(PG_URL, 'ob_cwd11_');
+    } catch (error) {
+      harnessFaults.push(error);
+      throw error;
+    }
   });
 
   afterEach(async () => {
-    await provisioned?.destroy();
-    provisioned = undefined;
+    try {
+      await provisioned?.destroy();
+    } catch (error) {
+      harnessFaults.push(error);
+      throw error;
+    } finally {
+      provisioned = undefined;
+    }
   });
 
   // CWD-2: when flipping to `test`, re-point the rendezvous at the fixed SQL shape and hard-assert
