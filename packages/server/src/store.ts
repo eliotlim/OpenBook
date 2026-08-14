@@ -261,6 +261,59 @@ export interface CreateRowResult {
   created: boolean;
 }
 
+/** Identity of one request admitted to the general response ledger. */
+export interface IdempotencyRequest {
+  actorScope: string;
+  key: string;
+  fingerprint: string;
+  method: string;
+  normalizedTarget: string;
+}
+
+/** The complete allowlisted response captured for a successful durable write. */
+export interface IdempotencyResponse<T = unknown> {
+  status: number;
+  body: T;
+  headers?: {
+    contentType?: string;
+    location?: string;
+  };
+}
+
+/** A fresh execution or an exact replay of its committed response. */
+export interface IdempotencyOutcome<T = unknown> extends IdempotencyResponse<T> {
+  replayed: boolean;
+}
+
+/** One actor reused a key with a different method/path/media-type/body tuple. */
+export class IdempotencyKeyReuseError extends Error {
+  constructor() {
+    super('idempotency key was already used for a different request');
+    this.name = 'IdempotencyKeyReuseError';
+  }
+}
+
+interface IdempotencyResponseRow {
+  fingerprint: string;
+  status: number | string | null;
+  response_body: unknown | string | null;
+  content_type: string | null;
+  location: string | null;
+}
+
+/** Internal control flow: return a non-2xx response after rolling its claim back. */
+class UnretainedIdempotencyResponse<T> extends Error {
+  constructor(readonly response: IdempotencyResponse<T>) {
+    super('non-successful idempotent response');
+  }
+}
+
+interface PageStoreSharedState {
+  conflictCopiesMinted: number;
+  accessGeneration: number;
+  ledgerIdsCache: LedgerIds | undefined;
+}
+
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -876,7 +929,14 @@ function toBytes(value: Uint8Array | string): Uint8Array {
  * backend passed in.
  */
 export class PageStore {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly sharedState: PageStoreSharedState = {
+      conflictCopiesMinted: 0,
+      accessGeneration: 0,
+      ledgerIdsCache: undefined,
+    },
+  ) {}
 
   /**
    * Count of **brand-new** "(conflicted copy)" pages minted by
@@ -885,9 +945,8 @@ export class PageStore {
    * mirror's per-page-id copy cap (ER-4) can detect a storm regression without
    * being fooled by repeated re-applies of the same content.
    */
-  private conflictCopiesMinted = 0;
   get copiesMinted(): number {
-    return this.conflictCopiesMinted;
+    return this.sharedState.conflictCopiesMinted;
   }
 
   /**
@@ -902,14 +961,114 @@ export class PageStore {
    * mutation invalidates every cached decision — always safe (never stale-allows),
    * at most an occasional needless re-check.
    */
-  private accessGen = 0;
-  /** The current access epoch (see {@link accessGen}). */
+  /** The current access epoch. */
   accessGeneration(): number {
-    return this.accessGen;
+    return this.sharedState.accessGeneration;
   }
   /** Advance the access epoch — call after any read/write-affecting mutation. */
   private bumpAccess(): void {
-    this.accessGen += 1;
+    this.sharedState.accessGeneration += 1;
+  }
+
+  /**
+   * Execute one durable HTTP write under the response-capturing ledger.
+   *
+   * The claim, callback mutations, JSON serialization, and response capture all
+   * use one outer transaction. Methods invoked on the callback store are bound
+   * to that transaction (their nested `begin` calls are inline/savepoints), while
+   * cache/access-generation state stays shared with the owning store. A thrown
+   * error or non-2xx callback result rolls the claim and every mutation back.
+   */
+  async idempotentWrite<T>(
+    request: IdempotencyRequest,
+    execute: (transactionStore: PageStore) => Promise<IdempotencyResponse<T>>,
+  ): Promise<IdempotencyOutcome<T>> {
+    try {
+      return await this.db.begin(async (tx) => {
+        const claimed = await tx.query<{idempotency_key: string}>(
+          `INSERT INTO idempotency_responses
+             (actor_scope, idempotency_key, fingerprint, method, normalized_target)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (actor_scope, idempotency_key) DO NOTHING
+           RETURNING idempotency_key`,
+          [
+            request.actorScope,
+            request.key,
+            request.fingerprint,
+            request.method,
+            request.normalizedTarget,
+          ],
+        );
+
+        if (claimed.length === 0) {
+          // On real Postgres, the unique-key conflict waits for the claimant's
+          // transaction. This statement then reads its committed completion.
+          const prior = await tx.query<IdempotencyResponseRow>(
+            `SELECT fingerprint, status, response_body, content_type, location
+             FROM idempotency_responses
+             WHERE actor_scope = $1 AND idempotency_key = $2`,
+            [request.actorScope, request.key],
+          );
+          if (prior.length === 0 || prior[0].status == null) {
+            throw new Error('idempotency response claim completed without a captured response');
+          }
+          if (prior[0].fingerprint !== request.fingerprint) {
+            throw new IdempotencyKeyReuseError();
+          }
+          const row = prior[0];
+          const body = typeof row.response_body === 'string'
+            ? (() => {
+              try {
+                return JSON.parse(row.response_body) as T;
+              } catch {
+                return row.response_body as T;
+              }
+            })()
+            : row.response_body as T;
+          return {
+            status: Number(row.status),
+            body,
+            headers: {
+              ...(row.content_type ? {contentType: row.content_type} : {}),
+              ...(row.location ? {location: row.location} : {}),
+            },
+            replayed: true,
+          };
+        }
+
+        const response = await execute(new PageStore(tx, this.sharedState));
+        if (!Number.isInteger(response.status) || response.status < 200 || response.status > 299) {
+          throw new UnretainedIdempotencyResponse(response);
+        }
+        // Serialization is deliberately inside the transaction: a response that
+        // cannot be completely constructed must not commit its mutation.
+        const serializedBody = JSON.stringify(response.body);
+        if (serializedBody === undefined) throw new Error('idempotent response body is not JSON-serializable');
+        await tx.query(
+          `UPDATE idempotency_responses
+           SET status = $3,
+               response_body = $4::jsonb,
+               content_type = $5,
+               location = $6,
+               completed_at = now()
+           WHERE actor_scope = $1 AND idempotency_key = $2`,
+          [
+            request.actorScope,
+            request.key,
+            response.status,
+            serializedBody,
+            response.headers?.contentType ?? null,
+            response.headers?.location ?? null,
+          ],
+        );
+        return {...response, replayed: false};
+      });
+    } catch (err) {
+      if (err instanceof UnretainedIdempotencyResponse) {
+        return {...err.response, replayed: false};
+      }
+      throw err;
+    }
   }
 
   // ── Ledger (LGR-3): the store-level write guards + the one sanctioned writer ──
@@ -932,12 +1091,10 @@ export class PageStore {
    * Invalidated by {@link setSetting} whenever the recording key is written, so
    * the guards arm on the very write that seeds the ledger.
    */
-  private ledgerIdsCache: LedgerIds | undefined = undefined;
-
   /** Drop the cached ledger ids (the seed writes the settings row on its own
    *  transaction, bypassing {@link setSetting}'s invalidation). */
   invalidateLedgerIds(): void {
-    this.ledgerIdsCache = undefined;
+    this.sharedState.ledgerIdsCache = undefined;
   }
 
   /**
@@ -952,10 +1109,10 @@ export class PageStore {
    * read; once seeded, the ids never change, so the hot path still caches.
    */
   async ledgerIds(): Promise<LedgerIds | null> {
-    if (this.ledgerIdsCache != null) return this.ledgerIdsCache;
+    if (this.sharedState.ledgerIdsCache != null) return this.sharedState.ledgerIdsCache;
     const ids = await this.getSetting<LedgerIds>(LEDGER_DB_SETTING_KEY);
     const resolved = ids && ids.hostPageId && ids.hostPages ? ids : null;
-    this.ledgerIdsCache = resolved ?? undefined; // never cache "not seeded"
+    this.sharedState.ledgerIdsCache = resolved ?? undefined; // never cache "not seeded"
     return resolved;
   }
 
@@ -2243,7 +2400,7 @@ export class PageStore {
       // divergence ⇒ at most one conflict copy per (page-id, content) — holds, and
       // the mirror's per-page-id cap (ER-4) can spot a storm regression without
       // being fooled by repeated re-applies of the same content.
-      this.conflictCopiesMinted += 1;
+      this.sharedState.conflictCopiesMinted += 1;
       return {action: 'conflict' as const, page: pageFromRow(copy[0])};
     });
   }
@@ -3495,12 +3652,10 @@ export class PageStore {
   }
 
   /**
-   * Prune the idempotency ledgers (ER-6 `import_log`, ER-7 `write_keys`) older than
-   * `retentionMs` — the same periodic sweep as the edit log, for the same reason
-   * (bound growth on the autovacuum-less embedded store, OB-164). `retentionMs`
-   * doubles as the dedup window: once a key is pruned, re-applying its bundle /
-   * replaying its create is treated as new. `<= 0` keeps the ledgers forever (no-op).
-   * Returns the number of rows pruned across both tables.
+   * Prune the idempotency ledgers (`import_log`, `write_keys`, and the CWD-5
+   * response ledger) older than `retentionMs`. For captured responses the clock
+   * starts at completion and replay never extends it. `<= 0` keeps every ledger
+   * forever. Returns the number of rows pruned across all three tables.
    */
   async purgeOldIdempotencyKeys(retentionMs: number): Promise<number> {
     if (!(retentionMs > 0)) return 0;
@@ -3515,7 +3670,13 @@ export class PageStore {
        WHERE created_at <= now() - ($1::bigint * interval '1 millisecond') RETURNING page_id`,
       [ms],
     );
-    return imports.length + writes.length;
+    const responses = await this.db.query<{idempotency_key: string}>(
+      `DELETE FROM idempotency_responses
+       WHERE completed_at <= now() - ($1::bigint * interval '1 millisecond')
+       RETURNING idempotency_key`,
+      [ms],
+    );
+    return imports.length + writes.length + responses.length;
   }
 
   /** Read the edit log — a single page's history, or the whole instance's,
@@ -3635,7 +3796,7 @@ export class PageStore {
     // Writing the ledger's id record must arm/refresh the store-level ledger
     // write-guards immediately (LGR-3) — drop the cached ids so the next guard
     // check re-reads them.
-    if (key === LEDGER_DB_SETTING_KEY) this.ledgerIdsCache = undefined;
+    if (key === LEDGER_DB_SETTING_KEY) this.sharedState.ledgerIdsCache = undefined;
   }
 
   // ── Agent Personal-Access-Tokens (AGENT-6) ───────────────────────────────────

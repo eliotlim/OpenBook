@@ -167,6 +167,35 @@ describe('migration 0026 — database form capabilities', () => {
   });
 });
 
+describe('migration 0027 — response-capturing idempotency ledger', () => {
+  it('creates the actor-scoped response table and completion-time index', async () => {
+    const db = await freshDb();
+    expect(await db.query('SELECT name FROM _migrations WHERE name = \'0027_idempotency_responses\''))
+      .toHaveLength(1);
+    const columns = await db.query<{column_name: string}>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'idempotency_responses'`,
+    );
+    expect(columns.map((row) => row.column_name)).toEqual(expect.arrayContaining([
+      'actor_scope',
+      'idempotency_key',
+      'fingerprint',
+      'method',
+      'normalized_target',
+      'status',
+      'response_body',
+      'content_type',
+      'location',
+      'completed_at',
+    ]));
+    const indexes = await db.query<{indexname: string}>(
+      'SELECT indexname FROM pg_indexes WHERE tablename = \'idempotency_responses\'',
+    );
+    expect(indexes.map((row) => row.indexname)).toContain('idempotency_responses_completed_at_idx');
+    await db.close();
+  });
+});
+
 describe('migration 0011 — existing database with data', () => {
   it('back-fills visibility=inherit on pre-existing pages and is idempotent', async () => {
     // Simulate a pre-0011 workspace: a real pages table with a row, with 0001..0010
