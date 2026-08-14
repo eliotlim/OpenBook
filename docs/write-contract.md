@@ -19,10 +19,11 @@ start failing merely because they do not know about revisions.
 
 The contract is additive during rolling upgrades. `rev` is optional in shared
 representations so a new SDK can still read an old server; a server implementing
-this contract MUST advertise `ServerInfo.writeContract: 1` and MUST return
-`rev`. A client MUST send `expectedRev` only after reading `rev` from such a
-server. CWD-7 MUST NOT automatically replay an outbox entry against a server
-that does not advertise `writeContract: 1`: an old server ignores
+this contract MUST advertise `InstanceInfo.writeContract: 1` on
+`GET /api/instance` and MUST return `rev`. A client MUST send `expectedRev` only
+after reading `rev` from such a server. CWD-7 MUST NOT automatically replay an
+outbox entry against a server that does not advertise `writeContract: 1`: an old
+server ignores
 `Idempotency-Key`, so replay could apply the write twice.
 
 The SDK types remain exported. There is currently no api-extractor or equivalent
@@ -38,6 +39,11 @@ one private `write()` helper and route every durable SDK write through it. That
 helper owns request options, timeout/abort attribution, idempotency headers, and
 error materialization. Reads and specialized write protocols may continue to
 use their existing paths after the explicit audit in §6.
+
+`write()` attaches `Idempotency-Key` only for the routes in the §4.1 table;
+other durable writes, including `purgePage` and `deleteComment`, still receive
+typed errors but no key, because the server rejects that header on unlisted
+mutation routes.
 
 Every `WriteError` carries:
 
@@ -65,6 +71,11 @@ ambiguous write is automatically replayable only with the same
 | `WriteTransportError` | `transport` | `null` | `true` | Fetch/network failure before a usable response. The outcome may be unknown; reuse the key. |
 | `WriteServerError` | `server` | `500`, `502`, or `503` | `true` | Transient server failure. Reuse the key because the response may have been lost after commit. |
 | `WriteHttpError` | `http` | any unmatched non-2xx status | `false` | Typed fallback, including a 409 without a recognized contract code; it is never silently guessed retryable. |
+
+`WriteRateLimitError.retryAfterMs` is derived from the HTTP `Retry-After`
+header: the server's values at `app.ts:517/534/546` are seconds and the SDK
+converts them to milliseconds; it remains absent on bare legacy `{error}` 429
+responses that omit the header.
 
 An abort caused by the SDK's own deadline is a timeout, not an abort. CWD-6 must
 track which signal fired so the two do not collapse into the same DOM exception.
@@ -104,6 +115,8 @@ The stable codes introduced by this contract are:
 Server `retryable` values must agree with the taxonomy. In particular, a
 revision conflict and an idempotency-key reuse are both 409 and non-retryable,
 but only the former is a take-mine/take-theirs case.
+For a 429, `retryAfterMs` comes from the `Retry-After` header's seconds value,
+not from this JSON envelope, and is absent when that header is absent.
 
 ## 3. Entity revision token
 
@@ -121,6 +134,10 @@ write nor increment when persisted values are unchanged. The route then returns
 the unchanged representation with its current `rev`. This is distinct from
 merely submitting equal values to a route that has no no-op guard: if that route
 writes the row, it increments `rev`.
+No-op elision takes precedence over the revision guard: equal intended and
+persisted values with a stale `expectedRev` return 200 and the current `rev`
+because nothing was overwritten. Consequently, `expectedRev` is a write guard,
+not a read-your-writes assertion.
 
 The token belongs to the persisted entity, not to an HTTP representation:
 
@@ -133,22 +150,30 @@ The token belongs to the persisted entity, not to an HTTP representation:
 
 Page mutations include content, name, manual properties, parent and stable
 position, soft delete/restore, visibility, and agent-edit policy. A database
-token covers its existence, name, and schema. `hostedDatabaseId` is outside the
-host page's rev-covered surface: it projects the database's existence, which is
-tracked by the database entity's `rev`, so database create/delete does not bump the
-host page. Row creation creates a page at `rev: 1`; a row edit increments that
-page. Under the stable-position model in §3.3, a move writes and increments only
-the moved page; sibling rows are not written or incremented. Every stored
-instance-policy change, claim, or repair increments the instance-config `rev`.
-Server-managed row writes obey the same rule.
+token covers its existence, name, and schema while that database exists; a hard
+delete guards and then destroys both the entity and its token.
+`hostedDatabaseId` is outside the host page's rev-covered surface: it projects
+the database's existence, which is tracked by the database entity's `rev`, so
+database create/delete does not bump the host page. `rev` is a write-guard token,
+not a projection-cache key: `hostedDatabaseId` can change when database deletion
+republishes the host page over SSE without a host-page bump. Row creation creates
+a page at `rev: 1`; a row edit increments that page. Under the stable-position
+model in §3.3, a non-rebalancing move writes and increments only the moved page;
+sibling rows are not written or incremented. CWD-12's bounded rebalance MAY
+write and increment affected siblings, and its response carries every changed
+sibling's `rev`. Every stored instance-policy change, claim, or repair increments
+the instance-config `rev`. Server-managed row writes obey the same rule.
 
 All entity-returning reads and successful writes include `rev`. Lists include
 it too, so a client does not need an extra GET before editing. A successful
 §4.1 response that does not return a full representation MUST still return the
-primary entity's `{id, rev}`; a multi-page stable-position response returns a
-page-id-keyed record whose changed entries each carry `rev`. SSE events carry
-the same revision-bearing projections they already carry. The revision is JSON
-data, not an ETag, and caches must not derive it from `updatedAt`.
+primary entity's `{id, rev}`. The carve-out is a response that destroys the
+entity: it returns `{id}` with no `rev`, because no token survives; the next list
+establishes the new baseline. `DELETE /api/databases/:id` is such a hard delete.
+A multi-page stable-position response returns a page-id-keyed record whose
+changed entries each carry `rev`. SSE events carry the same revision-bearing
+projections they already carry. The revision is JSON data, not an ETag, and
+caches must not derive it from `updatedAt`.
 
 ### 3.2 Sending `expectedRev`
 
@@ -204,22 +229,26 @@ posture. `RETURNING` on both logical arms or an in-transaction pre-read are vali
 approaches; the exact SQL is CWD-2's decision. Authorization and managed-entity
 gates continue to run before CAS, so it creates no existence oracle.
 
-Ordering's target contract is a stable-id + position-record model. The request
-uses `positions: Record<pageId, position>`, where each position is an opaque,
-non-empty string ordered by bytewise lexicographic comparison. This contract
-assumes a fractional-key scheme can generate a key strictly between adjacent
-siblings without renumbering them; that scheme is an explicit owner-veto point.
-CWD-12 owns the storage/API migration and any bounded rebalance strategy.
+Ordering's post-CWD-12 target contract is a stable-id + position-record model.
+The request uses `positions: Record<pageId, position>`, where each position is an
+opaque, non-empty string ordered by bytewise lexicographic comparison. This
+contract assumes a fractional-key scheme can generate a key strictly between
+adjacent siblings without renumbering them; that scheme is an explicit
+owner-veto point. CWD-12 owns the storage/API migration and any bounded rebalance
+strategy. A non-rebalancing position move changes only the moved page; a bounded
+rebalance MAY write and increment sibling rows and returns every changed page's
+`rev`.
 
-In wave 1, `PUT /api/pages/:id/move` accepts a position record containing exactly
-the route page id. `expectedRev` guards only that moved page's row; `parentId`
-and its position are attributes of that page. Sibling rows are not written and
-their `rev` values do not increment. A no-op parent/position move returns the
-unchanged page and current `rev`. The array-based `orderedIds` move payload and
-`reorderRows(databaseId, orderedIds)` signature are deprecated-for-CAS migration
-surfaces: they remain legacy LWW only and MUST NOT imply one atomic conflict
-unit. CWD-12 replaces them with stable position-record inputs before guarded
-reordering is exposed.
+In wave 1, `PUT /api/pages/:id/move` keeps the existing
+`{parentId, orderedIds}` payload. `expectedRev` guards only the moved page's row;
+sibling ordering requested through `orderedIds` remains LWW. A no-op move returns
+the unchanged page and current `rev`. The array-based `orderedIds` move payload
+and `reorderRows(databaseId, orderedIds)` signature are deprecated-for-CAS
+migration surfaces: they MUST NOT imply one atomic conflict unit. CWD-12 replaces
+them with stable position-record inputs before guarded reordering is exposed.
+The existing `StoredPage.position?: number` is load-bearing for both the LEDGER's
+audited posting-order hash and bundle-v2 import compatibility; CWD-12 MUST
+preserve both while changing its ordering representation.
 
 Relation inverses are not a derived transactional side effect: today
 `useDatabase.ts:709-762` performs N+1 independent client PATCHes. Wave 1 accepts
@@ -237,6 +266,7 @@ current permission-filtered route projection:
   "code": "rev-conflict",
   "retryable": false,
   "entity": {"kind": "page", "id": "5d2d..."},
+  "projection": "page",
   "expectedRev": 17,
   "currentRev": 18,
   "current": {
@@ -252,12 +282,14 @@ current permission-filtered route projection:
 }
 ```
 
-`WriteConflictEnvelope` is a discriminated union of `PageConflict`,
-`DatabaseRowConflict`, `DatabaseConflict`, and `InstanceConfigConflict` on
-`entity.kind`; each member types `current` to that route family. The kind follows
-the responding route's projection: row-property routes use `database-row`, row
-content routes use `page`, and page visibility/agent-policy routes use `page`.
-When `current` is present, `current.rev` MUST equal `currentRev`.
+`WriteConflictEnvelope` is first discriminated on `entity.kind` into
+`PageConflict`, `DatabaseRowConflict`, `DatabaseConflict`, and
+`InstanceConfigConflict`. `PageConflict` keeps `entity.kind: 'page'` stable and
+adds a second `projection: 'page' | 'visibility' | 'agent-edits'` discriminator
+that types `current` as `StoredPage`, `PageVisibilitySettings`, or
+`AgentEditsPolicySettings`, respectively. Row-property routes use
+`database-row`; row-content routes use the `page` projection. When `current` is
+present, `current.rev` MUST equal `currentRev`.
 
 The server MAY return `current: null` above a CWD-2-chosen serialized-size
 threshold. `links.self` is always the permission-appropriate GET fallback, and
@@ -269,12 +301,14 @@ route returns its normal 403/404 instead of a conflict containing hidden data.
 
 Take-theirs adopts `current`, or follows `links.self` when it is null, and
 performs no write. Take-mine sends the intended value with
-`expectedRev: currentRev` and a fresh `Idempotency-Key`. A CAS 409 consumes no
-ledger row (§4.3), but keys are immutable request identities: changing
-`expectedRev` changes the fingerprint, and binding one key to both fingerprints
-is the `409 idempotency-key-reused` condition. A row-route take-mine currently
-clobbers disjoint manual-property cells because `updateRow` replaces the whole
-property bag; CWD-3's per-key merge must land before the UX claims otherwise.
+`expectedRev: currentRev` and a fresh `Idempotency-Key`. At receipt of a same-key
+take-mine 409, the original attempt's outcome may be UNKNOWN: if it actually
+committed, its stored fingerprint makes that request a
+`409 idempotency-key-reused`, which CWD-7 treats as INDETERMINATE; if it genuinely
+CAS-409'd, no key was consumed (§4.3) and using a fresh key is hygiene. A
+row-route take-mine currently clobbers disjoint manual-property cells because
+`updateRow` replaces the whole property bag; CWD-3's per-key merge must land
+before the UX claims otherwise.
 
 ## 4. `Idempotency-Key`
 
@@ -282,8 +316,10 @@ property bag; CWD-3's per-key merge must land before the UX claims otherwise.
 
 The transport is the standard `Idempotency-Key` request header. It is separate
 from JSON because it identifies an HTTP attempt, not entity state. CWD-5 MUST
-also add `Idempotency-Key` to the CORS `allowHeaders` list at `app.ts:628-641` and
-update the exact-list assertion at `originHardening.test.ts:133`.
+also add `Idempotency-Key` to the CORS `allowHeaders` list at `app.ts:628-641`.
+The current check at `originHardening.test.ts:133` is a substring `toContain`,
+not an exact-list assertion; CWD-5 MUST add an exact-list assertion that pins the
+complete allowlist.
 
 A new key is a canonical RFC 4122 UUID v4 (the current
 `crypto.randomUUID()` output) or UUID v7: 36 ASCII characters in
@@ -293,7 +329,9 @@ behaviour. Empty, duplicated/comma-joined, or malformed headers return
 `400 invalid-input` before mutation.
 
 Wave 1 supports the header on these durable core writes. Every successful
-response carries `rev` as specified in §3.1.
+response carries `rev` as specified in §3.1 except a response that destroys its
+entity, which returns `{id}` without `rev`; a later list establishes the new
+baseline.
 
 | Resource | Routes | `expectedRev` |
 | --- | --- | --- |
@@ -425,7 +463,8 @@ once” after its proof has been collected.
 guarded writes and revision-bearing responses work without HTTP. Until CWD-2
 wires each local signature and store guard, `LocalDataClient` MUST throw when it
 receives `expectedRev`; it must never silently downgrade a guarded write to LWW.
-The HTTP-only idempotency ledger/header is not synthesized for in-process calls.
+That rejection is a `WriteValidationError` with `code: 'invalid-input'`. The
+HTTP-only idempotency ledger/header is not synthesized for in-process calls.
 
 Every `pages` row write increments `rev`, including Collab T9
 `saveServerDoc` persister checkpoints (`app.ts:600-610` →
@@ -444,13 +483,13 @@ policy. Stable-position implementation is CWD-12, not this spike.
 
 | Owner | Contract sections consumed | Required outcome |
 | --- | --- | --- |
-| CWD-2 — server CAS implementer | §2.1, §3.1-§3.4, §4.4 step 4, §5 | Add/backfill `rev`; return it on every covered response; distinguish no-op/CAS-miss/missing; implement nullable typed conflicts and the size threshold; increment `saveServerDoc`; wire `LocalDataClient` guarded writes and reject unsupported `expectedRev` until wired. |
+| CWD-2 — server CAS implementer | §2.1, §3.1-§3.4, §4.4 step 4, §5 | Add/backfill `rev`; return it on every covered non-destroy response; put both server and `LocalDataClient` no-op precedence on the 200/current-rev side; distinguish CAS-miss/missing; implement nullable typed conflicts and the size threshold; increment `saveServerDoc`; add guarded `PUT /api/pages/:id/move` while keeping its existing payload and LWW siblings; wire local guarded writes and reject unsupported `expectedRev` with the typed error until wired. |
 | CWD-3 — row merge implementer | §3.4 | Land per-key manual-property merge before row take-mine claims to preserve disjoint cells. |
-| CWD-5 — idempotency implementer | §4.1-§4.5 and §2.1 | Add the actor-scoped response ledger, fingerprinting, steps 1-3 and 5 of §4.4, atomic claim/capture, GC, and the `Idempotency-Key` CORS allow-header/test update. |
-| CWD-6 — SDK write-path implementer | §2, §3.2-§3.4, §4.1, §4.4 | Add the single private `write()` helper; materialize typed errors; accept `WriteRequestOptions`; attach/preserve keys; update all `DataClient` guarded-write inputs and revision-bearing return signatures; preserve independent relation-inverse conflicts. |
+| CWD-5 — idempotency implementer | §4.1-§4.5 and §2.1 | Add the actor-scoped response ledger, fingerprinting, steps 1-3 and 5 of §4.4, atomic claim/capture, GC, the `Idempotency-Key` CORS allow-header, and a new exact-list assertion pinning the complete allowlist. |
+| CWD-6 — SDK write-path implementer | §2, §3.2-§3.4, §4.1, §4.4 | Add the single private `write()` helper; materialize typed errors; accept `WriteRequestOptions`; attach/preserve keys only for §4.1-table routes while giving other durable writes typed errors with no key; update all `DataClient` guarded-write inputs and revision-bearing return signatures; preserve independent relation-inverse conflicts. |
 | CWD-7 — outbox implementer | §1, §4.2, §4.4-§4.5 | Gate replay on `writeContract: 1`; persist exact bytes/key/time; reuse only identical fingerprints; route key reuse and TTL expiry to INDETERMINATE explicit reconciliation. |
-| CWD-10 — conflict UX implementer | §3.4 | Handle every conflict union member and both embedded and null `current`; use `links.self` fallback; do not overstate row take-mine merge safety. |
-| CWD-12 — ordering implementer | §3.1, §3.3, §4.1 | Migrate numeric/array ordering to stable lexicographic position keys and record inputs; preserve legacy `orderedIds`/`reorderRows` as deprecated LWW-only surfaces at the boundary. |
+| CWD-10 — conflict UX implementer | §3.4 | Handle every conflict union member, including the `PageConflict.projection` discriminator, and both embedded and null `current`; use `links.self` fallback; do not overstate row take-mine merge safety. |
+| CWD-12 — ordering implementer | §3.1, §3.3, §4.1 | Migrate numeric/array ordering to stable lexicographic position keys and record inputs; preserve legacy `orderedIds`/`reorderRows` as deprecated LWW-only surfaces at the boundary; preserve `StoredPage.position`'s audited LEDGER posting-order hash and bundle-v2 import compatibility; report every sibling `rev` changed by a bounded rebalance. |
 | DATA-1 — public API guard owner | §1 | Add an api-extractor or equivalent export-surface guard for the SDK's public contract types. |
 
 CWD-6's required audit starts with all 31 current `authFetch` bypasses (all call
