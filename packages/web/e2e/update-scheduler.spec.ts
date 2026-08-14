@@ -30,6 +30,19 @@ const appReady = async (page: Page): Promise<void> => {
   await expect(page.getByRole('button', {name: 'Settings'}).first()).toBeVisible();
 };
 
+/** Open Settings only after the post-load shell restore has stopped replacing it. */
+const openGeneralSettings = async (page: Page): Promise<void> => {
+  // NavigationProvider and the Settings URL bridge both settle asynchronously.
+  // Around reload they can replace a just-opened dialog, detaching General while
+  // Playwright is clicking it. Retry this bounded interaction until a landmark
+  // in the General panel proves the dialog survived the restore and is usable.
+  await expect(async () => {
+    await page.getByRole('button', {name: 'Settings'}).first().click({timeout: 3000});
+    await page.getByRole('button', {name: 'General', exact: true}).click({timeout: 3000});
+    await expect(page.getByRole('heading', {name: 'Behavior'})).toBeVisible({timeout: 3000});
+  }).toPass({timeout: 20_000});
+};
+
 const toasts = (page: Page) => page.locator('[data-toast-host] > div');
 
 test('security-only ON: a non-security update produces no toast and no install', async ({page}) => {
@@ -74,8 +87,7 @@ test('new major: announced once by toast, surfaced durably in Settings, never in
   // The durable surface: the Updates section shows the major line (persisted
   // updates.latestMajorSeen, recorded by the shared runner) — the toast being
   // missable is exactly why this exists.
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await openGeneralSettings(page);
   await expect(page.getByTestId('major-available')).toHaveText('OpenBook 2.x is available');
 
   // Reload: the scheduler is throttled (fresh lastCheckAt) so no new check —
@@ -84,8 +96,7 @@ test('new major: announced once by toast, surfaced durably in Settings, never in
   await appReady(page);
   await page.waitForTimeout(500);
   await expect(toasts(page)).toHaveCount(0);
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await openGeneralSettings(page);
   await expect(page.getByTestId('major-available')).toHaveText('OpenBook 2.x is available');
 });
 
@@ -99,8 +110,7 @@ test('Settings install button: appears after a check finds an update, drives ins
   await page.goto('/?updates=available');
   await appReady(page);
 
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await openGeneralSettings(page);
 
   // No check yet → no update surfaced → no install affordance.
   await expect(page.getByTestId('install-update')).toHaveCount(0);
