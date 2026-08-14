@@ -448,6 +448,9 @@ test(
       await ownerPage.getByRole('button', {name: 'Form', exact: true}).click();
       await expect(ownerPage.getByRole('button', {name: 'Revoke'})).toBeVisible();
       await ownerPage.getByRole('button', {name: 'Revoke'}).click();
+      const revokeDialog = ownerPage.locator('[data-database-form-revoke-confirm]');
+      await expect(revokeDialog).toContainText('Every distributed copy');
+      await revokeDialog.getByRole('button', {name: 'Revoke public form'}).click();
       await expect(ownerPage.getByText('Not published', {exact: true})).toBeVisible();
       await visitor.goto(originalUrl);
       await expect(visitor.locator('[data-public-form-not-found]')).toBeVisible();
