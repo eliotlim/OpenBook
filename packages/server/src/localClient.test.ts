@@ -110,6 +110,18 @@ describe('LocalDataClient — databases', () => {
 
     unsub();
   });
+
+  it('ignores undefined property values from in-process row patches', async () => {
+    const host = await client.savePage({name: 'Local rows', data: snap('')});
+    const db = await client.createDatabase({pageId: host.id, name: 'Local rows'});
+    const row = await client.createRow(db.id, {properties: {keep: 'yes', change: 'old'}});
+
+    const updated = await client.updateRow(db.id, row.id, {
+      properties: {keep: undefined, change: 'new'},
+    });
+
+    expect(updated.properties).toEqual({keep: 'yes', change: 'new'});
+  });
 });
 
 describe('LocalDataClient — export / import round-trip', () => {

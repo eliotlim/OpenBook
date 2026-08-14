@@ -869,11 +869,11 @@ const createProductHq = async (client: DataClient, name: string, guidance: strin
   const t5 = await seedRow(tasksDbId, 'Migrate legacy invoices', {p_initiative: [billing], p_owner: 'Lin', p_done: true, p_when: {start: day(-20), end: day(-12)}});
 
   // Mirror the reverse side of the two-way link. Seeding writes both sides
-  // explicitly — the live mirror only runs on relation-cell edits. (updateRow
-  // replaces the whole properties bag, so re-send the status too.)
-  await client.updateRow(initiativesDbId, revamp, {properties: {p_status: 'opt_track', p_tasks: [t1, t2]}});
-  await client.updateRow(initiativesDbId, perf, {properties: {p_status: 'opt_risk', p_tasks: [t3, t4]}});
-  await client.updateRow(initiativesDbId, billing, {properties: {p_status: 'opt_shipped', p_tasks: [t5]}});
+  // explicitly — the live mirror only runs on relation-cell edits. updateRow's
+  // per-key merge preserves the statuses seeded above.
+  await client.updateRow(initiativesDbId, revamp, {properties: {p_tasks: [t1, t2]}});
+  await client.updateRow(initiativesDbId, perf, {properties: {p_tasks: [t3, t4]}});
+  await client.updateRow(initiativesDbId, billing, {properties: {p_tasks: [t5]}});
 
   return page;
 };

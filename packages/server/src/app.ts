@@ -2715,7 +2715,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Editing an existing row is a direct content edit — gate an agent PAT on the
     // row page's resolved mode (creating a NEW row, like a new page, is exempt).
     await requireAgentDirectWrite(c, c.req.param('rowId'));
-    const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
+    const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown> | null}>();
     const row = await store.updateRow(id, c.req.param('rowId'), body);
     if (!row) return c.json({error: 'row not found'}, 404);
     await broadcastRows(id);
