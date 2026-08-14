@@ -162,6 +162,14 @@ export interface ProvisionedDb {
   destroy(): Promise<void>;
 }
 
+export interface ProvisionedPostgresDb extends ProvisionedDb {
+  /**
+   * Open `count` independent, already-connected sessions on this scratch DB.
+   * The provisioner owns them and closes them before dropping the database.
+   */
+  participants(count: number): Promise<Db[]>;
+}
+
 /** A fresh migrated PGlite library in its own temp dir. */
 export async function provisionPglite(prefix = 'ob-lgr15-'): Promise<ProvisionedDb> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -194,18 +202,46 @@ export function externalPgRequired(): boolean {
  * tests and reruns never collide. The URL's own database is only used as the
  * admin connection.
  */
-export async function provisionPostgres(url: string): Promise<ProvisionedDb> {
+export async function provisionPostgres(url: string): Promise<ProvisionedPostgresDb> {
   const name = `ob_lgr15_${randomUUID().replaceAll('-', '')}`;
-  const admin = new PostgresDb(url, {max: 1});
+  let destroying = false;
+  const reportUnexpectedClose = (role: string) => (connectionId: number): void => {
+    if (!destroying) {
+      console.error(`[postgres scratch ${name}] unexpected ${role} connection close (id ${connectionId})`);
+    }
+  };
+  const admin = new PostgresDb(url, {max: 1, onclose: reportUnexpectedClose('admin')});
   await admin.query(`CREATE DATABASE ${name}`);
   const scratch = new URL(url);
   scratch.pathname = `/${name}`;
-  const db = new PostgresDb(scratch.toString(), {max: 4});
+  const scratchUrl = scratch.toString();
+  const db = new PostgresDb(scratchUrl, {max: 4, onclose: reportUnexpectedClose('pool')});
+  const participantDbs = new Set<PostgresDb>();
   await runMigrations(db);
   return {
     db,
     backend: 'postgres',
+    participants: async (count: number) => {
+      if (!Number.isInteger(count) || count < 1) {
+        throw new Error(`Postgres participant count must be a positive integer, received ${count}`);
+      }
+      const opened: Db[] = [];
+      // Connect one-by-one so connection establishment is fixture setup, not an
+      // uncontrolled fourth participant in the write race under test.
+      for (let i = 0; i < count; i += 1) {
+        const participant = new PostgresDb(scratchUrl, {
+          max: 1,
+          onclose: reportUnexpectedClose(`participant ${i + 1}`),
+        });
+        participantDbs.add(participant);
+        await participant.query('SELECT 1');
+        opened.push(participant);
+      }
+      return opened;
+    },
     destroy: async () => {
+      destroying = true;
+      await Promise.all([...participantDbs].map((participant) => participant.close()));
       await db.close();
       // WITH (FORCE) needs PG 13+; the pinned CI image and any modern server have it.
       await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);

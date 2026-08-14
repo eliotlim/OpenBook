@@ -66,6 +66,8 @@ The CWD-2, CWD-3, and CWD-4 assertions are `test.fails` while their lost-update
 races are live. Their one-line comments identify the issue that changes each to
 a plain test once fixed. A passing control covers property-patch overlap with
 `renamePage` and `upsertPage`, whose writes currently touch disjoint columns.
+Its three participants each use a pre-opened single-connection client; connection
+setup is therefore outside the measured race, and teardown owns every client.
 
 The stale snapshot-PUT versus collab persister checkpoint stretch is deferred.
 Calling `saveServerDoc` directly could manufacture a store-level overwrite,

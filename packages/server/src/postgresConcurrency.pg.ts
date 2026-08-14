@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, test} from 'vitest';
 import {emptyPageSnapshot, type PageSnapshot} from '@book.dev/sdk';
-import {externalPgUrl, provisionPostgres, type ProvisionedDb} from './ledgerFixtureSeed';
+import {externalPgUrl, provisionPostgres, type ProvisionedPostgresDb} from './ledgerFixtureSeed';
 import {PageStore} from './store';
 import {createBarrier, runConcurrently, withQueryBarrier} from './testUtils/concurrency';
 
@@ -34,7 +34,7 @@ const snapshotText = (value: PageSnapshot): string | undefined =>
   (value.editorjs as {blocks?: Array<{data?: {text?: string}}>} | undefined)?.blocks?.[0]?.data?.text;
 
 describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () => {
-  let provisioned: ProvisionedDb | undefined;
+  let provisioned: ProvisionedPostgresDb | undefined;
 
   beforeEach(async () => {
     if (!PG_URL) throw new Error('Postgres describe block ran without OPENBOOK_TEST_DATABASE_URL');
@@ -112,16 +112,20 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
   });
 
   test('setPageProperties stays disjoint from concurrent rename and content upsert', async () => {
-    const store = new PageStore(provisioned!.db);
-    const page = await store.upsertPage({name: 'before', data: snapshot('before')});
+    const setupStore = new PageStore(provisioned!.db);
+    const page = await setupStore.upsertPage({name: 'before', data: snapshot('before')});
+    const [propertiesDb, renameDb, contentDb] = await provisioned!.participants(3);
+    const propertiesStore = new PageStore(propertiesDb);
+    const renameStore = new PageStore(renameDb);
+    const contentStore = new PageStore(contentDb);
 
     await runConcurrently([
-      () => store.setPageProperties(page.id, {tag: 'kept'}),
-      () => store.renamePage(page.id, 'renamed'),
-      () => store.upsertPage({id: page.id, name: 'renamed', data: snapshot('after')}),
+      () => propertiesStore.setPageProperties(page.id, {tag: 'kept'}),
+      () => renameStore.renamePage(page.id, 'renamed'),
+      () => contentStore.upsertPage({id: page.id, name: 'renamed', data: snapshot('after')}),
     ]);
 
-    const final = await store.getPage(page.id);
+    const final = await setupStore.getPage(page.id);
     expect(final).not.toBeNull();
     expect(final?.name).toBe('renamed');
     expect(final?.properties).toEqual({tag: 'kept'});

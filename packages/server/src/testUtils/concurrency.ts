@@ -50,7 +50,15 @@ export async function runConcurrently<T>(calls: ReadonlyArray<() => Promise<T>>)
     return call();
   });
   start?.();
-  return Promise.all(pending);
+  // Promise.all rejects as soon as one participant fails, even though its
+  // siblings keep running. Integration-test teardown can then close/drop the
+  // database underneath those orphaned calls, replacing the useful first
+  // failure with ECONNRESET noise. Drain the whole cohort before propagating.
+  const settled = await Promise.allSettled(pending);
+  const failures = settled.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, `${failures.length} concurrent calls failed`);
+  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
 export interface QueryBarrierOptions {

@@ -35,6 +35,34 @@ describe('concurrency test primitives', () => {
     expect(results).toEqual(['a', 'b']);
   });
 
+  it('drains every concurrent call before reporting a participant failure', async () => {
+    let releaseSlow: (() => void) | undefined;
+    const slow = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let slowFinished = false;
+    const pending = runConcurrently([
+      async () => {
+        throw new Error('first participant failed');
+      },
+      async () => {
+        await slow;
+        slowFinished = true;
+      },
+    ]);
+
+    let rejected = false;
+    void pending.catch(() => {
+      rejected = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rejected).toBe(false);
+    releaseSlow?.();
+    await expect(pending).rejects.toThrow('first participant failed');
+    expect(slowFinished).toBe(true);
+  });
+
   it('gates matching transaction queries once and leaves later reads alone', async () => {
     let reads = 0;
     const db: Db = {
