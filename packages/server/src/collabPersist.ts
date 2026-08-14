@@ -130,6 +130,34 @@ function topLevelDigest(doc: Y.Doc): Array<[string, string]> {
   return snapshotBlocks(snap).map((d): [string, string] => [d.id, d.hash]);
 }
 
+/** Compare a pre-update digest with the doc's current projection, recording the
+ *  authenticated subject for every block whose content changed. Returns whether the
+ *  update changed content or top-level order. Shared by incremental ingests and
+ *  whole-snapshot merges so both persistence entrances apply identical attribution. */
+function recordTopLevelChanges(
+  before: Array<[string, string]>,
+  doc: Y.Doc,
+  pendingAuthors: Map<string, string>,
+  subject: string,
+): boolean {
+  const after = topLevelDigest(doc);
+  const beforeById = new Map(before);
+  // A pure top-level reorder (same length, same ids IN A DIFFERENT ORDER) changes the
+  // document without changing any block's content hash — detect it via the ORDERED
+  // id sequence, not just an id→hash map, or the reorder would never be persisted.
+  let changed = before.length !== after.length || after.some((e, i) => e[0] !== before[i]?.[0]);
+  for (const [id, hash] of after) {
+    if (beforeById.get(id) !== hash) {
+      changed = true;
+      // Last writer of a block since the last checkpoint wins its attribution. (A pure
+      // reorder changes no block's hash, so it dirties the doc without re-attributing
+      // any block — exactly as the client saver's per-block author stamp does.)
+      pendingAuthors.set(id, subject);
+    }
+  }
+  return changed;
+}
+
 interface PersistDoc {
   doc: Y.Doc;
   /** `true` once seeded from the durable snapshot; a Promise while seeding. */
@@ -173,16 +201,29 @@ export interface ServerPersistOptions {
   debounceMs?: number;
 }
 
+/** A client save contributes CRDT state; a restore intentionally replaces it. Keeping
+ *  that distinction explicit at the write fence prevents a stale PUT from being treated
+ *  like a destructive restore. */
+export type SnapshotWriteIntent =
+  | {intent: 'merge'; snapshotUpdate: Uint8Array | null; subject: string}
+  | {intent: 'overwrite'; afterWrite?: () => void | Promise<void>};
+
 export class ServerAuthoritativePersister {
   private readonly docs = new Map<string, PersistDoc>();
-  /** Pages currently being restored (PVH-8). While a page is here, {@link schedule} and
+  /** Pages currently being overwritten outside the update stream. While a page is here, {@link schedule} and
    *  {@link persistOnce} refuse to arm or run a checkpoint for it — so no checkpoint's
    *  durable write can be *issued* after {@link quiesce} drained the in-flight one, and
-   *  the restore's `upsertPage` becomes the LAST durable write the persister lets happen
+   *  the snapshot `upsertPage` is the LAST durable write issued inside the fenced interval
    *  for that page. Set even when the page has no live canonical doc, so an `ingest` that
-   *  seeds a fresh doc from the (still pre-restore) `pages.data` mid-restore also can't
-   *  arm a clobbering checkpoint. Cleared by {@link reseed}/{@link forget}. */
-  private readonly frozen = new Set<string>();
+   *  seeds a fresh doc from the (still pre-write) `pages.data` mid-write also can't
+   *  arm a clobbering checkpoint. Each fence owns one count, so an unrelated
+   *  {@link forget} (DELETE) cannot clear another writer's freeze mid-write. */
+  private readonly frozen = new Map<string, number>();
+  /** Per-page tails for external snapshot writes. Two concurrent PUT/upsert/restore
+   *  operations must not overlap: each quiesce→write→merge/reseed interval is exclusive
+   *  through finalization. Serializing only those rare writes avoids touching ingest or
+   *  checkpoint scheduling, while the per-page key leaves different pages independent. */
+  private readonly snapshotWriteTails = new Map<string, Promise<void>>();
   private readonly maxPages: number;
   private readonly ttlMs: number;
   private readonly debounceMs: number;
@@ -210,23 +251,7 @@ export class ServerAuthoritativePersister {
       // A malformed update can't corrupt a CRDT doc, but guard the apply anyway.
       return;
     }
-    const after = topLevelDigest(entry.doc);
-    const beforeById = new Map(before);
-    // A pure top-level reorder (same length, same ids IN A DIFFERENT ORDER) changes the
-    // document without changing any block's content hash — detect it via the ORDERED
-    // id sequence, not just an id→hash map, or the reorder would never be persisted.
-    let changed =
-      before.length !== after.length || after.some((e, i) => e[0] !== before[i]?.[0]);
-    for (const [id, hash] of after) {
-      if (beforeById.get(id) !== hash) {
-        changed = true;
-        // Last writer of a block since the last checkpoint wins its attribution. (A pure
-        // reorder changes no block's hash, so it dirties the doc without re-attributing
-        // any block — exactly as the client saver's per-block author stamp does.)
-        entry.pendingAuthors.set(id, subject);
-      }
-    }
-    if (changed) {
+    if (recordTopLevelChanges(before, entry.doc, entry.pendingAuthors, subject)) {
       entry.dirty = true;
       this.schedule(pageId);
     }
@@ -240,58 +265,116 @@ export class ServerAuthoritativePersister {
   }
 
   /** Drop a page's canonical doc WITHOUT persisting (e.g. it was deleted). Safe if absent.
-   *  Also clears any restore freeze so a deleted page never leaks a frozen flag. */
+   *  Deliberately does not clear a snapshot writer's freeze: that writer owns the matching
+   *  unfreeze in its `finally`, so DELETE cannot expose a checkpoint mid-fence. */
   forget(pageId: string): void {
     this.drop(pageId);
-    this.frozen.delete(pageId);
   }
 
   /**
    * Quiesce the persister for a page that is about to be overwritten OUT OF BAND — a
-   * version restore (PVH-8) — so the restore's own durable write can be the LAST write the
-   * persister lets happen for that page. Call this BEFORE the restore's `upsertPage`, and
-   * {@link reseed} AFTER it. What it does, in order:
+   * client whole-snapshot save or version restore (PVH-8) — so that snapshot write cannot
+   * race a canonical checkpoint. This is owned by {@link withSnapshotWriteFence}; its
+   * intent-specific finalizer merges or reseeds afterward. What it does, in order:
    *
    * 1. **Freeze** the page: while frozen, {@link schedule} won't arm a debounce and
    *    {@link persistOnce} won't run — no *new* checkpoint write can be issued for the page.
    *    The freeze is set even if the page has no live canonical doc, so an `ingest` that
-   *    seeds a fresh doc from the (still pre-restore) `pages.data` during the restore window
+   *    seeds a fresh doc from the (still pre-write) `pages.data` during the snapshot window
    *    also can't arm a clobbering checkpoint.
-   * 2. **Cancel** the pending debounce timer, so a queued checkpoint of pre-restore content
+   * 2. **Cancel** the pending debounce timer, so a queued checkpoint of pre-write content
    *    never fires.
    * 3. **Drain** any in-flight persist for the page (`await persistChain`). A checkpoint
    *    that already passed {@link persistOnce}'s liveness fence and is mid-`saveDoc` thus
-   *    COMPLETES here — landing its pre-restore write FIRST, before the restore's write —
+   *    COMPLETES here — landing its pre-write checkpoint FIRST, before the snapshot write —
    *    instead of racing behind it on the single-connection PGlite write mutex and
    *    committing last. `persistChain` is always resolved (persist() swallows write errors),
    *    so this never rejects.
    *
    * Together this closes the write-ordering race the pre-write liveness fence alone missed:
-   * a debounce firing DURING the restore's `upsertPage` transaction would pass the fence
-   * (the entry is still live — the drop hasn't run yet), capture the pre-restore blockdoc,
-   * and queue its `saveDoc` behind the restore on the write mutex, committing LAST and
-   * durably clobbering the restore. After `quiesce`, no such checkpoint can be issued or be
-   * in flight, and the restore's `upsertPage` is the final durable write for the page.
+   * a debounce firing DURING the snapshot's `upsertPage` transaction would pass the fence
+   * (the entry is still live — the drop hasn't run yet), capture the pre-write blockdoc,
+   * and queue its `saveDoc` behind the snapshot on the write mutex, committing LAST and
+   * durably clobbering it. After `quiesce`, no such checkpoint can be issued or be in
+   * flight, and the snapshot `upsertPage` is the final durable write inside the fence.
    */
-  async quiesce(pageId: string): Promise<void> {
-    this.frozen.add(pageId);
+  private async quiesce(pageId: string): Promise<void> {
+    this.frozen.set(pageId, (this.frozen.get(pageId) ?? 0) + 1);
     const entry = this.docs.get(pageId);
     if (!entry) return;
     if (entry.timer) {
       clearTimeout(entry.timer);
       entry.timer = null;
     }
-    // Drain a checkpoint already past the liveness fence so its pre-restore write lands
-    // BEFORE the restore's write, not behind it. A persist chained onto the tail during
+    // Drain a checkpoint already past the liveness fence so its pre-write checkpoint lands
+    // BEFORE the snapshot write, not behind it. A persist chained onto the tail during
     // this await is frozen-gated inside persistOnce, so it issues no write.
     await entry.persistChain.catch(() => {});
   }
 
   /**
-   * Adopt an EXTERNAL, out-of-band overwrite of a page — a version restore (PVH-3/8), or
-   * any other write to `pages.data` that DIDN'T flow through the `/updates` stream — by
+   * Run one whole-snapshot write behind the persister's quiesce fence. This is the
+   * shared store/persister boundary for every write that replaces `pages.data`
+   * without flowing through the canonical `/updates` doc. Intent is explicit:
+   *
+   * - Client PUT/POST snapshots MERGE their blockdoc update into the live canonical
+   *   doc after the durable write, retain that doc, and dirty it so a checkpoint
+   *   converges durable state to the CRDT union.
+   * - Version restores OVERWRITE: an optional `afterWrite` invalidates adjacent live
+   *   state before the canonical doc is dropped/reseeded and the freeze is released.
+   *
+   * Snapshot writers for the same page are serialized through the entire finalization
+   * step, so the next writer cannot quiesce until the first merge/reseed has completed.
+   * Different pages have independent tails. The callback may reject; either intent still
+   * releases its own freeze, and overwrite intent still runs `afterWrite` then reseeds.
+   */
+  async withSnapshotWriteFence<T>(
+    pageId: string,
+    write: () => Promise<T>,
+    options: SnapshotWriteIntent,
+  ): Promise<T> {
+    const previous = this.snapshotWriteTails.get(pageId) ?? Promise.resolve();
+    let release!: () => void;
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => {}).then(() => done);
+    this.snapshotWriteTails.set(pageId, tail);
+
+    await previous.catch(() => {});
+    try {
+      await this.quiesce(pageId);
+      try {
+        const result = await write();
+        if (options.intent === 'merge') {
+          await this.mergeSnapshot(pageId, options.snapshotUpdate, options.subject);
+        }
+        return result;
+      } finally {
+        if (options.intent === 'overwrite') {
+          try {
+            await options.afterWrite?.();
+          } finally {
+            this.reseed(pageId);
+          }
+        } else {
+          this.unfreeze(pageId);
+          // `quiesce` cancelled the prior debounce, and updates that arrived while
+          // frozen could not schedule one. Re-arm after the canonical merge/failure.
+          this.schedule(pageId);
+        }
+      }
+    } finally {
+      release();
+      if (this.snapshotWriteTails.get(pageId) === tail) this.snapshotWriteTails.delete(pageId);
+    }
+  }
+
+  /**
+   * Adopt an intentional EXTERNAL overwrite of a page — a version restore (PVH-3/8),
+   * or another operation with explicit replacement semantics — by
    * dropping the canonical doc so the next client access reseeds it from the freshly
-   * written durable snapshot, and clearing the restore freeze set by {@link quiesce}.
+   * written durable snapshot, and clearing the snapshot-write freeze set by {@link quiesce}.
    *
    * For a restore this is called AFTER the restore's `upsertPage` (with {@link quiesce}
    * before it), so the restore write is the last durable write the persister allowed for
@@ -304,24 +387,22 @@ export class ServerAuthoritativePersister {
    * update; dropping sidesteps both and reuses the exact seed path {@link ensure} already
    * takes on a cold page.
    *
-   * **Semantics — restore wins, but connected edits are NOT thrown away.** A restore is an
-   * INTENTIONAL overwrite, so the restored snapshot becomes the new base. A client that is
-   * still connected loses nothing: its edits are CRDT deltas that re-merge on top of the
-   * restored base on its next `/sync` (the server answers that client's state vector from
-   * the freshly reseeded doc). Only the unsent edits of a client that has *already gone*
-   * during the restore are dropped from the live doc — and even those are recoverable,
-   * because PVH-1 force-captures the pre-restore state as a version first, restorable via
-   * this same route.
+   * **Semantics — the restore wins, but connected edits are NOT thrown away.**
+   * The restored snapshot becomes the new base. A client that is still connected
+   * loses nothing: its edits are CRDT deltas that re-merge on top of that base on its next
+   * `/sync` (the server answers that client's state vector from the freshly reseeded doc).
+   * For an intentional restore, even edits from a client that has already gone are
+   * recoverable because PVH-1 force-captures the pre-restore state as a version first.
    *
-   * **No feedback loop.** This is called ONLY from the external restore path, never from
+   * **No feedback loop.** This is called ONLY from overwrite paths, never from
    * the checkpoint path (which persists via `saveDoc` → `store.saveServerDoc` and never
    * touches this method) — so a checkpoint can't self-invalidate. Paired with {@link quiesce}
    * (which cancels the debounce, freezes new checkpoints, and drains the in-flight one), a
-   * checkpoint of pre-restore content can neither fire after the restore nor race its write.
+   * checkpoint of pre-write content can neither fire after the snapshot nor race its write.
    */
-  reseed(pageId: string): void {
+  private reseed(pageId: string): void {
     this.drop(pageId);
-    this.frozen.delete(pageId);
+    this.unfreeze(pageId);
   }
 
   /** Checkpoint every dirty canonical doc now (shutdown / periodic flush). Awaits all
@@ -329,6 +410,7 @@ export class ServerAuthoritativePersister {
    *  failed write left un-persisted is LOGGED (never silently stranded) so a broken store
    *  at shutdown is at least visible. */
   async flushAll(): Promise<void> {
+    await Promise.all([...this.snapshotWriteTails.values()]);
     await Promise.all([...this.docs.keys()].map((id) => this.checkpoint(id)));
     for (const [id, entry] of this.docs) {
       if (!this.isClean(entry)) {
@@ -340,6 +422,7 @@ export class ServerAuthoritativePersister {
   /** Checkpoint everything, then destroy every doc + stop. Used on server shutdown. */
   async close(): Promise<void> {
     this.closed = true;
+    await Promise.all([...this.snapshotWriteTails.values()]);
     await this.flushAll();
     for (const id of [...this.docs.keys()]) this.drop(id);
   }
@@ -352,6 +435,12 @@ export class ServerAuthoritativePersister {
   // ── Internals ────────────────────────────────────────────────────────────────
 
   private async ensure(pageId: string): Promise<PersistDoc | null> {
+    // Touch the requested live doc BEFORE the lazy TTL sweep. Besides avoiding needless
+    // drop+reload on an active ingest, this is essential inside a snapshot merge fence:
+    // the retained canonical union must not be evicted and reseeded from the just-written
+    // (possibly stale) durable snapshot while merge finalization is acquiring it.
+    const live = this.docs.get(pageId);
+    if (live) live.touched = Date.now();
     await this.sweepExpired();
     let entry = this.docs.get(pageId);
     if (!entry) {
@@ -397,11 +486,54 @@ export class ServerAuthoritativePersister {
     return entry;
   }
 
+  /** Merge a client whole-snapshot's CRDT state into the canonical doc after its direct
+   *  DB write. Even a stale update that contributes no new operation dirties the canonical
+   *  doc: the DB was just replaced by that stale snapshot, so the next checkpoint must
+   *  write the retained union back. A cold-page PUT remains solely a direct store write;
+   *  there is no live union to protect, so it must not manufacture a canonical doc.
+   *
+   *  Mixed-editor decision: a legacy editorjs PUT has no CRDT update to merge. If a blocks
+   *  canonical doc is already live, server-authoritative collaboration deliberately wins
+   *  and its checkpoint restores that canonical blocks state. Converting or merging the two
+   *  editor formats is unsupported; keeping the canonical doc authoritative avoids silently
+   *  abandoning already-accepted live CRDT edits. */
+  private async mergeSnapshot(pageId: string, snapshotUpdate: Uint8Array | null, subject: string): Promise<void> {
+    const hadCanonical = this.docs.has(pageId);
+    if (!hadCanonical) return;
+    const entry = await this.ensure(pageId);
+    if (!entry) return;
+    if (snapshotUpdate) {
+      const before = topLevelDigest(entry.doc);
+      try {
+        Y.applyUpdate(entry.doc, snapshotUpdate);
+      } catch {
+        // The route historically accepts opaque snapshots. If its CRDT update is malformed,
+        // retain and re-checkpoint the existing canonical doc rather than abandoning edits
+        // the live session already accepted.
+      }
+      recordTopLevelChanges(before, entry.doc, entry.pendingAuthors, subject);
+    }
+    entry.touched = Date.now();
+    entry.dirty = true;
+  }
+
+  private isFrozen(pageId: string): boolean {
+    return (this.frozen.get(pageId) ?? 0) > 0;
+  }
+
+  /** Release exactly one fence-owned freeze. A refcount makes `forget()` safe while a
+   *  DELETE races a snapshot writer: only the owning fence can release its guard. */
+  private unfreeze(pageId: string): void {
+    const count = this.frozen.get(pageId) ?? 0;
+    if (count <= 1) this.frozen.delete(pageId);
+    else this.frozen.set(pageId, count - 1);
+  }
+
   private schedule(pageId: string): void {
     if (this.closed) return;
-    // Frozen ⇒ a restore is overwriting this page; refuse to arm a checkpoint so the
-    // restore's own durable write stays the last one (PVH-8). Cleared by reseed/forget.
-    if (this.frozen.has(pageId)) return;
+    // Frozen ⇒ an external snapshot is writing this page; refuse to arm a checkpoint
+    // until the intent-specific merge/reseed finalizer releases the fence.
+    if (this.isFrozen(pageId)) return;
     const entry = this.docs.get(pageId);
     if (!entry) return;
     if (entry.timer) clearTimeout(entry.timer);
@@ -430,13 +562,13 @@ export class ServerAuthoritativePersister {
   private async persistOnce(pageId: string): Promise<void> {
     const entry = this.docs.get(pageId);
     if (!entry || entry.seeded !== true) return;
-    // Frozen ⇒ a restore is in progress for this page (PVH-8). Refuse to write pre-restore
-    // content: this bails a checkpoint chained after the freeze (e.g. via an evict/TTL
+    // Frozen ⇒ an external snapshot write is in progress for this page. Refuse to write
+    // pre-write content: this bails a checkpoint chained after the freeze (e.g. via evict/TTL
     // `checkpoint` that bypasses `schedule`), so no checkpoint's `saveDoc` can be issued
-    // after `quiesce` drained the in-flight one — the restore's write is the last write.
+    // after `quiesce` drained the in-flight one and before intent-specific finalization.
     // A checkpoint already in flight when `quiesce` ran passed this guard before the freeze
-    // and is awaited by `quiesce`, so it lands FIRST (before the restore write), not after.
-    if (this.frozen.has(pageId)) return;
+    // and is awaited by `quiesce`, so it lands FIRST (before the snapshot write), not after.
+    if (this.isFrozen(pageId)) return;
     if (!entry.dirty && entry.pendingAuthors.size === 0) return; // nothing new to write
     // ── Atomic capture (synchronous — no await between these lines, so no concurrent
     //    ingest interleaves): the projected block document, its state vector, and the
@@ -448,11 +580,10 @@ export class ServerAuthoritativePersister {
     const authors = entry.pendingAuthors;
     entry.pendingAuthors = new Map();
     entry.dirty = false;
-    // Fence a checkpoint that a {@link reseed} (external restore overwrite) dropped while
+    // Fence a checkpoint that a {@link reseed} (external snapshot overwrite) dropped while
     // this persist was debounced: if we're no longer the live doc for this page, writing
-    // our now-stale pre-restore capture would clobber the restored snapshot. The restore's
-    // write wins, so bail — the discarded edits are recoverable (PVH-1 captured them as a
-    // version). Checked AFTER the synchronous capture so no concurrent ingest interleaves.
+    // our now-stale pre-write capture would clobber the external snapshot. That snapshot
+    // wins, so bail. Checked AFTER the synchronous capture so no concurrent ingest interleaves.
     if (this.docs.get(pageId) !== entry) return;
     try {
       const page = await this.opts.saveDoc(pageId, blockdoc, authors);
