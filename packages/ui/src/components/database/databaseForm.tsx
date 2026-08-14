@@ -981,18 +981,20 @@ const DatabaseFormPublicationControls: React.FC<DatabaseFormProps> = ({
               {hasPublicChoice && <p>{t('database.formView.reviewChoiceWarning')}</p>}
               {published && <p>{t('database.formView.rotateWarning')}</p>}
               {!hasTitle && (
-                <div>
-                  <h3 className="font-medium">{t('database.formView.untitledWarning')}</h3>
-                  <label className="mt-1.5 flex items-start gap-2 font-normal">
-                    <input
-                      type="checkbox"
-                      checked={untitledAcknowledged}
-                      onChange={(event) => setUntitledAcknowledged(event.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-primary"
-                    />
-                    <span>{t('database.formView.untitledAcknowledgement')}</span>
-                  </label>
-                </div>
+                <label className="flex items-start gap-2 font-normal">
+                  <input
+                    type="checkbox"
+                    checked={untitledAcknowledged}
+                    onChange={(event) => setUntitledAcknowledged(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-primary"
+                  />
+                  <span>
+                    <span className="block font-medium">{t('database.formView.untitledWarning')}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {t('database.formView.untitledAcknowledgement')}
+                    </span>
+                  </span>
+                </label>
               )}
             </div>
           )}

@@ -199,11 +199,13 @@ describe('database form builder', () => {
     expect(review.querySelector(`[data-publish-review-field="${select.id}"]`)?.textContent).toContain('Free, Pro, Team, +1 more');
     expect(within(review).getAllByText('Public choice')).toHaveLength(4);
     expect(within(review).getByText(/Select, multi-select, status, and checkbox fields are publicly writable/)).toBeTruthy();
-    expect(within(review).getByText('Responses will be untitled')).toBeTruthy();
+    const untitledAcknowledgement = within(review).getByRole('checkbox', {
+      name: /Responses will be untitled/,
+    });
 
     const confirm = within(review).getByRole('button', {name: 'Publish form'});
     expect(confirm.hasAttribute('disabled')).toBe(true);
-    fireEvent.click(within(review).getByRole('checkbox'));
+    fireEvent.click(untitledAcknowledgement);
     expect(confirm.hasAttribute('disabled')).toBe(false);
     fireEvent.click(confirm);
 
