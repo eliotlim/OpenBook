@@ -72,6 +72,16 @@ async function main(): Promise<void> {
     name: 'Endpoint verification note',
     data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'Reachable over the unified endpoint.'}}]}, values: [], names: []},
   });
+  const discoveryToken = 'mcp-listed-enforcement-token';
+  const discoverable = await api.savePage({
+    name: 'Discoverable MCP note',
+    data: {editorjs: {blocks: [{type: 'paragraph', data: {text: discoveryToken}}]}, values: [], names: []},
+  });
+  const hidden = await api.savePage({
+    name: 'Unlisted MCP note',
+    listed: false,
+    data: {editorjs: {blocks: [{type: 'paragraph', data: {text: discoveryToken}}]}, values: [], names: []},
+  });
   const info = await api.getInstanceInfo();
   check('the server advertises a stable instanceId', typeof info.instanceId === 'string' && info.instanceId.length > 0);
   const instanceId = info.instanceId!;
@@ -95,6 +105,17 @@ async function main(): Promise<void> {
     'connector lists the page the server API shows',
     resultText(list).includes('Endpoint verification note') && resultText(list).includes(seeded.id),
   );
+  check(
+    'list_pages inherits the client list filter (no MCP-side reimplementation)',
+    resultText(list).includes(discoverable.id) && !resultText(list).includes(hidden.id),
+  );
+  const search = await client.callTool({name: 'search_notes', arguments: {query: discoveryToken}});
+  check(
+    'search_notes inherits the client search filter',
+    resultText(search).includes(discoverable.id) && !resultText(search).includes(hidden.id),
+  );
+  const direct = await client.callTool({name: 'read_page', arguments: {pageId: hidden.id}});
+  check('an unlisted page remains directly readable', resultText(direct).includes('Unlisted MCP note'));
   await client.close();
 
   console.log('\nRefusal: foreign responder on the target endpoint');
