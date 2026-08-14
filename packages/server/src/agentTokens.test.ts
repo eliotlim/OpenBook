@@ -479,7 +479,7 @@ describe('page sharing/exposure is refused for a PAT', () => {
     await enableAgentApi();
   });
 
-  it('a WRITE PAT (bound to the owner) is refused visibility + ACL changes (403), but normal content writes still work', async () => {
+  it('a WRITE PAT (bound to the owner) is refused visibility, listing + ACL changes (403), but normal content writes still work', async () => {
     const a = app();
     const {token} = await mintPat({scope: 'write', subject: OWNER});
     const pid = (await store.upsertPage({name: `s-${seq}`, data: snapshot()})).id;
@@ -496,6 +496,15 @@ describe('page sharing/exposure is refused for a PAT', () => {
       body: JSON.stringify({visibility: 'public'}),
     });
     expect(vis.status).toBe(403);
+
+    // Discovery: the same protected route also refuses an unlisted flip.
+    const listed = await req(a, `/api/pages/${pid}/visibility`, {
+      method: 'PUT',
+      headers: {...bearer(token), 'Content-Type': 'application/json'},
+      body: JSON.stringify({listed: false}),
+    });
+    expect(listed.status).toBe(403);
+    expect((await store.getPageVisibility(pid))?.listed).toBe(true);
 
     // Sharing: a durable ACL grant that would SURVIVE revocation is refused.
     const share = await req(a, `/api/pages/${pid}/acl`, {

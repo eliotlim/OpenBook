@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibilitySettings, PageVisibilityUpdate, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import {
   FormSubmissionError,
@@ -485,11 +485,12 @@ export interface DataClient {
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]>;
 
   // ── Sharing: per-page visibility scope + ACL (OB-182 §1.1; OB-191/203) ────────
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
-   *  `null` if the page does not exist. */
-  getPageVisibility(pageId: string): Promise<PageVisibility | null>;
-  /** Set a page's visibility scope (manager-only — gated on page write). */
-  setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility>;
+  /** A page's stored audience scope and independent discovery posture, or
+   *  `null` if the page does not exist. `visibility` is raw (`inherit` is not
+   *  resolved). */
+  getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null>;
+  /** Update either or both page visibility settings (manager-only). */
+  setPageVisibility(pageId: string, update: PageVisibilityUpdate): Promise<PageVisibilitySettings>;
   /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against
    *  the instance mode). Gated on read of the page. Use this for the UI tri-state
    *  (which must show `inherit` as its own state); use {@link getEffectiveAgentEdits}
@@ -1801,17 +1802,14 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
-  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
-   *  `null` if the page does not exist. Gated on read of the page. */
-  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
-    const {visibility} = await this.request<{visibility: PageVisibility}>('GET', API.pageVisibility(pageId));
-    return visibility;
+  /** A page's stored audience scope and independent discovery posture. */
+  async getPageVisibility(pageId: string): Promise<PageVisibilitySettings | null> {
+    return this.request<PageVisibilitySettings>('GET', API.pageVisibility(pageId));
   }
 
-  /** Set a page's visibility scope. Gated on write of the page (manage = write). */
-  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
-    const res = await this.request<{visibility: PageVisibility}>('PUT', API.pageVisibility(pageId), {visibility});
-    return res.visibility;
+  /** Update its audience scope and/or discovery posture. Gated on page write. */
+  async setPageVisibility(pageId: string, update: PageVisibilityUpdate): Promise<PageVisibilitySettings> {
+    return this.request<PageVisibilitySettings>('PUT', API.pageVisibility(pageId), update);
   }
 
   /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against

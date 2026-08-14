@@ -152,7 +152,7 @@ function PagePublishIndicator({pageId}: {pageId: string}) {
     let live = true;
     client
       .getPageVisibility(pageId)
-      .then((v) => live && setIsPublic(v === 'public'))
+      .then((settings) => live && setIsPublic(settings?.visibility === 'public'))
       .catch(() => live && setIsPublic(false));
     return () => {
       live = false;
