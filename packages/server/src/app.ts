@@ -142,8 +142,8 @@ import {
 /** Server-side name for the shared durable-write error response contract. */
 export type ServerWriteErrorEnvelope<Code extends string = WriteServerErrorCode> = WriteErrorEnvelope<Code>;
 
-/** Server-side name for the shared HTTP 409 CAS response contract. */
-export type ServerWriteConflictEnvelope<Current = unknown> = WriteConflictEnvelope<Current>;
+/** Server-side name for the shared discriminated HTTP 409 CAS response contract. */
+export type ServerWriteConflictEnvelope = WriteConflictEnvelope;
 
 /**
  * Build the Hono app over a page store. Routes implement the shared

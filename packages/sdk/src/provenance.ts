@@ -11,8 +11,8 @@ import type {Jwks, Principal, RevocationSet, VerifiedVia} from './identity';
 import type {
   AgentEditsMode,
   EffectiveRole,
-  EntityVersion,
-  ExpectedVersionInput,
+  EntityRev,
+  ExpectedRevInput,
   MemberRole,
   PageVisibility,
 } from './types';
@@ -120,14 +120,14 @@ export interface InstanceConfig {
 }
 
 /** Flat instance-policy write body with opt-in CAS metadata. */
-export type InstanceConfigUpdate = Partial<InstanceConfig> & ExpectedVersionInput;
+export type InstanceConfigUpdate = Partial<InstanceConfig> & ExpectedRevInput;
 
 /**
- * Instance policy returned by a version-aware write. The token is stored beside
+ * Instance policy returned by a revision-aware write. The token is stored beside
  * the policy JSON and is not itself an editable {@link InstanceConfig} field.
  */
-export interface VersionedInstanceConfig extends InstanceConfig {
-  version: EntityVersion;
+export interface InstanceConfigWithRev extends InstanceConfig {
+  rev: EntityRev;
 }
 
 /**
@@ -209,7 +209,7 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
  */
 export interface InstanceInfo {
   /** Optimistic-concurrency token; absent only when reading from a legacy server. */
-  version?: EntityVersion;
+  rev?: EntityRev;
   guestAccess: GuestAccess;
   /**
    * The instance-wide agent-edits mode (AGED-1) — see {@link InstanceConfig.agentEdits}.

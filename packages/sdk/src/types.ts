@@ -53,22 +53,42 @@ export interface PageSnapshot {
  * Monotonic optimistic-concurrency token for one durable entity. Implementing
  * servers return positive safe integers; see `docs/write-contract.md`.
  */
-export type EntityVersion = number;
+export type EntityRev = number;
 
 /** A representation that is guaranteed to carry its concurrency token. */
-export type Versioned<Shape> = Shape & {version: EntityVersion};
+export type WithRev<Shape> = Shape & {rev: EntityRev};
 
-/** Additive CAS input shared by version-aware write payloads. Omission is LWW. */
-export interface ExpectedVersionInput {
-  expectedVersion?: EntityVersion;
+/** Additive CAS input shared by revision-aware write payloads. Omission is LWW. */
+export interface ExpectedRevInput {
+  expectedRev?: EntityRev;
+}
+
+/** Opaque lexicographically ordered fractional key used by the CWD-12 target contract. */
+export type StablePosition = string;
+
+/** Stable page-id → position mapping; unlike `orderedIds`, identity survives insertion. */
+export type PagePositionRecord = Readonly<Record<string, StablePosition>>;
+
+/** Target input for moving one page without rewriting any sibling row. */
+export interface PageMoveInput extends ExpectedRevInput {
+  parentId: string | null;
+  /** Wave 1 requires exactly the route page id as this record's sole key. */
+  positions: PagePositionRecord;
+}
+
+/** Target input for position-record row ordering after the CWD-12 migration. */
+export interface PageOrderInput {
+  positions: PagePositionRecord;
 }
 
 /** UUID v4/v7 value carried in the `Idempotency-Key` request header. */
 export type IdempotencyKey = string;
 
 /** Request metadata accepted by the SDK write chokepoint (not part of JSON bodies). */
-export interface IdempotentWriteOptions {
+export interface WriteRequestOptions {
   idempotencyKey?: IdempotencyKey;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 /** The durable entity whose guarded write conflicted. */
@@ -80,7 +100,7 @@ export type WriteEntityRef =
 
 /** Stable server codes introduced for the durable-write contract. */
 export type WriteServerErrorCode =
-  | 'version-conflict'
+  | 'rev-conflict'
   | 'idempotency-key-reused'
   | 'invalid-input'
   | 'unauthorized'
@@ -116,28 +136,60 @@ export interface WriteIdempotencyKeyReuseEnvelope extends WriteErrorEnvelope<'id
 
 /** Links offered by wave-1 conflict resolution. */
 export interface WriteConflictLinks {
+  /** Permission-appropriate GET endpoint used when `current` is omitted. */
+  readonly self: string;
   /** Page/row history endpoint; `null` for entities without version history. */
   readonly versionHistory: string | null;
 }
 
 /**
- * HTTP 409 body for an opt-in CAS miss. `current` is the permission-filtered
- * representation returned by the corresponding GET and carries `currentVersion`.
+ * Fields shared by every HTTP 409 CAS response. `current` is specialized by the
+ * responding route's projection in the discriminated members below.
  */
-export interface WriteConflictEnvelope<Current = unknown> extends WriteErrorEnvelope<'version-conflict'> {
+interface WriteConflictBase extends WriteErrorEnvelope<'rev-conflict'> {
   readonly retryable: false;
-  readonly entity: WriteEntityRef;
-  readonly expectedVersion: EntityVersion;
-  readonly currentVersion: EntityVersion;
-  readonly current: Versioned<Current>;
+  readonly expectedRev: EntityRev;
+  readonly currentRev: EntityRev;
   readonly links: WriteConflictLinks;
 }
+
+/** CAS response from a page, row-content, visibility, or agent-policy route. */
+export interface PageConflict extends WriteConflictBase {
+  readonly entity: Extract<WriteEntityRef, {kind: 'page'}>;
+  readonly current: WithRev<StoredPage | PageVisibilitySettings | AgentEditsPolicySettings> | null;
+}
+
+/** CAS response from a database-row property route. */
+export interface DatabaseRowConflict extends WriteConflictBase {
+  readonly entity: Extract<WriteEntityRef, {kind: 'database-row'}>;
+  readonly current: WithRev<import('./database').DatabaseRow> | null;
+}
+
+/** CAS response from a database route. */
+export interface DatabaseConflict extends WriteConflictBase {
+  readonly entity: Extract<WriteEntityRef, {kind: 'database'}>;
+  readonly current: WithRev<import('./database').StoredDatabase> | null;
+}
+
+/** CAS response from the instance-policy route. */
+export interface InstanceConfigConflict extends WriteConflictBase {
+  readonly entity: Extract<WriteEntityRef, {kind: 'instance-config'}>;
+  readonly current: WithRev<import('./provenance').InstanceConfig> | null;
+}
+
+/** HTTP 409 body for an opt-in CAS miss, discriminated by `entity.kind`. */
+export type WriteConflictEnvelope =
+  | PageConflict
+  | DatabaseRowConflict
+  | DatabaseConflict
+  | InstanceConfigConflict;
 
 /** Stable discriminators used by the SDK's future runtime `WriteError` classes. */
 export type WriteErrorKind =
   | 'timeout'
   | 'abort'
   | 'conflict'
+  | 'idempotency-reuse'
   | 'validation'
   | 'authorization'
   | 'rate-limit'
@@ -167,10 +219,16 @@ export interface WriteAbortErrorInfo extends WriteErrorInfo<'abort', null> {
   readonly retryable: false;
 }
 
-export interface WriteConflictErrorInfo<Current = unknown>
-  extends WriteErrorInfo<'conflict', 409, WriteConflictEnvelope<Current>> {
+export interface WriteConflictErrorInfo
+  extends WriteErrorInfo<'conflict', 409, WriteConflictEnvelope> {
   readonly retryable: false;
-  readonly code: 'version-conflict';
+  readonly code: 'rev-conflict';
+}
+
+export interface WriteIdempotencyReuseErrorInfo
+  extends WriteErrorInfo<'idempotency-reuse', 409, WriteIdempotencyKeyReuseEnvelope> {
+  readonly retryable: false;
+  readonly code: 'idempotency-key-reused';
 }
 
 export interface WriteValidationErrorInfo
@@ -184,6 +242,7 @@ export interface WriteAuthorizationErrorInfo extends WriteErrorInfo<'authorizati
 
 export interface WriteRateLimitErrorInfo extends WriteErrorInfo<'rate-limit', 429> {
   readonly retryable: true;
+  readonly retryAfterMs?: number;
 }
 
 export interface WriteTransportErrorInfo extends WriteErrorInfo<'transport', null> {
@@ -199,10 +258,11 @@ export interface WriteHttpErrorInfo extends WriteErrorInfo<'http', number> {
 }
 
 /** Exhaustive structural taxonomy implemented by the SDK error classes. */
-export type WriteErrorContract<Current = unknown> =
+export type WriteErrorContract =
   | WriteTimeoutErrorInfo
   | WriteAbortErrorInfo
-  | WriteConflictErrorInfo<Current>
+  | WriteConflictErrorInfo
+  | WriteIdempotencyReuseErrorInfo
   | WriteValidationErrorInfo
   | WriteAuthorizationErrorInfo
   | WriteRateLimitErrorInfo
@@ -221,7 +281,7 @@ export const emptyPageSnapshot = (): PageSnapshot => ({
 export interface PageMeta {
   id: string;
   /** Optimistic-concurrency token; absent only when reading from a legacy server. */
-  version?: EntityVersion;
+  rev?: EntityRev;
   name: string | null;
   /** Whether the page participates in discovery surfaces. Independent of who
    *  may read it; omitted by older servers. */
@@ -284,7 +344,7 @@ export interface PageGraph {
 export interface StoredPage {
   id: string;
   /** Optimistic-concurrency token; absent only when reading from a legacy server. */
-  version?: EntityVersion;
+  rev?: EntityRev;
   name: string | null;
   data: PageSnapshot;
   /** The database this page *hosts*, if any (mirrors {@link PageMeta.hostedDatabaseId}). */
@@ -342,7 +402,7 @@ export interface StoredPageVersion extends PageVersionMeta {
  * not set through this payload — they are managed by the database row APIs so a
  * routine content save never clobbers them.
  */
-export interface PageInput extends ExpectedVersionInput {
+export interface PageInput extends ExpectedRevInput {
   id?: string;
   name?: string | null;
   data: PageSnapshot;
@@ -397,14 +457,17 @@ export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
 /** The state returned by the co-located page visibility/listing endpoint.
  * `listed` is a discovery flag, not another rung in {@link PageVisibility}. */
 export interface PageVisibilitySettings {
+  /** The owning page's concurrency token; absent only on a legacy server. */
+  rev?: EntityRev;
   visibility: PageVisibility;
   listed: boolean;
 }
 
 /** A non-empty update accepted by the page visibility/listing endpoint. */
-export type PageVisibilityUpdate =
+export type PageVisibilityUpdate = (
   | {visibility: PageVisibility; listed?: boolean}
-  | {visibility?: PageVisibility; listed: boolean};
+  | {visibility?: PageVisibility; listed: boolean}
+) & ExpectedRevInput;
 
 /**
  * The two INSTANCE-level agent-edits modes (AGED-1). Governs whether an agent (an
@@ -421,6 +484,19 @@ export type AgentEditsMode = 'suggest' | 'direct';
  * Resolve to an effective {@link AgentEditsMode} with {@link resolveAgentEdits}.
  */
 export type AgentEditsPolicy = 'inherit' | 'suggest' | 'direct';
+
+/** Revision-bearing response from a page's agent-edits policy endpoint. */
+export interface AgentEditsPolicySettings {
+  /** The owning page's concurrency token; absent only on a legacy server. */
+  rev?: EntityRev;
+  agentEdits: AgentEditsPolicy;
+  effective: AgentEditsMode;
+}
+
+/** Revision-aware input for a page's agent-edits policy endpoint. */
+export interface AgentEditsPolicyUpdate extends ExpectedRevInput {
+  agentEdits: AgentEditsPolicy;
+}
 
 /** Every {@link AgentEditsMode} — the source of truth for validating an instance
  *  policy write (`PUT /api/instance`). */
@@ -527,6 +603,8 @@ export interface PageAcl {
 
 /** Status of a desktop install's local server. */
 export interface ServerInfo {
+  /** Durable-write capability; absent on servers that cannot safely deduplicate replay. */
+  writeContract?: 1;
   /** Whether the local server is currently running. */
   running: boolean;
   /** Bound base URL the local UI connects to, when running (loopback). */
