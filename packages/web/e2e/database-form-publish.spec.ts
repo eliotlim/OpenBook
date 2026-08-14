@@ -395,7 +395,7 @@ test(
       await visitor.getByRole('button', {name: 'Submit another response'}).click();
       await visitor.getByRole('textbox', {name: 'Notes'}).fill('stale after retype');
       await visitor.getByRole('button', {name: 'Submit', exact: true}).click();
-      await expect(visitor.getByText('Choose an available option.')).toBeVisible();
+      await expect(visitor.getByText('Choose one of the available options.')).toBeVisible();
       expect(await ownerJson<Array<unknown>>(instance, `/api/databases/${database.id}/rows`)).toHaveLength(1);
 
       // Delete through the shared table-header UI. The field is scrubbed from

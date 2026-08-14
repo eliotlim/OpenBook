@@ -402,6 +402,23 @@ describe('validateRowAgainstForm', () => {
       ok: true,
       fields: {answer: 'seven'},
     });
+
+    const textProperty: DatabaseProperty = {id: 'choice', name: 'Choice', type: 'text'};
+    const choiceView = formView({visiblePropertyIds: ['choice']});
+    expect(validateRowAgainstForm(schemaWith([textProperty], choiceView), choiceView, {choice: 'stale'})).toEqual({
+      ok: true,
+      fields: {choice: 'stale'},
+    });
+
+    const selectProperty: DatabaseProperty = {
+      ...textProperty,
+      type: 'select',
+      options: [{id: 'current', label: 'Current'}],
+    };
+    expect(validateRowAgainstForm(schemaWith([selectProperty], choiceView), choiceView, {choice: 'stale'})).toEqual({
+      ok: false,
+      errors: [{propertyId: 'choice', code: 'option'}],
+    });
   });
 
   it('orders timed date ranges by instant across mixed timezone offsets', () => {

@@ -172,6 +172,37 @@ describe('public database form surface', () => {
     expect(screen.queryByRole('button', {name: 'Send response'})).toBeNull();
   });
 
+  it('renders a stale option rejection as the canonical per-field validation error', async () => {
+    const submitDatabaseForm = vi.fn().mockRejectedValue(new DatabaseFormRequestError(
+      400,
+      undefined,
+      [{propertyId: 'notes', code: 'option'}],
+    ));
+    renderPublic(client({
+      getPublicDatabaseForm: vi.fn().mockResolvedValue({
+        ...descriptor,
+        fields: [{
+          propertyId: 'notes',
+          type: 'text',
+          label: 'Notes',
+          help: '',
+          required: false,
+          placeholder: '',
+        }],
+      }),
+      submitDatabaseForm,
+    }));
+
+    const notes = await screen.findByRole('textbox', {name: 'Notes'});
+    fireEvent.change(notes, {target: {value: 'stale after retype'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Send response'}));
+
+    expect(await screen.findByText('Choose one of the available options.')).toBeTruthy();
+    expect(notes.getAttribute('aria-invalid')).toBe('true');
+    expect(notes.closest('[data-public-form-field]')?.textContent).toContain('Choose one of the available options.');
+    expect(document.querySelector('[data-public-form-confirmation]')).toBeNull();
+  });
+
   it('kills an already-loaded form when revocation is observed during submit', async () => {
     renderPublic(client({
       submitDatabaseForm: vi.fn().mockRejectedValue(new DatabaseFormRequestError(404, 'form not found')),
