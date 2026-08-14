@@ -161,20 +161,45 @@ class InvalidIdempotencyInputError extends Error {
 }
 
 /** Exact method/path allowlist from write-contract §4.1. */
+const IDEMPOTENCY_ROUTE_PARAM = '__openbook_idempotency_route_param__';
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const idempotencyRoutePattern = (path: string): RegExp => new RegExp(
+  `^${path.split(IDEMPOTENCY_ROUTE_PARAM).map(escapeRegex).join('[^/]+')}$`,
+);
+const WAVE_ONE_IDEMPOTENCY_ROUTES: ReadonlyArray<{
+  methods: readonly string[];
+  pattern: RegExp;
+}> = [
+  {methods: ['POST'], pattern: idempotencyRoutePattern(API.pages)},
+  {methods: ['PUT', 'PATCH', 'DELETE'], pattern: idempotencyRoutePattern(API.page(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['PATCH'], pattern: idempotencyRoutePattern(API.pageProperties(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['PUT'], pattern: idempotencyRoutePattern(API.pageMove(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['POST'], pattern: idempotencyRoutePattern(API.pageRestore(IDEMPOTENCY_ROUTE_PARAM))},
+  {
+    methods: ['POST'],
+    pattern: idempotencyRoutePattern(API.pageVersionRestore(
+      IDEMPOTENCY_ROUTE_PARAM,
+      IDEMPOTENCY_ROUTE_PARAM,
+    )),
+  },
+  {methods: ['PUT'], pattern: idempotencyRoutePattern(API.pageVisibility(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['PUT'], pattern: idempotencyRoutePattern(API.pageAgentEdits(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['POST'], pattern: idempotencyRoutePattern(API.databases)},
+  {methods: ['PATCH', 'DELETE'], pattern: idempotencyRoutePattern(API.database(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['POST'], pattern: idempotencyRoutePattern(API.databaseRows(IDEMPOTENCY_ROUTE_PARAM))},
+  {methods: ['PUT'], pattern: idempotencyRoutePattern(API.databaseRowsOrder(IDEMPOTENCY_ROUTE_PARAM))},
+  {
+    methods: ['PATCH'],
+    pattern: idempotencyRoutePattern(API.databaseRow(IDEMPOTENCY_ROUTE_PARAM, IDEMPOTENCY_ROUTE_PARAM)),
+  },
+  {methods: ['PUT'], pattern: idempotencyRoutePattern(API.instance)},
+];
+
 function isWaveOneIdempotencyRoute(method: string, path: string): boolean {
   const upper = method.toUpperCase();
-  if (upper === 'POST' && path === API.pages) return true;
-  if (upper === 'POST' && path === API.databases) return true;
-  if (upper === 'PUT' && path === API.instance) return true;
-  if (/^\/api\/pages\/[^/]+$/.test(path)) return upper === 'PUT' || upper === 'PATCH' || upper === 'DELETE';
-  if (/^\/api\/pages\/[^/]+\/properties$/.test(path)) return upper === 'PATCH';
-  if (/^\/api\/pages\/[^/]+\/(?:move|visibility|agent-edits)$/.test(path)) return upper === 'PUT';
-  if (/^\/api\/pages\/[^/]+\/restore$/.test(path)) return upper === 'POST';
-  if (/^\/api\/pages\/[^/]+\/versions\/[^/]+\/restore$/.test(path)) return upper === 'POST';
-  if (/^\/api\/databases\/[^/]+$/.test(path)) return upper === 'PATCH' || upper === 'DELETE';
-  if (/^\/api\/databases\/[^/]+\/rows$/.test(path)) return upper === 'POST';
-  if (/^\/api\/databases\/[^/]+\/rows\/order$/.test(path)) return upper === 'PUT';
-  return /^\/api\/databases\/[^/]+\/rows\/[^/]+$/.test(path) && upper === 'PATCH';
+  return WAVE_ONE_IDEMPOTENCY_ROUTES.some(({methods, pattern}) =>
+    methods.includes(upper) && pattern.test(path),
+  );
 }
 
 function idempotencyActorScope(principal: Principal): string {
