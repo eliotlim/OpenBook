@@ -818,10 +818,11 @@ export function flattenRowTree(nodes: RowTreeNode[], collapsed: Set<string>): Ro
   return out;
 }
 
-/** Payload for editing a row's title and/or manual property values. */
+/** Payload for editing a row's title and/or per-key manual property values. */
 export interface RowUpdate extends ExpectedRevInput {
   name?: string | null;
-  properties?: Record<string, unknown>;
+  /** `null` or `{}` is a no-op; `null` values delete keys and `undefined` values are ignored. */
+  properties?: Record<string, unknown> | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────

@@ -75,10 +75,12 @@ export async function runConcurrently<T>(
 }
 
 export interface QueryBarrierOptions {
-  /** Number of matching completed queries that must rendezvous. */
-  parties: number;
+  /** Externally observable rendezvous shared by the matching participants. */
+  barrier: Barrier;
   /** Match only the read that defines the intended stale-snapshot phase. */
   matches(sql: string): boolean;
+  /** Locking reads rendezvous before execution; stale reads rendezvous after. */
+  rendezvous: 'before-query' | 'after-query';
   /** Maximum time from the first arrival until every participant arrives. */
   rendezvousTimeoutMs: number;
   /** Fault sink checked by a non-`test.fails` harness assertion. */
@@ -87,17 +89,17 @@ export interface QueryBarrierOptions {
 
 /**
  * Test-only `Db` decorator that pauses the first N distinct matching query
- * participants *after* their rows are read. Every transaction gets one stable
- * identity, while each standalone query is its own participant. Transactions
- * are recursively decorated, so concurrent store read-modify-write calls can
- * both take a snapshot before either writes. All later queries pass through
- * normally, including final-state assertions.
+ * participants either before a locking read is attempted or after an unlocked
+ * read completes. Every transaction gets one stable identity, while each
+ * standalone query is its own participant. Transactions are recursively
+ * decorated, and all later participants pass through normally, including
+ * final-state assertions.
  */
 export function withQueryBarrier(db: Db, options: QueryBarrierOptions): Db {
   if (!Number.isFinite(options.rendezvousTimeoutMs) || options.rendezvousTimeoutMs <= 0) {
     throw new Error(`query barrier rendezvous timeout must be positive, received ${options.rendezvousTimeoutMs}`);
   }
-  const barrier = createBarrier(options.parties);
+  const {barrier} = options;
   const selectedParticipants = new Set<object>();
   let expiry: Promise<never> | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -123,12 +125,15 @@ export function withQueryBarrier(db: Db, options: QueryBarrierOptions): Db {
   const decorate = (inner: Db, transactionParticipant?: object): Db => ({
     async query<T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<T[]> {
       const participant = transactionParticipant ?? {};
-      const rows = await inner.query<T>(text, params);
-      if (
+      const selected =
         options.matches(text) &&
-        (selectedParticipants.has(participant) || selectedParticipants.size < barrier.parties)
-      ) {
+        (selectedParticipants.has(participant) || selectedParticipants.size < barrier.parties);
+      if (selected) {
         selectedParticipants.add(participant);
+        if (options.rendezvous === 'before-query') await waitForRendezvous(participant);
+      }
+      const rows = await inner.query<T>(text, params);
+      if (selected && options.rendezvous === 'after-query') {
         await waitForRendezvous(participant);
       }
       return rows;

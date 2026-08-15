@@ -59,19 +59,27 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
     }
   });
 
-  // CWD-2: when flipping to `test`, re-point the rendezvous at the fixed SQL shape and hard-assert
-  // `snapshotsRead.arrived === snapshotsRead.parties`; otherwise a missed race can pass silently.
-  test.fails('CWD-2: concurrent updateRow whole-blob writes lose one property key', {timeout: 5_000}, async () => {
-    const store = new PageStore(provisioned!.db);
+  test('CWD-2: concurrent updateRow whole-blob writes preserve both property keys', {timeout: 5_000}, async () => {
+    const snapshotsRead = createBarrier(2);
+    const store = new PageStore(
+      withQueryBarrier(provisioned!.db, {
+        barrier: snapshotsRead,
+        matches: (sql) =>
+          sql === `SELECT properties FROM pages
+           WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL
+           FOR UPDATE`,
+        rendezvous: 'before-query',
+        rendezvousTimeoutMs: RENDEZVOUS_TIMEOUT_MS,
+        harnessFaults,
+      }),
+    );
     const host = await store.upsertPage({name: 'CWD-2 database', data: emptyPageSnapshot()});
     const database = await store.createDatabase({pageId: host.id});
     const row = await store.createRow(database.id, {properties: {seed: true}});
-    const snapshotsRead = createBarrier(2);
 
     const writer = (key: 'left' | 'right') => async (): Promise<void> => {
       const current = (await store.listRows(database.id)).find((candidate) => candidate.id === row.id);
       if (!current) throw new Error('CWD-2 fixture row disappeared');
-      await snapshotsRead.arriveAndWait();
       await store.updateRow(database.id, row.id, {
         properties: {...current.properties, [key]: true},
       });
@@ -79,18 +87,20 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
 
     await runConcurrently([writer('left'), writer('right')], harnessFaults);
 
+    expect(snapshotsRead.arrived).toBe(snapshotsRead.parties);
     const final = (await store.listRows(database.id)).find((candidate) => candidate.id === row.id);
     expect(final?.properties).toEqual({seed: true, left: true, right: true});
   });
 
-  // CWD-3: when flipping to `test`, re-point the matcher at the fixed SQL (including `FOR UPDATE`)
-  // and hard-assert `barrier.arrived === barrier.parties`; otherwise a missed race can pass silently.
-  test.fails('CWD-3: concurrent instance-config patches lose one policy key', {timeout: 5_000}, async () => {
+  test('CWD-3: concurrent instance-config patches preserve both policy keys', {timeout: 5_000}, async () => {
+    const setupStore = new PageStore(provisioned!.db);
+    await setupStore.updateInstanceConfig({});
+    const barrier = createBarrier(2);
     const store = new PageStore(
       withQueryBarrier(provisioned!.db, {
-        parties: 2,
-        matches: (sql) =>
-          sql.includes('SELECT value FROM settings WHERE key = \'instance\'') && !sql.includes('FOR UPDATE'),
+        barrier,
+        matches: (sql) => sql === 'SELECT value FROM settings WHERE key = \'instance\' FOR UPDATE',
+        rendezvous: 'before-query',
         rendezvousTimeoutMs: RENDEZVOUS_TIMEOUT_MS,
         harnessFaults,
       }),
@@ -101,6 +111,7 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
       () => store.updateInstanceConfig({agentEdits: 'direct'}),
     ], harnessFaults);
 
+    expect(barrier.arrived).toBe(barrier.parties);
     expect(await store.getInstanceConfig()).toMatchObject({
       guestAccess: 'off',
       agentEdits: 'direct',
@@ -116,8 +127,9 @@ describe.skipIf(PG_URL === null)('PageStore write races on real Postgres', () =>
 
     const store = new PageStore(
       withQueryBarrier(provisioned!.db, {
-        parties: 2,
+        barrier: createBarrier(2),
         matches: (sql) => sql.includes('SELECT properties FROM pages WHERE id = $1'),
+        rendezvous: 'after-query',
         rendezvousTimeoutMs: RENDEZVOUS_TIMEOUT_MS,
         harnessFaults,
       }),

@@ -63,10 +63,10 @@ the STORE layer (epic task LGR-3).**
 
 - No pre-save/validation hooks exist anywhere in the plugin or server surface.
 - No schema validation on row writes: the PATCH row route passes the body
-  straight through (`packages/server/src/app.ts:1835-1849`) and
-  `store.updateRow` does a whole-bag `properties = COALESCE($5::jsonb,
-  properties)` replace (`packages/server/src/store.ts:1592-1613`) — any JSON
-  shape lands.
+  straight through (`packages/server/src/app.ts:2673-2688`) and
+  `store.updateRow` merges each defined key under a row lock (`null` deletes;
+  absent/`undefined` preserves), while `setPageProperties` stores `null` — any
+  JSON shape still lands (`packages/server/src/store.ts:3233-3282`).
 - Route-level guards are bypassable anyway: in browser-local mode
   `LocalDataClient` implements `DataClient` by calling the store directly —
   no HTTP routes run at all (`packages/server/src/localClient.ts:79`, wired in

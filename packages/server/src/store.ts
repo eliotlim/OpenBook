@@ -2744,8 +2744,10 @@ export class PageStore {
   }
 
   /**
-   * Shallow-merge structured property values into a page's `properties` (jsonb
-   * `||`), leaving its document content and any unmentioned properties intact.
+   * Shallow-merge structured property values into a page's `properties`,
+   * leaving its document content and any unmentioned properties intact.
+   * Unlike {@link updateRow}, `null` is stored rather than deleting a key;
+   * readers currently treat a stored `null` the same as an absent value.
    * This is how a standalone page's owner/verification are set — database rows
    * still go through {@link updateRow}. Returns the updated page, or `null` if
    * it's missing.
@@ -3418,33 +3420,54 @@ export class PageStore {
 
   /**
    * Update a row's title and/or manual property values without touching its
-   * document content. Returns the projected row, or `null` if it does not
+   * document content. Property patches merge per key: an omitted, `null`, or
+   * empty properties bag is a no-op; `undefined` values are ignored; and a
+   * `null` value deletes that key. This deliberately differs from
+   * {@link setPageProperties}, which stores `null` (readers currently treat
+   * both forms as absent). Returns the projected row, or `null` if it does not
    * belong to the given database.
    */
   async updateRow(
     databaseId: string,
     rowId: string,
-    patch: {name?: string | null; properties?: Record<string, unknown>},
+    patch: {name?: string | null; properties?: Record<string, unknown> | null},
   ): Promise<DatabaseRow | null> {
     // LGR-3: ledger row values (amounts, states, refs) change only through the
     // ledger API — the generic row-patch path is rejected at the store layer.
     await this.assertNotLedgerDatabase(databaseId);
-    const rows = await this.db.query<PageRow>(
-      `UPDATE pages
-         SET name = CASE WHEN $3 THEN $4 ELSE name END,
-             properties = COALESCE($5::jsonb, properties),
-             updated_at = now()
-       WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL
-       RETURNING id, name, data, properties, created_at, updated_at`,
-      [
-        rowId,
-        databaseId,
-        patch.name !== undefined,
-        patch.name ?? null,
-        patch.properties === undefined ? null : JSON.stringify(patch.properties),
-      ],
-    );
-    return rows.length > 0 ? rowFromPage(rows[0]) : null;
+    return this.db.begin(async (tx) => {
+      let properties: string | null = null;
+      if (patch.properties != null) {
+        // Serialize the read-merge-write on real Postgres. PGlite's outer
+        // transaction mutex supplies the same exclusion in embedded mode.
+        const current = await tx.query<Pick<PageRow, 'properties'>>(
+          `SELECT properties FROM pages
+           WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL
+           FOR UPDATE`,
+          [rowId, databaseId],
+        );
+        if (current.length === 0) return null;
+
+        const merged = {...parseJson<Record<string, unknown>>(current[0].properties, {})};
+        for (const [key, value] of Object.entries(patch.properties)) {
+          if (value === undefined) continue;
+          if (value === null) delete merged[key];
+          else merged[key] = value;
+        }
+        properties = JSON.stringify(merged);
+      }
+
+      const rows = await tx.query<PageRow>(
+        `UPDATE pages
+           SET name = CASE WHEN $3 THEN $4 ELSE name END,
+               properties = COALESCE($5::jsonb, properties),
+               updated_at = now()
+         WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL
+         RETURNING id, name, data, properties, created_at, updated_at`,
+        [rowId, databaseId, patch.name !== undefined, patch.name ?? null, properties],
+      );
+      return rows.length > 0 ? rowFromPage(rows[0]) : null;
+    });
   }
 
   // ── Plugins (installed extensions) ───────────────────────────────────────────
@@ -3939,35 +3962,47 @@ export class PageStore {
     return instanceId;
   }
 
-  /** Shallow-merge a patch into the instance policy and persist it. */
+  /** Atomically shallow-merge a patch into the instance policy and persist it. */
   async updateInstanceConfig(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
-    const current = await this.getInstanceConfig();
-    const next = {...current, ...patch};
-    // Un-claim guard (OB-190; OB-182 §2.6, B2). A claim is **one-way**: once an
-    // instance has an `ownerSubject`, this writer must NEVER let it be cleared or
-    // re-pointed. The shallow merge above would otherwise honour a patch carrying
-    // `ownerSubject: undefined` (erasing the pin → next read is unclaimed → the
-    // rule-0 anonymous-world-write short-circuit re-opens). Re-setting the same
-    // value is idempotent and allowed; the first claim (from unset) is allowed —
-    // the transactional first-writer-wins CAS for the claim itself is OB-191.
-    if (current.ownerSubject && next.ownerSubject !== current.ownerSubject) {
-      // 409 (not a 500): clearing/re-pointing a claimed owner is a conflicting
-      // request, so `PUT /api/instance {ownerSubject:null}` surfaces as 409.
-      throw new HTTPException(409, {
-        message: 'ownerSubject is claim-once and cannot be cleared or changed (OB-182 §2.6)',
-      });
-    }
-    // Config footgun guard (OB-182 §2.4, Sasha N2): `emailAuthority` MUST be a
-    // trusted issuer. If it names an issuer the instance doesn't trust, no token
-    // from it ever verifies, so every persona / email-ACL grant silently stops
-    // matching (it fails *safe* → deny, but invisibly). Reject the write instead
-    // of letting the policy drift into that dead state.
-    assertEmailAuthorityTrusted(next);
-    await this.db.query(
-      `INSERT INTO settings (key, value) VALUES ('instance', $1::jsonb)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [JSON.stringify(next)],
-    );
+    const next = await this.db.begin(async (tx) => {
+      // Materialize the singleton before locking it. The INSERT's unique-key
+      // conflict also serializes two first-ever config writes on real Postgres;
+      // afterward every writer locks and re-reads the winner's complete value.
+      await tx.query(
+        'INSERT INTO settings (key, value) VALUES (\'instance\', \'{}\'::jsonb) ON CONFLICT (key) DO NOTHING',
+      );
+      const rows = await tx.query<{value: InstanceConfig | string}>(
+        'SELECT value FROM settings WHERE key = \'instance\' FOR UPDATE',
+      );
+      const current: InstanceConfig = {
+        ...DEFAULT_INSTANCE_CONFIG,
+        ...parseJson<Partial<InstanceConfig>>(rows[0]?.value, {}),
+      };
+      const merged = {...current, ...patch};
+
+      // Un-claim guard (OB-190; OB-182 §2.6, B2). A claim is **one-way**: once an
+      // instance has an `ownerSubject`, this writer must NEVER let it be cleared or
+      // re-pointed. The shallow merge above would otherwise honour a patch carrying
+      // `ownerSubject: undefined` (erasing the pin → next read is unclaimed → the
+      // rule-0 anonymous-world-write short-circuit re-opens). Re-setting the same
+      // value is idempotent and allowed; the first claim (from unset) is allowed —
+      // the transactional first-writer-wins CAS for the claim itself is OB-191.
+      if (current.ownerSubject && merged.ownerSubject !== current.ownerSubject) {
+        // 409 (not a 500): clearing/re-pointing a claimed owner is a conflicting
+        // request, so `PUT /api/instance {ownerSubject:null}` surfaces as 409.
+        throw new HTTPException(409, {
+          message: 'ownerSubject is claim-once and cannot be cleared or changed (OB-182 §2.6)',
+        });
+      }
+      // Config footgun guard (OB-182 §2.4, Sasha N2): `emailAuthority` MUST be a
+      // trusted issuer. If it names an issuer the instance doesn't trust, no token
+      // from it ever verifies, so every persona / email-ACL grant silently stops
+      // matching (it fails *safe* → deny, but invisibly). Reject the write instead
+      // of letting the policy drift into that dead state.
+      assertEmailAuthorityTrusted(merged);
+      await tx.query('UPDATE settings SET value = $1::jsonb WHERE key = \'instance\'', [JSON.stringify(merged)]);
+      return merged;
+    });
     this.bumpAccess(); // guest gate / issuers / owner all change decisions (Collab T1)
     return next;
   }
