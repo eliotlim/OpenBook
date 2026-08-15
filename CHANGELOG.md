@@ -1,3 +1,19 @@
+## 3.14.0 (2026-08-15)
+
+### 🚀 Features
+
+- **server:** Idempotency-Key — response-capture ledger, replay, capability flag (CWD-5) ([#325](https://github.com/lab255/OpenBook/pull/325))
+
+### 🩹 Fixes
+
+- **server:** extend persister quiesce fence to snapshot writes — merge, don't clobber (CWD-4) ([#324](https://github.com/lab255/OpenBook/pull/324))
+- **server:** updateRow per-key merge + updateInstanceConfig transaction (CWD-3) ([#322](https://github.com/lab255/OpenBook/pull/322))
+- **ui:** silent save-loss — snapshot cursor advanced before persist resolved (CWD-9) ([#320](https://github.com/lab255/OpenBook/pull/320))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.13.0 (2026-08-14)
 
 ### 🚀 Features
