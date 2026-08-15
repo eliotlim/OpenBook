@@ -392,7 +392,7 @@ represent a complete successful JSON response. Each committed row contains:
 
 - actor scope and normalized key (the primary key);
 - fingerprint, method, and normalized target for diagnostics;
-- HTTP status, JSON response body, and the replayable `Content-Type` and
+- HTTP status, exact response body bytes, and the replayable `Content-Type` and
   `Location` response headers; and
 - completion time for garbage collection.
 
@@ -409,11 +409,15 @@ mutation and may be evaluated again; notably, a retried stale CAS gets fresh
 current state rather than a cached 409. Authentication, authorization, access,
 managed-entity, and body-size gates run before claim/replay, preventing an old
 success from bypassing a later permission revocation.
+The existence gate must not precede replay, because a completed destroy has
+removed its target; for that destroy replay, the actor-scoped key is the
+authorization proof because per-resource authorization can no longer be
+re-evaluated.
 
 On an exact replay after those gates:
 
 1. verify the stored fingerprint;
-2. return the stored status, semantically identical JSON body, and allowlisted
+2. return the stored status, byte-identical body, and allowlisted
    headers; and
 3. do not re-run CAS, mutate storage, increment `rev`, publish a duplicate event,
    or append duplicate edit/history entries.

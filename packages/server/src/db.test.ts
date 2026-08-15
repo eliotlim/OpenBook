@@ -81,4 +81,28 @@ describe('PgliteDb serialization', () => {
     expect(['init', 'done']).toContain(rows[0].state);
     await db.close();
   });
+
+  it('contains a caught nested transaction failure in a savepoint', async () => {
+    const db = await PgliteDb.create('memory://');
+    await db.query('CREATE TABLE nested_writes (value TEXT PRIMARY KEY)');
+
+    await db.begin(async (tx) => {
+      await tx.query('INSERT INTO nested_writes (value) VALUES ($1)', ['outer']);
+      try {
+        await tx.begin(async (nested) => {
+          await nested.query('INSERT INTO nested_writes (value) VALUES ($1)', ['rolled-back']);
+          throw new Error('contain me');
+        });
+      } catch (err) {
+        expect(err).toMatchObject({message: 'contain me'});
+      }
+      await tx.query('INSERT INTO nested_writes (value) VALUES ($1)', ['after']);
+    });
+
+    expect(await db.query<{value: string}>('SELECT value FROM nested_writes ORDER BY value')).toEqual([
+      {value: 'after'},
+      {value: 'outer'},
+    ]);
+    await db.close();
+  });
 });

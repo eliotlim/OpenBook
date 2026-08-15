@@ -2,7 +2,7 @@ import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import postgres from 'postgres';
 import type {PGliteOptions} from '@electric-sql/pglite';
-import {PgliteDb, type Db} from './dbCore';
+import {PgliteDb, type Db, type TransactionOptions} from './dbCore';
 import {DirLock, DirLockedError} from './dirLock';
 
 // The isomorphic core (Mutex, the `Db` interface, the PGlite-backed `PgliteDb`)
@@ -10,9 +10,12 @@ import {DirLock, DirLockedError} from './dirLock';
 // app/web webview. This Node-only module re-exports it and adds the pieces that
 // genuinely need Node: the real-Postgres backend and a filesystem `dataDir`
 // helper.
-export {Mutex, PgliteQueryableDb, PgliteDb, type Db} from './dbCore';
+export {Mutex, PgliteQueryableDb, PgliteDb, type Db, type TransactionOptions} from './dbCore';
 
 type Sql = ReturnType<typeof postgres>;
+type SavepointSql = {
+  savepoint<T>(fn: (tx: Sql) => T | Promise<T>): Promise<T>;
+};
 
 /**
  * JSON/JSONB parameter serializer for the porsager driver (LGR-15).
@@ -57,8 +60,15 @@ const jsonParamPassthrough = (value: unknown): string =>
 /** Real Postgres via the `postgres` (porsager) driver. */
 export class PostgresDb implements Db {
   private readonly sql: Sql;
+  private readonly inTransaction: boolean;
 
-  constructor(databaseUrl: string, opts?: {sql?: Sql; max?: number; onclose?: (connectionId: number) => void}) {
+  constructor(databaseUrl: string, opts?: {
+    sql?: Sql;
+    max?: number;
+    inTransaction?: boolean;
+    onclose?: (connectionId: number) => void;
+  }) {
+    this.inTransaction = opts?.inTransaction === true;
     this.sql =
       opts?.sql ??
       postgres(databaseUrl, {
@@ -76,8 +86,26 @@ export class PostgresDb implements Db {
     return rows as unknown as T[];
   }
 
-  async begin<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-    return this.sql.begin((tx) => fn(new PostgresDb('', {sql: tx as unknown as Sql}))) as Promise<T>;
+  async begin<T>(fn: (tx: Db) => Promise<T>, options?: TransactionOptions): Promise<T> {
+    if (this.inTransaction) {
+      // Use porsager's native scope, not raw SAVEPOINT statements: the driver
+      // tracks query failures per scope and only its savepoint wrapper contains
+      // that marker when the caller catches the nested failure and continues.
+      return (this.sql as unknown as SavepointSql).savepoint((tx) => fn(new PostgresDb('', {
+        sql: tx,
+        inTransaction: true,
+      })));
+    }
+    return this.sql.begin(async (tx) => {
+      const transaction = new PostgresDb('', {
+        sql: tx as unknown as Sql,
+        inTransaction: true,
+      });
+      if (options?.isolationLevel === 'read committed') {
+        await transaction.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      }
+      return fn(transaction);
+    }) as Promise<T>;
   }
 
   async close(): Promise<void> {

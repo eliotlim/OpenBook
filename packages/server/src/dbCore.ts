@@ -35,11 +35,32 @@ export class Mutex {
  *  - `PostgresDb`        — a real Postgres over the wire (headless server,
  *    remote); Node-only, so it lives in `./db`.
  */
+export interface TransactionOptions {
+  isolationLevel?: 'read committed';
+}
+
 export interface Db {
   query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
   /** Run `fn` inside a transaction. */
-  begin<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
+  begin<T>(fn: (tx: Db) => Promise<T>, options?: TransactionOptions): Promise<T>;
   close(): Promise<void>;
+}
+
+let savepointSerial = 0;
+
+/** Contain a nested transaction so a caught inner failure cannot leak partial writes. */
+export async function withSavepoint<T>(db: Db, fn: (tx: Db) => Promise<T>): Promise<T> {
+  savepointSerial += 1;
+  const name = `openbook_nested_${savepointSerial}`;
+  await db.query(`SAVEPOINT ${name}`);
+  try {
+    const result = await fn(db);
+    await db.query(`RELEASE SAVEPOINT ${name}`);
+    return result;
+  } catch (err) {
+    await db.query(`ROLLBACK TO SAVEPOINT ${name}`).then(() => db.query(`RELEASE SAVEPOINT ${name}`)).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** A PGlite instance or transaction — both expose `query`. */
@@ -53,9 +74,10 @@ export class PgliteQueryableDb implements Db {
     return result.rows;
   }
 
-  // Inside an existing PGlite transaction, just run statements inline.
+  // A nested begin is a real savepoint: callers may catch an inner failure and
+  // continue the outer transaction without retaining the inner partial writes.
   async begin<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-    return fn(this);
+    return withSavepoint(this, fn);
   }
 
   async close(): Promise<void> {
