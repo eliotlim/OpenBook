@@ -24,6 +24,15 @@
     },
     "macOS": {
       "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "signCommand": {
+        "cmd": "node",
+        "args": [
+          "scripts/win-sign.mjs",
+          "%1"
+        ]
+      }
     }
   },
   "productName": "OpenBook",
