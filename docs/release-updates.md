@@ -27,6 +27,9 @@ the desktop-integration task wires separately (see "Pubkey" below).
 
 ## Signing secrets
 
+Windows Authenticode publisher signing is separate from these updater `.sig`
+files; see [Windows Authenticode signing](windows-signing.md).
+
 Two GitHub Actions secrets, read by the `publish-tauri` job's build step, must
 be set in the **`publish`** environment (where the `APPLE_*` secrets already
 live):
