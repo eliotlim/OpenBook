@@ -356,6 +356,49 @@ jobs:
           if [ "$fail" -ne 0 ]; then exit 1; fi
           echo "Updater signing key present and production pubkey configured — OK."
 
+      - name: Preflight — Windows Authenticode signing configuration
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          missing=0
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
+            if [ -z "${!name}" ]; then
+              echo "Missing $name" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::warning::Windows build is UNSIGNED — Azure Trusted Signing secrets not configured"
+          else
+            echo "Azure Trusted Signing configuration present — Windows binaries and installers will be signed."
+          fi
+
+      - name: Install Azure Trusted Signing CLI (windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
+            if [ -z "${!name}" ]; then
+              echo "Skipping trusted-signing-cli installation because signing configuration is incomplete."
+              exit 0
+            fi
+          done
+          cargo install --locked trusted-signing-cli --version 0.9.0
+
       # `tauri build` runs its beforeBuildCommand first, which builds the sdk,
       # ui, server sidecar (for SIDECAR_TARGET, set below), and frontend before
       # bundling. (Same as the local `build:desktop` script, plus an explicit
@@ -423,6 +466,16 @@ jobs:
           # log warning — to the committed TEST key, and the bundled plugins
           # show Unverified, exactly like pre-signing builds.
           OPENBOOK_REGISTRY_PRIVATE_KEY: ${{ secrets.OPENBOOK_REGISTRY_PRIVATE_KEY }}
+          # Windows Authenticode signing via Azure Trusted Signing. The wrapper
+          # configured in tauri.conf.json degrades to an unsigned build when any
+          # value is absent, while a configured signing command fails the build
+          # if Azure or signtool rejects any main binary, sidecar, MSI, or NSIS.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
           # Ceremony step 6 (docs/plugin-signing.md): once the secret above is
           # stored, uncomment so a later loss of the secret FAILS the build
           # instead of silently degrading to the TEST-signed fallback.
@@ -480,6 +533,44 @@ jobs:
             exit 1
           fi
           echo "Found ${#sigs[@]} updater signature(s):"; printf '  %s\n' "${sigs[@]}"
+
+      - name: Guard — Windows installers have Authenticode signatures
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          $required = @(
+            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
+            "AZURE_SIGNING_ENDPOINT", "AZURE_SIGNING_ACCOUNT", "AZURE_SIGNING_PROFILE"
+          )
+          if ($required.Where({ [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }).Count -gt 0) {
+            Write-Host "Signing configuration incomplete; skipping Authenticode verification for the unsigned build."
+            exit 0
+          }
+
+          $base = "packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
+          $installers = @(
+            Get-ChildItem "$base/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue
+            Get-ChildItem "$base/nsis" -Filter "*-setup.exe" -File -ErrorAction SilentlyContinue
+          )
+          if ($installers.Count -eq 0) {
+            Write-Error "No Windows MSI or NSIS installers found under $base."
+            exit 1
+          }
+          foreach ($installer in $installers) {
+            & signtool verify /pa /v $installer.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Authenticode verification failed: $($installer.FullName)"
+              exit $LASTEXITCODE
+            }
+          }
+          Write-Host "Verified $($installers.Count) Authenticode-signed Windows installer(s)."
 
       # Post-build backstop (ST-1, same shape as the .sig guard above): when
       # the plugin-registry secret is set, the bundled first-party plugins the
