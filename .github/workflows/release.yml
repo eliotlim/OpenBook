@@ -386,7 +386,8 @@ jobs:
             exit 1
           fi
           if [ "$missing" -eq 6 ]; then
-            if [ "$WINDOWS_SIGNING_REQUIRED" = "1" ]; then
+            signing_required="$(printf '%s' "$WINDOWS_SIGNING_REQUIRED" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            if [ "$signing_required" = "1" ]; then
               echo "::error::WINDOWS_SIGNING_REQUIRED=1 but Windows signing configuration is absent." >&2
               exit 1
             fi
@@ -401,13 +402,14 @@ jobs:
         if: matrix.platform == 'windows-latest' && env.win_signing == '1'
         shell: bash
         run: |
+          # NOTE: upstream deprecated in favor of artifact-signing-cli (rename); pinned 0.9.0 flags verified. Follow-up tracked on the board.
           cargo install --locked trusted-signing-cli --version 0.9.0
 
       - name: Resolve Windows signing tools
         if: matrix.platform == 'windows-latest' && env.win_signing == '1'
         shell: pwsh
         run: |
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Where-Object { $_.Directory.Parent.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
           if (-not $signtool) {
             Write-Error "signtool.exe not found"
             exit 1
@@ -576,10 +578,14 @@ jobs:
         if: matrix.platform == 'windows-latest' && env.win_signing == '1'
         shell: pwsh
         run: |
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) {
-            Write-Error "signtool.exe not found"
-            exit 1
+          $signtoolPath = $env:SIGNTOOL_PATH
+          if (-not $signtoolPath) {
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Where-Object { $_.Directory.Parent.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+            if (-not $signtool) {
+              Write-Error "signtool.exe not found"
+              exit 1
+            }
+            $signtoolPath = $signtool.FullName
           }
 
           $base = "packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
@@ -591,7 +597,7 @@ jobs:
             exit 1
           }
           foreach ($installer in $installers) {
-            & $signtool.FullName verify /pa /v $installer.FullName
+            & $signtoolPath verify /pa /v $installer.FullName
             if ($LASTEXITCODE -ne 0) {
               Write-Error "Authenticode verification failed: $($installer.FullName)"
               exit $LASTEXITCODE
