@@ -152,7 +152,9 @@ export function observePopupPosition({
     const top =
       placement === 'above'
         ? Math.max(boundaryTop + viewportMargin, rect!.top - anchorGap - shownHeight)
-        : rect!.bottom + anchorGap;
+        : boundaryRect
+          ? Math.min(rect!.bottom + anchorGap, boundaryBottom - viewportMargin - shownHeight)
+          : rect!.bottom + anchorGap;
     const anchorLeft = align === 'center' ? rect!.left + rect!.width / 2 - width / 2 : rect!.left;
     const left = Math.max(viewportMargin, Math.min(anchorLeft, window.innerWidth - width - viewportMargin));
 

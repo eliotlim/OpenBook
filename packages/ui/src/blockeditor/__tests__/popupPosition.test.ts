@@ -20,12 +20,81 @@ const popup = (width: number, height: number): HTMLElement => {
   return element;
 };
 
+const boundary = (top: number, bottom: number): HTMLElement => {
+  const element = document.createElement('div');
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, top, 800, bottom - top));
+  return element;
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   viewport(1024, 768);
 });
 
 describe('observePopupPosition', () => {
+  it('preserves byte-equivalent legacy placement when the boundary is null', () => {
+    viewport(800, 600);
+    let position: PopupPosition | undefined;
+    const cleanup = observePopupPosition({
+      popup: () => popup(272, 200),
+      anchor: () => new DOMRect(100, 100, 2, 20),
+      boundary: () => null,
+      onPosition: (next) => (position = next),
+    });
+
+    expect(position).toEqual({left: 100, top: 126, maxHeight: 300, placement: 'below'});
+    cleanup();
+  });
+
+  it('respects a clipping boundary when choosing and clamping placement', () => {
+    viewport(800, 600);
+    let position: PopupPosition | undefined;
+    const clip = boundary(100, 500);
+    const cleanup = observePopupPosition({
+      popup: () => popup(200, 100),
+      anchor: () => new DOMRect(200, 130, 100, 20),
+      boundary: () => clip,
+      onPosition: (next) => (position = next),
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+
+    expect(position).toEqual({left: 150, top: 158, maxHeight: undefined, placement: 'below'});
+    cleanup();
+  });
+
+  it('places the toolbar below when boundary-relative top space is tight', () => {
+    viewport(800, 900);
+    let position: PopupPosition | undefined;
+    const clip = boundary(55, 850);
+    const cleanup = observePopupPosition({
+      popup: () => popup(248, 36),
+      anchor: () => new DOMRect(200, 70, 100, 20),
+      boundary: () => clip,
+      onPosition: (next) => (position = next),
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+
+    expect(position).toEqual({left: 126, top: 98, maxHeight: undefined, placement: 'below'});
+    cleanup();
+  });
+
+  it('clamps below placement against boundaryBottom', () => {
+    viewport(800, 600);
+    let position: PopupPosition | undefined;
+    const clip = boundary(50, 180);
+    const cleanup = observePopupPosition({
+      popup: () => popup(100, 60),
+      anchor: () => new DOMRect(100, 100, 20, 20),
+      boundary: () => clip,
+      onPosition: (next) => (position = next),
+      options: {preferredPlacement: 'below', maxHeight: null},
+    });
+
+    expect(position?.top).toBe(112);
+    expect(position!.top + 60).toBe(172);
+    cleanup();
+  });
+
   it('preserves the menu below-anchor gap and viewport clamp defaults', () => {
     viewport(800, 600);
     let position: PopupPosition | undefined;
