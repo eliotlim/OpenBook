@@ -2030,6 +2030,10 @@ a.obe-mention {
 .obe-table td.obe-col-dragging { opacity: 0.45; }
 
 /* Slash menu */
+@keyframes obe-menu-enter {
+  from { opacity: 0; transform: translateY(-2px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .obe-slash {
   position: fixed;
   z-index: var(--z-index-menu);
@@ -2042,11 +2046,13 @@ a.obe-mention {
   overscroll-behavior: contain;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-lg);
+  border-radius: 6px;
   /* Quiet elevation: a hairline ring + a soft, tight shadow. */
   box-shadow: var(--shadow-menu);
   padding: 0.25rem;
+  animation: obe-menu-enter var(--default-transition-duration) var(--ease-out-soft);
 }
+@media (prefers-reduced-motion: reduce) { .obe-slash { animation: none; } }
 .obe-slash-item {
   display: flex;
   width: 100%;
