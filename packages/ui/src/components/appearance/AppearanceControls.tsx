@@ -5,6 +5,9 @@ import {useTranslation} from '@/providers';
 import {themes, type AccentGroup, type Level} from '@/lib/themes';
 import type {TKey} from '@/i18n';
 
+const SELECTED_OPTION = 'border-primary bg-primary text-primary-foreground';
+const UNSELECTED_OPTION = 'border-border hover:bg-hover';
+
 /** A compact segmented button row — the shared shape for every appearance knob. */
 export function Segmented<T extends string | number>({
   options,
@@ -18,7 +21,7 @@ export function Segmented<T extends string | number>({
   className?: string;
 }) {
   return (
-    <div className={cn('flex gap-1.5', className)}>
+    <div className={cn('grid grid-cols-3 gap-1.5', className)}>
       {options.map(({value: v, label, icon: Icon}) => (
         <button
           key={String(v)}
@@ -26,7 +29,7 @@ export function Segmented<T extends string | number>({
           onClick={() => onChange(v)}
           className={cn(
             'flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-2.5 py-2 text-sm transition-colors',
-            v === value ? 'border-primary bg-accent' : 'border-border hover:bg-hover',
+            v === value ? SELECTED_OPTION : UNSELECTED_OPTION,
           )}
         >
           {Icon && <Icon className="h-4 w-4" />}
@@ -87,7 +90,7 @@ export function AccentPicker({
                     onClick={() => onChange(theme.id)}
                     className={cn(
                       'flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-sm transition-colors',
-                      active ? 'border-primary bg-accent' : 'border-border hover:bg-hover',
+                      active ? SELECTED_OPTION : UNSELECTED_OPTION,
                     )}
                   >
                     <span
