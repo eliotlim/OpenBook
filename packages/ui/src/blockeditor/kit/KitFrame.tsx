@@ -5,6 +5,7 @@ import {KitSettings} from './KitSettings';
 import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
 import {useCachedInputScope} from './useCachedEval';
+import {cn} from '@/lib/utils';
 
 /**
  * The shared chrome for every artifact-kit input: a quiet header (display name
@@ -140,7 +141,7 @@ export const KitInlineText: React.FC<{
 }> = ({value, placeholder, ariaLabel, readOnly, className, onCommit}) => {
   const pageLocked = useKitPageLock();
   if (readOnly || pageLocked) {
-    return <span className={['obe-kit-inline-readonly', className].filter(Boolean).join(' ')}>{value || placeholder}</span>;
+    return <span className={cn('obe-kit-inline-readonly', className)}>{value || placeholder}</span>;
   }
   return (
     <input
