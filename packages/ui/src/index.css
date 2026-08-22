@@ -339,12 +339,17 @@
     height: 100%;
   }
 
-  /* Lock the document scroller only where an OpenBook app shell owns the
-     viewport (#__next = web, #root = desktop). This stylesheet also ships to
-     embedders, who mount BlockEditor on ordinary scrolling pages. */
-  html:has(#__next), html:has(#root),
-  body:has(#__next), body:has(#root),
-  #__next, #root {
+  /* Keep the bare html/body height rule above: it is also needed by the
+     exported single-file viewer. .ob-viewer { min-height: 100% } requires a
+     definite ancestor height or full-bleed backgrounds collapse on short
+     documents; do not "clean up".
+
+     Lock the document scroller only under OpenBook's own shells (marked
+     html.ob-app). This stylesheet also ships to embedders whose pages must
+     keep scrolling, including hosts that themselves use #root or #__next
+     (Vite/CRA/Next), which is why framework ids alone must never trigger the
+     lock. */
+  html.ob-app, html.ob-app body, html.ob-app #__next, html.ob-app #root {
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;

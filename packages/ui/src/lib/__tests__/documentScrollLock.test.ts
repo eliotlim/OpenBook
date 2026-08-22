@@ -5,13 +5,14 @@ import {readFileSync} from 'node:fs';
 const CSS = readFileSync('src/index.css', 'utf8');
 
 describe('document scroll lock', () => {
-  const documentRules = CSS.match(
-    /\n\s*html,\s*\n\s*body\s*\{[^}]+\}\s*\/\* Lock the document scroller[^}]+\}/,
-  )?.[0];
+  const documentRules = CSS.match(/html,\s*body\s*\{[^}]+\}[\s\S]*?html\.ob-app[^}]+\}/)?.[0];
+  expect(documentRules).toBeTruthy();
 
-  function mountAppRoot(id?: '__next' | 'root') {
+  function mountDocument({app = false, id}: {app?: boolean; id?: '__next' | 'root'} = {}) {
+    document.documentElement.className = app ? 'ob-app' : '';
+
     const style = document.createElement('style');
-    style.textContent = documentRules!;
+    style.textContent = documentRules;
     document.head.append(style);
 
     const root = id ? document.createElement('div') : undefined;
@@ -21,50 +22,41 @@ describe('document scroll lock', () => {
     }
 
     return {
-      sheet: style.sheet!,
       cleanup: () => {
         root?.remove();
         style.remove();
+        document.documentElement.className = '';
       },
     };
   }
 
-  function expectDocumentToBeLocked(sheet: CSSStyleSheet, locked: boolean) {
-    const matches = (element: Element, selector: string) => {
-      const relationalSelector = selector.match(/^(html|body):has\(#(__next|root)\)$/);
-      if (relationalSelector) {
-        return element.localName === relationalSelector[1] && document.getElementById(relationalSelector[2]);
-      }
-      return element.matches(selector);
-    };
-
-    for (const element of [document.documentElement, document.body]) {
-      const matchingRules = [...sheet.cssRules]
-        .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
-        .filter((rule) => rule.selectorText.split(',').some((selector) => matches(element, selector.trim())));
-      const property = (name: string) => {
-        const values = matchingRules.map((rule) => rule.style.getPropertyValue(name)).filter(Boolean);
-        return values[values.length - 1] ?? '';
-      };
-
-      expect(property('height')).toBe('100%');
-      expect(property('overflow')).toBe(locked ? 'hidden' : '');
-      expect(property('overscroll-behavior')).toBe(locked ? 'none' : '');
-    }
+  function expectDocumentToBeLocked(locked: boolean) {
+    expect(getComputedStyle(document.documentElement).height).toBe('100%');
+    expect(getComputedStyle(document.body).height).toBe('100%');
+    expect(getComputedStyle(document.documentElement).overflow).toBe(locked ? 'hidden' : '');
+    expect(getComputedStyle(document.body).overflow).toBe(locked ? 'hidden' : '');
   }
 
-  it('leaves an embedding document free to scroll without an app mount root', () => {
-    const {sheet, cleanup} = mountAppRoot();
+  it.each(['__next', 'root'] as const)('locks an ob-app document with #%s', (id) => {
+    const {cleanup} = mountDocument({app: true, id});
 
-    expectDocumentToBeLocked(sheet, false);
+    expectDocumentToBeLocked(true);
 
     cleanup();
   });
 
-  it.each(['__next', 'root'] as const)('locks the document for the #%s app mount root', (id) => {
-    const {sheet, cleanup} = mountAppRoot(id);
+  it('leaves a Vite-style embedder host with #root free to scroll', () => {
+    const {cleanup} = mountDocument({id: 'root'});
 
-    expectDocumentToBeLocked(sheet, true);
+    expectDocumentToBeLocked(false);
+
+    cleanup();
+  });
+
+  it('leaves a bare document without mount ids free to scroll', () => {
+    const {cleanup} = mountDocument();
+
+    expectDocumentToBeLocked(false);
 
     cleanup();
   });
