@@ -728,7 +728,7 @@ export default function ShareDialog({
         {loadError ? (
           <p className="text-sm text-destructive">{t('share.loadError')}</p>
         ) : (
-          <div className="min-w-0 flex flex-col gap-5">
+          <div className="min-w-0 flex flex-col gap-6">
             {/* grid-item min-width guard — the real overflow fix; a base-level min-w-0 on DialogContent does NOT subsume this */}
             {/* In-browser library disclosure (P0-4): nothing outside this
                 browser can reach the library, so these settings can't take
@@ -788,7 +788,7 @@ export default function ShareDialog({
                 legible, but disable it where navigation/search have no link-based
                 discovery relevance. `inherit` remains page-local and available. */}
             {canManage && (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
+              <div>
                 <label className="flex items-center justify-between gap-4">
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="text-sm font-medium text-foreground">{t('share.listing.label')}</span>
