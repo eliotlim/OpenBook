@@ -335,9 +335,16 @@
   }
 
   html,
-  body,
-  #__next,
-  #root {
+  body {
+    height: 100%;
+  }
+
+  /* Lock the document scroller only where an OpenBook app shell owns the
+     viewport (#__next = web, #root = desktop). This stylesheet also ships to
+     embedders, who mount BlockEditor on ordinary scrolling pages. */
+  html:has(#__next), html:has(#root),
+  body:has(#__next), body:has(#root),
+  #__next, #root {
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
