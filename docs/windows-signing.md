@@ -162,11 +162,22 @@ Names are case-sensitive. Keep all six values on the **`publish` environment**,
 not only at repository or organization scope, because the release job reads that
 environment.
 
+The integration path is `packages/app/src-tauri/tauri.conf.json`
+`bundle.windows.signCommand` → `packages/app/scripts/win-sign.mjs` → the
+`windows-latest` leg in `.github/workflows/release.yml`.
+
+After the Azure ceremony is complete, add the repository or `publish`
+environment variable `WINDOWS_SIGNING_REQUIRED` with the exact value `1`. This
+makes absent signing configuration a hard error; partial configuration is always
+a hard error, even before enforcement is enabled.
+
 The WSIGN-1 workflow integration is intentionally transitional:
 
-- If the three Azure secrets are absent, the Windows leg completes an unsigned
-  build and emits a loud GitHub Actions warning annotation. This permits release
-  continuity while Azure validation is pending.
+- If any of the six values is absent, the preflight refuses partial
+  configuration. When all six are absent and `WINDOWS_SIGNING_REQUIRED` is not
+  `1`, the Windows leg completes an unsigned build and emits a loud GitHub
+  Actions warning annotation. This permits release continuity while Azure
+  validation is pending.
 - When the secrets are present, signing is enforced. A signing error fails the
   Windows leg, and a post-build `signtool verify /pa` gate prevents unsigned or
   invalid Windows installers from being uploaded.
@@ -239,7 +250,7 @@ or revoke a profile from the portal for a broader incident. Revocation does not
 repair already distributed files: remove affected GitHub Release assets, rotate
 CI credentials, create a replacement profile if directed, and publish a clean
 higher-version release. Follow Microsoft's
-[certificate revocation procedure](https://learn.microsoft.com/en-us/azure/trusted-signing/how-to-cert-revocation)
+[certificate revocation procedure](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-cert-revocation)
 and contact Azure Support if the portal action fails.
 
 ## SmartScreen expectations
@@ -284,6 +295,21 @@ Confirm the GitHub values are environment secrets on `publish`, the client
 secret is its **Value** rather than its ID, and it has not expired. Create a new
 secret and rotate it using the overlap procedure above; do not print credentials
 in Actions logs.
+
+### `AZURE_CLI_PATH` or `az.cmd` not found
+
+`trusted-signing-cli` has a hardcoded Azure CLI default that may point to
+`az.cmd` somewhere other than the runner's installation. Set `AZURE_CLI_PATH`
+to the full path of the working `az.cmd`; this is a local tool-resolution error,
+not evidence that the tenant, account, or profile values are wrong.
+
+### `SIGNTOOL_PATH` or Windows SDK version not found
+
+`trusted-signing-cli` also has a hardcoded Windows SDK-version default for
+`signtool.exe`. Set `SIGNTOOL_PATH` to the full path of an installed x64
+`signtool.exe`. The release workflow resolves and exports this path explicitly;
+if this appears there, inspect the runner image/tool-discovery step before
+changing Azure configuration.
 
 ### Timestamp server unreachable
 
