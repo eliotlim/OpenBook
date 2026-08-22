@@ -15,7 +15,7 @@
  * Applied via `cn`, so they override a Button variant's own `hover:bg-*` through
  * tailwind-merge.
  */
-export const SIDEBAR_HOVER = 'hover:bg-secondary hover:text-foreground';
+export const SIDEBAR_HOVER = 'hover:bg-[hsl(var(--sheet-1-foreground)/0.06)] hover:text-foreground';
 
 /** The selected / active sidebar item — the stronger wash. */
 export const SIDEBAR_ACTIVE = 'bg-primary/15 text-primary';

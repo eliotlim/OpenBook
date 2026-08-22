@@ -4,6 +4,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -68,13 +69,17 @@ export default function TrashDialog() {
         </DialogTrigger>
       </ShortcutTooltip>
       <DialogContent size="md">
-        <DialogHeader className="pr-28">
+        <DialogHeader>
           <DialogTitle>{t('nav.trash')}</DialogTitle>
           <DialogDescription>{t('trash.description')}</DialogDescription>
         </DialogHeader>
 
+        <ScrollArea className="max-h-[50vh]">
+          <TrashList trash={trash} />
+        </ScrollArea>
+
         {items.length > 0 && (
-          <div className="absolute right-12 top-3 flex items-center gap-1">
+          <DialogFooter>
             <Button
               variant="destructive"
               size="xs"
@@ -83,12 +88,8 @@ export default function TrashDialog() {
             >
               {t('trash.emptyTrash')}
             </Button>
-          </div>
+          </DialogFooter>
         )}
-
-        <ScrollArea className="max-h-[50vh]">
-          <TrashList trash={trash} />
-        </ScrollArea>
       </DialogContent>
     </Dialog>
   );

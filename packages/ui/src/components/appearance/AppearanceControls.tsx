@@ -21,7 +21,7 @@ export function Segmented<T extends string | number>({
   className?: string;
 }) {
   return (
-    <div className={cn('grid grid-cols-3 gap-1.5', className)}>
+    <div className={cn('grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-1.5', className)}>
       {options.map(({value: v, label, icon: Icon}) => (
         <button
           key={String(v)}
