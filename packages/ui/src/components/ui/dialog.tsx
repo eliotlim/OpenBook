@@ -33,7 +33,7 @@ const DialogOverlay = React.forwardRef<
     className={cn(
       // Blur strength is driven by the `--overlay-blur` CSS var (set from the
       // appearance "blur overlays" preference; defaults to 0 = no blur).
-      "fixed inset-0 z-50 bg-background/80 backdrop-blur-[var(--overlay-blur)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-[hsl(20_14%_12%/0.35)] backdrop-blur-[var(--overlay-blur)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
     )}
     {...props}
@@ -41,7 +41,7 @@ const DialogOverlay = React.forwardRef<
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
-export const DIALOG_EXIT_MS = 200; // must move together with the duration-200 exit class below
+export const DIALOG_EXIT_MS = 180; // follows --default-transition-duration
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
@@ -58,7 +58,7 @@ const DialogContent = React.forwardRef<
         className={cn(
           // `min-w-0 [&>*]:min-w-0` removes the panel/direct-child auto minimums so long children cannot widen it past max-w-*; deep content still needs min-w-0/truncate/break-*.
           // Nothing is clipped, so portaled Select/Popover content and edge focus rings are unaffected; a future direct child's min-w-* loses to `[&>*]:min-w-0` by utility order, not intent.
-          "relative grid min-w-0 w-full gap-4 rounded-lg border bg-background p-6 shadow-overlay duration-200 [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          "relative grid min-w-0 w-full gap-4 rounded-lg border bg-background p-6 shadow-overlay transition-[transform,opacity] duration-[var(--default-transition-duration)] ease-[var(--ease-out-soft)] [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           dialogContentSizes[size],
           className
         )}
