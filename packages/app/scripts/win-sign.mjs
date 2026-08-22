@@ -16,7 +16,7 @@ const missingEnvironment = requiredEnvironment.filter(
 );
 
 if (missingEnvironment.length > 0) {
-  console.warn(
+  console.log(
     `Windows signing skipped; missing Azure Trusted Signing environment: ${missingEnvironment.join(", ")}`,
   );
   process.exit(0);

@@ -29,7 +29,7 @@
       "signCommand": {
         "cmd": "node",
         "args": [
-          "scripts/win-sign.mjs",
+          "../scripts/win-sign.mjs",
           "%1"
         ]
       }
