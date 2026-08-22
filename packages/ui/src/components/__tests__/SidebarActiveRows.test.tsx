@@ -37,10 +37,11 @@ const page = (id: string, name: string): PageMeta => ({
 
 function expectPersistentSelection(row: HTMLElement): void {
   const classes = row.className.split(/\s+/);
-  expect(classes).toContain('bg-hover-strong');
-  expect(classes).toContain('hover:bg-hover-strong');
+  expect(classes).toContain('bg-primary/15');
+  expect(classes).toContain('text-primary');
+  expect(classes).toContain('hover:bg-primary/20');
   expect(classes).toContain('before:w-0.5');
-  expect(classes).toContain('before:bg-[hsl(var(--sheet-1-foreground))]');
+  expect(classes).toContain('before:bg-primary');
   expect(classes).not.toContain('font-medium');
 }
 
