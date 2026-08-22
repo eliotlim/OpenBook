@@ -1,14 +1,14 @@
+<div align="center">
+
 # OpenBook
 
 **A safe space for your notes — free, open source, and yours offline.**
 
-<div align="center">
-
 **[Download](https://github.com/lab255/OpenBook/releases/latest) | [Website](https://open.book.pub) | [Features](#features)**
 
-</div>
-
 ![A slider driving a live compound-growth chart in OpenBook](docs/media/reactive-chart.png)
+
+</div>
 
 ## For everyone
 
@@ -18,9 +18,9 @@ Download the [latest release](https://github.com/lab255/OpenBook/releases/latest
 
 - **macOS:** Choose `OpenBook_<ver>_aarch64.dmg` for Apple Silicon or `OpenBook_<ver>_x64.dmg` for Intel. The app is signed and notarized, so it opens normally.
 - **Windows:** Prefer `OpenBook_<ver>_x64-setup.exe`; an `.msi` installer is also available. Windows may show a SmartScreen warning for now—select **More info → Run anyway**. Signed builds are on the way.
-- **Linux:** Choose the `.AppImage`, `.deb`, or `.rpm` package for your system.
+- **Linux:** Choose the `.AppImage`, `.deb`, or `.rpm` package for your system. All builds are 64-bit x86 (x86_64).
 
-OpenBook updates automatically and makes automatic local backups out of the box.
+OpenBook updates automatically on macOS, Windows, and the Linux AppImage, and makes automatic local backups out of the box.
 
 ## Features
 
@@ -30,6 +30,8 @@ OpenBook updates automatically and makes automatic local backups out of the box.
 - Deleted something? Get it back from the Trash.
 - Export self-contained HTML that stays interactive offline.
 - Add custom blocks, commands, and integrations with plugins.
+- Present a page with speaker notes and a timer.
+- Share pages with the people you choose.
 
 Write naturally, then use the slash menu to add structured blocks.
 
@@ -41,7 +43,7 @@ Turn the same database into focused grid, board, calendar, timeline, or map view
 
 Build reactive pages where controls update calculators, charts, and dashboards instantly.
 
-![A slider driving a live compound-growth chart in OpenBook](docs/media/reactive-chart.png)
+![A grocery budget page where a household-size radio and category sliders drive a live pie chart in OpenBook](docs/media/reactive-grocery.png)
 
 Present a page with speaker notes, a timer, and a clean audience view.
 
@@ -59,7 +61,7 @@ See the [full feature tour](https://open.book.pub).
 
 ## Sharing and sync
 
-OpenBook works offline with no account. For sync or collaboration, self-host the server or publish a library to [book.cloud](https://open.book.pub). book.cloud requires a free account.
+OpenBook works offline with no account. For sync or collaboration, self-host the server or publish a library to **book.cloud**. book.cloud requires a free account.
 
 ## For developers
 
