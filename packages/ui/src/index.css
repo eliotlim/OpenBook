@@ -2348,6 +2348,11 @@ a.obe-mention {
 }
 .obe-kit-range input[type='range'] { flex: 1; min-width: 0; accent-color: hsl(var(--primary)); cursor: pointer; }
 .obe-kit-range input[type='range']:disabled { cursor: default; }
+.ob-present .obe-kit-inline-readonly {
+  user-select: none;
+  border: 0;
+  outline: 0;
+}
 .obe-kit-range-value {
   min-width: 2.5rem;
   text-align: right;

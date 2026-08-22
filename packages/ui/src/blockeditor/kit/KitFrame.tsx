@@ -140,7 +140,7 @@ export const KitInlineText: React.FC<{
 }> = ({value, placeholder, ariaLabel, readOnly, className, onCommit}) => {
   const pageLocked = useKitPageLock();
   if (readOnly || pageLocked) {
-    return <span className={className}>{value || placeholder}</span>;
+    return <span className={['obe-kit-inline-readonly', className].filter(Boolean).join(' ')}>{value || placeholder}</span>;
   }
   return (
     <input
