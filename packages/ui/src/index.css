@@ -231,6 +231,7 @@
     --border: 40 8% 90%;
     --input: 40 8% 87%;
     --ring: 207 75% 49%;
+    --scrim: 20 14% 12% / 0.35;
     /* Refined-minimal: softer 8px corners cascade to every rounded-{sm,md,lg}. */
     --radius: 0.5rem;
     /* Sidebar sheets — the ThemeTokens base (tinted default). applyAppearance
@@ -315,11 +316,12 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 22%;
     --input: 0 0% 26%;
-    --ring: 207 68% 55%;
+    --ring: 207 78% 62%;
+    --scrim: 0 0% 4% / 0.55;
     /* Sidebar sheets — the ThemeTokens dark base (tinted default); see :root. */
     --sheet-1: 24 6% 15.5%;
     --sheet-1-foreground: 0 0% 82%;
-    --sheet-2: 0 0% 18.5%;
+    --sheet-2: 24 5% 18.5%;
     --sheet-2-foreground: 0 0% 82%;
     --sheet-veil: 0 0% 100%;
     --desk: 0 0% 11%;
@@ -2048,7 +2050,7 @@ a.obe-mention {
   overscroll-behavior: contain;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   /* Quiet elevation: a hairline ring + a soft, tight shadow. */
   box-shadow: var(--shadow-menu);
   padding: 0.25rem;
@@ -2356,10 +2358,8 @@ a.obe-mention {
 }
 .obe-kit-range input[type='range'] { flex: 1; min-width: 0; accent-color: hsl(var(--primary)); cursor: pointer; }
 .obe-kit-range input[type='range']:disabled { cursor: default; }
-.ob-present .obe-kit-inline-readonly {
+:is(.ob-present, .ob-viewer) .obe-kit-inline-readonly {
   user-select: none;
-  border: 0;
-  outline: 0;
 }
 .obe-kit-range-value {
   min-width: 2.5rem;
