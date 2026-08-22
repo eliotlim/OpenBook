@@ -279,6 +279,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
+          # Authenticode + `bun --compile` corruption was fixed in 1.2.23; do not downgrade below it.
           bun-version: "1.3.14"
 
       - name: install Rust stable
@@ -360,44 +361,75 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: bash
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          CONFIG_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          CONFIG_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          CONFIG_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          CONFIG_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          CONFIG_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          CONFIG_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          WINDOWS_SIGNING_REQUIRED: ${{ vars.WINDOWS_SIGNING_REQUIRED }}
         run: |
+          present=0
           missing=0
-          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
-            if [ -z "${!name}" ]; then
-              echo "Missing $name" >&2
-              missing=1
+          for name in CONFIG_TENANT_ID CONFIG_CLIENT_ID CONFIG_CLIENT_SECRET CONFIG_SIGNING_ENDPOINT CONFIG_SIGNING_ACCOUNT CONFIG_SIGNING_PROFILE; do
+            val="${!name}"
+            val="${val//[[:space:]]/}"
+            if [ -z "$val" ]; then
+              missing=$((missing + 1))
+            else
+              present=$((present + 1))
             fi
           done
-          if [ "$missing" -ne 0 ]; then
+
+          if [ "$present" -gt 0 ] && [ "$missing" -gt 0 ]; then
+            echo "::error::Windows signing configuration is partial ($present of 6 values set); refusing to build unsigned." >&2
+            exit 1
+          fi
+          if [ "$missing" -eq 6 ]; then
+            if [ "$WINDOWS_SIGNING_REQUIRED" = "1" ]; then
+              echo "::error::WINDOWS_SIGNING_REQUIRED=1 but Windows signing configuration is absent." >&2
+              exit 1
+            fi
             echo "::warning::Windows build is UNSIGNED — Azure Trusted Signing secrets not configured"
+            echo "win_signing=0" >> "$GITHUB_ENV"
           else
             echo "Azure Trusted Signing configuration present — Windows binaries and installers will be signed."
+            echo "win_signing=1" >> "$GITHUB_ENV"
           fi
 
       - name: Install Azure Trusted Signing CLI (windows only)
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && env.win_signing == '1'
         shell: bash
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
         run: |
-          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
-            if [ -z "${!name}" ]; then
-              echo "Skipping trusted-signing-cli installation because signing configuration is incomplete."
-              exit 0
-            fi
-          done
           cargo install --locked trusted-signing-cli --version 0.9.0
+
+      - name: Resolve Windows signing tools
+        if: matrix.platform == 'windows-latest' && env.win_signing == '1'
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) {
+            Write-Error "signtool.exe not found"
+            exit 1
+          }
+          "SIGNTOOL_PATH=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Seed pinned Azure Trusted Signing dlib
+        if: matrix.platform == 'windows-latest' && env.win_signing == '1'
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "Microsoft.Trusted.Signing.Client.1.0.95.zip"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client/1.0.95" -OutFile $package
+          # SHA-256 independently computed from the NuGet package on 2026-08-22.
+          $expectedSha256 = "3bfcf1e0a3cb42af1692f0a8ed45c15de070c2de86f28a59b2795d904d8a920f"
+          $actualSha256 = (Get-FileHash -Algorithm SHA256 $package).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            Write-Error "Trusted Signing dlib SHA-256 mismatch: expected $expectedSha256, got $actualSha256"
+            exit 1
+          }
+          $destination = Join-Path $env:USERPROFILE ".trusted-signing-cli\lib"
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          Expand-Archive -LiteralPath $package -DestinationPath $destination -Force
 
       # `tauri build` runs its beforeBuildCommand first, which builds the sdk,
       # ui, server sidecar (for SIDECAR_TARGET, set below), and frontend before
@@ -476,6 +508,7 @@ jobs:
           AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CONFIG_DIR: ${{ runner.temp }}\azure-signing
           # Ceremony step 6 (docs/plugin-signing.md): once the secret above is
           # stored, uncomment so a later loss of the secret FAILS the build
           # instead of silently degrading to the TEST-signed fallback.
@@ -484,14 +517,19 @@ jobs:
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
         #
-        # `--verbose` ONLY on the ubuntu leg: Tauri's bundler swallows
+        # `--verbose` on the ubuntu and Windows legs: Tauri's bundler swallows
         # linuxdeploy's own stdout/stderr unless verbose is on, so a failing
         # AppImage step only ever prints the generic `failed to run linuxdeploy`
         # wrapper (see the ubuntu-22.04 AppImage failures). Verbose surfaces the
         # real linuxdeploy / linuxdeploy-plugin-gtk error (the failing sub-step +
-        # file) directly in the CI log. macOS/Windows legs evaluate to '' and are
-        # byte-for-byte unchanged.
-        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}${{ matrix.platform == 'ubuntu-22.04' && ' --verbose' || '' }}
+        # file) directly in the CI log, and Windows needs stdout visibility for
+        # signing diagnostics. macOS legs evaluate to ''.
+        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}${{ (matrix.platform == 'ubuntu-22.04' || matrix.platform == 'windows-latest') && ' --verbose' || '' }}
+
+      - name: Remove Azure signing credentials
+        if: always() && matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: Remove-Item -LiteralPath "${{ runner.temp }}\azure-signing" -Recurse -Force -ErrorAction SilentlyContinue
 
       # Fail loudly if signing was configured but produced no signatures. With
       # TAURI_SIGNING_PRIVATE_KEY set, `createUpdaterArtifacts` writes a detached
@@ -535,36 +573,25 @@ jobs:
           echo "Found ${#sigs[@]} updater signature(s):"; printf '  %s\n' "${sigs[@]}"
 
       - name: Guard — Windows installers have Authenticode signatures
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && env.win_signing == '1'
         shell: pwsh
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
         run: |
-          $required = @(
-            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-            "AZURE_SIGNING_ENDPOINT", "AZURE_SIGNING_ACCOUNT", "AZURE_SIGNING_PROFILE"
-          )
-          if ($required.Where({ [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }).Count -gt 0) {
-            Write-Host "Signing configuration incomplete; skipping Authenticode verification for the unsigned build."
-            exit 0
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) {
+            Write-Error "signtool.exe not found"
+            exit 1
           }
 
           $base = "packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
-          $installers = @(
-            Get-ChildItem "$base/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue
-            Get-ChildItem "$base/nsis" -Filter "*-setup.exe" -File -ErrorAction SilentlyContinue
-          )
-          if ($installers.Count -eq 0) {
-            Write-Error "No Windows MSI or NSIS installers found under $base."
+          $msiInstallers = @(Get-ChildItem "$base/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue)
+          $nsisInstallers = @(Get-ChildItem "$base/nsis" -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+          $installers = @($msiInstallers) + @($nsisInstallers)
+          if ($installers.Count -lt 2 -or $msiInstallers.Count -lt 1 -or $nsisInstallers.Count -lt 1) {
+            Write-Error "Expected at least 2 Windows installers (1 MSI + 1 NSIS) under $base; found $($msiInstallers.Count) MSI and $($nsisInstallers.Count) NSIS."
             exit 1
           }
           foreach ($installer in $installers) {
-            & signtool verify /pa /v $installer.FullName
+            & $signtool.FullName verify /pa /v $installer.FullName
             if ($LASTEXITCODE -ne 0) {
               Write-Error "Authenticode verification failed: $($installer.FullName)"
               exit $LASTEXITCODE
