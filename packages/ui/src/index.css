@@ -297,8 +297,10 @@
     --card-foreground: 0 0% 82%;
     --popover: 0 0% 16.5%;
     --popover-foreground: 0 0% 82%;
-    --primary: 207 68% 55%;
-    --primary-foreground: 0 0% 100%;
+    /* A luminous fill with dark ink keeps primary actions distinct from the
+       subdued/disabled control tier on dark surfaces. */
+    --primary: 207 78% 62%;
+    --primary-foreground: 207 50% 12%;
     --secondary: 0 0% 18.5%;
     --secondary-foreground: 0 0% 82%;
     --muted: 0 0% 18.5%;
