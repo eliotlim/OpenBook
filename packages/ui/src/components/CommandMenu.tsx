@@ -204,7 +204,10 @@ export function CommandMenu() {
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
       <CommandInput placeholder={t('command.placeholder')} value={search} onValueChange={setSearch} />
-      <CommandList onContextMenu={suppressContextMenu}>
+      <CommandList
+        className="max-h-[min(420px,60vh)] pb-3 [mask-image:linear-gradient(to_bottom,black_calc(100%-20px),transparent)]"
+        onContextMenu={suppressContextMenu}
+      >
         <CommandEmpty>{t('command.noResults')}</CommandEmpty>
         {favorites.length > 0 && (
           <CommandGroup heading={t('command.groupFavorites')}>
