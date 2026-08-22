@@ -2,10 +2,25 @@
 
 **A safe space for your notes — free, open source, and yours offline.**
 
-![OpenBook with a slider driving a live chart](docs/media/hero-reactive-kit.png)
+<div align="center">
 
-Your work lives on your machine. OpenBook works offline. Sync and self-hosting
-are optional. OpenBook backs itself up automatically, out of the box.
+**[Download](https://github.com/lab255/OpenBook/releases/latest) | [Website](https://open.book.pub) | [Features](#features)**
+
+</div>
+
+![A slider driving a live compound-growth chart in OpenBook](docs/media/reactive-chart.png)
+
+## For everyone
+
+OpenBook is a private, open-source home for notes, databases, and interactive pages. It works offline and keeps your work on your machine; an account, sharing, and sync are optional.
+
+Download the [latest release](https://github.com/lab255/OpenBook/releases/latest) for your platform:
+
+- **macOS:** Choose `OpenBook_<ver>_aarch64.dmg` for Apple Silicon or `OpenBook_<ver>_x64.dmg` for Intel. The app is signed and notarized, so it opens normally.
+- **Windows:** Prefer `OpenBook_<ver>_x64-setup.exe`; an `.msi` installer is also available. Windows may show a SmartScreen warning for now—select **More info → Run anyway**. Signed builds are on the way.
+- **Linux:** Choose the `.AppImage`, `.deb`, or `.rpm` package for your system.
+
+OpenBook updates automatically and makes automatic local backups out of the box.
 
 ## Features
 
@@ -16,32 +31,49 @@ are optional. OpenBook backs itself up automatically, out of the box.
 - Export self-contained HTML that stays interactive offline.
 - Add custom blocks, commands, and integrations with plugins.
 
-![A project database shown as a board](docs/media/feature-database-views.png)
+Write naturally, then use the slash menu to add structured blocks.
 
-![A coffee shop database shown on a map](docs/media/feature-coffee-shops.png)
+![The OpenBook editor with its slash menu open](docs/media/editor-slash.png)
+
+Turn the same database into focused grid, board, calendar, timeline, or map views.
+
+![A project database shown as a board in OpenBook](docs/media/database-views-board.png)
+
+Build reactive pages where controls update calculators, charts, and dashboards instantly.
+
+![A slider driving a live compound-growth chart in OpenBook](docs/media/reactive-chart.png)
+
+Present a page with speaker notes, a timer, and a clean audience view.
+
+![Present mode with speaker notes and a timer](docs/media/present-mode.png)
+
+Share a page with the people you choose and control their access.
+
+![The OpenBook page-sharing dialog](docs/media/share-dialog.png)
+
+Keep pages organized in desktop tabs while navigating your library.
+
+![The OpenBook desktop app with a page open in a tab](docs/media/desktop-tabs.png)
 
 See the [full feature tour](https://open.book.pub).
 
-## Download
-
-Get the [latest release](https://github.com/eliotlim/OpenBook/releases/latest).
-
-- macOS: Apple Silicon and Intel
-- Linux: `.deb`, `.rpm`, and `.AppImage`
-- Windows: coming shortly
-
 ## Sharing and sync
 
-OpenBook works offline with no account. For sync or collaboration, self-host the
-server or publish a library to **book.cloud**. book.cloud requires a free account.
+OpenBook works offline with no account. For sync or collaboration, self-host the server or publish a library to [book.cloud](https://open.book.pub). book.cloud requires a free account.
 
-## Contributing
+## For developers
 
-Issues and contributions are welcome. Code quality is the bar. AI-generated PRs
-are accepted, but must meet the house standard. A CLA is required. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guidelines and [DEVELOPMENT.md](DEVELOPMENT.md) for the full development guide.
 
-Found a security issue? Report it privately — see [SECURITY.md](SECURITY.md).
+Prerequisites: Node.js `^22.14.0 || >=24.10.0`, pnpm, Bun `1.3.14`, and a Rust toolchain.
+
+```sh
+corepack enable
+pnpm install
+pnpm dev
+```
+
+For the system design and code layout, see [ARCHITECTURE.md](ARCHITECTURE.md) and the [`packages`](packages/) directory. Report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
