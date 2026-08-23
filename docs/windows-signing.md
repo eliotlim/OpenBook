@@ -124,7 +124,9 @@ Use a dedicated Microsoft Entra application rather than an owner's user account:
    is **Trusted Signing Certificate Profile Signer**. Scope the assignment to
    the specific certificate profile where possible; Microsoft's
    [role-assignment guide](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles)
-   includes the profile-scoped Azure CLI form.
+   includes the profile-scoped Azure CLI form. Also grant **Reader** on the
+   signing resource group — `az login` requires the principal to see at least
+   one subscription.
 4. Under the app registration's **Certificates & secrets**, create a client
    secret. Copy its **Value** immediately (not its secret ID), record its expiry
    in the team's credential calendar, and store it in the password manager.
@@ -216,6 +218,11 @@ Repeat this release-asset check after credential rotation, profile replacement,
 or signing workflow changes. A `.sig` asset beside an installer is not evidence
 of Authenticode signing.
 
+If a Windows leg fails after the release job creates the tagged GitHub release,
+that release will be missing its Windows assets. Fix the credentials, then run
+`gh run rerun <run-id> --failed`. The upload step uses `--clobber`, so the
+re-run legs attach cleanly to the existing release.
+
 ## Rotation, expiry, and revocation
 
 ### Rotate the CI client secret
@@ -269,6 +276,17 @@ automatic positive reputation. See Microsoft's current
 [SmartScreen reputation guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 
 ## Troubleshooting
+
+### `ERROR: No subscriptions found for <tenant/app>.` during "Build Tauri bundles"
+
+`az login --service-principal` authenticated, but the service principal cannot
+see any subscription. `trusted-signing-cli` 0.9.0 invokes `az login` without
+`--allow-no-subscriptions`, so the principal needs subscription visibility in
+addition to the **Trusted Signing Certificate Profile Signer** role. Assign the
+service principal the built-in **Reader** role on the resource group containing
+the Trusted Signing account. Subscription scope also works, but is broader than
+needed. The assignment takes effect within minutes; re-run the failed release
+legs afterwards.
 
 ### HTTP 403 or `Forbidden`
 
