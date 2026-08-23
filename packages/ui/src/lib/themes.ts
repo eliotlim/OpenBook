@@ -50,6 +50,7 @@ export interface ThemeTokens {
   border: string;
   input: string;
   ring: string;
+  scrim: string;
   sheet1: string;
   sheet1Foreground: string;
   sheet2: string;
@@ -106,6 +107,7 @@ const DEFAULT_LIGHT: ThemeTokens = {
   border: '40 8% 90%',
   input: '40 8% 87%',
   ring: '207 75% 49%',
+  scrim: '20 14% 12% / 0.35',
   sheet1: '40 14% 97.5%',
   sheet1Foreground: '34 9% 19%',
   sheet2: '40 11% 93.5%',
@@ -126,8 +128,8 @@ const DEFAULT_DARK: ThemeTokens = {
   cardForeground: '0 0% 82%',
   popover: '0 0% 16.5%',
   popoverForeground: '0 0% 82%',
-  primary: '207 68% 55%',
-  primaryForeground: '0 0% 100%',
+  primary: '207 78% 62%',
+  primaryForeground: '207 50% 12%',
   secondary: '0 0% 18.5%',
   secondaryForeground: '0 0% 82%',
   muted: '0 0% 18.5%',
@@ -138,10 +140,11 @@ const DEFAULT_DARK: ThemeTokens = {
   destructiveForeground: '0 0% 100%',
   border: '0 0% 22%',
   input: '0 0% 26%',
-  ring: '207 68% 55%',
-  sheet1: '0 0% 15.5%',
+  ring: '207 78% 62%',
+  scrim: '0 0% 4% / 0.55',
+  sheet1: '24 6% 15.5%',
   sheet1Foreground: '0 0% 82%',
-  sheet2: '0 0% 18.5%',
+  sheet2: '24 5% 18.5%',
   sheet2Foreground: '0 0% 82%',
   sheetVeil: '0 0% 100%',
   desk: '0 0% 11%',
@@ -556,11 +559,11 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
   if (opts.sidebar !== 'accent') {
     const sheet =
       scheme === 'dark'
-        ? {s1: 34, l1: 16, s2: 40, l2: 19.5}
-        : {s1: 42, l1: 96, s2: 50, l2: 90.5};
+        ? {h: 24, s1: 6, l1: 15.5, s2: 5, l2: 18.5}
+        : {h: accentHue, s1: 42, l1: 96, s2: 50, l2: 90.5};
     const mul = TINT_MUL[opts.interfaceIntensity];
-    tokens.sheet1 = toTriple({h: accentHue, s: gray ? 0 : sheet.s1 * mul, l: sheet.l1});
-    tokens.sheet2 = toTriple({h: accentHue, s: gray ? 0 : sheet.s2 * mul, l: sheet.l2});
+    tokens.sheet1 = toTriple({h: sheet.h, s: gray ? 0 : sheet.s1 * mul, l: sheet.l1});
+    tokens.sheet2 = toTriple({h: sheet.h, s: gray ? 0 : sheet.s2 * mul, l: sheet.l2});
     tokens.sheet1Foreground = base.foreground;
     tokens.sheet2Foreground = base.foreground;
     tokens.sheetVeil = scheme === 'dark' ? '0 0% 100%' : '0 0% 0%';

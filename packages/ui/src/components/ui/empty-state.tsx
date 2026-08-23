@@ -28,6 +28,7 @@ const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
   ({className, variant = "panel", icon, title, hint, action, ...props}, ref) => (
     <div
       ref={ref}
+      role="status"
       className={cn(emptyStateVariants({variant}), className)}
       {...props}
     >

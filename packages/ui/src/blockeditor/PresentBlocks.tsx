@@ -1,7 +1,7 @@
 import React, {useMemo} from 'react';
 import * as Y from 'yjs';
 import {BlockRow, type EditorUI, type RowShared} from './BlockEditor';
-import {KitLockContext} from './kit/lock';
+import {KitLockContext, KitPageLockContext} from './kit/lock';
 import {useBlockEditor} from './useBlockEditor';
 import {blockId, type BlockMap} from './model';
 
@@ -67,13 +67,15 @@ export const PresentBlocks: React.FC<{doc: Y.Doc; blocks: BlockMap[]; className?
     [editor],
   );
   return (
-    <KitLockContext.Provider value={{locked: true}}>
-      <div className={['obe-present-blocks', className].filter(Boolean).join(' ')}>
-        {blocks.map((b) => (
-          <BlockRow key={blockId(b)} block={b} {...shared} />
-        ))}
-      </div>
-    </KitLockContext.Provider>
+    <KitPageLockContext.Provider value>
+      <KitLockContext.Provider value={{locked: true}}>
+        <div className={['obe-present-blocks', className].filter(Boolean).join(' ')}>
+          {blocks.map((b) => (
+            <BlockRow key={blockId(b)} block={b} {...shared} />
+          ))}
+        </div>
+      </KitLockContext.Provider>
+    </KitPageLockContext.Provider>
   );
 };
 

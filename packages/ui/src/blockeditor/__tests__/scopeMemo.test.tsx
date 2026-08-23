@@ -1,7 +1,8 @@
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {BlockEditor} from '../BlockEditor';
-import {createDoc, findBlock, setBlockProp} from '../model';
+import {createDoc, findBlock, rootBlocks, setBlockProp} from '../model';
+import {PresentBlocks} from '../PresentBlocks';
 import {registerReactiveBlocks} from '../reactiveBlocks';
 import {registerArtifactKit} from '../kit';
 import {quickJSEvalBackend} from '../kit/sandbox/quickjsBackend';
@@ -16,6 +17,15 @@ afterEach(() => {
 });
 
 describe('reactive scope memo', () => {
+  it('renders a present-mode slider label as static text while keeping its range interactive', () => {
+    const doc = createDoc([{id: 'input', type: 'slider', props: {name: 'x', label: 'Budget', value: 2, min: 0, max: 10}}]);
+    const {container} = render(<PresentBlocks doc={doc} blocks={rootBlocks(doc).toArray()} />);
+
+    expect(container.querySelector('.obe-kit-inline-readonly')?.textContent).toBe('Budget');
+    expect(screen.queryByRole('textbox', {name: 'Block label'})).toBeNull();
+    expect((screen.getByRole('slider') as HTMLInputElement).disabled).toBe(false);
+  });
+
   it('stays lazy when no mounted render consumer needs evaluation', () => {
     const doc = createDoc([{id: 'text', type: 'paragraph', text: 'ordinary typing'}]);
     let controller: BlockEditorController | undefined;
