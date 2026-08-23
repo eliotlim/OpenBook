@@ -27,6 +27,15 @@ export const en = {
     pageTitle: 'This page couldn\'t be opened',
     pageMessage: 'Its content ran into an error while rendering. Your other pages are fine — open one from the sidebar, or head home.',
   },
+  navigation: {
+    loadError: {
+      title: 'Can\'t reach this library',
+      localUnreachable: 'This library\'s local service isn\'t responding.',
+      unreachable: 'The device that publishes this library may be offline or unreachable.',
+      siteOffline: 'The device that publishes this library is offline right now.',
+      retry: 'Retry',
+    },
+  },
   settings: {
     title: 'Settings',
     fullscreen: 'Full screen',

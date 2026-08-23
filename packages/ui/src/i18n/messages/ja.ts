@@ -1,6 +1,15 @@
 import type {PartialMessages} from './en';
 
 export const ja: PartialMessages = {
+  navigation: {
+    loadError: {
+      title: 'このライブラリに接続できません',
+      localUnreachable: 'このライブラリのローカルサービスが応答していません。',
+      unreachable: 'このライブラリを公開しているデバイスがオフラインか、到達できない可能性があります。',
+      siteOffline: 'このライブラリを公開しているデバイスは現在オフラインです。',
+      retry: '再試行',
+    },
+  },
   common: {
     cancel: 'キャンセル',
     close: '閉じる',

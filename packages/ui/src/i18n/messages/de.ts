@@ -1,6 +1,15 @@
 import type {PartialMessages} from './en';
 
 export const de: PartialMessages = {
+  navigation: {
+    loadError: {
+      title: 'Diese Bibliothek ist nicht erreichbar',
+      localUnreachable: 'Der lokale Dienst dieser Bibliothek antwortet nicht.',
+      unreachable: 'Das Gerät, das diese Bibliothek veröffentlicht, ist möglicherweise offline oder nicht erreichbar.',
+      siteOffline: 'Das Gerät, das diese Bibliothek veröffentlicht, ist derzeit offline.',
+      retry: 'Erneut versuchen',
+    },
+  },
   common: {
     cancel: 'Abbrechen',
     close: 'Schließen',
