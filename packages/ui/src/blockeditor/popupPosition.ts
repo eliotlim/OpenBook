@@ -85,6 +85,8 @@ export function selectionAnchorRect(anchorEl: HTMLElement | null, fallbackToElem
 interface ObservePopupPositionArgs {
   popup: () => HTMLElement | null;
   anchor: () => DOMRect | null | undefined;
+  /** Optional clipping boundary; viewport remains the fallback. */
+  boundary?: () => HTMLElement | null;
   onPosition: (position: PopupPosition) => void;
   options?: PopupPositionOptions;
 }
@@ -96,6 +98,7 @@ interface ObservePopupPositionArgs {
 export function observePopupPosition({
   popup,
   anchor,
+  boundary,
   onPosition,
   options = {},
 }: ObservePopupPositionArgs): () => void {
@@ -126,9 +129,12 @@ export function observePopupPosition({
     const width = element?.offsetWidth || fallbackSize.width;
     const height = element?.offsetHeight || fallbackSize.height;
     if (element) element.style.maxHeight = previousMaxHeight ?? '';
+    const boundaryRect = boundary?.()?.getBoundingClientRect();
+    const boundaryTop = Math.max(0, boundaryRect?.top ?? 0);
+    const boundaryBottom = Math.min(window.innerHeight, boundaryRect?.bottom ?? window.innerHeight);
     const available = {
-      above: rect!.top - availableSpaceInset,
-      below: window.innerHeight - rect!.bottom - availableSpaceInset,
+      above: rect!.top - boundaryTop - availableSpaceInset,
+      below: boundaryBottom - rect!.bottom - availableSpaceInset,
     };
     const otherPlacement = preferredPlacement === 'above' ? 'below' : 'above';
     const placement =
@@ -145,8 +151,10 @@ export function observePopupPosition({
     const shownHeight = maxHeight === undefined ? height : Math.min(height, maxHeight);
     const top =
       placement === 'above'
-        ? Math.max(viewportMargin, rect!.top - anchorGap - shownHeight)
-        : rect!.bottom + anchorGap;
+        ? Math.max(boundaryTop + viewportMargin, rect!.top - anchorGap - shownHeight)
+        : boundaryRect
+          ? Math.min(rect!.bottom + anchorGap, boundaryBottom - viewportMargin - shownHeight)
+          : rect!.bottom + anchorGap;
     const anchorLeft = align === 'center' ? rect!.left + rect!.width / 2 - width / 2 : rect!.left;
     const left = Math.max(viewportMargin, Math.min(anchorLeft, window.innerWidth - width - viewportMargin));
 

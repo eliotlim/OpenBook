@@ -78,11 +78,14 @@ export default function TrashDialog() {
           <TrashList trash={trash} />
         </ScrollArea>
 
-        {/* Nothing to purge → no footer: a disabled destructive button under
-            "The trash is empty." reads as broken, not as a guard. */}
         {items.length > 0 && (
           <DialogFooter>
-            <Button variant="destructive" disabled={busy !== null} onClick={() => void emptyTrash()}>
+            <Button
+              variant="destructive"
+              size="xs"
+              disabled={busy !== null}
+              onClick={() => void emptyTrash()}
+            >
               {t('trash.emptyTrash')}
             </Button>
           </DialogFooter>

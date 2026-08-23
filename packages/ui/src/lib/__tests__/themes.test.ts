@@ -38,7 +38,7 @@ describe('themes', () => {
     expect(root.style.getPropertyValue('--brand-subtle')).toBe('221 86% 95%');
 
     applyTheme(getTheme('default'), 'dark');
-    expect(root.style.getPropertyValue('--primary')).toBe('207 68% 55%');
+    expect(root.style.getPropertyValue('--primary')).toBe('207 78% 62%');
   });
 });
 
@@ -63,7 +63,11 @@ describe('composeAppearance', () => {
     expect(satOf(t.muted)).toBe(0);
     expect(satOf(t.accent)).toBe(0);
     expect(satOf(t.background)).toBe(0);
-    expect(t.primary).toBe('207 68% 55%');
+    expect(t.primary).toBe('207 78% 62%');
+    expect(t.primaryForeground).toBe('207 50% 12%');
+    expect(t.ring).toBe('207 78% 62%');
+    expect(t.sheet1).toBe('24 6% 15.5%');
+    expect(t.sheet2).toBe('24 5% 18.5%');
   });
 
   it('the "slate" gray accent swings the neutral surfaces to a cool hue', () => {
@@ -118,7 +122,8 @@ describe('composeAppearance', () => {
     expect(light.sheet2).toBe('207 50% 90.5%');
     expect(light.sheet1Foreground).toBe('34 9% 19%'); // the app foreground, not flipped
     const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
-    expect(dark.sheet1).toBe('207 34% 16%');
+    expect(dark.sheet1).toBe('24 6% 15.5%');
+    expect(dark.sheet2).toBe('24 5% 18.5%');
     expect(dark.sheet1Foreground).toBe('0 0% 82%');
   });
 
@@ -130,8 +135,8 @@ describe('composeAppearance', () => {
     expect(light.sheet2Foreground).toBe('0 0% 100%');
     expect(light.sheetVeil).toBe('0 0% 0%'); // black veil under a light foreground
     const dark = composeAppearance(ACCENT, 'dark');
-    expect(dark.sheet1).toBe('207 47.6% 24%'); // deep shade, not the dark primary
-    expect(dark.sheet2).toBe('207 47.6% 28.5%');
+    expect(dark.sheet1).toBe('207 54.6% 24%'); // deep shade, not the dark primary
+    expect(dark.sheet2).toBe('207 54.6% 28.5%');
     expect(dark.sheet1Foreground).toBe('0 0% 93%');
     expect(dark.sheetVeil).toBe('0 0% 100%');
   });
@@ -180,7 +185,7 @@ describe('composeAppearance', () => {
     light: [string, string, string];
     dark: [string, string, string];
   }> = [
-    {id: 'default', light: ['207 75% 44%', '207 79% 38%', '0 0% 100%'], dark: ['207 47.6% 24%', '207 47.6% 28.5%', '0 0% 93%']},
+    {id: 'default', light: ['207 75% 44%', '207 79% 38%', '0 0% 100%'], dark: ['207 54.6% 24%', '207 54.6% 28.5%', '0 0% 93%']},
     {id: 'graphite', light: ['0 0% 34%', '0 4% 28%', '0 0% 100%'], dark: ['0 0% 24%', '0 0% 28.5%', '0 0% 93%']},
     {id: 'ocean', light: ['221 83% 53%', '221 87% 47%', '0 0% 100%'], dark: ['217 60% 24%', '217 60% 28.5%', '0 0% 93%']},
     {id: 'forest', light: ['142 71% 31%', '142 75% 25%', '0 0% 100%'], dark: ['142 45.5% 24%', '142 45.5% 28.5%', '0 0% 93%']},

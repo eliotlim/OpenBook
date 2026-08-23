@@ -15,13 +15,13 @@
  * Applied via `cn`, so they override a Button variant's own `hover:bg-*` through
  * tailwind-merge.
  */
-export const SIDEBAR_HOVER = 'hover:bg-hover hover:text-[hsl(var(--sheet-1-foreground))]';
+export const SIDEBAR_HOVER = 'hover:bg-[hsl(var(--sheet-1-foreground)/0.06)] hover:text-foreground';
 
 /** The selected / active sidebar item — the stronger wash. */
-export const SIDEBAR_ACTIVE = 'bg-hover-strong text-[hsl(var(--sheet-1-foreground))]';
+export const SIDEBAR_ACTIVE = 'bg-primary/15 text-primary';
 
 /** A selected page row: keep its stronger wash on hover and add a metric-free rail. */
-export const SIDEBAR_SELECTED_ROW = `${SIDEBAR_ACTIVE} hover:bg-hover-strong before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-[hsl(var(--sheet-1-foreground))]`;
+export const SIDEBAR_SELECTED_ROW = `${SIDEBAR_ACTIVE} hover:bg-primary/20 before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary`;
 
 /**
  * Press feedback for sidebar control buttons (settings, menu toggle). Deepens the

@@ -4,7 +4,6 @@ import type {PageMeta} from '@book.dev/sdk';
 import FavoritesNav from '@/components/FavoritesNav';
 import {SidebarPageRow} from '@/components/SidebarSections';
 import {Tree} from '@/components/ui/tree';
-import {composeAppearance, DEFAULT_APPEARANCE} from '@/lib/themes';
 
 const mocks = vi.hoisted(() => ({
   currentPageId: 'selected',
@@ -37,10 +36,11 @@ const page = (id: string, name: string): PageMeta => ({
 
 function expectPersistentSelection(row: HTMLElement): void {
   const classes = row.className.split(/\s+/);
-  expect(classes).toContain('bg-hover-strong');
-  expect(classes).toContain('hover:bg-hover-strong');
+  expect(classes).toContain('bg-primary/15');
+  expect(classes).toContain('text-primary');
+  expect(classes).toContain('hover:bg-primary/20');
   expect(classes).toContain('before:w-0.5');
-  expect(classes).toContain('before:bg-[hsl(var(--sheet-1-foreground))]');
+  expect(classes).toContain('before:bg-primary');
   expect(classes).not.toContain('font-medium');
 }
 
@@ -52,9 +52,13 @@ afterEach(() => {
 });
 
 describe('selected sidebar page rows', () => {
-  it.each(['light', 'dark'] as const)('uses a rail because text-foreground has no %s tinted-sidebar delta', (scheme) => {
-    const tokens = composeAppearance(DEFAULT_APPEARANCE, scheme);
-    expect(tokens.sheet1Foreground).toBe(tokens.foreground);
+  it('uses a sheet-relative foreground wash for unselected row hover', () => {
+    mocks.currentPageId = 'other';
+    render(<SidebarPageRow page={page('unselected', 'Unselected page')} />);
+    expect(screen.getByText('Unselected page').parentElement!.className.split(/\s+/)).toContain(
+      'hover:bg-[hsl(var(--sheet-1-foreground)/0.06)]',
+    );
+    mocks.currentPageId = 'selected';
   });
 
   it('keeps the Favorites row strong on hover and adds a metric-free rail', () => {

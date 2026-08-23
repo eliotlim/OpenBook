@@ -40,6 +40,7 @@ export const InlineToolbar: React.FC<{
     return observePopupPosition({
       popup: () => ref.current,
       anchor: () => selectionAnchorRect(state.anchorEl),
+      boundary: () => state.anchorEl.closest<HTMLElement>('[data-radix-scroll-area-viewport]'),
       onPosition: setPosition,
       options: INLINE_TOOLBAR_POSITION_OPTIONS,
     });

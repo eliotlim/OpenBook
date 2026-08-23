@@ -43,7 +43,12 @@ export default function TrashList({trash, emptyLabel}: {trash: TrashController; 
     return <p className="py-8 text-center text-sm text-muted-foreground">{t('trash.loading')}</p>;
   }
   if (items.length === 0) {
-    return <EmptyState title={emptyLabel ?? t('trash.empty')} />;
+    return (
+      <EmptyState
+        icon={<Trash2 className="h-6 w-6 text-muted-foreground/70" aria-hidden="true" />}
+        title={emptyLabel ?? t('trash.empty')}
+      />
+    );
   }
   return (
     <ul className="flex flex-col gap-1 pr-2">

@@ -281,7 +281,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
           sub-section results resolve to their own inner ids inside the panel. */}
       <div
         id={`settings-${tab}`}
-        className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto px-4 pb-6 pt-6 sm:px-8 sm:pb-8 sm:pt-12"
+        className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-10 pt-6 sm:px-8 sm:pb-12 sm:pt-12"
       >
         <Panel />
       </div>
