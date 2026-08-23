@@ -43,7 +43,11 @@ export interface TunnelClientOptions {
 type ReqFrame = Extract<ControlFrame, {t: 'req'}>;
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
-const LIVENESS_DEADLINE_MS = 62_500;
+// The relay does not (yet) pong client pings, so liveness rides on the relay's
+// own heartbeat (HEARTBEAT_MS = 30_000 in open.book.pub packages/relay/src/config.ts,
+// best-effort DO alarm). 95s = 3 intervals + slack. This can drop back toward
+// ~62.5s once the companion relay pong echo change is deployed.
+const LIVENESS_DEADLINE_MS = 95_000;
 const TICKET_MINT_TIMEOUT_MS = 15_000;
 
 interface Inflight {
@@ -116,8 +120,12 @@ export class TunnelClient {
       ws.binaryType = 'arraybuffer';
       this.ws = ws;
       ws.onmessage = (ev) => void this.onMessage(ev.data);
-      ws.onclose = () => this.onClose();
-      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        if (this.ws === ws) this.onClose();
+      };
+      ws.onerror = () => {
+        if (this.ws === ws) ws.close();
+      };
     } catch (error) {
       if (this.stopped) return;
       this.reportDialError(error);
@@ -197,7 +205,8 @@ export class TunnelClient {
   }
 
   private sendControl(frame: ControlFrame): void {
-    this.ws?.send(encodeControl(frame));
+    if (!this.ws || this.ws.readyState !== this.ws.OPEN) return;
+    this.ws.send(encodeControl(frame));
   }
 
   /** Pause while the socket's send buffer is backed up, so streaming a large
@@ -214,7 +223,6 @@ export class TunnelClient {
   private async onMessage(data: string | ArrayBuffer): Promise<void> {
     if (this.stopped) return;
     this.lastFrameAt = Date.now();
-    if (this.ready) this.armLivenessDeadline();
     if (typeof data === 'string') {
       const frame = decodeControl(data);
       if (frame) await this.onControl(frame);

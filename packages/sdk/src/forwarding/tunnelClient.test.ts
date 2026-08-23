@@ -299,7 +299,7 @@ describe('TunnelClient heartbeat and dial liveness (TUN-13)', () => {
       const first = ws();
       first.deliver({t: 'ready', siteId: 's'});
 
-      await vi.advanceTimersByTimeAsync(62_500);
+      await vi.advanceTimersByTimeAsync(95_000);
       expect(first.readyState).toBe(3);
       expect(client.currentStatus).toBe('reconnecting');
       await vi.advanceTimersByTimeAsync(500);
@@ -322,7 +322,7 @@ describe('TunnelClient heartbeat and dial liveness (TUN-13)', () => {
       await vi.advanceTimersByTimeAsync(50_000);
       sock.deliver({t: 'pong'});
 
-      await vi.advanceTimersByTimeAsync(62_499);
+      await vi.advanceTimersByTimeAsync(94_999);
       expect(sock.readyState).toBe(FakeWS.OPEN);
       await vi.advanceTimersByTimeAsync(1);
       expect(sock.readyState).toBe(3);
@@ -373,6 +373,30 @@ describe('TunnelClient heartbeat and dial liveness (TUN-13)', () => {
 
       await vi.advanceTimersByTimeAsync(500);
       expect(ticketProvider).toHaveBeenCalledTimes(2);
+    } finally {
+      client.stop();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('TunnelClient relay-initiated heartbeat liveness (TUN-13)', () => {
+  it('stays live and answers pong while relay pings arrive every 30 seconds', async () => {
+    vi.useFakeTimers();
+    const {client, ws} = makeClient(() => Promise.resolve(new Response()));
+
+    try {
+      client.start();
+      await vi.advanceTimersByTimeAsync(0);
+      const sock = ws();
+      sock.deliver({t: 'ready', siteId: 's'});
+
+      for (let i = 1; i <= 4; i += 1) {
+        await vi.advanceTimersByTimeAsync(30_000);
+        sock.deliver({t: 'ping'});
+        expect(sock.readyState).toBe(FakeWS.OPEN);
+        expect(sock.controlFrames().filter((frame) => frame.t === 'pong')).toHaveLength(i);
+      }
     } finally {
       client.stop();
       vi.useRealTimers();
