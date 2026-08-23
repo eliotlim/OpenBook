@@ -35,7 +35,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq' | 'dashboard' | 'simple-budget' | 'startup-books';
+  id: 'recipe-scaler' | 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq' | 'dashboard' | 'simple-budget' | 'startup-books';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -73,6 +73,8 @@ const emptySnapshot = (blocks: object[]): PageSnapshot => ({
 // package's `templates.<id>.guidance` i18n keys mirror these strings).
 
 const GUIDANCE = {
+  recipeScaler:
+    'Scale this weeknight ramen from one bowl to twelve: drag the servings slider and the ingredient amounts, prep load, pot count, chart and batch status all update together. Tick off each method step as you cook.',
   taskBoard:
     'This template shows a task database: the Status property drives the kanban columns, and the same rows back the Table and Calendar views. Try it: drag a card to another column, switch views, or right-click the view to export CSV.',
   readingList:
@@ -214,6 +216,80 @@ const GROCERY_BLOCKS = [
   },
   {id: 'g-call2', type: 'callout', text: [{t: 'Swap one branded staple for the shop’s own label and a £100 basket usually drops to £80–£85.'}], props: {variant: 'success'}},
   {id: 'g-notes-3', type: 'notes', text: [{t: 'Close on the habit, not the app: re-price monthly, shop the cheapest staples, top up fresh locally.'}]},
+];
+
+// ── 🍳 Weeknight ramen recipe scaler ────────────────────────────────────────
+// The supported table block is rich text rather than an expression surface, so
+// its amount column names the live outputs directly beside the collapsed code
+// readouts. Those same named values drive the chart, progress and status blocks.
+const RECIPE_BLOCKS = [
+  // Slide 1 — title and guidance
+  {id: 'r-tag', type: 'paragraph', text: [{t: 'A fast mushroom ramen that scales from a solo supper to a full table — '}, {t: 'live', a: {b: true}}, {t: '.'}]},
+  {id: 'r-call', type: 'callout', text: [{t: GUIDANCE.recipeScaler}], props: {variant: 'info'}},
+  {id: 'r-notes-1', type: 'notes', text: [{t: 'Start at four servings, then drag the slider: every quantity and the batch plan recomputes immediately.'}]},
+  {id: 'r-div-1', type: 'divider'},
+
+  // Slide 2 — scaler and live ingredient engine
+  {id: 'r-h2', type: 'heading', text: [{t: 'Scale the bowls'}], props: {level: 2}},
+  {id: 'r-servings', type: 'slider', props: {name: 'servings', label: 'Servings', value: 4, min: 1, max: 12, step: 1}},
+  {id: 'r-scale', type: 'code', text: [{t: 'servings / 4'}], props: {live: true, name: 'scale', language: 'js', collapsed: true}},
+  {id: 'r-noodles', type: 'code', text: [{t: 'Math.round(400 * scale)'}], props: {live: true, name: 'noodles', language: 'js', collapsed: true}},
+  {id: 'r-broth', type: 'code', text: [{t: 'Math.round(1200 * scale)'}], props: {live: true, name: 'broth', language: 'js', collapsed: true}},
+  {id: 'r-mushrooms', type: 'code', text: [{t: 'Math.round(240 * scale)'}], props: {live: true, name: 'mushrooms', language: 'js', collapsed: true}},
+  {id: 'r-spinach', type: 'code', text: [{t: 'Math.round(160 * scale)'}], props: {live: true, name: 'spinach', language: 'js', collapsed: true}},
+  {id: 'r-soy', type: 'code', text: [{t: 'Math.round(60 * scale)'}], props: {live: true, name: 'soy', language: 'js', collapsed: true}},
+  {id: 'r-eggs', type: 'code', text: [{t: 'Math.ceil(4 * scale)'}], props: {live: true, name: 'eggs', language: 'js', collapsed: true}},
+  {id: 'r-weight', type: 'code', text: [{t: 'noodles + broth + mushrooms + spinach + soy + eggs * 50'}], props: {live: true, name: 'prepWeight', language: 'js', collapsed: true}},
+  {id: 'r-pans', type: 'code', text: [{t: 'Math.ceil(servings / 6)'}], props: {live: true, name: 'panCount', language: 'js', collapsed: true}},
+  {
+    id: 'r-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'r-col-l',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'r-chart', type: 'kitchart', props: {kind: 'bar', title: 'Ingredient quantities', labels: 'Noodles (g), Broth (ml), Mushrooms (g), Spinach (g), Soy (ml)', source: '[noodles, broth, mushrooms, spinach, soy]'}},
+        ],
+      },
+      {
+        id: 'r-col-r',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'r-status', type: 'statuslight', props: {label: 'Fits one pot', source: '2 - panCount', okAt: 1, warnAt: 0}},
+          {id: 'r-progress', type: 'progressbar', props: {label: 'Maximum batch size', source: 'servings / 12', max: 1, format: 'percent'}},
+        ],
+      },
+    ],
+  },
+  {
+    id: 'r-table',
+    type: 'table',
+    props: {header: true},
+    children: [
+      {id: 'r-tr0', type: 'row', children: [{id: 'r-c00', type: 'cell', text: [{t: 'Ingredient'}]}, {id: 'r-c01', type: 'cell', text: [{t: 'Live amount'}]}]},
+      {id: 'r-tr1', type: 'row', children: [{id: 'r-c10', type: 'cell', text: [{t: 'Dried ramen noodles'}]}, {id: 'r-c11', type: 'cell', text: [{t: 'noodles g'}]}]},
+      {id: 'r-tr2', type: 'row', children: [{id: 'r-c20', type: 'cell', text: [{t: 'Vegetable broth'}]}, {id: 'r-c21', type: 'cell', text: [{t: 'broth ml'}]}]},
+      {id: 'r-tr3', type: 'row', children: [{id: 'r-c30', type: 'cell', text: [{t: 'Mushrooms'}]}, {id: 'r-c31', type: 'cell', text: [{t: 'mushrooms g'}]}]},
+      {id: 'r-tr4', type: 'row', children: [{id: 'r-c40', type: 'cell', text: [{t: 'Baby spinach'}]}, {id: 'r-c41', type: 'cell', text: [{t: 'spinach g'}]}]},
+      {id: 'r-tr5', type: 'row', children: [{id: 'r-c50', type: 'cell', text: [{t: 'Soy sauce'}]}, {id: 'r-c51', type: 'cell', text: [{t: 'soy ml'}]}]},
+      {id: 'r-tr6', type: 'row', children: [{id: 'r-c60', type: 'cell', text: [{t: 'Eggs'}]}, {id: 'r-c61', type: 'cell', text: [{t: 'eggs'}]}]},
+    ],
+  },
+  {id: 'r-notes-2', type: 'notes', text: [{t: 'The base recipe serves four. The named code outputs are the ingredient amounts used by the chart and batch indicators.'}]},
+  {id: 'r-div-2', type: 'divider'},
+
+  // Slide 3 — method
+  {id: 'r-h3', type: 'heading', text: [{t: 'Method · 25 minutes'}], props: {level: 2}},
+  {id: 'r-step1', type: 'todo', text: [{t: 'Boil the eggs for 7 minutes, cool, peel and halve.'}], props: {checked: false}},
+  {id: 'r-step2', type: 'todo', text: [{t: 'Slice the mushrooms and wash the spinach.'}], props: {checked: false}},
+  {id: 'r-step3', type: 'todo', text: [{t: 'Bring the broth and soy sauce to a simmer; cook the mushrooms for 5 minutes.'}], props: {checked: false}},
+  {id: 'r-step4', type: 'todo', text: [{t: 'Add the noodles and cook for 3 minutes, then fold in the spinach.'}], props: {checked: false}},
+  {id: 'r-step5', type: 'todo', text: [{t: 'Divide between bowls and top each serving with egg.'}], props: {checked: false}},
+  {id: 'r-call2', type: 'callout', text: [{t: 'Cooking more than six servings? Use the computed pan count and split the broth evenly so the noodles cook at the same pace.'}], props: {variant: 'success'}},
+  {id: 'r-notes-3', type: 'notes', text: [{t: 'For the smoothest service, prep every topping before the broth reaches a simmer.'}]},
 ];
 
 // (🗂️ Project task board and 📚 Reading list are databases — see below.)
@@ -1291,11 +1367,11 @@ const createCompoundGrowth = (client: DataClient, name: string): Promise<StoredP
 };
 
 export const PAGE_TEMPLATES: PageTemplate[] = [
+  {id: 'recipe-scaler', icon: '🍳', pageName: 'Recipe scaler', tags: ['interactive', 'slides'], create: createBlockDocPage(RECIPE_BLOCKS)},
   {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', tags: ['interactive', 'slides'], create: createBlockDocPage(GROCERY_BLOCKS)},
   {id: 'task-board', icon: '🗂️', pageName: 'Project task board', tags: ['database'], guidance: GUIDANCE.taskBoard, create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS, {id: 'tb-guide', text: GUIDANCE.taskBoard})},
   {id: 'reading-list', icon: '📚', pageName: 'Reading list', tags: ['database'], guidance: GUIDANCE.readingList, create: createDatabasePage(READING_SCHEMA, READING_ROWS, {id: 'rl-guide', text: GUIDANCE.readingList})},
   {id: 'project-intake', icon: '📋', pageName: 'Project intake', tags: ['interactive', 'slides'], create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
-  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], guidance: GUIDANCE.roadmap, create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS, {id: 'rm-guide', text: GUIDANCE.roadmap})},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], guidance: GUIDANCE.fieldMap, create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS, {id: 'fm-guide', text: GUIDANCE.fieldMap})},
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
@@ -1309,9 +1385,10 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own
   // display name — the two entry points never race or shadow each other.
+  {id: 'startup-books', icon: '📒', pageName: 'Startup books', tags: ['interactive'], guidance: GUIDANCE.startupBooks, create: createStartupBooks},
+  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], create: createCompoundGrowth},
   {id: 'simple-budget', icon: '💵', pageName: 'Simple budget', tags: ['interactive'], guidance: GUIDANCE.simpleBudget, create: createSimpleBudget},
-  {id: 'startup-books', icon: '📒', pageName: 'Startup books', tags: ['interactive'], guidance: GUIDANCE.startupBooks, create: createStartupBooks},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes
