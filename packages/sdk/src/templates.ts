@@ -269,13 +269,13 @@ const RECIPE_BLOCKS = [
     type: 'table',
     props: {header: true},
     children: [
-      {id: 'r-tr0', type: 'row', children: [{id: 'r-c00', type: 'cell', text: [{t: 'Ingredient'}]}, {id: 'r-c01', type: 'cell', text: [{t: 'Live amount'}]}]},
-      {id: 'r-tr1', type: 'row', children: [{id: 'r-c10', type: 'cell', text: [{t: 'Dried ramen noodles'}]}, {id: 'r-c11', type: 'cell', text: [{t: 'noodles g'}]}]},
-      {id: 'r-tr2', type: 'row', children: [{id: 'r-c20', type: 'cell', text: [{t: 'Vegetable broth'}]}, {id: 'r-c21', type: 'cell', text: [{t: 'broth ml'}]}]},
-      {id: 'r-tr3', type: 'row', children: [{id: 'r-c30', type: 'cell', text: [{t: 'Mushrooms'}]}, {id: 'r-c31', type: 'cell', text: [{t: 'mushrooms g'}]}]},
-      {id: 'r-tr4', type: 'row', children: [{id: 'r-c40', type: 'cell', text: [{t: 'Baby spinach'}]}, {id: 'r-c41', type: 'cell', text: [{t: 'spinach g'}]}]},
-      {id: 'r-tr5', type: 'row', children: [{id: 'r-c50', type: 'cell', text: [{t: 'Soy sauce'}]}, {id: 'r-c51', type: 'cell', text: [{t: 'soy ml'}]}]},
-      {id: 'r-tr6', type: 'row', children: [{id: 'r-c60', type: 'cell', text: [{t: 'Eggs'}]}, {id: 'r-c61', type: 'cell', text: [{t: 'eggs'}]}]},
+      {id: 'r-tr0', type: 'row', children: [{id: 'r-c00', type: 'cell', text: [{t: 'Ingredient'}]}, {id: 'r-c01', type: 'cell', text: [{t: 'Base (serves 4)'}]}]},
+      {id: 'r-tr1', type: 'row', children: [{id: 'r-c10', type: 'cell', text: [{t: 'Dried ramen noodles'}]}, {id: 'r-c11', type: 'cell', text: [{t: '400 g'}]}]},
+      {id: 'r-tr2', type: 'row', children: [{id: 'r-c20', type: 'cell', text: [{t: 'Vegetable broth'}]}, {id: 'r-c21', type: 'cell', text: [{t: '1200 ml'}]}]},
+      {id: 'r-tr3', type: 'row', children: [{id: 'r-c30', type: 'cell', text: [{t: 'Mushrooms'}]}, {id: 'r-c31', type: 'cell', text: [{t: '240 g'}]}]},
+      {id: 'r-tr4', type: 'row', children: [{id: 'r-c40', type: 'cell', text: [{t: 'Baby spinach'}]}, {id: 'r-c41', type: 'cell', text: [{t: '160 g'}]}]},
+      {id: 'r-tr5', type: 'row', children: [{id: 'r-c50', type: 'cell', text: [{t: 'Soy sauce'}]}, {id: 'r-c51', type: 'cell', text: [{t: '60 ml'}]}]},
+      {id: 'r-tr6', type: 'row', children: [{id: 'r-c60', type: 'cell', text: [{t: 'Eggs'}]}, {id: 'r-c61', type: 'cell', text: [{t: '4'}]}]},
     ],
   },
   {id: 'r-notes-2', type: 'notes', text: [{t: 'The base recipe serves four. The named code outputs are the ingredient amounts used by the chart and batch indicators.'}]},
@@ -1381,12 +1381,12 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   // database. Tagged `interactive` (you land on a document, not a table), so it
   // groups under Interactive documents; the description names its data backing.
   {id: 'dashboard', icon: '📊', pageName: 'Sales dashboard', tags: ['interactive'], guidance: GUIDANCE.dashboard, create: createDashboard},
+  {id: 'startup-books', icon: '📒', pageName: 'Startup books', tags: ['interactive'], guidance: GUIDANCE.startupBooks, create: createStartupBooks},
+  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   // The classic sample document, folded into the gallery. Unlike the Home
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own
   // display name — the two entry points never race or shadow each other.
-  {id: 'startup-books', icon: '📒', pageName: 'Startup books', tags: ['interactive'], guidance: GUIDANCE.startupBooks, create: createStartupBooks},
-  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], create: createCompoundGrowth},
   {id: 'simple-budget', icon: '💵', pageName: 'Simple budget', tags: ['interactive'], guidance: GUIDANCE.simpleBudget, create: createSimpleBudget},
 ];

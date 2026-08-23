@@ -158,7 +158,7 @@ describe('PAGE_TEMPLATES', () => {
   it('has twelve templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(14);
+    expect(PAGE_TEMPLATES).toHaveLength(15);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS, ...LEDGER_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
