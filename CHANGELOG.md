@@ -1,3 +1,16 @@
+## 3.14.1 (2026-08-23)
+
+### 🩹 Fixes
+
+- **ui:** design polish — motion, overlays, selection, dark theme (APPFIT-2/3) ([#329](https://github.com/lab255/OpenBook/pull/329))
+- **ui:** restore accent-sidebar contrast + stale e2e assertions (APPFIT follow-up) ([#331](https://github.com/lab255/OpenBook/pull/331), [#329](https://github.com/lab255/OpenBook/issues/329))
+- **ui,web,app:** scope document scroll lock to OpenBook shells via ob-app marker (UIFIX-1) ([#328](https://github.com/lab255/OpenBook/pull/328))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.14.0 (2026-08-15)
 
 ### 🚀 Features
