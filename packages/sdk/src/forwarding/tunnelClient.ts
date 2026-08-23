@@ -42,6 +42,10 @@ export interface TunnelClientOptions {
 
 type ReqFrame = Extract<ControlFrame, {t: 'req'}>;
 
+const HEARTBEAT_INTERVAL_MS = 25_000;
+const LIVENESS_DEADLINE_MS = 62_500;
+const TICKET_MINT_TIMEOUT_MS = 15_000;
+
 interface Inflight {
   controller: AbortController;
   bodyController?: ReadableStreamDefaultController<Uint8Array>;
@@ -60,6 +64,9 @@ export class TunnelClient {
   private consecutiveDialFailures = 0;
   private ready = false;
   private failureReportedForDial = false;
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private livenessTimer?: ReturnType<typeof setTimeout>;
+  private lastFrameAt = 0;
 
   constructor(private readonly opts: TunnelClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
@@ -73,6 +80,7 @@ export class TunnelClient {
 
   stop(): void {
     this.stopped = true;
+    this.clearHeartbeatTimers();
     this.consecutiveDialFailures = 0;
     this.setStatus('offline');
     this.ws?.close();
@@ -97,8 +105,9 @@ export class TunnelClient {
   /** Mint a fresh ticket, then open the relay socket with it. Minting per dial is
    *  what keeps reconnects working — a reused ticket expires and attach fails. */
   private async dial(): Promise<void> {
+    this.clearHeartbeatTimers();
     try {
-      const info = await this.opts.ticketProvider();
+      const info = await this.mintTicket();
       if (this.stopped) return;
       this.ticket = info.ticket;
       this.ready = false;
@@ -117,6 +126,7 @@ export class TunnelClient {
   }
 
   private onClose(): void {
+    this.clearHeartbeatTimers();
     for (const f of this.inflight.values()) f.controller.abort();
     this.inflight.clear();
     if (!this.stopped && !this.ready && !this.failureReportedForDial) {
@@ -146,6 +156,46 @@ export class TunnelClient {
     }, delay);
   }
 
+  private async mintTicket(): Promise<{relayWsUrl: string; ticket: string}> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.opts.ticketProvider(),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error('relay attach-ticket mint timed out after 15000ms')), TICKET_MINT_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  }
+
+  private startHeartbeat(): void {
+    this.clearHeartbeatTimers();
+    this.lastFrameAt = Date.now();
+    this.heartbeatTimer = setInterval(() => this.sendControl({t: 'ping'}), HEARTBEAT_INTERVAL_MS);
+    this.armLivenessDeadline();
+  }
+
+  private armLivenessDeadline(): void {
+    if (this.livenessTimer !== undefined) clearTimeout(this.livenessTimer);
+    const remaining = LIVENESS_DEADLINE_MS - (Date.now() - this.lastFrameAt);
+    this.livenessTimer = setTimeout(() => {
+      if (Date.now() - this.lastFrameAt >= LIVENESS_DEADLINE_MS) {
+        this.ws?.close();
+      } else {
+        this.armLivenessDeadline();
+      }
+    }, Math.max(0, remaining));
+  }
+
+  private clearHeartbeatTimers(): void {
+    if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer);
+    if (this.livenessTimer !== undefined) clearTimeout(this.livenessTimer);
+    this.heartbeatTimer = undefined;
+    this.livenessTimer = undefined;
+  }
+
   private sendControl(frame: ControlFrame): void {
     this.ws?.send(encodeControl(frame));
   }
@@ -163,6 +213,8 @@ export class TunnelClient {
 
   private async onMessage(data: string | ArrayBuffer): Promise<void> {
     if (this.stopped) return;
+    this.lastFrameAt = Date.now();
+    if (this.ready) this.armLivenessDeadline();
     if (typeof data === 'string') {
       const frame = decodeControl(data);
       if (frame) await this.onControl(frame);
@@ -189,6 +241,7 @@ export class TunnelClient {
       this.ready = true;
       this.failureReportedForDial = false;
       this.setStatus('online');
+      this.startHeartbeat();
       break;
     case 'error':
       this.reportDialError(new Error(frame.message));
