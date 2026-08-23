@@ -58,6 +58,17 @@
   --color-hover: var(--hover);
   --color-hover-strong: var(--hover-strong);
 
+  /* Sidebar selection (APPFIT-3.9): the selected row is marked with the brand
+     tint — a primary wash, primary ink and a primary rail. That reads on the
+     TINTED (default) sidebar, whose sheet is a pale accent panel. On the opt-in
+     ACCENT sheet the primary IS the surface, so primary ink on it collapses to
+     ~1:1; the `.ob-accent-chrome` remap below repoints these to the sheet's own
+     audited poles (veil wash + flipped foreground) exactly like `--color-hover`.
+     Selection styling therefore goes through these tokens, never `*-primary`. */
+  --color-sidebar-selection: hsl(var(--primary));
+  --color-sidebar-selection-wash: hsl(var(--primary) / 0.15);
+  --color-sidebar-selection-wash-strong: hsl(var(--primary) / 0.2);
+
   --color-popover: hsl(var(--popover));
   --color-popover-foreground: hsl(var(--popover-foreground));
 
@@ -629,12 +640,21 @@
   --color-accent-foreground: hsl(var(--sheet-1-foreground));
   --color-hover: hsl(var(--sheet-veil) / 0.1);
   --color-hover-strong: hsl(var(--sheet-veil) / 0.16);
+  /* Selection: the brand tint can't mark a row whose surface already IS the
+     brand colour, so the selected row falls back to the sheet's own poles —
+     the strong veil wash plus the flipped sheet foreground (which is what the
+     contrast audit measures). */
+  --color-sidebar-selection: hsl(var(--sheet-1-foreground));
+  --color-sidebar-selection-wash: hsl(var(--sheet-veil) / 0.16);
+  --color-sidebar-selection-wash-strong: hsl(var(--sheet-veil) / 0.22);
 }
 /* Dark scheme uses the audited 8/13 % veil alphas (manifest §2.3) so shared
    `bg-hover` consumers (the page tree) match the SIDEBAR_* item washes. */
 [data-sidebar='accent'].dark .ob-accent-chrome {
   --color-hover: hsl(var(--sheet-veil) / 0.08);
   --color-hover-strong: hsl(var(--sheet-veil) / 0.13);
+  --color-sidebar-selection-wash: hsl(var(--sheet-veil) / 0.13);
+  --color-sidebar-selection-wash-strong: hsl(var(--sheet-veil) / 0.18);
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings

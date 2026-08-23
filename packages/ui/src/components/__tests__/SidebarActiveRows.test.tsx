@@ -34,13 +34,19 @@ const page = (id: string, name: string): PageMeta => ({
   updatedAt: '2026-01-02T00:00:00.000Z',
 });
 
+// The selection treatment stays the brand tint (APPFIT-3.9), but is expressed
+// through the `--color-sidebar-selection*` tokens instead of `*-primary`
+// literals: on the opt-in ACCENT sidebar the sheet IS the primary, so primary
+// ink measured 1.00–1.17:1 against it (sidebar-accent-contrast.spec). The
+// tokens resolve to primary/15 · primary · primary/20 on the tinted default,
+// and to the sheet veil + flipped sheet foreground under `.ob-accent-chrome`.
 function expectPersistentSelection(row: HTMLElement): void {
   const classes = row.className.split(/\s+/);
-  expect(classes).toContain('bg-primary/15');
-  expect(classes).toContain('text-primary');
-  expect(classes).toContain('hover:bg-primary/20');
+  expect(classes).toContain('bg-sidebar-selection-wash');
+  expect(classes).toContain('text-sidebar-selection');
+  expect(classes).toContain('hover:bg-sidebar-selection-wash-strong');
   expect(classes).toContain('before:w-0.5');
-  expect(classes).toContain('before:bg-primary');
+  expect(classes).toContain('before:bg-sidebar-selection');
   expect(classes).not.toContain('font-medium');
 }
 

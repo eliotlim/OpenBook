@@ -47,9 +47,14 @@ async function sidebarSelectionRail(row: Locator) {
   });
 }
 
+// The tinted selection treatment (APPFIT-3.9) is painted through the
+// `--color-sidebar-selection*` tokens, which resolve to the primary wash / ink /
+// rail on the default sidebar and to the sheet's veil + flipped foreground on
+// the opt-in accent sheet (where primary ink is invisible — see
+// sidebar-accent-contrast.spec).
 async function expectPersistentSidebarSelection(row: Locator) {
-  await expect(row).toHaveClass(/\bbg-primary\/15\b/);
-  await expect(row).toHaveClass(/\bbefore:bg-primary\b/);
+  await expect(row).toHaveClass(/\bbg-sidebar-selection-wash(?!-)/);
+  await expect(row).toHaveClass(/\bbefore:bg-sidebar-selection\b/);
   let previousBackground: string | undefined;
   let restingBackground = '';
   await expect
@@ -89,20 +94,20 @@ test('selecting a truncated sidebar row preserves row and text metrics', {tag: [
 
   const first = page.getByRole('treeitem').filter({hasText: firstName});
   const second = page.getByRole('treeitem').filter({hasText: secondName});
-  await expect(first).toHaveClass(/\bbg-primary\/15\b/);
-  await expect(first).toHaveClass(/\bbefore:bg-primary\b/);
-  await expect(second).not.toHaveClass(/\bbg-primary\/15\b/);
-  await expect(second).not.toHaveClass(/\bbefore:bg-primary\b/);
+  await expect(first).toHaveClass(/\bbg-sidebar-selection-wash(?!-)/);
+  await expect(first).toHaveClass(/\bbefore:bg-sidebar-selection\b/);
+  await expect(second).not.toHaveClass(/\bbg-sidebar-selection-wash(?!-)/);
+  await expect(second).not.toHaveClass(/\bbefore:bg-sidebar-selection\b/);
 
   const before = await Promise.all([sidebarMetrics(first), sidebarMetrics(second)]);
   expect(before[0].text.scrollWidth).toBeGreaterThan(before[0].text.clientWidth);
   expect(before[1].text.scrollWidth).toBeGreaterThan(before[1].text.clientWidth);
 
   await second.click();
-  await expect(second).toHaveClass(/\bbg-primary\/15\b/);
-  await expect(second).toHaveClass(/\bbefore:bg-primary\b/);
-  await expect(first).not.toHaveClass(/\bbg-primary\/15\b/);
-  await expect(first).not.toHaveClass(/\bbefore:bg-primary\b/);
+  await expect(second).toHaveClass(/\bbg-sidebar-selection-wash(?!-)/);
+  await expect(second).toHaveClass(/\bbefore:bg-sidebar-selection\b/);
+  await expect(first).not.toHaveClass(/\bbg-sidebar-selection-wash(?!-)/);
+  await expect(first).not.toHaveClass(/\bbefore:bg-sidebar-selection\b/);
 
   expect(await Promise.all([sidebarMetrics(first), sidebarMetrics(second)])).toEqual(before);
 
