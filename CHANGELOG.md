@@ -1,3 +1,18 @@
+## 3.15.0 (2026-08-24)
+
+### 🚀 Features
+
+- **sdk,ui:** Recipe scaler template — reactive servings→quantities; gallery reorder (RELAUNCH-1) ([#332](https://github.com/lab255/OpenBook/pull/332))
+
+### 🩹 Fixes
+
+- **sdk:** tunnel client keepalive — detect half-open sockets, auto-reconnect (TUN-13) ([#336](https://github.com/lab255/OpenBook/pull/336))
+- **ui:** emoji picker no longer dismisses its parent popover (UIX-3) ([#333](https://github.com/lab255/OpenBook/pull/333))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.14.1 (2026-08-23)
 
 ### 🩹 Fixes
