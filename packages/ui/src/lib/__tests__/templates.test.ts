@@ -4,6 +4,10 @@ import {buildSampleDocument, PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
 import {computeScopeAuthoritative, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
+import {en} from '@/i18n/messages/en';
+import {de} from '@/i18n/messages/de';
+import {ja} from '@/i18n/messages/ja';
+import {zh} from '@/i18n/messages/zh';
 
 const page = (over: Partial<StoredPage> = {}): StoredPage =>
   ({
@@ -40,7 +44,7 @@ function stubClient(existing: string[]): DataClient {
 
 /** Block-doc showcases shaped as slide decks (tagged `slides`): divider-cut
  *  slides, speaker notes, and the full visual kit. */
-const SLIDE_DECK_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
+const SLIDE_DECK_IDS = ['recipe-scaler', 'grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
 /** Every block-doc template (the decks plus the single-page dashboards). */
 const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth', 'team-status'] as const;
 // Templates that create a database (the four fixtures, the two-database Product HQ,
@@ -154,7 +158,7 @@ describe('PAGE_TEMPLATES', () => {
   it('has twelve templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(14);
+    expect(PAGE_TEMPLATES).toHaveLength(15);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS, ...LEDGER_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
@@ -231,6 +235,36 @@ describe('grocery price tracker', () => {
     expect(scope.store).toBe('Aldi');
     expect(scope.saving).toBe(26); // 112 − 86
     expect(String(scope.headline)).toContain('Aldi');
+  });
+});
+
+describe('recipe scaler', () => {
+  it('is promoted first and scales the four-serving ramen quantities', async () => {
+    const template = PAGE_TEMPLATES[0];
+    expect(template.id).toBe('recipe-scaler');
+    expect(template.pageName).toBe('Recipe scaler');
+    expect(template.icon).toBe('🍳');
+    expect(template.tags).toEqual(['interactive', 'slides']);
+
+    const {scope} = await computeScopeAuthoritative(await docOf('recipe-scaler'));
+    expect(scope.servings).toBe(4);
+    expect(scope.scale).toBe(1);
+    expect(scope.noodles).toBe(400);
+    expect(scope.broth).toBe(1200);
+    expect(scope.panCount).toBe(1);
+    expect(scope.prepWeight).toBe(2260);
+  });
+
+  it('has complete, translated gallery copy in every locale', () => {
+    for (const messages of [en, de, ja, zh]) {
+      const copy = messages.templates?.recipeScaler as {name: string; description: string; guidance: string};
+      expect(copy.name.length).toBeGreaterThan(0);
+      expect(copy.description.length).toBeGreaterThan(0);
+      expect(copy.guidance.length).toBeGreaterThan(0);
+    }
+    expect(de.templates?.recipeScaler?.name).not.toBe(en.templates.recipeScaler.name);
+    expect(ja.templates?.recipeScaler?.name).not.toBe(en.templates.recipeScaler.name);
+    expect(zh.templates?.recipeScaler?.name).not.toBe(en.templates.recipeScaler.name);
   });
 });
 

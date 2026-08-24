@@ -1382,6 +1382,11 @@ export const en = {
       documents: 'Interactive documents',
       databases: 'Databases',
     },
+    recipeScaler: {
+      name: 'Recipe scaler',
+      description: 'Scale weeknight ramen from one bowl to twelve — live ingredient quantities, batch guidance, and a cooking checklist.',
+      guidance: 'Scale this weeknight ramen from one bowl to twelve: drag the servings slider and the ingredient amounts, prep load, pot count, chart and batch status all update together. Tick off each method step as you cook.',
+    },
     groceryTracker: {
       name: 'Grocery price tracker',
       description: 'Price a weekly basket across shops — live charts, a budget light, and the maths tucked in a code block.',

@@ -37,6 +37,22 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await expect(page.getByText('Start with a template')).toBeHidden();
 });
 
+test('recipe scaler: servings update ingredient quantities and the batch status', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'recipe-scaler');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Recipe scaler/);
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="bar"]')).toBeVisible();
+  const status = page.locator('.obe-kit-status');
+  await expect(status).toHaveAttribute('data-status', 'ok');
+  await expect(page.locator('.obe-code-out', {hasText: '400'}).first()).toBeVisible();
+
+  await page.getByLabel('servings value').fill('8');
+  await expect(page.locator('.obe-code-out', {hasText: '800'}).first()).toBeVisible();
+  await expect(status).toHaveAttribute('data-status', 'warn');
+  await expect(page.getByRole('checkbox')).toHaveCount(5);
+});
+
 test('grocery price tracker: baskets steer the cheapest pick and the budget light', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'grocery-tracker');

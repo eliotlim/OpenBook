@@ -819,6 +819,11 @@ export const zh: PartialMessages = {
       documents: '交互式文档',
       databases: '数据库',
     },
+    recipeScaler: {
+      name: '食谱份量换算',
+      description: '把工作日晚餐拉面从1份换算到12份——食材用量、分锅提示和烹饪清单都会实时联动。',
+      guidance: '将这份工作日晚餐拉面从1碗换算到12碗：拖动份数滑块，食材用量、备料总量、锅数、图表和分锅状态会同步更新。烹饪时可逐项勾选做法步骤。',
+    },
     groceryTracker: {
       name: '杂货价格追踪',
       description: '把每周购物篮在多家商店比价——实时图表、预算状态灯，计算都藏在代码块里。',

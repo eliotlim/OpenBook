@@ -828,6 +828,11 @@ export const de: PartialMessages = {
       documents: 'Interaktive Dokumente',
       databases: 'Datenbanken',
     },
+    recipeScaler: {
+      name: 'Rezeptrechner',
+      description: 'Wochentags-Ramen von einer bis zwölf Schalen skalieren — mit Live-Zutatenmengen, Chargenhinweisen und Koch-Checkliste.',
+      guidance: 'Skalieren Sie diese schnellen Ramen von einer bis zwölf Schalen: Ziehen Sie den Portionsregler, und Zutatenmengen, Vorbereitungsmenge, Topfanzahl, Diagramm und Chargenstatus werden gemeinsam aktualisiert. Haken Sie beim Kochen jeden Arbeitsschritt ab.',
+    },
     groceryTracker: {
       name: 'Lebensmittelpreis-Tracker',
       description: 'Einen Wocheneinkauf über mehrere Läden bepreisen — Live-Diagramme, eine Budgetleuchte und die Rechnung im Code-Block.',
