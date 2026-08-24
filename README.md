@@ -1,73 +1,119 @@
 <div align="center">
 
+<img src="packages/web/public/icon.svg" alt="OpenBook logo" width="96"/>
+
 # OpenBook
 
-**A safe space for your notes — free, open source, and yours offline.**
+**Notes, databases, and interactive pages that work offline.**
 
-**[Download](https://github.com/lab255/OpenBook/releases/latest) | [Website](https://open.book.pub) | [Features](#features)**
+[![License: MIT](https://img.shields.io/github/license/lab255/OpenBook)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/lab255/OpenBook)](https://github.com/lab255/OpenBook/releases/latest)
+![Platforms: macOS · Linux · Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-555)
 
-![A slider driving a live compound-growth chart in OpenBook](docs/media/reactive-chart.png)
+**[Download](#download) · [open.book.pub](https://open.book.pub) · [Templates](#templates) · [Contributing](#contributing)**
+
+![A page open in tabs in the OpenBook desktop app](docs/media/desktop-tabs.png)
 
 </div>
 
-## For everyone
+## Pick your path
 
-OpenBook is a private, open-source home for notes, databases, and interactive pages. It works offline and keeps your work on your machine; an account, sharing, and sync are optional.
+🟢 **Just want a notebook that works offline?** → [Download OpenBook](#download)
 
-Download the [latest release](https://github.com/lab255/OpenBook/releases/latest) for your platform:
+🔵 **Want pages that compute as you edit?** → See it [in action](#in-action) or start from a [template](#templates)
 
-- **macOS:** Choose `OpenBook_<ver>_aarch64.dmg` for Apple Silicon or `OpenBook_<ver>_x64.dmg` for Intel. The app is signed and notarized, so it opens normally.
-- **Windows:** Prefer `OpenBook_<ver>_x64-setup.exe`; an `.msi` installer is also available. Windows may show a SmartScreen warning for now—select **More info → Run anyway**. Signed builds are on the way.
-- **Linux:** Choose the `.AppImage`, `.deb`, or `.rpm` package for your system. All builds are 64-bit x86 (x86_64).
+🟣 **Want the internals—SDK, plugins, and local-first sync?** → Go to [For developers](#for-developers) or [Contributing](#contributing)
 
-OpenBook updates automatically on macOS, Windows, and the Linux AppImage, and makes automatic local backups out of the box.
+## In action
 
-## Features
+<table>
+<tr>
+<td width="45%"><img src="docs/media/feature-recipe-scaler.png" alt="A recipe scaler with a servings slider, ingredient table, and chart in the OpenBook desktop app"/></td>
+<td width="55%">
 
-- Build calculators, charts and dashboards that update as you type — and see how they're wired.
-- Put spreadsheets inside your pages. Filter, sort, and switch between table, board, calendar, timeline, map and more.
-- Keep pages inside pages. Open them in tabs, windows, or side by side.
-- Deleted something? Get it back from the Trash.
-- Export self-contained HTML that stays interactive offline.
-- Add custom blocks, commands, and integrations with plugins.
-- Present a page with speaker notes and a timer.
-- Share pages with the people you choose.
+### 🍳 Scale a recipe live
 
-Write naturally, then use the slash menu to add structured blocks.
+Move the servings slider and the ingredient table and chart recompute together. **Change one input; every connected block stays in sync.**
 
-![The OpenBook editor with its slash menu open](docs/media/editor-slash.png)
+</td>
+</tr>
+</table>
 
-Turn the same database into focused grid, board, calendar, timeline, or map views.
+<table>
+<tr>
+<td width="55%">
 
-![A project database shown as a board in OpenBook](docs/media/database-views-board.png)
+### ⌨️ Add blocks without leaving the keyboard
 
-Build reactive pages where controls update calculators, charts, and dashboards instantly.
+Type `/` to insert text, media, databases, controls, charts, and more. **Build structured pages in the same flow as writing.**
 
-![A grocery budget page where a household-size radio and category sliders drive a live pie chart in OpenBook](docs/media/reactive-grocery.png)
+</td>
+<td width="45%"><img src="docs/media/editor-slash.png" alt="The slash-command block menu open in the OpenBook desktop app"/></td>
+</tr>
+</table>
 
-Present a page with speaker notes, a timer, and a clean audience view.
+<table>
+<tr>
+<td width="45%"><img src="docs/media/database-views-board.png" alt="A project database displayed as a board in the OpenBook desktop app"/></td>
+<td width="55%">
 
-![Present mode with speaker notes and a timer](docs/media/present-mode.png)
+### 🗂️ Switch the view, not the data
 
-Share a page with the people you choose and control their access.
+Show one database as a grid, board, calendar, timeline, or map, with filters and sorting for each view. **Keep one source of truth for different workflows.**
 
-![The OpenBook page-sharing dialog](docs/media/share-dialog.png)
+</td>
+</tr>
+</table>
 
-Keep pages organized in desktop tabs while navigating your library.
+<table>
+<tr>
+<td width="55%">
 
-![The OpenBook desktop app with a page open in a tab](docs/media/desktop-tabs.png)
+### 🎤 Present from the page
 
-See the [full feature tour](https://open.book.pub).
+Turn a page into a clean audience view while keeping speaker notes and a timer close by. **Write and present from the same document.**
+
+</td>
+<td width="45%"><img src="docs/media/present-mode.png" alt="A presentation with speaker notes and a timer in the OpenBook desktop app"/></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="45%"><img src="docs/media/share-dialog.png" alt="Page sharing and access controls in the OpenBook desktop app"/></td>
+<td width="55%">
+
+### 🛜 Work locally, share when you choose
+
+Edits land in a local database first, so the app keeps working offline; sync and collaboration are optional. **Your notebook does not depend on a connection.**
+
+</td>
+</tr>
+</table>
+
+## Templates
+
+The gallery ships with ready-made interactive templates: **recipe scaler**, grocery price tracker, task board, roadmap, and pitch deck. Use one as-is or open it up to see how its controls, data, and views connect.
+
+## Download
+
+Download the [latest release](https://github.com/lab255/OpenBook/releases/latest). OpenBook makes automatic local backups on every platform; macOS, Windows, and the Linux AppImage also update automatically.
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| macOS | `OpenBook_<ver>_aarch64.dmg` (Apple Silicon) or `OpenBook_<ver>_x64.dmg` (Intel) | Signed and notarized. |
+| Windows | `OpenBook_<ver>_x64-setup.exe` (recommended) or `.msi` | Windows may show SmartScreen; choose **More info → Run anyway**. Signed builds are planned. |
+| Linux | `.AppImage`, `.deb`, or `.rpm` | 64-bit x86 (x86_64). Choose the package for your distribution. |
 
 ## Sharing and sync
 
-OpenBook works offline with no account. For sync or collaboration, self-host the server or publish a library to **book.cloud**. book.cloud requires a free account.
+OpenBook works offline with no account, and edits are written to its local database first. For sync or collaboration, self-host the server or publish a library to **book.cloud**; book.cloud requires a free account.
 
 ## For developers
 
-Issues and contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guidelines and [DEVELOPMENT.md](DEVELOPMENT.md) for the full development guide.
+OpenBook includes an SDK and plugin system, with a local-first desktop client and optional sync server. See [ARCHITECTURE.md](ARCHITECTURE.md), the [`packages`](packages/) directory, and [DEVELOPMENT.md](DEVELOPMENT.md) for the system design, code layout, and setup instructions.
 
-Prerequisites: Node.js `^22.14.0 || >=24.10.0`, pnpm, Bun `1.3.14`, and a Rust toolchain.
+Prerequisites are Node.js `^22.14.0 || >=24.10.0`, pnpm, Bun `1.3.14`, and a Rust toolchain.
 
 ```sh
 corepack enable
@@ -75,7 +121,9 @@ pnpm install
 pnpm dev
 ```
 
-For the system design and code layout, see [ARCHITECTURE.md](ARCHITECTURE.md) and the [`packages`](packages/) directory. Report security issues privately as described in [SECURITY.md](SECURITY.md).
+## Contributing
+
+Issues and contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change, and report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
