@@ -1,5 +1,6 @@
 import {Suspense, lazy, useSyncExternalStore} from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
+import {DismissableLayerBranch} from '@radix-ui/react-dismissable-layer';
 import {emojiPicker} from '@/lib/emojiPicker';
 
 const EmojiGrid = lazy(() => import('@/components/EmojiGrid'));
@@ -35,22 +36,27 @@ export default function EmojiPickerHost() {
       </PopoverPrimitive.Anchor>
       {open && (
         <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
-            align="start"
-            sideOffset={6}
-            collisionPadding={8}
-            className="z-50 overflow-hidden rounded-md border-0 shadow-overlay outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
-          >
-            <Suspense fallback={<div className="h-[372px] w-[332px] rounded-md bg-popover" />}>
-              <EmojiGrid
-                value={value}
-                onPick={(picked) => {
-                  onPick?.(picked);
-                  emojiPicker.close();
-                }}
-              />
-            </Suspense>
-          </PopoverPrimitive.Content>
+          {/* The host lives at the app root rather than below the IconPicker that
+              opened it. Register its portal as an inside branch so an enclosing
+              Radix popover does not dismiss when focus/click moves into here. */}
+          <DismissableLayerBranch asChild>
+            <PopoverPrimitive.Content
+              align="start"
+              sideOffset={6}
+              collisionPadding={8}
+              className="z-50 overflow-hidden rounded-md border-0 shadow-overlay outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+            >
+              <Suspense fallback={<div className="h-[372px] w-[332px] rounded-md bg-popover" />}>
+                <EmojiGrid
+                  value={value}
+                  onPick={(picked) => {
+                    onPick?.(picked);
+                    emojiPicker.close();
+                  }}
+                />
+              </Suspense>
+            </PopoverPrimitive.Content>
+          </DismissableLayerBranch>
         </PopoverPrimitive.Portal>
       )}
     </PopoverPrimitive.Root>
