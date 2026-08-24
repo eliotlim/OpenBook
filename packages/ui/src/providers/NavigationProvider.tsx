@@ -37,6 +37,10 @@ export interface NavigationContextValue {
   primaryPageId: string | null;
   loading: boolean;
   error: string | null;
+  /** True when the initial load failed because the publishing relay reports its site offline. */
+  siteOffline: boolean;
+  /** Re-run the initial page-list load after a startup failure. */
+  retryInitialLoad: () => void;
 
   // ── In-window tabs (desktop) ────────────────────────────────────────────────
   /** Whether tabs live inside the window (a custom titlebar tab bar). */
@@ -293,6 +297,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const [titleHints, setTitleHints] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [siteOffline, setSiteOffline] = useState(false);
+  const [initialLoadAttempt, setInitialLoadAttempt] = useState(0);
   // The active database view of the primary page, mirrored to `?view=`. Seeded
   // from the URL so a deep link (`?page=…&view=…`) lands on that view.
   const [viewParam, setViewParam] = useState<string | null>(() => readUrl().view);
@@ -410,6 +416,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     setPages(list);
     return list;
   }, [client]);
+
+  const retryInitialLoad = useCallback(() => {
+    initRef.current = null;
+    setError(null);
+    setSiteOffline(false);
+    setLoading(true);
+    setInitialLoadAttempt((attempt) => attempt + 1);
+  }, []);
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const selectPage = useCallback((id: string) => update((w) => W.navigateFocused(w, id)), [update]);
@@ -773,12 +787,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
         setWin(W.initWindow(primary, secondary));
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
+        setSiteOffline(/\b502\b|site[\s_-]*offline/i.test(message));
       } finally {
         setLoading(false);
       }
     })();
-  }, [client]);
+  }, [client, initialLoadAttempt]);
 
   // Icons travel on the page list now (page.properties), so hydrate the shared
   // icon cache whenever the list changes — the sidebar, tabs, mentions, etc. read
@@ -925,6 +941,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       primaryPageId,
       loading,
       error,
+      siteOffline,
+      retryInitialLoad,
       inWindowTabs,
       tabs,
       activeTabId,
@@ -968,7 +986,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       searchRows,
     }),
     [
-      pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
+      pages, currentPageId, primaryPageId, loading, error, siteOffline, retryInitialLoad, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, viewParam, setActiveViewParam,
       rowAnchor, groupAnchor, blockAnchor, clearRowAnchor, clearGroupAnchor, clearBlockAnchor,

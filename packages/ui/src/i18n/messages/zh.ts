@@ -1,6 +1,15 @@
 import type {PartialMessages} from './en';
 
 export const zh: PartialMessages = {
+  navigation: {
+    loadError: {
+      title: '无法连接到此资料库',
+      localUnreachable: '此资料库的本地服务没有响应。',
+      unreachable: '发布此资料库的设备可能已离线或无法访问。',
+      siteOffline: '发布此资料库的设备目前处于离线状态。',
+      retry: '重试',
+    },
+  },
   common: {
     cancel: '取消',
     close: '关闭',
