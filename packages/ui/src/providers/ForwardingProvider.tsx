@@ -177,11 +177,18 @@ const pendingUnbindKey = (accountUrl: string): string =>
   `${PENDING_UNBIND_KEY_PREFIX}${encodeURIComponent(accountUrl)}`;
 const hasPendingUnbind = (accountUrl: string): boolean =>
   typeof localStorage !== 'undefined' && localStorage.getItem(pendingUnbindKey(accountUrl)) !== null;
-const writePendingUnbind = (accountUrl: string, host: string | null): void => {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(pendingUnbindKey(accountUrl), host ?? '');
+const writePendingUnbind = (accountUrl: string): void => {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(pendingUnbindKey(accountUrl), '1');
 };
 const clearPendingUnbind = (accountUrl: string): void => {
   if (typeof localStorage !== 'undefined') localStorage.removeItem(pendingUnbindKey(accountUrl));
+};
+const clearAllPendingUnbinds = (): void => {
+  if (typeof localStorage === 'undefined') return;
+  for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(PENDING_UNBIND_KEY_PREFIX)) localStorage.removeItem(key);
+  }
 };
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
@@ -423,13 +430,13 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // precedes the bind path above, so a stale required audience is never resurrected.
   useEffect(() => {
     if (!supported || !connected || !token || !hasPendingUnbind(accountUrl)) return;
-    void reconcileAudience(null).catch((unbindError: unknown) => {
+    void reconcileAudience(enabled && host ? host : null).catch((unbindError: unknown) => {
       setAudienceNotice({
         code: 'unbindHeld',
         detail: unbindError instanceof Error ? unbindError.message : String(unbindError),
       });
     });
-  }, [supported, connected, token, accountUrl, data, reconcileAudience]);
+  }, [supported, connected, token, accountUrl, data, enabled, host, reconcileAudience]);
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(
@@ -509,12 +516,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       return;
     }
     setSignInPending(false);
-    clearPendingUnbind(accountUrl);
+    clearAllPendingUnbinds();
     terminalStartErrorRef.current = false;
     enabledRef.current = true;
     setEnabled(true);
     writeEnabled(true);
-  }, [connected, token, signIn, accountUrl]);
+  }, [connected, token, signIn]);
 
   // Auto-resume the interrupted first flip (P1-6): the user flipped "Forward this
   // device" while signed out and we sent them off to sign in — complete the enable
@@ -529,11 +536,11 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     if (!signInPending || !connected || !token) return;
     setSignInPending(false);
     resumedRef.current = true; // announce it once the address is live (may be off-screen)
-    clearPendingUnbind(accountUrl);
+    clearAllPendingUnbinds();
     enabledRef.current = true;
     setEnabled(true);
     writeEnabled(true);
-  }, [signInPending, connected, token, accountUrl]);
+  }, [signInPending, connected, token]);
 
   // Bound the resume intent so it can only complete THE attempt that armed it — never
   // a later, unrelated sign-in (add/switch account, a settings sync) whose connect
@@ -610,14 +617,14 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     // loopback lockout) — see `unbindForwardingAudience`.
     // Record the intent before the IPC request: a process exit or dead sidecar can
     // no longer lose the detach. Confirmed reconciliation clears it.
-    writePendingUnbind(accountUrl, host);
+    writePendingUnbind(accountUrl);
     void reconcileAudience(null).catch((unbindError: unknown) => {
       setAudienceNotice({
         code: 'unbindHeld',
         detail: unbindError instanceof Error ? unbindError.message : String(unbindError),
       });
     });
-  }, [accountUrl, host, cancelStartRetry, reconcileAudience]);
+  }, [accountUrl, cancelStartRetry, reconcileAudience]);
 
   // The explicit "abandon this address" path (NAME-1): stop the tunnel, forget
   // the stored identity, and let the resume effect (when still enabled) — or the

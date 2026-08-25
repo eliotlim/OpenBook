@@ -463,6 +463,8 @@ describe('ForwardingProvider — durable unpublish (IPC-3)', () => {
 
   it('re-enable cancels a pending detach and proceeds to bind', async () => {
     localStorage.setItem(pendingKey, 'abc.book.cloud');
+    const foreignPendingKey = 'openbook.forwarding.pendingUnbind:https%3A%2F%2Fforeign.example';
+    localStorage.setItem(foreignPendingKey, '1');
     const {result, rerender} = renderHook(() => useForwarding(), {wrapper});
 
     await act(async () => result.current.enable());
@@ -475,6 +477,7 @@ describe('ForwardingProvider — durable unpublish (IPC-3)', () => {
     await waitFor(() => expect(h.reconcileSpy).toHaveBeenCalledWith('abc.book.cloud', expect.anything(), expect.anything()));
     expect(h.bindSpy).toHaveBeenCalled();
     expect(localStorage.getItem(pendingKey)).toBeNull();
+    expect(localStorage.getItem(foreignPendingKey)).toBeNull();
     expect(h.unbindSpy).not.toHaveBeenCalled();
     expect(result.current.enabled).toBe(true);
   });

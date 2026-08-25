@@ -273,6 +273,30 @@ describe('reconcileForwardingAudience — durable unpublish (IPC-3)', () => {
     ]);
   });
 
+  it('recovery flush re-binds when forwarding is still enabled with a live host', async () => {
+    let pending = true;
+    const {deps, state} = makeFake({initial: {audience: HOST, requireAudience: true}});
+    state.localAudience = HOST;
+    const outcome = await reconcileForwardingAudience(HOST, {
+      hasPendingUnbind: () => pending,
+      clearPendingUnbind: () => { pending = false; },
+      isEnabled: () => true,
+    }, deps);
+
+    expect(outcome).toEqual({status: 'bound'});
+    expect(pending).toBe(false);
+    expect(state.ops).toEqual([
+      `policy:${JSON.stringify({requireAudience: false})}`,
+      'local:null',
+      'mint',
+      'info',
+      `policy:${JSON.stringify({audience: HOST, requireAudience: false})}`,
+      `local:${HOST}`,
+      'mint',
+      `policy:${JSON.stringify({requireAudience: true})}`,
+    ]);
+  });
+
   it('a re-enable racing the relax binds last (last user intent wins)', async () => {
     let pending = true;
     let enabled = false;
