@@ -25,7 +25,7 @@ use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sidecar_supervision::{
@@ -36,6 +36,8 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 const DEFAULT_PORT: &str = "4319";
+const SOCKET_PROBE_WINDOW: Duration = Duration::from_secs(30);
+const SOCKET_PROBE_INTERVAL: Duration = Duration::from_millis(250);
 /// Service name for OS-keychain entries (the forwarding site key lives here).
 const KEYCHAIN_SERVICE: &str = "pub.book.openbook";
 
@@ -348,6 +350,15 @@ fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     }
 }
 
+#[cfg(unix)]
+fn remove_stale_socket(socket_path: &str) -> Result<bool, String> {
+    match std::fs::remove_file(socket_path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("failed to remove stale sidecar socket: {error}")),
+    }
+}
+
 /// Spawn and install one process generation, then attach its output/termination
 /// receiver. Installation precedes receiver polling so even an immediately
 /// exiting test binary cannot race a stale child handle into `AppState`.
@@ -360,6 +371,12 @@ fn launch_sidecar(app: &AppHandle, state: &AppState, generation: u64) -> Result<
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
+    #[cfg(unix)]
+    match remove_stale_socket(&state.socket_path) {
+        Ok(true) => eprintln!("[sidecar] removed stale socket before spawn"),
+        Ok(false) => {}
+        Err(error) => return Err(error),
+    }
     let (rx, child) = spawn_sidecar(
         app,
         &state.data_dir,
@@ -390,10 +407,43 @@ fn launch_sidecar(app: &AppHandle, state: &AppState, generation: u64) -> Result<
         should_schedule
     };
     monitor_sidecar(app.clone(), generation, rx);
+    schedule_socket_probe(app.clone(), generation);
     if should_schedule_healthy_reset {
         schedule_healthy_reset(app.clone(), generation);
     }
     Ok(())
+}
+
+fn schedule_socket_probe(app: AppHandle, generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        let deadline = Instant::now() + SOCKET_PROBE_WINDOW;
+        loop {
+            let Some(state) = app.try_state::<AppState>() else {
+                return;
+            };
+            let current = state
+                .supervision
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .generation();
+            if current != generation {
+                return;
+            }
+            if ipc::probe(&ipc::ConnInfo::from_state(&state)) {
+                report_ipc_connect_result(&app, generation, true);
+                return;
+            }
+            if Instant::now() >= deadline {
+                fail_unresponsive_sidecar(
+                    &app,
+                    generation,
+                    "socket readiness deadline exceeded",
+                );
+                return;
+            }
+            tokio::time::sleep(SOCKET_PROBE_INTERVAL).await;
+        }
+    });
 }
 
 fn monitor_sidecar(
@@ -483,8 +533,20 @@ fn handle_sidecar_failure(
     exit_code: Option<i32>,
     stderr_tail: Vec<String>,
 ) {
-    let Some(state) = app.try_state::<AppState>() else {
+    let Some(decision) = record_sidecar_failure(app, generation, exit_code, stderr_tail) else {
         return;
+    };
+    schedule_failure_decision(app, generation, decision);
+}
+
+fn record_sidecar_failure(
+    app: &AppHandle,
+    generation: u64,
+    exit_code: Option<i32>,
+    stderr_tail: Vec<String>,
+) -> Option<FailureDecision> {
+    let Some(state) = app.try_state::<AppState>() else {
+        return None;
     };
     let decision = {
         let mut supervisor = state
@@ -495,12 +557,15 @@ fn handle_sidecar_failure(
             supervisor.failed(generation, Instant::now(), exit_code, stderr_tail)
         else {
             eprintln!("[sidecar] ignored expected/stale termination for generation {generation}");
-            return;
+            return None;
         };
         emit_sidecar_state(app, payload);
         decision
     };
+    Some(decision)
+}
 
+fn schedule_failure_decision(app: &AppHandle, generation: u64, decision: FailureDecision) {
     match decision {
         FailureDecision::RetryAfter(delay) => {
             let app = app.clone();
@@ -514,6 +579,62 @@ fn handle_sidecar_failure(
                 "[sidecar] crash-loop bound exhausted; automatic respawn stopped (use restart_sidecar to retry)"
             );
         }
+    }
+}
+
+fn fail_unresponsive_sidecar(app: &AppHandle, generation: u64, reason: &str) {
+    let Some(decision) = record_sidecar_failure(
+        app,
+        generation,
+        None,
+        vec![reason.to_string()],
+    ) else {
+        return;
+    };
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let child = {
+        let mut child = state
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if child
+            .as_ref()
+            .is_some_and(|live| live.generation == generation)
+        {
+            child.take()
+        } else {
+            None
+        }
+    };
+    if let Some(child) = child {
+        stop_server_child(child.child);
+    }
+    schedule_failure_decision(app, generation, decision);
+}
+
+pub(crate) fn report_ipc_connect_result(app: &AppHandle, generation: u64, connected: bool) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    if !state.managed {
+        return;
+    }
+    let mut supervisor = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if connected {
+        if let Some(payload) = supervisor.connected(generation) {
+            emit_sidecar_state(app, payload);
+        }
+        return;
+    }
+    let should_fail = supervisor.connect_failed(generation);
+    drop(supervisor);
+    if should_fail {
+        fail_unresponsive_sidecar(app, generation, "persistent IPC connect failure");
     }
 }
 
@@ -1631,5 +1752,32 @@ mod reaper_tests {
         assert!(!lock.exists());
 
         fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod socket_cleanup_tests {
+    use super::remove_stale_socket;
+    use std::fs;
+
+    #[test]
+    fn stale_socket_path_is_removed_and_absence_is_harmless() {
+        let dir = std::env::temp_dir().join(format!(
+            "ob-socket-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("openbook.sock");
+        fs::write(&socket, b"stale").unwrap();
+
+        assert!(remove_stale_socket(socket.to_str().unwrap()).unwrap());
+        assert!(!socket.exists());
+        assert!(!remove_stale_socket(socket.to_str().unwrap()).unwrap());
+
+        fs::remove_dir_all(dir).ok();
     }
 }

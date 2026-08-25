@@ -22,7 +22,7 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::AppState;
+use crate::{report_ipc_connect_result, AppState};
 
 /// How the host reaches the local server: a Unix socket path, or a loopback TCP
 /// port on platforms without Unix sockets.
@@ -141,6 +141,10 @@ fn connect_with_shutdown(conn: &ConnInfo) -> std::io::Result<(Box<dyn Stream>, S
 
 fn connect(conn: &ConnInfo) -> std::io::Result<Box<dyn Stream>> {
     Ok(connect_with_shutdown(conn)?.0)
+}
+
+pub(crate) fn probe(conn: &ConnInfo) -> bool {
+    connect(conn).is_ok()
 }
 
 /// Connect, retrying briefly to ride out server startup / a publish respawn.
@@ -262,6 +266,7 @@ fn blocking_request(
 /// off the async runtime.
 #[tauri::command]
 pub async fn api_request(
+    app: AppHandle,
     state: State<'_, AppState>,
     method: String,
     path: String,
@@ -269,9 +274,20 @@ pub async fn api_request(
     body: Option<String>,
 ) -> Result<ApiResponse, String> {
     let conn = ConnInfo::from_state(&state);
-    tauri::async_runtime::spawn_blocking(move || blocking_request(&conn, &method, &path, &headers, body.as_deref()))
+    let generation = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .generation();
+    let result = tauri::async_runtime::spawn_blocking(move || blocking_request(&conn, &method, &path, &headers, body.as_deref()))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let connected = match &result {
+        Ok(_) => true,
+        Err(error) => !error.starts_with("ipc connect failed:"),
+    };
+    report_ipc_connect_result(&app, generation, connected);
+    result
 }
 
 // ── Streaming request bridge (the forwarding tunnel) ─────────────────────────
@@ -330,6 +346,7 @@ fn streams() -> &'static Mutex<HashMap<String, StreamSlot>> {
 /// Resolves when the stream ends or is aborted via [`api_request_abort`].
 #[tauri::command]
 pub async fn api_request_stream(
+    app: AppHandle,
     state: State<'_, AppState>,
     stream_id: String,
     method: String,
@@ -339,8 +356,23 @@ pub async fn api_request_stream(
     channel: Channel<StreamMessage>,
 ) -> Result<(), String> {
     let conn = ConnInfo::from_state(&state);
+    let generation = state
+        .supervision
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .generation();
     tauri::async_runtime::spawn_blocking(move || {
-        let result = stream_request(&channel, &conn, &stream_id, &method, &path, &headers, body.as_deref());
+        let result = stream_request(
+            &app,
+            generation,
+            &channel,
+            &conn,
+            &stream_id,
+            &method,
+            &path,
+            &headers,
+            body.as_deref(),
+        );
         // A terminal frame so the webview can close (or error) its ReadableStream;
         // harmless if the consumer already cancelled after an abort.
         match result {
@@ -375,6 +407,8 @@ pub fn api_request_abort(stream_id: String) {
 }
 
 fn stream_request(
+    app: &AppHandle,
+    generation: u64,
     channel: &Channel<StreamMessage>,
     conn: &ConnInfo,
     stream_id: &str,
@@ -391,9 +425,11 @@ fn stream_request(
         Ok(v) => v,
         Err(e) => {
             streams().lock().unwrap().remove(stream_id);
+            report_ipc_connect_result(app, generation, false);
             return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, format!("ipc connect failed: {e}")));
         }
     };
+    report_ipc_connect_result(app, generation, true);
     // Install the shutdown handle — unless an abort already arrived during the
     // dial, in which case tear down immediately rather than stream into the void.
     {
