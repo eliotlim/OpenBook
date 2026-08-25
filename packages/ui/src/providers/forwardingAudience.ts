@@ -290,3 +290,32 @@ export async function unbindForwardingAudience(deps: AudienceBindDeps): Promise<
   await deps.remintIdentity();
   return {status: 'relaxed'};
 }
+
+export type AudienceReconcileOutcome =
+  | AudienceBindOutcome
+  | AudienceUnbindOutcome
+  | {status: 'idle'};
+
+/**
+ * Reconcile durable publish intent in the only safe order: finish a pending
+ * disable before considering a bind. `isEnabled` is deliberately read after the
+ * awaited relax so a re-enable racing that request wins and is bound last.
+ */
+export async function reconcileForwardingAudience(
+  host: string | null,
+  state: {
+    hasPendingUnbind(): boolean;
+    clearPendingUnbind(): void;
+    isEnabled(): boolean;
+  },
+  deps: AudienceBindDeps,
+): Promise<AudienceReconcileOutcome> {
+  if (state.hasPendingUnbind()) {
+    const unbound = await unbindForwardingAudience(deps);
+    if (unbound.status === 'held') return unbound;
+    state.clearPendingUnbind();
+    if (!state.isEnabled()) return unbound;
+  }
+  if (!state.isEnabled() || !host) return {status: 'idle'};
+  return ensureForwardingAudience(host, deps);
+}

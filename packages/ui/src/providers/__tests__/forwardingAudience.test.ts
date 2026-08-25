@@ -13,6 +13,7 @@ import {
   bindForwardingAudience,
   ensureClaimedForForwarding,
   ensureForwardingAudience,
+  reconcileForwardingAudience,
   unbindForwardingAudience,
   type AudienceBindDeps,
 } from '../forwardingAudience';
@@ -226,6 +227,75 @@ describe('unbindForwardingAudience — disable cleanup (Fix 2)', () => {
     expect(state.localAudience).toBe(HOST);
     expect(state.requireAudience).toBe(true);
     expect(state.reminted).toBe(0); // never re-minted an unscoped token
+  });
+});
+
+describe('reconcileForwardingAudience — durable unpublish (IPC-3)', () => {
+  it('keeps a held intent, then retries and clears it after recovery', async () => {
+    let pending = true;
+    let failRelax = true;
+    const {deps, state} = makeFake({
+      initial: {audience: HOST, requireAudience: true},
+      failPolicyWhen: (patch) => failRelax && patch.requireAudience === false,
+    });
+    state.localAudience = HOST;
+    const intent = {
+      hasPendingUnbind: () => pending,
+      clearPendingUnbind: () => { pending = false; },
+      isEnabled: () => false,
+    };
+
+    expect((await reconcileForwardingAudience(null, intent, deps)).status).toBe('held');
+    expect(pending).toBe(true);
+    expect(state.localAudience).toBe(HOST);
+
+    failRelax = false;
+    expect(await reconcileForwardingAudience(null, intent, deps)).toEqual({status: 'relaxed'});
+    expect(pending).toBe(false);
+    expect(state.localAudience).toBeNull();
+  });
+
+  it('relaunch reconciliation relaxes before the ensure short-circuit can re-scope', async () => {
+    let pending = true;
+    const {deps, state} = makeFake({initial: {audience: HOST, requireAudience: true}});
+    state.localAudience = HOST;
+    const outcome = await reconcileForwardingAudience(HOST, {
+      hasPendingUnbind: () => pending,
+      clearPendingUnbind: () => { pending = false; },
+      isEnabled: () => false,
+    }, deps);
+
+    expect(outcome).toEqual({status: 'relaxed'});
+    expect(state.ops).toEqual([
+      `policy:${JSON.stringify({requireAudience: false})}`,
+      'local:null',
+      'mint',
+    ]);
+  });
+
+  it('a re-enable racing the relax binds last (last user intent wins)', async () => {
+    let pending = true;
+    let enabled = false;
+    let releaseRelax!: () => void;
+    const relaxGate = new Promise<void>((resolve) => { releaseRelax = resolve; });
+    const {deps, state} = makeFake({initial: {audience: HOST, requireAudience: true}});
+    const originalSetPolicy = deps.setInstancePolicy;
+    deps.setInstancePolicy = async (patch) => {
+      if (patch.requireAudience === false && patch.audience === undefined) await relaxGate;
+      return originalSetPolicy(patch);
+    };
+    const reconciliation = reconcileForwardingAudience(HOST, {
+      hasPendingUnbind: () => pending,
+      clearPendingUnbind: () => { pending = false; },
+      isEnabled: () => enabled,
+    }, deps);
+
+    enabled = true;
+    releaseRelax();
+    expect(await reconciliation).toEqual({status: 'bound'});
+    expect(pending).toBe(false);
+    expect(state.requireAudience).toBe(true);
+    expect(state.ops[state.ops.length - 1]).toBe(`policy:${JSON.stringify({requireAudience: true})}`);
   });
 });
 
