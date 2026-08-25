@@ -1,3 +1,13 @@
+## 3.15.1 (2026-08-25)
+
+### 🩹 Fixes
+
+- **ui:** surface remote-library load failures — error panel + retry (TUN-10) ([#334](https://github.com/lab255/OpenBook/pull/334))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.15.0 (2026-08-24)
 
 ### 🚀 Features
