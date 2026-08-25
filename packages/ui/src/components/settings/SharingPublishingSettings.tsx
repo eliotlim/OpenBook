@@ -154,13 +154,12 @@ function ForwardingSection() {
         </div>
       )}
       {/* Severity-aware, like `claimRefusal` above: `partialUnscoped`/`ensureRescope`
-          are benign partial outcomes (the tunnel is up, nothing is broken — only the
-          strict audience hardening is incomplete), so render them muted; reserve the
-          destructive red for a bind/unbind step that genuinely failed. */}
+          and `unbindHeld` are informational states; reserve destructive red for a
+          bind step that genuinely failed. */}
       {audienceNotice && (
         <p
           className={
-            audienceNotice.code === 'partialUnscoped' || audienceNotice.code === 'ensureRescope'
+            audienceNotice.code === 'partialUnscoped' || audienceNotice.code === 'ensureRescope' || audienceNotice.code === 'unbindHeld'
               ? 'text-xs text-muted-foreground'
               : 'text-sm text-destructive'
           }
