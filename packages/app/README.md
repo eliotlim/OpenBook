@@ -43,8 +43,17 @@ repair action calls `invoke('restart_sidecar')`. Both that query and every
   attempts: number;
   lastExitCode: number | null;
   lastStderrTail: string[];
+  socketReady: boolean;
 }
 ```
+
+`state: 'running'` continues to mean that the process was spawned;
+`socketReady` becomes true only after the current generation accepts a host
+socket connection. Existing fields and meanings are unchanged. Automatic
+socket/process failures share the five-attempt budget. A deliberate repair via
+`restart_sidecar` invalidates the prior generation and resets `attempts` to zero,
+including when the prior state was `dead`, so the manual repair is always allowed
+a fresh bounded run.
 
 Crash-loop exhaustion, the 1/2/4/8/16-second bound, healthy reset, deliberate
 stop suppression, and repair reset are deterministic unit tests in
