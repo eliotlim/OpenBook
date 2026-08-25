@@ -28,6 +28,7 @@ import {createDesktopClient, DEV_SERVER_URL} from './data/client';
 import {tauriStreamFetch} from './data/ipc';
 import {createTauriKeyStore, createLocalStorageKeyStore, createTauriAccountStore} from './data/keychain';
 import {createDesktopUpdates} from './data/updates';
+import {SidecarDegradedBanner, useSidecarStatus} from './SidecarStatus';
 
 import '@book.dev/ui/style.css';
 
@@ -223,6 +224,7 @@ const platform: PlatformCapabilities = {
 };
 
 function App() {
+  const sidecar = useSidecarStatus();
   // Embedded local server by default, or an external one if configured. Built
   // async because we ask the host for the server status (loopback address + the
   // access token when published) before connecting. `connKey` keys the data
@@ -258,7 +260,8 @@ function App() {
     <ThemeProvider>
       <I18nProvider>
         <PreferencesProvider>
-          <PlatformCapabilitiesProvider value={platform}>
+          <PlatformCapabilitiesProvider value={{...platform, sidecar}}>
+            <SidecarDegradedBanner sidecar={sidecar} />
             {client && (
               <DataProvider key={connKey} client={client}>
                 <NavigationProvider>

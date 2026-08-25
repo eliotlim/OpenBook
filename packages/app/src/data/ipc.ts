@@ -27,6 +27,7 @@ export const tauriFetch: FetchLike = async (input, init = {}) => {
   // Forward request headers (the bridge drops host/connection/content-length).
   const headers = init.headers ? [...new Headers(init.headers as HeadersInit)] : [];
   const res = await invoke<ApiResponse>('api_request', {method, path: input, headers, body});
+  window.dispatchEvent(new Event('openbook://sidecar-request-success'));
   // A null-body status (204/304) must not carry a body, or `new Response` throws.
   const bodiless = res.status === 204 || res.status === 205 || res.status === 304;
   return new Response(bodiless || res.body.length === 0 ? null : res.body, {status: res.status, headers: res.headers});
