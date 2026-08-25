@@ -203,6 +203,21 @@ export interface UpdatesPlatform {
   relaunch(): Promise<void>;
 }
 
+export interface SidecarState {
+  state: 'dead' | 'respawning' | 'running';
+  attempts: number;
+  lastExitCode: number | null;
+  lastStderrTail: string[];
+  socketReady: boolean;
+}
+
+/** Desktop-only local-service health and repair capability. */
+export interface SidecarPlatform {
+  state: SidecarState | null;
+  degraded: boolean;
+  restart(): Promise<unknown>;
+}
+
 /**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
  * supplies `serverControls` (inspect/publish the local server), `bookFolder`
@@ -225,6 +240,8 @@ export interface PlatformCapabilities {
   /** Self-update checking. Desktop only; its presence is the "updates
    *  supported" capability flag the UI keys the updates section off. */
   updates?: UpdatesPlatform;
+  /** Managed desktop sidecar state. Unset in web/remote-library shells. */
+  sidecar?: SidecarPlatform;
   /**
    * Declared by hosts whose library lives only in this browser profile — the
    * standalone web app's embedded PGlite store (P0-4 sharing audit). Nothing

@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState} from 'react';
 import {getForwardingAudience, type InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data/DataProvider';
-import {useAccount, useConfirm, useForwarding, useTranslation, type IdentityIssuance} from '@/providers';
+import {useAccount, useConfirm, useForwarding, usePlatformCapabilities, useTranslation, type IdentityIssuance} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {cn} from '@/lib/utils';
@@ -61,6 +61,7 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
   const forwarding = useForwarding();
   const confirm = useConfirm();
   const {t} = useTranslation();
+  const sidecar = usePlatformCapabilities().sidecar;
 
   const [info, setInfo] = useState<InstanceInfo | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
   const [repair, setRepair] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [restartingSidecar, setRestartingSidecar] = useState(false);
 
   const probe = useCallback(async () => {
     setChecking(true);
@@ -148,6 +150,47 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [forwarding, info, issuance, localAudience, probeError]);
+
+  const sidecarError = sidecar?.state?.lastStderrTail.join('\n').trim() || probeError || '';
+  const copySidecarError = useCallback(() => {
+    void navigator.clipboard?.writeText(sidecarError);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [sidecarError]);
+
+  if (sidecar?.degraded && sidecar.state) {
+    const status = sidecar.state.state === 'dead'
+      ? t('sidecar.dead')
+      : sidecar.state.state === 'respawning'
+        ? t('sidecar.respawning', {attempts: sidecar.state.attempts})
+        : t('sidecar.notReady');
+    return (
+      <SettingsSection title={t('sidecar.diagnosticsTitle')} description={t('sidecar.diagnosticsHint')}>
+        <DiagnosticRow
+          label={t('sidecar.status')}
+          value={status}
+          tone="bad"
+          detail={sidecar.state.lastExitCode == null ? undefined : t('sidecar.exitCode', {code: sidecar.state.lastExitCode})}
+        />
+        <Button type="button" variant="outline" onClick={copySidecarError} className="h-auto w-full flex-col items-stretch whitespace-normal p-3 text-left">
+          <span className="mb-1 block text-xs font-medium">{copied ? t('sidecar.copied') : t('sidecar.copyError')}</span>
+          <code className="block max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{sidecarError || t('sidecar.noError')}</code>
+        </Button>
+        <div>
+          <Button
+            size="sm"
+            disabled={restartingSidecar}
+            onClick={() => {
+              setRestartingSidecar(true);
+              void sidecar.restart().catch(() => undefined).finally(() => setRestartingSidecar(false));
+            }}
+          >
+            {restartingSidecar ? t('sidecar.restarting') : t('sidecar.restart')}
+          </Button>
+        </div>
+      </SettingsSection>
+    );
+  }
 
   // The whole screen keys off one probe; a failure IS the diagnostic (a legacy
   // server without the multi-user endpoint, or an unreachable one) — show it,
