@@ -12,8 +12,7 @@ import {useHud} from './HudProvider';
 import {usePlatformCapabilities} from './PlatformCapabilitiesProvider';
 import {
   ensureClaimedForForwarding,
-  ensureForwardingAudience,
-  unbindForwardingAudience,
+  reconcileForwardingAudience,
   type AudienceBindDeps,
   type AudienceNoticeCode,
 } from './forwardingAudience';
@@ -35,6 +34,7 @@ import {t} from '@/i18n';
  * once the account reconnects.
  */
 const ENABLED_KEY = 'openbook.forwarding.enabled';
+const PENDING_UNBIND_KEY_PREFIX = 'openbook.forwarding.pendingUnbind:';
 
 /**
  * How long a signed-out flip's auto-resume intent stays armed (P1-6). Bounds the
@@ -173,6 +173,23 @@ const readEnabled = (): boolean =>
 const writeEnabled = (on: boolean): void => {
   if (typeof localStorage !== 'undefined') localStorage.setItem(ENABLED_KEY, on ? '1' : '0');
 };
+const pendingUnbindKey = (accountUrl: string): string =>
+  `${PENDING_UNBIND_KEY_PREFIX}${encodeURIComponent(accountUrl)}`;
+const hasPendingUnbind = (accountUrl: string): boolean =>
+  typeof localStorage !== 'undefined' && localStorage.getItem(pendingUnbindKey(accountUrl)) !== null;
+const writePendingUnbind = (accountUrl: string): void => {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(pendingUnbindKey(accountUrl), '1');
+};
+const clearPendingUnbind = (accountUrl: string): void => {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(pendingUnbindKey(accountUrl));
+};
+const clearAllPendingUnbinds = (): void => {
+  if (typeof localStorage === 'undefined') return;
+  for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(PENDING_UNBIND_KEY_PREFIX)) localStorage.removeItem(key);
+  }
+};
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformCapabilities();
@@ -210,6 +227,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const resumedRef = useRef(false);
   const outageFailureCountRef = useRef(0);
   const outageToastShownRef = useRef(false);
+  const audienceReconcileRef = useRef<Promise<void>>(Promise.resolve());
 
   // The latest issuance verdict, read at claim time through a ref so the memoized
   // `audienceDeps` below stays stable across issuance state changes.
@@ -249,15 +267,29 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // rolls back rather than strand the owner — see `ensureForwardingAudience`.
   // `ensure` also short-circuits on relaunch when the server already persisted the
   // binding (it re-scopes this session's token instead of relaxing + re-asserting).
-  const bindAudience = useCallback(
-    async (assigned: string) => {
-      const outcome = await ensureForwardingAudience(assigned, audienceDeps);
-      // `bound` is the clean success; `partial`/`failed` keep the tunnel up (the local
-      // UX is unaffected) but surface why hardening is incomplete — as a localizable
-      // code, not raw English, so the view renders it through `t()`.
-      setAudienceNotice(outcome.status === 'bound' ? null : {code: outcome.code, detail: outcome.reason});
+  const reconcileAudience = useCallback(
+    (assigned: string | null) => {
+      // A failed re-mint must not poison the serialization chain forever; a later
+      // recovery signal still gets its turn.
+      audienceReconcileRef.current = audienceReconcileRef.current.catch(() => undefined).then(async () => {
+        const outcome = await reconcileForwardingAudience(
+          assigned,
+          {
+            hasPendingUnbind: () => hasPendingUnbind(accountUrl),
+            clearPendingUnbind: () => clearPendingUnbind(accountUrl),
+            isEnabled: () => enabledRef.current,
+          },
+          audienceDeps,
+        );
+        if (outcome.status === 'held' || outcome.status === 'partial' || outcome.status === 'failed') {
+          setAudienceNotice({code: outcome.code, detail: outcome.reason});
+        } else {
+          setAudienceNotice(null);
+        }
+      });
+      return audienceReconcileRef.current;
     },
-    [audienceDeps],
+    [accountUrl, audienceDeps],
   );
 
   const cancelStartRetry = useCallback(() => {
@@ -335,7 +367,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
         onDialError: handleDialError,
         onHost: (canonicalHost) => {
           setHost(canonicalHost);
-          void bindAudience(canonicalHost).catch((bindError: unknown) => {
+          void reconcileAudience(canonicalHost).catch((bindError: unknown) => {
             setAudienceNotice({code: 'bindFailed', detail: bindError instanceof Error ? bindError.message : String(bindError)});
           });
         },
@@ -363,7 +395,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     forwarding,
     token,
     accountUrl,
-    bindAudience,
+    reconcileAudience,
     audienceDeps,
     cancelStartRetry,
     scheduleStartRetry,
@@ -392,6 +424,19 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       void startTunnel();
     }
   }, [supported, enabled, connected, token, claimRefusal, startTunnel]);
+
+  // A connected data client is the cheap recovery signal for a disabled publish:
+  // retry once on launch/reconnection, without a polling loop. Reconciliation also
+  // precedes the bind path above, so a stale required audience is never resurrected.
+  useEffect(() => {
+    if (!supported || !connected || !token || !hasPendingUnbind(accountUrl)) return;
+    void reconcileAudience(enabled && host ? host : null).catch((unbindError: unknown) => {
+      setAudienceNotice({
+        code: 'unbindHeld',
+        detail: unbindError instanceof Error ? unbindError.message : String(unbindError),
+      });
+    });
+  }, [supported, connected, token, accountUrl, data, enabled, host, reconcileAudience]);
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(
@@ -471,6 +516,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       return;
     }
     setSignInPending(false);
+    clearAllPendingUnbinds();
     terminalStartErrorRef.current = false;
     enabledRef.current = true;
     setEnabled(true);
@@ -490,6 +536,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     if (!signInPending || !connected || !token) return;
     setSignInPending(false);
     resumedRef.current = true; // announce it once the address is live (may be off-screen)
+    clearAllPendingUnbinds();
     enabledRef.current = true;
     setEnabled(true);
     writeEnabled(true);
@@ -568,11 +615,16 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     // re-mint unscoped. If the relax is NOT confirmed, the scoping is left intact
     // rather than unscoping the owner behind a still-required audience (a permanent
     // loopback lockout) — see `unbindForwardingAudience`.
-    void (async () => {
-      const outcome = await unbindForwardingAudience(audienceDeps);
-      if (outcome.status === 'held') setAudienceNotice({code: outcome.code, detail: outcome.reason});
-    })();
-  }, [audienceDeps, cancelStartRetry]);
+    // Record the intent before the IPC request: a process exit or dead sidecar can
+    // no longer lose the detach. Confirmed reconciliation clears it.
+    writePendingUnbind(accountUrl);
+    void reconcileAudience(null).catch((unbindError: unknown) => {
+      setAudienceNotice({
+        code: 'unbindHeld',
+        detail: unbindError instanceof Error ? unbindError.message : String(unbindError),
+      });
+    });
+  }, [accountUrl, cancelStartRetry, reconcileAudience]);
 
   // The explicit "abandon this address" path (NAME-1): stop the tunnel, forget
   // the stored identity, and let the resume effect (when still enabled) — or the

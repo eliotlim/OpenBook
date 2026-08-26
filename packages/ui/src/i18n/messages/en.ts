@@ -1791,7 +1791,7 @@ export const en = {
     ensureRescope:
       'Publishing resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
     bindFailed: 'Publishing is on, but securing the site audience didn’t finish: {error}',
-    unbindHeld: 'Couldn’t fully relax the audience binding while turning publishing off: {error}',
+    unbindHeld: 'Publishing is off. Detaching its audience is pending local-service recovery.',
     claimWarning:
       'The first time you turn this on, this library is claimed to your account and made private — only you and people you invite can open it. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',

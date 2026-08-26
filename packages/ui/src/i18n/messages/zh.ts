@@ -1123,7 +1123,7 @@ export const zh: PartialMessages = {
     ensureRescope:
       '发布已恢复，但本次会话尚无法将你的所有者令牌限定到该站点。你现有的访问不受影响；若请求被拒绝，请重新登录。',
     bindFailed: '发布已开启，但未能完成站点受众的加固：{error}',
-    unbindHeld: '关闭发布时未能完全解除受众绑定：{error}',
+    unbindHeld: '发布已关闭。受众解绑将在本地服务恢复后完成。',
     title: '发布到网络',
     description:
       '获取一个私有的 ✦.book.cloud 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',

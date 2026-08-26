@@ -27,12 +27,14 @@ const h = vi.hoisted(() => ({
   claimSpy: vi.fn(async () => ({status: 'claimed'}) as {status: 'claimed'}),
   bindSpy: vi.fn(async () => ({status: 'bound'}) as {status: 'bound'}),
   unbindSpy: vi.fn(async () => ({status: 'relaxed'}) as {status: 'relaxed'}),
+  reconcileSpy: vi.fn(),
   clientCtor: vi.fn(),
   clientStart: vi.fn(),
   clientStop: vi.fn(),
-  clientCallbacks: {} as {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void},
+  clientCallbacks: {} as {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void; onHost?: (host: string) => void},
   showToastSpy: vi.fn(),
   setHud: vi.fn(),
+  data: {setInstancePolicy: vi.fn(), getInstanceInfo: vi.fn()},
 }));
 
 vi.mock('../AccountProvider', () => ({useAccount: () => h.account}));
@@ -40,12 +42,11 @@ vi.mock('../PlatformCapabilitiesProvider', () => ({
   usePlatformCapabilities: () => ({forwarding: {keyStore: {load: async () => null}, localFetch: vi.fn()}}),
 }));
 vi.mock('@/data/DataProvider', () => ({
-  useData: () => ({setInstancePolicy: vi.fn(), getInstanceInfo: vi.fn()}),
+  useData: () => h.data,
 }));
 vi.mock('../forwardingAudience', () => ({
   ensureClaimedForForwarding: h.claimSpy,
-  ensureForwardingAudience: h.bindSpy,
-  unbindForwardingAudience: h.unbindSpy,
+  reconcileForwardingAudience: h.reconcileSpy,
 }));
 vi.mock('@book.dev/sdk', () => ({
   setForwardingAudience: vi.fn(),
@@ -69,7 +70,7 @@ vi.mock('@book.dev/sdk', () => ({
   },
   ForwardingClient: class {
     onStatus?: (s: string) => void;
-    constructor(opts: {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void}) {
+    constructor(opts: {onStatus?: (s: string) => void; onDialError?: (error: unknown) => void; onHost?: (host: string) => void}) {
       this.onStatus = opts.onStatus;
       h.clientCallbacks = opts;
       h.clientCtor();
@@ -112,6 +113,20 @@ beforeEach(() => {
   h.account.status = 'disconnected';
   h.account.signIn.mockClear();
   h.claimSpy.mockClear();
+  h.bindSpy.mockClear();
+  h.unbindSpy.mockReset();
+  h.unbindSpy.mockResolvedValue({status: 'relaxed'});
+  h.reconcileSpy.mockReset();
+  h.reconcileSpy.mockImplementation(async (host, state) => {
+    if (state.hasPendingUnbind()) {
+      const outcome = await h.unbindSpy() as {status: 'relaxed'} | {status: 'held'; code: 'unbindHeld'; reason: string};
+      if (outcome.status === 'held') return outcome;
+      state.clearPendingUnbind();
+      if (!state.isEnabled()) return outcome;
+    }
+    if (host && state.isEnabled()) return h.bindSpy();
+    return {status: 'idle'};
+  });
   h.clientCtor.mockClear();
   h.clientStart.mockReset();
   h.clientStart.mockImplementation(async (onStatus?: (s: string) => void) => {
@@ -292,7 +307,10 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
     const {result} = renderHook(() => useForwarding(), {wrapper});
 
     await act(async () => result.current.enable());
-    act(() => result.current.disable());
+    await act(async () => {
+      result.current.disable();
+      await Promise.resolve();
+    });
     await act(async () => vi.advanceTimersByTimeAsync(10 * 60 * 1000));
 
     expect(h.clientStart).toHaveBeenCalledTimes(1);
@@ -411,5 +429,56 @@ describe('ForwardingProvider — claim refusal intent (TUN-4)', () => {
     await act(async () => vi.advanceTimersByTimeAsync(0));
     expect(h.clientCtor).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe('online');
+  });
+});
+
+describe('ForwardingProvider — durable unpublish (IPC-3)', () => {
+  const pendingKey = 'openbook.forwarding.pendingUnbind:https%3A%2F%2Faccount.example';
+
+  it('persists a held detach, retries on reconnect, and clears the notice and intent', async () => {
+    signIn();
+    h.unbindSpy
+      .mockResolvedValueOnce({status: 'held', code: 'unbindHeld', reason: 'ipc unavailable'} as never)
+      .mockResolvedValueOnce({status: 'relaxed'});
+    const {result, rerender} = renderHook(() => useForwarding(), {wrapper});
+
+    act(() => result.current.disable());
+    await waitFor(() => expect(result.current.audienceNotice?.code).toBe('unbindHeld'));
+    expect(result.current.enabled).toBe(false);
+    expect(localStorage.getItem(pendingKey)).not.toBeNull();
+
+    await act(async () => {
+      h.account.connected = false;
+      h.account.token = null;
+      rerender();
+    });
+    await act(async () => {
+      signIn('recovered-token');
+      rerender();
+    });
+    await waitFor(() => expect(localStorage.getItem(pendingKey)).toBeNull());
+    expect(result.current.audienceNotice).toBeNull();
+    expect(h.unbindSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-enable cancels a pending detach and proceeds to bind', async () => {
+    localStorage.setItem(pendingKey, 'abc.book.cloud');
+    const foreignPendingKey = 'openbook.forwarding.pendingUnbind:https%3A%2F%2Fforeign.example';
+    localStorage.setItem(foreignPendingKey, '1');
+    const {result, rerender} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    await act(async () => {
+      signIn();
+      rerender();
+    });
+    await waitFor(() => expect(h.clientStart).toHaveBeenCalled());
+    act(() => h.clientCallbacks.onHost?.('abc.book.cloud'));
+    await waitFor(() => expect(h.reconcileSpy).toHaveBeenCalledWith('abc.book.cloud', expect.anything(), expect.anything()));
+    expect(h.bindSpy).toHaveBeenCalled();
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+    expect(localStorage.getItem(foreignPendingKey)).toBeNull();
+    expect(h.unbindSpy).not.toHaveBeenCalled();
+    expect(result.current.enabled).toBe(true);
   });
 });

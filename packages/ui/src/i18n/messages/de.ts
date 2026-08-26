@@ -1154,7 +1154,7 @@ export const de: PartialMessages = {
     ensureRescope:
       'Die Veröffentlichung wurde fortgesetzt, aber diese Sitzung konnte dein Owner-Token noch nicht auf die Site begrenzen. Dein bestehender Zugriff bleibt unverändert; melde dich erneut an, falls eine Anfrage abgelehnt wird.',
     bindFailed: 'Die Veröffentlichung ist aktiv, aber das Absichern der Site-Audience wurde nicht abgeschlossen: {error}',
-    unbindHeld: 'Die Audience-Bindung konnte beim Ausschalten der Veröffentlichung nicht vollständig gelöst werden: {error}',
+    unbindHeld: 'Die Veröffentlichung ist aus. Das Trennen der Zielgruppe wartet auf die Wiederherstellung des lokalen Dienstes.',
     claimWarning:
       'Beim ersten Einschalten wird diese Bibliothek deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Personen können sie öffnen. Das lässt sich nicht rückgängig machen.',
     claimRefusedUnverified: 'Zum Veröffentlichen muss die Identität deines Kontos zuerst verifiziert werden.',
