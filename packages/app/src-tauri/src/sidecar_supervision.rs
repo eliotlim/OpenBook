@@ -6,6 +6,7 @@ pub(crate) const MAX_RESPAWN_ATTEMPTS: u32 = 5;
 pub(crate) const INITIAL_RESPAWN_BACKOFF: Duration = Duration::from_secs(1);
 pub(crate) const HEALTHY_UPTIME: Duration = Duration::from_secs(60);
 pub(crate) const STDERR_TAIL_LINES: usize = 20;
+pub(crate) const IPC_CONNECT_FAILURE_THRESHOLD: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +30,8 @@ pub(crate) struct SidecarStatePayload {
     pub(crate) last_exit_code: Option<i32>,
     /// At most the last 20 complete stderr lines from the most recent death.
     pub(crate) last_stderr_tail: Vec<String>,
+    /// Whether this process generation has accepted a host socket connection.
+    pub(crate) socket_ready: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +46,8 @@ pub(crate) enum FailureDecision {
 pub(crate) struct SidecarSupervisor {
     generation: u64,
     running_since: Option<Instant>,
+    consecutive_connect_failures: u32,
+    generation_failed: bool,
     shutting_down: bool,
     payload: SidecarStatePayload,
 }
@@ -52,6 +57,8 @@ impl SidecarSupervisor {
         Self {
             generation: 0,
             running_since: None,
+            consecutive_connect_failures: 0,
+            generation_failed: false,
             shutting_down: false,
             payload: SidecarStatePayload {
                 // Dev builds use the external server and do not supervise a
@@ -64,6 +71,7 @@ impl SidecarSupervisor {
                 attempts: 0,
                 last_exit_code: None,
                 last_stderr_tail: Vec::new(),
+                socket_ready: !managed,
             },
         }
     }
@@ -80,8 +88,11 @@ impl SidecarSupervisor {
         }
         self.generation = self.generation.wrapping_add(1);
         self.running_since = None;
+        self.consecutive_connect_failures = 0;
+        self.generation_failed = false;
         self.payload.state = SidecarLifecycle::Respawning;
         self.payload.attempts = 0;
+        self.payload.socket_ready = false;
         Some((self.generation, self.snapshot()))
     }
 
@@ -95,6 +106,8 @@ impl SidecarSupervisor {
             return None;
         }
         self.generation = self.generation.wrapping_add(1);
+        self.consecutive_connect_failures = 0;
+        self.generation_failed = false;
         Some(self.generation)
     }
 
@@ -103,8 +116,48 @@ impl SidecarSupervisor {
             return None;
         }
         self.running_since = Some(now);
+        self.consecutive_connect_failures = 0;
+        self.generation_failed = false;
         self.payload.state = SidecarLifecycle::Running;
+        self.payload.socket_ready = false;
         Some(self.snapshot())
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Mark the socket accepting for this process generation. Successful IPC
+    /// connections also flow here, resetting the request-level failure debounce.
+    pub(crate) fn connected(&mut self, generation: u64) -> Option<SidecarStatePayload> {
+        if self.shutting_down
+            || self.generation != generation
+            || self.payload.state != SidecarLifecycle::Running
+            || self.generation_failed
+        {
+            return None;
+        }
+        self.consecutive_connect_failures = 0;
+        if self.payload.socket_ready {
+            return None;
+        }
+        self.payload.socket_ready = true;
+        Some(self.snapshot())
+    }
+
+    /// Count one failed *request dial* (not each inner retry). Once the threshold
+    /// is reached the caller should report this generation through `failed`.
+    pub(crate) fn connect_failed(&mut self, generation: u64) -> bool {
+        if self.shutting_down
+            || self.generation != generation
+            || self.payload.state != SidecarLifecycle::Running
+            || !self.payload.socket_ready
+            || self.generation_failed
+        {
+            return false;
+        }
+        self.consecutive_connect_failures = self.consecutive_connect_failures.saturating_add(1);
+        self.consecutive_connect_failures >= IPC_CONNECT_FAILURE_THRESHOLD
     }
 
     /// Record either a child termination or an attempted launch that failed.
@@ -117,9 +170,12 @@ impl SidecarSupervisor {
         exit_code: Option<i32>,
         stderr_tail: Vec<String>,
     ) -> Option<(SidecarStatePayload, FailureDecision)> {
-        if self.shutting_down || self.generation != generation {
+        if self.shutting_down || self.generation != generation || self.generation_failed {
             return None;
         }
+
+        self.generation_failed = true;
+        self.consecutive_connect_failures = 0;
 
         if self
             .running_since
@@ -128,6 +184,7 @@ impl SidecarSupervisor {
             self.payload.attempts = 0;
         }
         self.running_since = None;
+        self.payload.socket_ready = false;
         self.payload.last_exit_code = exit_code;
         self.payload.last_stderr_tail = tail(stderr_tail);
 
@@ -168,6 +225,7 @@ impl SidecarSupervisor {
     pub(crate) fn invalidate_for_shutdown(&mut self) {
         self.shutting_down = true;
         self.running_since = None;
+        self.payload.socket_ready = false;
         self.generation = self.generation.wrapping_add(1);
     }
 }
@@ -308,6 +366,64 @@ mod tests {
         let (_, restarting) = supervisor.begin_forced_respawn().unwrap();
         assert_eq!(restarting.state, SidecarLifecycle::Respawning);
         assert_eq!(restarting.attempts, 0);
+        assert!(!restarting.socket_ready);
+    }
+
+    #[test]
+    fn socket_readiness_and_connect_failure_debounce_are_generation_guarded() {
+        let now = Instant::now();
+        let mut supervisor = SidecarSupervisor::new(true);
+        let generation = start(&mut supervisor, now);
+        assert!(!supervisor.snapshot().socket_ready);
+        assert!(supervisor.connected(generation).unwrap().socket_ready);
+
+        assert!(!supervisor.connect_failed(generation));
+        assert!(!supervisor.connect_failed(generation));
+        supervisor.connected(generation);
+        assert!(!supervisor.connect_failed(generation));
+        assert!(!supervisor.connect_failed(generation));
+        assert!(supervisor.connect_failed(generation));
+
+        let (payload, decision) = supervisor
+            .failed(generation, now, None, vec!["socket unavailable".into()])
+            .unwrap();
+        assert_eq!(payload.state, SidecarLifecycle::Respawning);
+        assert!(!payload.socket_ready);
+        assert_eq!(
+            decision,
+            FailureDecision::RetryAfter(INITIAL_RESPAWN_BACKOFF)
+        );
+        assert!(!supervisor.connect_failed(generation));
+        assert!(supervisor
+            .failed(generation, now, None, Vec::new())
+            .is_none());
+
+        let next_generation = supervisor.begin_retry(generation).unwrap();
+        supervisor.spawned(next_generation, now).unwrap();
+        assert!(supervisor.connected(generation).is_none());
+        assert!(!supervisor.connect_failed(generation));
+    }
+
+    #[test]
+    fn startup_probe_failure_uses_the_normal_bounded_retry_transition() {
+        let now = Instant::now();
+        let mut supervisor = SidecarSupervisor::new(true);
+        let generation = start(&mut supervisor, now);
+        let (payload, decision) = supervisor
+            .failed(
+                generation,
+                now,
+                None,
+                vec!["socket readiness deadline exceeded".into()],
+            )
+            .unwrap();
+        assert_eq!(payload.attempts, 1);
+        assert_eq!(payload.state, SidecarLifecycle::Respawning);
+        assert!(!payload.socket_ready);
+        assert_eq!(
+            decision,
+            FailureDecision::RetryAfter(INITIAL_RESPAWN_BACKOFF)
+        );
     }
 
     #[test]
@@ -329,6 +445,7 @@ mod tests {
             attempts: 5,
             last_exit_code: Some(17),
             last_stderr_tail: vec!["fatal".into()],
+            socket_ready: false,
         };
         assert_eq!(
             serde_json::to_value(payload).unwrap(),
@@ -337,6 +454,7 @@ mod tests {
                 "attempts": 5,
                 "lastExitCode": 17,
                 "lastStderrTail": ["fatal"],
+                "socketReady": false,
             })
         );
     }
