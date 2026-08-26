@@ -49,7 +49,7 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * running when this panel closes; here we just drive it and show status.
  */
 export function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, errorClass, audienceNotice, claimRefusal, signInPending, enable, disable} =
+  const {supported, enabled, status, host, busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable} =
     useForwarding();
   const {connected, remintIdentity} = useAccount();
   // Defense-in-depth owner guard for the address-scope control, matching the
@@ -154,7 +154,7 @@ export function ForwardingSection() {
                 : errorClass === 'auth'
                   ? 'forwarding.authFailed'
                   : errorClass === 'network'
-                    ? 'forwarding.networkFailed'
+                    ? retryPending ? 'forwarding.networkFailed' : 'forwarding.failed'
                     : status === 'stalled'
                       ? 'forwarding.reconnectFailed'
                       : 'forwarding.failed',

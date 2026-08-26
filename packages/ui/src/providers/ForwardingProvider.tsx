@@ -142,6 +142,8 @@ interface ForwardingContextValue {
   busy: boolean;
   error: string | null;
   errorClass: ForwardingErrorClass | null;
+  /** A launch retry is armed, or the live tunnel client owns automatic redial. */
+  retryPending: boolean;
   /**
    * A localizable audience-bind/unbind notice (OB-202), shown when the tunnel is up
    * but the audience hardening is incomplete (`partialUnscoped`/`ensureRescope`), a
@@ -193,6 +195,7 @@ const DEFAULT: ForwardingContextValue = {
   busy: false,
   error: null,
   errorClass: null,
+  retryPending: false,
   audienceNotice: null,
   claimRefusal: null,
   signInPending: false,
@@ -495,6 +498,9 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // context doc). Computed once so the registry effect below and every context
   // consumer (e.g. the Share dialog's link hint) share one publish predicate.
   const publishedHost = enabled && status === 'online' && host ? host : null;
+  const retryPending = startRetryTimerRef.current !== null || (
+    clientRef.current !== null && (status === 'reconnecting' || status === 'stalled')
+  );
 
   // Publish-aware copy links (P0-1): while the tunnel is live, "Copy link"
   // everywhere must emit the forwarded https host — `window.location` here is
@@ -688,12 +694,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     () => ({
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, errorClass, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
+      busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     }),
     [
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, errorClass, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
+      busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     ],
   );
 

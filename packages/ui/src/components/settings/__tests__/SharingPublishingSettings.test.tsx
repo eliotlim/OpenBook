@@ -40,7 +40,7 @@ vi.mock('@/components/ShareDialog', () => ({useSharingCapability: () => ({canMan
 import type {ForwardingErrorClass} from '@/providers';
 import {ForwardingSection} from '../SharingPublishingSettings';
 
-const renderFailure = (errorClass: ForwardingErrorClass, enabled = false) => {
+const renderFailure = (errorClass: ForwardingErrorClass, enabled = false, retryPending = false) => {
   h.forwarding = {
     supported: true,
     enabled,
@@ -49,6 +49,7 @@ const renderFailure = (errorClass: ForwardingErrorClass, enabled = false) => {
     busy: false,
     error: 'raw transport detail',
     errorClass,
+    retryPending,
     audienceNotice: null,
     claimRefusal: null,
     signInPending: false,
@@ -62,14 +63,20 @@ afterEach(cleanup);
 
 describe('ForwardingSection failure copy', () => {
   it.each([
-    ['ipc', 'The local service isn\'t running.'],
-    ['auth', 'Couldn\'t authenticate with the publishing service. Try signing out and back in.'],
-    ['network', 'The publishing service is temporarily unreachable. Publishing will retry automatically.'],
-    ['unknown', 'Couldn\'t reconnect to the publishing service. Try signing out and back in, or check Diagnostics.'],
-  ] as const)('renders %s guidance', (errorClass, copy) => {
-    renderFailure(errorClass);
+    ['ipc', false, 'The local service isn\'t running.'],
+    ['auth', false, 'Couldn\'t authenticate with the publishing service. Try signing out and back in.'],
+    ['network', false, 'Couldn\'t connect to the publishing service. Try signing out and back in, or check Diagnostics.'],
+    ['network', true, 'The publishing service is temporarily unreachable. Publishing will retry automatically.'],
+    ['unknown', false, 'Couldn\'t reconnect to the publishing service. Try signing out and back in, or check Diagnostics.'],
+  ] as const)('renders %s guidance with retryPending=%s', (errorClass, retryPending, copy) => {
+    renderFailure(errorClass, false, retryPending);
     expect(screen.getByText(copy)).toBeTruthy();
     expect(screen.getByText('raw transport detail').className).toContain('font-mono');
+  });
+
+  it('does not promise a retry for a terminal network-string error', () => {
+    renderFailure('network', false, false);
+    expect(screen.queryByText('The publishing service is temporarily unreachable. Publishing will retry automatically.')).toBeNull();
   });
 
   it('presents an enabled IPC failure as paused information, not destructive', () => {

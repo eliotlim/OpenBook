@@ -273,6 +273,7 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
 
     await act(async () => result.current.enable());
     expect(result.current.status).toBe('offline');
+    expect(result.current.retryPending).toBe(true);
     expect(h.clientStart).toHaveBeenCalledTimes(1);
 
     await act(async () => vi.advanceTimersByTimeAsync(1_999));
@@ -313,6 +314,21 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
     expect(h.clientStart).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe('offline');
     expect(result.current.error).toContain('owns this address');
+    expect(result.current.retryPending).toBe(false);
+  });
+
+  it('does not arm a retry for a plain Error classified by its network string', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart.mockRejectedValue(new Error('network connection reset'));
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    await act(async () => vi.advanceTimersByTimeAsync(10 * 60 * 1000));
+
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+    expect(result.current.errorClass).toBe('network');
+    expect(result.current.retryPending).toBe(false);
   });
 
   it('disable cancels a pending launch retry', async () => {
@@ -356,6 +372,7 @@ describe('ForwardingProvider — stalled dial diagnostics (TUN-3)', () => {
       h.clientCallbacks.onStatus?.('stalled');
     });
     expect(result.current.status).toBe('stalled');
+    expect(result.current.retryPending).toBe(true);
     expect(result.current.error).toContain('403');
     expect(h.showToastSpy).toHaveBeenCalledTimes(1);
     const toast = h.showToastSpy.mock.calls[0][0];
