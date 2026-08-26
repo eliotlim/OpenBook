@@ -53,17 +53,23 @@ describe('DiagnosticsBody', () => {
   it('replaces raw transport errors with copyable sidecar diagnostics and Restart', async () => {
     const restart = vi.fn(async () => undefined);
     const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText}});
-    wrap(
-      {getInstanceInfo: async () => { throw new Error('ipc connect failed: Connection refused'); }},
-      {sidecar: {degraded: true, restart, state: {state: 'dead', attempts: 5, lastExitCode: 61, lastStderrTail: ['panic: socket closed'], socketReady: false}}},
-    );
-    expect(screen.getByText('Local service unavailable')).toBeTruthy();
-    expect(screen.queryByText(/ipc connect failed/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', {name: /Copy latest error/}));
-    expect(writeText).toHaveBeenCalledWith('panic: socket closed');
-    fireEvent.click(screen.getByRole('button', {name: 'Restart'}));
-    expect(restart).toHaveBeenCalledOnce();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    try {
+      Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText}});
+      wrap(
+        {getInstanceInfo: async () => { throw new Error('ipc connect failed: Connection refused'); }},
+        {sidecar: {degraded: true, restart, state: {state: 'dead', attempts: 5, lastExitCode: 61, lastStderrTail: ['panic: socket closed'], socketReady: false}}},
+      );
+      expect(screen.getByText('Local service unavailable')).toBeTruthy();
+      expect(screen.queryByText(/ipc connect failed/)).toBeNull();
+      fireEvent.click(screen.getByRole('button', {name: /Copy latest error/}));
+      expect(writeText).toHaveBeenCalledWith('panic: socket closed');
+      fireEvent.click(screen.getByRole('button', {name: 'Restart'}));
+      expect(restart).toHaveBeenCalledOnce();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('a failed probe IS the diagnostic — shown with a re-run affordance, never blank', async () => {

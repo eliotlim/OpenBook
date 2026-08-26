@@ -17,12 +17,9 @@ export function useSidecarStatus(): SidecarPlatform {
       if (active) setState(event.payload);
     });
     void invoke<SidecarState>('sidecar_state').then((next) => active && !eventReceived && setState(next)).catch(() => undefined);
-    const recovered = (): void => setState((current) => current ? {...current, state: 'running', socketReady: true} : current);
-    window.addEventListener('openbook://sidecar-request-success', recovered);
     return () => {
       active = false;
       void unlisten.then((fn) => fn());
-      window.removeEventListener('openbook://sidecar-request-success', recovered);
     };
   }, []);
 
