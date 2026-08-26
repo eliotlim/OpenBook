@@ -1,1 +1,10 @@
-pnpm test
+# Fast pre-push gate (owner directive 2026-08-26): must stay under ~4 minutes.
+# The full suite (server integration + e2e) runs in PR CI's Verify check, which
+# gates merges — duplicating its ~14 min here outlived GitHub's idle SSH window
+# and killed the transfer after the hook passed.
+# NOTE: explicit package allowlist — `-r --filter '!x'` still selects the ROOT
+# package, whose `test` script recursively re-runs everything incl. server.
+pnpm run test:eslint-rules \
+  && pnpm run typecheck \
+  && pnpm run lint \
+  && pnpm --filter @book.dev/sdk --filter @book.dev/ui --filter @book.dev/app --filter @book.dev/mcp --if-present run test
