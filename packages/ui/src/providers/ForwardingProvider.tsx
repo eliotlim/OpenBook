@@ -57,15 +57,25 @@ export type ForwardingErrorClass = 'ipc' | 'auth' | 'network' | 'unknown';
 
 /** Reduce transport/account failures to UI-safe guidance at the provider boundary. */
 export const classifyForwardingError = (error: unknown): ForwardingErrorClass => {
+  if (error instanceof SiteReattachError) {
+    return error.code === 'unreachable' ? 'network'
+      : error.code === 'wrong-account' ? 'auth'
+        : 'unknown';
+  }
+  if (error instanceof ForwardingApiError) {
+    return error.status === 401 || error.status === 403 ? 'auth'
+      : error.status >= 500 || error.status === 429 ? 'network'
+        : 'unknown';
+  }
+
   const fields = error && typeof error === 'object' ? (error as {status?: unknown; code?: unknown; detail?: unknown}) : {};
-  const status = error instanceof ForwardingApiError ? error.status : fields.status;
+  const status = fields.status;
   const message = [error instanceof Error ? error.message : String(error), fields.detail, fields.code]
     .filter((value): value is string => typeof value === 'string')
     .join(' ');
 
   // Desktop localFetch failures are errors from the IPC bridge, not relay outages.
   if (/ipc connect failed|\bipc\b.*(?:connect|transport|channel|invoke)|(?:local service|sidecar).*(?:unavailable|not running|connect|refused)/i.test(message)) return 'ipc';
-  if (error instanceof SiteReattachError && error.code === 'unreachable') return 'network';
   if (status === 401 || status === 403 || /\b(?:401|403|unauthori[sz]ed|forbidden|account|keychain|credential|sign[ -]?in|auth(?:entication|ori[sz]ation)?)\b/i.test(message)) return 'auth';
   if (
     (typeof status === 'number' && status >= 500) ||
@@ -669,6 +679,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     clientRef.current = null;
     setStatus('offline');
     setError(null);
+    setErrorClass(null);
     setHost(null);
     await forwarding?.keyStore.clear();
   }, [forwarding]);

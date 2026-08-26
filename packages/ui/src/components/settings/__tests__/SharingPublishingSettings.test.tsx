@@ -6,21 +6,25 @@ const h = vi.hoisted(() => ({
   forwarding: {} as Record<string, unknown>,
 }));
 
-vi.mock('@/providers', () => ({
-  useForwarding: () => h.forwarding,
-  useAccount: () => ({connected: true, remintIdentity: vi.fn()}),
-  usePlatformCapabilities: () => ({}),
-  useTranslation: () => ({t: (key: string) => ({
-    'forwarding.ipcFailed': 'The local service isn\'t running.',
-    'forwarding.ipcHint': 'Check the local-service banner, or use Restart in Diagnostics.',
-    'forwarding.authFailed': 'Couldn\'t authenticate with the publishing service. Try signing out and back in.',
-    'forwarding.networkFailed': 'The publishing service is temporarily unreachable. Publishing will retry automatically.',
-    'forwarding.failed': 'generic failure',
-    'forwarding.reconnectFailed': 'generic reconnect failure',
-    'forwarding.toggle': 'Publish this library',
-    'forwarding.status.stalled': 'Connection stalled',
-  } as Record<string, string>)[key] ?? key}),
-}));
+vi.mock('@/providers', async () => {
+  const {en} = await import('@/i18n/messages/en');
+  const translate = (key: string): string => {
+    const value = key.split('.').reduce<unknown>(
+      (messages, segment) => messages && typeof messages === 'object'
+        ? (messages as Record<string, unknown>)[segment]
+        : undefined,
+      en,
+    );
+    return typeof value === 'string' ? value : key;
+  };
+
+  return {
+    useForwarding: () => h.forwarding,
+    useAccount: () => ({connected: true, remintIdentity: vi.fn()}),
+    usePlatformCapabilities: () => ({}),
+    useTranslation: () => ({t: translate}),
+  };
+});
 vi.mock('@/components/settings/primitives', () => ({
   SettingsSection: ({children}: {children: React.ReactNode}) => <section>{children}</section>,
   SettingsToggle: ({label, checked}: {label: React.ReactNode; checked: boolean}) => <div data-checked={checked}>{label}</div>,
@@ -61,7 +65,7 @@ describe('ForwardingSection failure copy', () => {
     ['ipc', 'The local service isn\'t running.'],
     ['auth', 'Couldn\'t authenticate with the publishing service. Try signing out and back in.'],
     ['network', 'The publishing service is temporarily unreachable. Publishing will retry automatically.'],
-    ['unknown', 'generic reconnect failure'],
+    ['unknown', 'Couldn\'t reconnect to the publishing service. Try signing out and back in, or check Diagnostics.'],
   ] as const)('renders %s guidance', (errorClass, copy) => {
     renderFailure(errorClass);
     expect(screen.getByText(copy)).toBeTruthy();

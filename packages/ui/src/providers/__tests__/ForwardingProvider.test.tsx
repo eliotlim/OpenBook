@@ -105,8 +105,10 @@ describe('classifyForwardingError', () => {
     [new ForwardingApiError('/api/sites', 401), 'auth'],
     [new Error('keychain item is locked'), 'auth'],
     [new SiteReattachError('unreachable', 'account unavailable'), 'network'],
+    [new SiteReattachError('wrong-account', 'this saved address belongs to a different account — switch to that account, or reset the saved address to publish a new one here'), 'auth'],
+    [new ForwardingApiError('/api/sites/attach-ticket', 503), 'network'],
     [new TypeError('fetch failed'), 'network'],
-    [new Error('site signature rejected'), 'unknown'],
+    [new SiteReattachError('rejected', 'reattach was refused (/api/sites/reattach → 401 (bad signature)) — your address is kept'), 'unknown'],
   ] as const)('classifies %s as %s', (error, expected) => {
     expect(classifyForwardingError(error)).toBe(expected);
   });
