@@ -1149,6 +1149,10 @@ export const de: PartialMessages = {
     copied: 'Kopiert',
     failed: 'Verbindung zum Veröffentlichungsdienst konnte nicht hergestellt werden. Melde dich ab und wieder an oder prüfe die Diagnose.',
     reconnectFailed: 'Die Verbindung zum Veröffentlichungsdienst konnte nicht wiederhergestellt werden. Melde dich ab und wieder an oder prüfe die Diagnose.',
+    ipcFailed: 'Der lokale Dienst läuft nicht.',
+    ipcHint: 'Prüfe das Banner des lokalen Dienstes oder verwende „Neu starten“ in der Diagnose.',
+    authFailed: 'Die Anmeldung beim Veröffentlichungsdienst ist fehlgeschlagen. Melde dich ab und wieder an.',
+    networkFailed: 'Der Veröffentlichungsdienst ist vorübergehend nicht erreichbar. Die Veröffentlichung versucht es automatisch erneut.',
     partialUnscoped:
       'Die Veröffentlichung ist aktiv, aber dein Konto hat kein auf die Site begrenztes Owner-Token ausgestellt, daher bleibt die strikte Audience-Isolierung aus (ein für eine andere Site ausgestelltes Token wird weiterhin abgewiesen, und der Tunnel funktioniert normal).',
     ensureRescope:
