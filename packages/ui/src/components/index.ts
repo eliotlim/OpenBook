@@ -14,6 +14,7 @@ export {useDatabase} from './database/useDatabase';
 export {default as Settings} from './Settings';
 export {default as SettingsPanel} from './SettingsPanel';
 export {default as SettingsButton} from './SettingsButton';
+export {Button, type ButtonProps} from './ui/button';
 // The reusable sandboxed renderer for untrusted HTML artifacts (opaque-origin
 // iframe). Security posture lives in lib/srcdoc.
 export {SandboxedHtml, type SandboxedHtmlProps} from './SandboxedHtml';
