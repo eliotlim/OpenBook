@@ -172,10 +172,10 @@ export function DiagnosticsBody({issuance, onRefreshIdentity}: DiagnosticsBodyPr
           tone="bad"
           detail={sidecar.state.lastExitCode == null ? undefined : t('sidecar.exitCode', {code: sidecar.state.lastExitCode})}
         />
-        <Button type="button" variant="outline" onClick={copySidecarError} className="h-auto w-full flex-col items-stretch whitespace-normal p-3 text-left">
-          <span className="mb-1 block text-xs font-medium">{copied ? t('sidecar.copied') : t('sidecar.copyError')}</span>
-          <code className="block max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{sidecarError || t('sidecar.noError')}</code>
+        <Button type="button" variant="outline" onClick={copySidecarError}>
+          {copied ? t('sidecar.copied') : t('sidecar.copyError')}
         </Button>
+        <pre tabIndex={0} aria-label={t('sidecar.copyError')} className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-3 font-mono text-xs text-muted-foreground">{sidecarError || t('sidecar.noError')}</pre>
         <div>
           <Button
             size="sm"

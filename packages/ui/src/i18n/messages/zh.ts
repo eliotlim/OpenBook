@@ -1186,10 +1186,11 @@ export const zh: PartialMessages = {
     restarting: '正在重新启动…',
     diagnosticsTitle: '本地服务不可用',
     diagnosticsHint: 'OpenBook 无法连接本地服务。请复制最新错误以便获取支持，或重新启动服务。',
-    status: 'Sidecar 状态',
+    status: '本地服务状态',
     copyError: '复制最新错误',
+    stderrLabel: '本地服务错误详情',
     copied: '已复制',
-    noError: '未报告 stderr 或传输错误。',
+    noError: '未报告错误详情。',
   },
   diagnostics: {
     title: '诊断',

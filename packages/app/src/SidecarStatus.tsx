@@ -35,7 +35,7 @@ export function useSidecarStatus(): SidecarPlatform {
     setState(next);
     return next;
   }, []);
-  const degraded = state?.state === 'dead' || state?.state === 'respawning' || Boolean(state?.state === 'running' && !state.socketReady && graceElapsed);
+  const degraded = state?.state === 'dead' || state?.state === 'respawning' || Boolean(state?.state === 'running' && !state.socketReady && (graceElapsed || state.attempts > 0));
   return {state, degraded, restart};
 }
 
@@ -64,7 +64,7 @@ export function SidecarDegradedBanner({sidecar}: {sidecar: SidecarPlatform}) {
           {restarting ? t('sidecar.restarting') : t('sidecar.restart')}
         </Button>
       </div>
-      {state.lastStderrTail.length > 0 && <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background/70 p-2 font-mono text-xs">{state.lastStderrTail.join('\n')}</pre>}
+      {state.lastStderrTail.length > 0 && <pre tabIndex={0} aria-label={t('sidecar.stderrLabel')} className="max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background/70 p-2 font-mono text-xs">{state.lastStderrTail.join('\n')}</pre>}
     </aside>
   );
 }

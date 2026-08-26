@@ -67,4 +67,13 @@ describe('SidecarDegradedBanner', () => {
     act(() => mocks.listener?.({payload: state()}));
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  it('keeps the banner mounted from respawning into a not-ready retry', async () => {
+    mocks.invoke.mockResolvedValue(state({state: 'respawning', attempts: 1, socketReady: false}));
+    render(<Harness />);
+    const alert = await screen.findByRole('alert');
+    act(() => mocks.listener?.({payload: state({attempts: 1, socketReady: false})}));
+    expect(screen.getByRole('alert')).toBe(alert);
+    expect(screen.getByText('The local service started but is not responding')).toBeTruthy();
+  });
 });

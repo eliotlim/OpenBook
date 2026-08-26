@@ -1858,10 +1858,11 @@ export const en = {
     restarting: 'Restarting…',
     diagnosticsTitle: 'Local service unavailable',
     diagnosticsHint: 'OpenBook cannot reach its local service. Copy the latest error for support, or restart the service.',
-    status: 'Sidecar status',
+    status: 'Local service status',
     copyError: 'Copy latest error',
+    stderrLabel: 'Local service error details',
     copied: 'Copied',
-    noError: 'No stderr or transport error was reported.',
+    noError: 'No error details were reported.',
   },
   diagnostics: {
     title: 'Diagnostics',

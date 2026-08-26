@@ -62,6 +62,8 @@ describe('DiagnosticsBody', () => {
       );
       expect(screen.getByText('Local service unavailable')).toBeTruthy();
       expect(screen.queryByText(/ipc connect failed/)).toBeNull();
+      expect(screen.getByRole('button', {name: 'Copy latest error'}).textContent).toBe('Copy latest error');
+      expect(screen.getByLabelText('Copy latest error', {selector: 'pre'}).tabIndex).toBe(0);
       fireEvent.click(screen.getByRole('button', {name: /Copy latest error/}));
       expect(writeText).toHaveBeenCalledWith('panic: socket closed');
       fireEvent.click(screen.getByRole('button', {name: 'Restart'}));

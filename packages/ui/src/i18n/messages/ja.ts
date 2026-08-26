@@ -1193,10 +1193,11 @@ export const ja: PartialMessages = {
     restarting: '再起動中…',
     diagnosticsTitle: 'ローカルサービスを利用できません',
     diagnosticsHint: 'OpenBook はローカルサービスに接続できません。サポート用に最新のエラーをコピーするか、サービスを再起動してください。',
-    status: 'サイドカーの状態',
+    status: 'ローカルサービスの状態',
     copyError: '最新のエラーをコピー',
+    stderrLabel: 'ローカルサービスのエラー詳細',
     copied: 'コピーしました',
-    noError: 'stderr または通信エラーは報告されていません。',
+    noError: 'エラーの詳細は報告されていません。',
   },
   diagnostics: {
     title: '診断',

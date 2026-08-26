@@ -1199,10 +1199,11 @@ export const de: PartialMessages = {
     restarting: 'Wird neu gestartet…',
     diagnosticsTitle: 'Lokaler Dienst nicht verfügbar',
     diagnosticsHint: 'OpenBook kann seinen lokalen Dienst nicht erreichen. Kopiere den letzten Fehler für den Support oder starte den Dienst neu.',
-    status: 'Sidecar-Status',
+    status: 'Status des lokalen Dienstes',
     copyError: 'Letzten Fehler kopieren',
+    stderrLabel: 'Fehlerdetails des lokalen Dienstes',
     copied: 'Kopiert',
-    noError: 'Es wurde kein stderr- oder Transportfehler gemeldet.',
+    noError: 'Es wurden keine Fehlerdetails gemeldet.',
   },
   diagnostics: {
     title: 'Diagnose',
