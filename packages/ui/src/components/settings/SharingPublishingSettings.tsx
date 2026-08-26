@@ -48,8 +48,8 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * (no port). The tunnel is owned by {@link ForwardingProvider}, so it keeps
  * running when this panel closes; here we just drive it and show status.
  */
-function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable} =
+export function ForwardingSection() {
+  const {supported, enabled, status, host, busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable} =
     useForwarding();
   const {connected, remintIdentity} = useAccount();
   // Defense-in-depth owner guard for the address-scope control, matching the
@@ -146,10 +146,21 @@ function ForwardingSection() {
           page is public but the address isn't). Renders only while online + owned. */}
       {canManage && <SiteVisibilityControl />}
       {error && (
-        <div className="text-destructive">
+        <div className={enabled && errorClass === 'ipc' ? 'text-amber-700 dark:text-amber-400' : 'text-destructive'}>
           <p className="text-sm">
-            {t(status === 'stalled' ? 'forwarding.reconnectFailed' : 'forwarding.failed')}
+            {t(
+              errorClass === 'ipc'
+                ? 'forwarding.ipcFailed'
+                : errorClass === 'auth'
+                  ? 'forwarding.authFailed'
+                  : errorClass === 'network'
+                    ? retryPending ? 'forwarding.networkFailed' : 'forwarding.failed'
+                    : status === 'stalled'
+                      ? 'forwarding.reconnectFailed'
+                      : 'forwarding.failed',
+            )}
           </p>
+          {errorClass === 'ipc' && <p className="mt-1 text-xs text-muted-foreground">{t('forwarding.ipcHint')}</p>}
           <p className="mt-1 text-xs text-muted-foreground font-mono">{error}</p>
         </div>
       )}

@@ -1143,6 +1143,10 @@ export const zh: PartialMessages = {
     copied: '已复制',
     failed: '无法连接到发布服务。请退出后重新登录，或检查“诊断”。',
     reconnectFailed: '无法重新连接到发布服务。请退出后重新登录，或检查“诊断”。',
+    ipcFailed: '本地服务未运行。',
+    ipcHint: '请检查本地服务横幅，或使用“诊断”中的“重新启动”。',
+    authFailed: '无法通过发布服务的身份验证。请退出后重新登录。',
+    networkFailed: '发布服务暂时无法访问。发布将自动重试。',
     claimWarning:
       '首次开启时，此资料库将归属到你的账户并设为私有 —— 只有你和你邀请的人可以打开。此操作无法撤销。',
     claimRefusedUnverified: '要发布，需先验证你的账户身份。',

@@ -53,6 +53,39 @@ const isRetryableStartError = (error: unknown): boolean =>
   error instanceof TypeError ||
   (error instanceof DOMException && (error.name === 'NetworkError' || error.name === 'TimeoutError'));
 
+export type ForwardingErrorClass = 'ipc' | 'auth' | 'network' | 'unknown';
+
+/** Reduce transport/account failures to UI-safe guidance at the provider boundary. */
+export const classifyForwardingError = (error: unknown): ForwardingErrorClass => {
+  if (error instanceof SiteReattachError) {
+    return error.code === 'unreachable' ? 'network'
+      : error.code === 'wrong-account' ? 'auth'
+        : 'unknown';
+  }
+  if (error instanceof ForwardingApiError) {
+    return error.status === 401 || error.status === 403 ? 'auth'
+      : error.status >= 500 || error.status === 429 ? 'network'
+        : 'unknown';
+  }
+
+  const fields = error && typeof error === 'object' ? (error as {status?: unknown; code?: unknown; detail?: unknown}) : {};
+  const status = fields.status;
+  const message = [error instanceof Error ? error.message : String(error), fields.detail, fields.code]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+
+  // Desktop localFetch failures are errors from the IPC bridge, not relay outages.
+  if (/ipc connect failed|\bipc\b.*(?:connect|transport|channel|invoke)|(?:local service|sidecar).*(?:unavailable|not running|connect|refused)/i.test(message)) return 'ipc';
+  if (status === 401 || status === 403 || /\b(?:401|403|unauthori[sz]ed|forbidden|account|keychain|credential|sign[ -]?in|auth(?:entication|ori[sz]ation)?)\b/i.test(message)) return 'auth';
+  if (
+    (typeof status === 'number' && status >= 500) ||
+    error instanceof TypeError ||
+    (error instanceof DOMException && (error.name === 'NetworkError' || error.name === 'TimeoutError')) ||
+    /\b(?:dns|enotfound|eai_again|timed? out|timeout|relay|websocket|network|fetch failed|connection (?:closed|reset|refused))\b/i.test(message)
+  ) return 'network';
+  return 'unknown';
+};
+
 const describeForwardingError = (error: unknown): {code?: string; message: string; detail?: string} => {
   const fields = error && typeof error === 'object' ? (error as {code?: unknown; status?: unknown; detail?: unknown}) : {};
   const rawCode = error instanceof ForwardingApiError ? error.status : (fields.code ?? fields.status);
@@ -108,6 +141,9 @@ interface ForwardingContextValue {
   setSiteVisibility: (v: SiteVisibility) => Promise<void>;
   busy: boolean;
   error: string | null;
+  errorClass: ForwardingErrorClass | null;
+  /** A launch retry is armed, or the live tunnel client owns automatic redial. */
+  retryPending: boolean;
   /**
    * A localizable audience-bind/unbind notice (OB-202), shown when the tunnel is up
    * but the audience hardening is incomplete (`partialUnscoped`/`ensureRescope`), a
@@ -158,6 +194,8 @@ const DEFAULT: ForwardingContextValue = {
   setSiteVisibility: async () => undefined,
   busy: false,
   error: null,
+  errorClass: null,
+  retryPending: false,
   audienceNotice: null,
   claimRefusal: null,
   signInPending: false,
@@ -217,6 +255,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const [host, setHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorClass, setErrorClass] = useState<ForwardingErrorClass | null>(null);
   const [audienceNotice, setAudienceNotice] = useState<{code: AudienceNoticeCode; detail?: string} | null>(null);
   const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'issuance-disabled' | 'claim-failed' | null>(null);
   const [siteVisibility, setSiteVis] = useState<SiteVisibility | null>(null);
@@ -320,6 +359,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       outageToastShownRef.current = false;
       terminalStartErrorRef.current = false;
       setError(null);
+      setErrorClass(null);
     }
     setStatus(next);
   }, []);
@@ -327,7 +367,10 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const handleDialError = useCallback((dialError: unknown) => {
     const info = recordForwardingError(dialError);
     outageFailureCountRef.current += 1;
-    if (outageFailureCountRef.current >= 2) setError(info.message);
+    if (outageFailureCountRef.current >= 2) {
+      setError(info.message);
+      setErrorClass(classifyForwardingError(dialError));
+    }
   }, []);
 
   const startTunnel = useCallback(async () => {
@@ -335,7 +378,10 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     cancelStartRetry();
     startingRef.current = true; // latch BEFORE the first await (see startingRef)
     setBusy(true);
-    if (outageFailureCountRef.current === 0) setError(null);
+    if (outageFailureCountRef.current === 0) {
+      setError(null);
+      setErrorClass(null);
+    }
     setAudienceNotice(null);
     setClaimRefusal(null);
     try {
@@ -383,6 +429,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       const info = recordForwardingError(e);
       outageFailureCountRef.current += 1;
       setError(info.message);
+      setErrorClass(classifyForwardingError(e));
       const retryable = isRetryableStartError(e);
       terminalStartErrorRef.current = !retryable;
       setStatus(retryable && outageFailureCountRef.current >= 2 ? 'stalled' : 'offline');
@@ -451,6 +498,9 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // context doc). Computed once so the registry effect below and every context
   // consumer (e.g. the Share dialog's link hint) share one publish predicate.
   const publishedHost = enabled && status === 'online' && host ? host : null;
+  const retryPending = startRetryTimerRef.current !== null || (
+    clientRef.current !== null && (status === 'reconnecting' || status === 'stalled')
+  );
 
   // Publish-aware copy links (P0-1): while the tunnel is live, "Copy link"
   // everywhere must emit the forwarded https host — `window.location` here is
@@ -635,6 +685,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     clientRef.current = null;
     setStatus('offline');
     setError(null);
+    setErrorClass(null);
     setHost(null);
     await forwarding?.keyStore.clear();
   }, [forwarding]);
@@ -643,12 +694,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     () => ({
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
+      busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     }),
     [
       supported, enabled, status, host, publishedHost,
       siteVisibility, siteVisibilityBusy, setSiteVisibility,
-      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
+      busy, error, errorClass, retryPending, audienceNotice, claimRefusal, signInPending, enable, disable, resetSiteIdentity,
     ],
   );
 

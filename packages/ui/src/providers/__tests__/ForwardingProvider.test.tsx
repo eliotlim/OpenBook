@@ -95,9 +95,24 @@ vi.mock('../HudProvider', () => ({useHud: () => ({setHud: h.setHud})}));
 
 import {ForwardingApiError, SiteReattachError} from '@book.dev/sdk';
 import {list as listErrors} from '@/lib/errorLog';
-import {ForwardingProvider, useForwarding} from '../ForwardingProvider';
+import {classifyForwardingError, ForwardingProvider, useForwarding} from '../ForwardingProvider';
 
 const wrapper = ({children}: {children: React.ReactNode}) => <ForwardingProvider>{children}</ForwardingProvider>;
+
+describe('classifyForwardingError', () => {
+  it.each([
+    [new Error('ipc connect failed: Connection refused'), 'ipc'],
+    [new ForwardingApiError('/api/sites', 401), 'auth'],
+    [new Error('keychain item is locked'), 'auth'],
+    [new SiteReattachError('unreachable', 'account unavailable'), 'network'],
+    [new SiteReattachError('wrong-account', 'this saved address belongs to a different account — switch to that account, or reset the saved address to publish a new one here'), 'auth'],
+    [new ForwardingApiError('/api/sites/attach-ticket', 503), 'network'],
+    [new TypeError('fetch failed'), 'network'],
+    [new SiteReattachError('rejected', 'reattach was refused (/api/sites/reattach → 401 (bad signature)) — your address is kept'), 'unknown'],
+  ] as const)('classifies %s as %s', (error, expected) => {
+    expect(classifyForwardingError(error)).toBe(expected);
+  });
+});
 
 /** Flip the fake account to a connected/signed-in state. */
 function signIn(token = 'tok', status = 'connected'): void {
@@ -258,6 +273,7 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
 
     await act(async () => result.current.enable());
     expect(result.current.status).toBe('offline');
+    expect(result.current.retryPending).toBe(true);
     expect(h.clientStart).toHaveBeenCalledTimes(1);
 
     await act(async () => vi.advanceTimersByTimeAsync(1_999));
@@ -298,6 +314,21 @@ describe('ForwardingProvider — retrying launch failures (TUN-1)', () => {
     expect(h.clientStart).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe('offline');
     expect(result.current.error).toContain('owns this address');
+    expect(result.current.retryPending).toBe(false);
+  });
+
+  it('does not arm a retry for a plain Error classified by its network string', async () => {
+    vi.useFakeTimers();
+    signIn();
+    h.clientStart.mockRejectedValue(new Error('network connection reset'));
+    const {result} = renderHook(() => useForwarding(), {wrapper});
+
+    await act(async () => result.current.enable());
+    await act(async () => vi.advanceTimersByTimeAsync(10 * 60 * 1000));
+
+    expect(h.clientStart).toHaveBeenCalledTimes(1);
+    expect(result.current.errorClass).toBe('network');
+    expect(result.current.retryPending).toBe(false);
   });
 
   it('disable cancels a pending launch retry', async () => {
@@ -341,6 +372,7 @@ describe('ForwardingProvider — stalled dial diagnostics (TUN-3)', () => {
       h.clientCallbacks.onStatus?.('stalled');
     });
     expect(result.current.status).toBe('stalled');
+    expect(result.current.retryPending).toBe(true);
     expect(result.current.error).toContain('403');
     expect(h.showToastSpy).toHaveBeenCalledTimes(1);
     const toast = h.showToastSpy.mock.calls[0][0];

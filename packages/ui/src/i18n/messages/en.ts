@@ -1786,6 +1786,10 @@ export const en = {
     copied: 'Copied',
     failed: 'Couldn\'t connect to the publishing service. Try signing out and back in, or check Diagnostics.',
     reconnectFailed: 'Couldn\'t reconnect to the publishing service. Try signing out and back in, or check Diagnostics.',
+    ipcFailed: 'The local service isn\'t running.',
+    ipcHint: 'Check the local-service banner, or use Restart in Diagnostics.',
+    authFailed: 'Couldn\'t authenticate with the publishing service. Try signing out and back in.',
+    networkFailed: 'The publishing service is temporarily unreachable. Publishing will retry automatically.',
     partialUnscoped:
       'Publishing is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
     ensureRescope:
