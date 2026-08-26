@@ -95,9 +95,22 @@ vi.mock('../HudProvider', () => ({useHud: () => ({setHud: h.setHud})}));
 
 import {ForwardingApiError, SiteReattachError} from '@book.dev/sdk';
 import {list as listErrors} from '@/lib/errorLog';
-import {ForwardingProvider, useForwarding} from '../ForwardingProvider';
+import {classifyForwardingError, ForwardingProvider, useForwarding} from '../ForwardingProvider';
 
 const wrapper = ({children}: {children: React.ReactNode}) => <ForwardingProvider>{children}</ForwardingProvider>;
+
+describe('classifyForwardingError', () => {
+  it.each([
+    [new Error('ipc connect failed: Connection refused'), 'ipc'],
+    [new ForwardingApiError('/api/sites', 401), 'auth'],
+    [new Error('keychain item is locked'), 'auth'],
+    [new SiteReattachError('unreachable', 'account unavailable'), 'network'],
+    [new TypeError('fetch failed'), 'network'],
+    [new Error('site signature rejected'), 'unknown'],
+  ] as const)('classifies %s as %s', (error, expected) => {
+    expect(classifyForwardingError(error)).toBe(expected);
+  });
+});
 
 /** Flip the fake account to a connected/signed-in state. */
 function signIn(token = 'tok', status = 'connected'): void {
