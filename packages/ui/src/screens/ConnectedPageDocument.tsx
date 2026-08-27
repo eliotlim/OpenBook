@@ -60,26 +60,36 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   // events. Echo handling (not re-saving content a peer sent us) lives in
   // PageDocument's content-digest check, so this is just an ordering guard.
   const lastUpdatedRef = useRef<string>('');
+  // Title metadata has its own ordering watermark. Content saves advance
+  // `lastUpdatedRef`, but an equal-timestamp rename must still be applied.
+  const lastTitleUpdatedRef = useRef<string>('');
   const titleActiveRef = useRef(false);
   const versionRef = useRef(0);
 
   const applyPage = useCallback(
     (page: StoredPage) => {
-      // Stale event (older than what we've already applied/saved) — ignore.
-      if (page.updatedAt <= lastUpdatedRef.current) return;
-      lastUpdatedRef.current = page.updatedAt;
       // Don't let an incoming name overwrite the title while the field is
       // focused (the user is typing) or a local rename is still unconfirmed
       // (its echo predates this edit) — OB-278.
-      if (!titleActiveRef.current && !hasPendingRenameRef.current) {
+      if (
+        page.updatedAt >= lastTitleUpdatedRef.current &&
+        !titleActiveRef.current &&
+        !hasPendingRenameRef.current
+      ) {
         setTitle(page.name ?? '');
         nameRef.current = page.name ?? null;
         setPageHint(pageId, page.name);
+        lastTitleUpdatedRef.current = page.updatedAt;
       }
       setResolvedHostedDbId(page.hostedDatabaseId);
       hydratePageIcons([{id: page.id, icon: page.properties[ICON_PROPERTY_ID] as string | null | undefined}]);
-      versionRef.current += 1;
-      setIncoming({data: page.data, version: versionRef.current});
+      // Content ordering remains strict: equal/older snapshots are echoes, but
+      // their independently-versioned metadata above may still be new to us.
+      if (page.updatedAt > lastUpdatedRef.current) {
+        lastUpdatedRef.current = page.updatedAt;
+        versionRef.current += 1;
+        setIncoming({data: page.data, version: versionRef.current});
+      }
     },
     [pageId, setPageHint],
   );
@@ -101,7 +111,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     void client
       .renamePage(pageId, nameRef.current)
       .then((saved) => {
-        lastUpdatedRef.current = saved.updatedAt;
+        lastTitleUpdatedRef.current = saved.updatedAt;
         // Clear the guard only once the server matches our latest local name; a
         // keystroke that landed mid-flight keeps it pending for its own commit.
         if ((saved.name ?? null) === nameRef.current) hasPendingRenameRef.current = false;
@@ -133,6 +143,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     // until getPage/subscribePage resolves it (don't carry the prior page's id).
     setResolvedHostedDbId(meta ? meta.hostedDatabaseId : undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
+    lastTitleUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
       disposedRef.current = true;
       if (renameTimer.current) clearTimeout(renameTimer.current);
@@ -150,6 +161,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     }
     if (page) {
       lastUpdatedRef.current = page.updatedAt;
+      lastTitleUpdatedRef.current = page.updatedAt;
       setResolvedHostedDbId(page.hostedDatabaseId);
       hydratePageIcons([{id: page.id, icon: page.properties[ICON_PROPERTY_ID] as string | null | undefined}]);
     }
