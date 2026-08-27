@@ -1,3 +1,16 @@
+## 3.15.2 (2026-08-27)
+
+### 🩹 Fixes
+
+- **app:** sidecar socket-liveness feedback into supervision; Dead state escapable (IPC-1) ([#338](https://github.com/lab255/OpenBook/pull/338))
+- **ui:** durable unpublish — audience unbind survives a dead sidecar (IPC-3) ([#339](https://github.com/lab255/OpenBook/pull/339))
+- **ui:** error-class-aware publish guidance — no more 'sign out' for a dead local service (IPC-4) ([#341](https://github.com/lab255/OpenBook/pull/341))
+- **ui,app:** surface sidecar state — degraded banner, Diagnostics, Restart (IPC-2) ([#340](https://github.com/lab255/OpenBook/pull/340))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.15.1 (2026-08-25)
 
 ### 🩹 Fixes
