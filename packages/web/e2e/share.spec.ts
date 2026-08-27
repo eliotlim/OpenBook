@@ -26,7 +26,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
 
   // The worker instance is unclaimed, so the dialog honestly discloses that these
   // saved but unenforced until the library is claimed (OB-203 pre-claim notice).
-  await expect(dialog.getByText(/take effect only once you claim this library/)).toBeVisible();
+  await expect(dialog.getByText(/Settings apply once you claim this library/)).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: the open Share dialog
 
   // 1. Set the page's visibility scope → persisted via setPageVisibility.
@@ -37,7 +37,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
     .toBe('restricted');
 
   // 2. Add a person as can-view → persisted via sharePage, then listed.
-  await dialog.getByLabel('Invite people').fill('alice@example.com');
+  await dialog.getByPlaceholder('Invite by email').fill('alice@example.com');
   await dialog.getByRole('button', {name: 'Add', exact: true}).click();
 
   const grant = dialog.getByRole('listitem').filter({hasText: 'alice@example.com'});

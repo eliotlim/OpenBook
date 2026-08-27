@@ -58,6 +58,19 @@ afterEach(() => {
 });
 
 describe('ShareDialog delivery help (P0-2)', () => {
+  it('keeps every compact body row to at most one paragraph', async () => {
+    mockPublishedHost = 'rae.book.cloud';
+    wrap({
+      getPageVisibility: async () => ({visibility: 'inherit', listed: true}),
+      listPageAcl: async () => [],
+      getInstanceInfo: async () => info(),
+    });
+    open();
+    const body = await screen.findByTestId('share-dialog-body');
+    for (const row of Array.from(body.children)) {
+      expect(row.querySelectorAll(':scope > p').length).toBeLessThanOrEqual(1);
+    }
+  });
   it('offers copy-link + sign-in guidance when published with a pending email grant', async () => {
     mockPublishedHost = 'rae.book.cloud';
     wrap({
