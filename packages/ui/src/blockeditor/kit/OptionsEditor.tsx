@@ -242,6 +242,9 @@ const MediaRow: React.FC<{
         spellCheck={false}
         onChange={(e) => onChange({image: e.target.value || undefined})}
         onBlur={(e) => onChange({image: e.target.value.trim() || undefined})}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
       />
       {!editor.readOnly && (
         <>
@@ -276,6 +279,9 @@ const MediaRow: React.FC<{
         placeholder="🙂"
         onChange={(e) => onChange({icon: e.target.value || undefined})}
         onBlur={(e) => onChange({icon: e.target.value.trim() || undefined})}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
       />
       <Select unstyled
         className="rounded-md border border-border bg-card px-1.5 py-1 text-sm"

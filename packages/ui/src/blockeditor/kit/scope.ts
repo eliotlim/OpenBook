@@ -15,7 +15,7 @@ import {quickJSSyncEvalBackend} from './sandbox/quickjsSyncBackend';
  */
 
 /** A legal reactive identifier. */
-const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+export const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
  * The name a block publishes under: its explicit variable `name` when set,

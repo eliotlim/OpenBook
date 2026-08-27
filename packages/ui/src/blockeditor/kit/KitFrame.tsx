@@ -5,6 +5,7 @@ import {KitSettings} from './KitSettings';
 import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
 import {useCachedInputScope} from './useCachedEval';
+import {NAME_RE} from './scope';
 import {cn} from '@/lib/utils';
 
 /**
@@ -152,6 +153,9 @@ export const KitInlineText: React.FC<{
       aria-label={ariaLabel}
       spellCheck={false}
       onChange={(e) => onCommit(e.target.value)}
+      onBlur={(e) => {
+        if (e.target.value !== '' && e.target.value.trim() === '') onCommit('');
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
         e.stopPropagation();
@@ -175,6 +179,8 @@ const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorControlle
   const derived = varNameFromLabel(blockProp<string>(block, 'label') ?? '');
   const [editing, setEditing] = useState(explicit.length > 0);
   const shown = explicit || derived || defaultName || 'value';
+  const trimmedExplicit = explicit.trim();
+  const invalid = trimmedExplicit !== '' && !NAME_RE.test(trimmedExplicit);
 
   if (!editing) {
     return (
@@ -192,7 +198,10 @@ const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorControlle
     );
   }
   return (
-    <ConfigField label="Variable name" hint="The symbol formulas and charts reference.">
+    <ConfigField
+      label="Variable name"
+      hint={invalid ? 'Letters, digits and _ only — not published' : 'The symbol formulas and charts reference.'}
+    >
       <ConfigInput
         mono
         autoFocus

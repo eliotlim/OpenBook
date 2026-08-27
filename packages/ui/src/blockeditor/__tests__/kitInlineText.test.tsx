@@ -40,6 +40,32 @@ describe('kit inline text editing', () => {
     expect(blockProp(block, 'label')).toBe('Number of months');
   });
 
+  it('clears a spaces-only inline label on blur', () => {
+    const {block} = renderSlider({label: ''});
+    const label = screen.getByRole('textbox', {name: 'Display name'});
+
+    fireEvent.change(label, {target: {value: '   '}});
+    expect(blockProp(block, 'label')).toBe('   ');
+    fireEvent.blur(label);
+
+    expect((label as HTMLInputElement).value).toBe('');
+    expect(blockProp(block, 'label')).toBe('');
+  });
+
+  it('shows the not-published hint for an invalid variable name', () => {
+    renderSlider({name: 'my var'});
+    fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));
+
+    expect(screen.getByText('Letters, digits and _ only — not published')).toBeTruthy();
+  });
+
+  it('does not show the not-published hint for a valid variable name', () => {
+    renderSlider({name: 'my_var'});
+    fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));
+
+    expect(screen.queryByText('Letters, digits and _ only — not published')).toBeNull();
+  });
+
   it('normalizes a variable name on blur, not during typing', () => {
     const {block} = renderSlider({name: 'months'});
     fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));
