@@ -229,16 +229,15 @@ export const de: PartialMessages = {
     title: 'Diese Seite teilen',
     description: 'Lege fest, wer auf diese Seite zugreifen darf, und lade Personen zum Ansehen oder Bearbeiten ein.',
     loadError: 'Die Freigabeeinstellungen für diese Seite konnten nicht geladen werden.',
-    unclaimedNotice:
-      'Diese Einstellungen werden gespeichert, treten aber erst in Kraft, wenn du diese Bibliothek beanspruchst. Bis dahin kann jede Person, die sie erreichen kann, sie ansehen und bearbeiten.',
-    browserLocalNotice:
-      'Diese Bibliothek existiert nur in diesem Browser — niemand sonst kann sie erreichen, daher wirken sich diese Einstellungen noch auf niemanden aus. Um mit anderen zu teilen, veröffentliche eine Bibliothek über die OpenBook-Desktop-App.',
+    unclaimedNotice: 'Die Einstellungen gelten, sobald du diese Bibliothek beanspruchst.',
+    browserLocalNotice: 'Nur dieser Browser kann diese Bibliothek erreichen — veröffentliche sie zum Teilen aus der Desktop-App.',
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     siteRestrictedNotice:
       'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine Adresse liefert Seiten noch nicht an nicht angemeldete Besucher aus — aktiviere veröffentlichte Seiten, damit sie sie öffnen können.',
     makeSitePublished: 'Veröffentlichte Seiten ausliefern',
     publishState: {
+      liveAt: 'Veröffentlicht unter', notPublished: 'Nicht veröffentlicht', guestOff: 'Veröffentlicht, aber der Gastzugriff ist aus.',
       live: 'Veröffentlicht',
       liveHint: 'Jeder mit dem Link kann diese Seite unter {host} öffnen.',
       hint: 'Veröffentliche diese Seite, damit jeder mit dem Link sie unter {host} öffnen kann.',
@@ -252,6 +251,7 @@ export const de: PartialMessages = {
     },
     forms: {
       accepts: 'Diese Seite nimmt öffentliche Einsendungen an',
+      status: 'Bereit', blocked: 'Blockiert',
       settings: 'Formulareinstellungen',
       notReady: 'Dieses Formular ist noch nicht bereit – binden Sie eine Datenbank an, um Antworten zu empfangen.',
       reachability: {
@@ -270,6 +270,7 @@ export const de: PartialMessages = {
     siteGlobalHint: 'Gilt für deine gesamte Bibliothek, nicht nur für diese Seite.',
     scopeLabel: 'Wer hat Zugriff',
     scopeAdvanced: 'Weitere Zugriffsoptionen',
+    scopeAdvancedShort: 'Mehr Optionen',
     scope: {
       inherit: 'Bibliotheks-Standard',
       inheritHint: 'Folgt der Standard-Zugriffseinstellung der Bibliothek.',
@@ -284,6 +285,7 @@ export const de: PartialMessages = {
     },
     addLabel: 'Personen einladen',
     addPlaceholder: 'name@example.com',
+    invitePlaceholder: 'Per E-Mail einladen',
     levelLabel: 'Zugriffsebene',
     levelRead: 'Kann ansehen',
     levelWrite: 'Kann bearbeiten',
@@ -292,6 +294,7 @@ export const de: PartialMessages = {
     noPeople: 'Es wurde noch niemand eingeladen.',
     remove: '{name} entfernen',
     deliver: {
+      short: 'Eingeladene werden nicht benachrichtigt — sende ihnen den Link.',
       hint: 'Eingeladene Personen werden nicht automatisch benachrichtigt. Senden Sie ihnen den Link zu dieser Seite – jede Person öffnet sie, indem sie sich mit der eingeladenen E-Mail-Adresse anmeldet.',
       copy: 'Link zum Senden kopieren',
     },

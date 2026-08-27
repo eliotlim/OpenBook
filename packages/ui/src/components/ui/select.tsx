@@ -55,6 +55,7 @@ interface OptionItem {
   label: string
   disabled?: boolean
   group?: string
+  description?: string
 }
 
 /** Flatten a React node to its text, for type-ahead and the trigger fallback. */
@@ -76,8 +77,8 @@ function collectItems(children: React.ReactNode): OptionItem[] {
         const p = child.props as {label?: string; children?: React.ReactNode}
         walk(p.children, p.label)
       } else if (child.type === "option") {
-        const p = child.props as {value?: string | number; children?: React.ReactNode; disabled?: boolean}
-        items.push({value: String(p.value ?? ""), node: p.children, label: nodeText(p.children), disabled: p.disabled, group})
+        const p = child.props as {value?: string | number; children?: React.ReactNode; disabled?: boolean; "data-description"?: string}
+        items.push({value: String(p.value ?? ""), node: p.children, label: nodeText(p.children), disabled: p.disabled, group, description: p["data-description"]})
       }
     })
   }
@@ -233,7 +234,10 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
                   <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                     {it.value === current && <Check className="h-3.5 w-3.5" aria-hidden />}
                   </span>
-                  <span className="min-w-0 truncate">{it.node}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{it.node}</span>
+                    {it.description && <span className="block text-xs text-muted-foreground">{it.description}</span>}
+                  </span>
                 </button>
               </React.Fragment>
             )

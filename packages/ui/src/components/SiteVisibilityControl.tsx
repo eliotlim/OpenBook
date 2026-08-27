@@ -4,6 +4,7 @@ import {useData} from '@/data';
 import {Select} from '@/components/ui/select';
 import {useForwarding, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
+import {InfoTip} from '@/components/ui/info-tip';
 
 /**
  * "Who can open this address" (SHR-8 / GATE-5). The published *.book.cloud address
@@ -41,7 +42,7 @@ const SCOPE_HINT: Record<'restricted' | 'published' | 'public', TKey> = {
   public: 'forwarding.visibility.publicHint',
 };
 
-export function SiteVisibilityControl() {
+export function SiteVisibilityControl({compact = false}: {compact?: boolean}) {
   const {t} = useTranslation();
   const client = useData();
   const {publishedHost, siteVisibility, siteVisibilityBusy, setSiteVisibility} = useForwarding();
@@ -79,7 +80,7 @@ export function SiteVisibilityControl() {
   // show it honestly, read-only, so we neither under-state the exposure nor let a
   // change collapse it to `restricted`.
   if (!SETTABLE.includes(siteVisibility)) {
-    return <NonBinarySiteVisibilityRow visibility={siteVisibility as 'authenticated' | 'members'} />;
+    return <NonBinarySiteVisibilityRow visibility={siteVisibility as 'authenticated' | 'members'} compact={compact} />;
   }
 
   const scope = siteVisibility as 'restricted' | 'published' | 'public';
@@ -89,16 +90,16 @@ export function SiteVisibilityControl() {
   const showGuestCaveat = guestOff && (scope === 'published' || scope === 'public');
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-      <div className="flex flex-col gap-0.5">
+    <div className={compact ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-2 rounded-lg border border-border p-3'}>
+      <div className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-0.5'}>
         <span className="text-sm font-medium">{t('forwarding.visibility.label')}</span>
-        <span className="text-xs text-muted-foreground">{t(SCOPE_HINT[scope])}</span>
+        {compact ? <InfoTip text={`${t('share.siteGlobalHint')}\n${t(SCOPE_HINT[scope])}`} /> : <span className="text-xs text-muted-foreground">{t(SCOPE_HINT[scope])}</span>}
       </div>
       <Select
         aria-label={t('forwarding.visibility.label')}
         value={scope}
         disabled={siteVisibilityBusy}
-        wrapperClassName="w-full"
+        wrapperClassName={compact ? 'w-56 shrink-0' : 'w-full'}
         onChange={(e) => changeVisibility(e.target.value as SiteVisibility)}
       >
         <option value="restricted">{t('forwarding.visibility.private')}</option>
@@ -128,7 +129,7 @@ export function SiteVisibilityControl() {
  * the scope, and a pointer to change it where it's actually managed (the account
  * dashboard).
  */
-function NonBinarySiteVisibilityRow({visibility}: {visibility: 'authenticated' | 'members'}) {
+function NonBinarySiteVisibilityRow({visibility, compact = false}: {visibility: 'authenticated' | 'members'; compact?: boolean}) {
   const {t} = useTranslation();
   const account = useOptionalAccount();
   const platform = usePlatformCapabilities();
@@ -143,10 +144,10 @@ function NonBinarySiteVisibilityRow({visibility}: {visibility: 'authenticated' |
   const stateLabel = t(`forwarding.visibility.${visibility}`);
   const hint = t(`forwarding.visibility.${visibility}Hint`);
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-      <div className="flex flex-col gap-0.5">
+    <div className={compact ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-2 rounded-lg border border-border p-3'}>
+      <div className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-0.5'}>
         <span className="text-sm font-medium">{t('forwarding.visibility.label')}</span>
-        <span className="text-xs text-muted-foreground">{hint}</span>
+        {compact ? <InfoTip text={`${t('share.siteGlobalHint')}\n${hint}`} /> : <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       {/* Disabled: this scope isn't one the control sets, so it must not be
           changeable here (a change would collapse it to `restricted`). */}
@@ -154,7 +155,7 @@ function NonBinarySiteVisibilityRow({visibility}: {visibility: 'authenticated' |
         aria-label={t('forwarding.visibility.label')}
         value={visibility}
         disabled
-        wrapperClassName="w-full"
+        wrapperClassName={compact ? 'w-56 shrink-0' : 'w-full'}
         onChange={() => undefined}
       >
         <option value={visibility}>{stateLabel}</option>

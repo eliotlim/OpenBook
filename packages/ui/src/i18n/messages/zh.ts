@@ -228,15 +228,15 @@ export const zh: PartialMessages = {
     title: '共享此页面',
     description: '选择谁可以访问此页面，并邀请他人查看或编辑。',
     loadError: '无法加载此页面的共享设置。',
-    unclaimedNotice: '这些设置已保存，但只有在你认领此资料库后才会生效。在此之前，任何能够访问它的人都可以查看和编辑。',
-    browserLocalNotice:
-      '此资料库仅存在于此浏览器中——其他人无法访问它，因此这些设置暂时不会对任何人生效。要与他人共享，请通过 OpenBook 桌面应用发布资料库。',
+    unclaimedNotice: '认领此资料库后，设置才会生效。',
+    browserLocalNotice: '只有此浏览器可以访问此资料库 — 请通过桌面应用发布以便共享。',
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     siteRestrictedNotice:
       '此页面已设为“任何拥有链接的人”，但你的地址尚未向未登录的访客提供页面——请开启已发布页面，让他们也能打开。',
     makeSitePublished: '提供已发布页面',
     publishState: {
+      liveAt: '发布于', notPublished: '未发布', guestOff: '已发布，但访客访问已关闭。',
       live: '已发布',
       liveHint: '任何拥有链接的人都能在 {host} 打开此页面。',
       hint: '发布此页面后，任何拥有链接的人都能在 {host} 打开它。',
@@ -250,6 +250,7 @@ export const zh: PartialMessages = {
     },
     forms: {
       accepts: '此页面接受公开提交',
+      status: '已就绪', blocked: '受阻',
       settings: '表单设置',
       notReady: '此表单尚未准备就绪 — 绑定数据库以接收回答。',
       reachability: {
@@ -268,6 +269,7 @@ export const zh: PartialMessages = {
     siteGlobalHint: '此设置适用于你的整个资料库，而不仅是此页面。',
     scopeLabel: '谁可以访问',
     scopeAdvanced: '更多访问选项',
+    scopeAdvancedShort: '更多选项',
     scope: {
       inherit: '资料库默认',
       inheritHint: '沿用资料库的默认访问设置。',
@@ -282,6 +284,7 @@ export const zh: PartialMessages = {
     },
     addLabel: '邀请他人',
     addPlaceholder: 'name@example.com',
+    invitePlaceholder: '通过电子邮件邀请',
     levelLabel: '访问权限',
     levelRead: '可查看',
     levelWrite: '可编辑',
@@ -290,6 +293,7 @@ export const zh: PartialMessages = {
     noPeople: '尚未邀请任何人。',
     remove: '移除 {name}',
     deliver: {
+      short: '受邀者不会收到通知 — 请将链接发送给他们。',
       hint: '受邀者不会自动收到通知。请将此页面的链接发送给他们——每个人都需用受邀时的邮箱登录后才能打开。',
       copy: '复制要发送的链接',
     },
