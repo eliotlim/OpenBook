@@ -1,0 +1,24 @@
+{
+  "phase": "after",
+  "viewport": {
+    "width": 900,
+    "height": 420
+  },
+  "tableLeftEdge": 82,
+  "paragraphContentLeftEdge": 82,
+  "tableIndentVsParagraph": 0,
+  "rowGripBox": {
+    "x": 78,
+    "y": 243.5,
+    "width": 14,
+    "height": 37.28
+  },
+  "gutterHandleBox": {
+    "x": 55.61,
+    "y": 223,
+    "width": 24,
+    "height": 24
+  },
+  "horizontalOverlapPx": 1.61,
+  "elementFromPointAtHandleCentreIsHandle": true
+}
