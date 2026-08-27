@@ -541,7 +541,7 @@ test('table drag-reorder: row + column grips, menu moves, single undo', {tag: ['
   await page.keyboard.type('Y');
   const headCells = rows.nth(0).locator('td');
   expect(await headRow()).toEqual(['R1', 'X', 'Y']);
-  await headCells.nth(2).locator('.obe-table-col-grip').dragTo(headCells.nth(0), {targetPosition: {x: 2, y: 12}});
+  await headCells.nth(2).locator('.obe-table-col-grip').dragTo(headCells.nth(0), {targetPosition: {x: 20, y: 12}});
   expect(await headRow()).toEqual(['Y', 'R1', 'X']);
 });
 
