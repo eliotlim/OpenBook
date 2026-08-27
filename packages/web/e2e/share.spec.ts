@@ -1,6 +1,15 @@
 import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 import {newPage, SERVER} from './seed';
 
+async function openInfoTip(
+  page: import('@playwright/test').Page,
+  trigger: import('@playwright/test').Locator,
+  text: string | RegExp,
+): Promise<void> {
+  await trigger.hover();
+  await expect(page.getByRole('tooltip')).toContainText(text);
+}
+
 // The per-page Share dialog (OB-203): open it from the page-actions cluster, set
 // the page's audience-scope visibility, and grant a person view access by email
 // — all driving the OB-191 per-page API (`setPageVisibility` / `sharePage`).
@@ -80,7 +89,7 @@ test('share: the scope picker progressively discloses advanced scopes', {tag: ['
   await expect(page.locator('[role="option"]')).toHaveCount(0);
 
   // The reveal exposes `authenticated` and shifts focus onto the scope Select.
-  await dialog.getByRole('button', {name: 'More access options'}).click();
+  await dialog.getByRole('button', {name: 'More options'}).click();
   await expect(page.locator('#share-scope')).toBeFocused();
   await page.locator('#share-scope').click();
   await expect(option('authenticated')).toBeVisible();
@@ -115,7 +124,8 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await expect(hidden).toBeEnabled();
   await hidden.click();
   await expect(hidden).toBeChecked();
-  await expect(dialog.getByText(/stays hidden from navigation and search/)).toBeVisible();
+  const copyRow = dialog.getByRole('button', {name: 'Copy link'}).locator('..');
+  await openInfoTip(page, copyRow.getByRole('button', {name: 'More info'}), /stays hidden from navigation and search/);
   await expect
     .poll(async () => (await (await ownerRequest.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
     .toBe(false);

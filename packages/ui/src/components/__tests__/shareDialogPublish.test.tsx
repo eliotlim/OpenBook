@@ -111,6 +111,33 @@ afterEach(() => {
 });
 
 describe('ShareDialog — page discovery (UP-3)', () => {
+  it('portals tooltip content outside the dialog', async () => {
+    wrap('inherit');
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const tip = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.closest('[role="dialog"]')).toBeNull();
+  });
+
+  it('uses the compact w-44 scope select width', async () => {
+    wrap('inherit');
+    open();
+
+    const select = await screen.findByRole('combobox', {name: 'Who can access'});
+    expect(select.parentElement?.className).toContain('w-44');
+  });
+
+  it('includes the resolved claimed default in the inherit option label', async () => {
+    wrap('inherit', {}, {ownerSubject: 'acct#rae', defaultVisibility: 'members'});
+    open();
+
+    const select = await screen.findByRole('combobox', {name: 'Who can access'});
+    await waitFor(() => expect(select.textContent).toContain('Library default (library members)'));
+  });
+
   it.each([
     ['inherit', false],
     ['public', false],
@@ -129,10 +156,9 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     wrap('restricted');
     open();
 
-    const hint = await screen.findByLabelText(
-      'Only invited people can reach this page, so navigation and search visibility do not apply.',
-    );
-    expect(hint.closest('label')?.className).not.toContain('opacity');
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const hint = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    expect(hint?.closest('div')?.className).not.toContain('opacity');
     expect(screen.getByRole('switch', {name: 'Hide from navigation and search'}).hasAttribute('disabled')).toBe(true);
   });
 
@@ -140,7 +166,10 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     wrap('inherit');
     open();
 
-    expect(await screen.findByLabelText('Applies only to this page; access still follows the library default.')).toBeTruthy();
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const tip = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Applies only to this page; access still follows the library default.');
   });
 
   it('persists a hidden flip through the SDK client and rehydrates it on reopen', async () => {
@@ -165,7 +194,9 @@ describe('ShareDialog — page discovery (UP-3)', () => {
 
     await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {listed: false}));
     expect(toggle.getAttribute('data-state')).toBe('checked');
-    expect(screen.getByLabelText(/This page stays hidden from navigation and search/)).toBeTruthy();
+    const tip = screen.getAllByRole('button', {name: 'More info'})[0];
+    fireEvent.focus(tip);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/Keep this page out of navigation and search/);
 
     cleanup();
     wrap(settings, client);
@@ -279,7 +310,9 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     await screen.findByText('This page accepts public submissions');
-    expect(screen.getByLabelText('Signed-out visitors can submit at rae.book.cloud.')).toBeTruthy();
+    const tip = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelector('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
     expect(screen.getByRole('button', {name: 'Form settings'})).toBeTruthy();
     expect(document.body.textContent).not.toContain('private-capability-never-rendered');
   });
@@ -297,7 +330,9 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
-    expect(screen.getByLabelText(/signed-out visitors cannot reach it until this page is public/i)).toBeTruthy();
+    const tip = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelector('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/signed-out visitors cannot reach it until this page is public/i);
   });
 
   it('mirrors the guest-off 404 caveat at an otherwise public form address', async () => {
@@ -305,7 +340,10 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
-    expect(screen.getByLabelText(/signed-out visitors get a "page not found" \(404\) error even at this public address/i)).toBeTruthy();
+    expect(screen.getAllByText('Blocked')).toHaveLength(1);
+    const tips = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelectorAll('button[aria-label="More info"]');
+    fireEvent.focus(tips![1]);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/signed-out visitors get a "page not found" \(404\) error even at this public address/i);
     expect(screen.getAllByRole('button', {name: 'Manage guest access'}).length).toBeGreaterThanOrEqual(1);
   });
 

@@ -22,6 +22,7 @@ export const zh: PartialMessages = {
     undo: '撤销',
     settings: '设置',
     noOptions: '没有选项',
+    moreInfo: '更多信息',
   },
   comments: {
     delete: '删除评论',
@@ -228,7 +229,7 @@ export const zh: PartialMessages = {
     title: '共享此页面',
     description: '选择谁可以访问此页面，并邀请他人查看或编辑。',
     loadError: '无法加载此页面的共享设置。',
-    unclaimedNotice: '认领此资料库后，设置才会生效。',
+    unclaimedNotice: '认领此资料库后，设置才会生效；在此之前，任何能访问的人都可以编辑。',
     browserLocalNotice: '只有此浏览器可以访问此资料库 — 请通过桌面应用发布以便共享。',
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
@@ -236,10 +237,8 @@ export const zh: PartialMessages = {
       '此页面已设为“任何拥有链接的人”，但你的地址尚未向未登录的访客提供页面——请开启已发布页面，让他们也能打开。',
     makeSitePublished: '提供已发布页面',
     publishState: {
-      liveAt: '发布于', notPublished: '未发布', guestOff: '已发布，但访客访问已关闭。',
+      liveAt: '发布于', notPublished: '未发布', guestOff: '已发布，但未登录的访客无法打开。',
       live: '已发布',
-      liveHint: '任何拥有链接的人都能在 {host} 打开此页面。',
-      hint: '发布此页面后，任何拥有链接的人都能在 {host} 打开它。',
       action: '发布页面',
     },
     listing: {
@@ -267,8 +266,8 @@ export const zh: PartialMessages = {
       manageGuestAccess: '管理访客访问',
     },
     siteGlobalHint: '此设置适用于你的整个资料库，而不仅是此页面。',
+    siteScopeLibraryTag: '· 整个资料库',
     scopeLabel: '谁可以访问',
-    scopeAdvanced: '更多访问选项',
     scopeAdvancedShort: '更多选项',
     scope: {
       inherit: '资料库默认',
@@ -283,7 +282,6 @@ export const zh: PartialMessages = {
       restrictedHint: '将访问权限限制为你和下面邀请的人。',
     },
     addLabel: '邀请他人',
-    addPlaceholder: 'name@example.com',
     invitePlaceholder: '通过电子邮件邀请',
     levelLabel: '访问权限',
     levelRead: '可查看',
@@ -324,6 +322,12 @@ export const zh: PartialMessages = {
       authenticated: '当前资料库默认设置将设为“资料库默认”的页面限制为已登录的人。',
       members: '当前资料库默认设置将设为“资料库默认”的页面限制为资料库成员。',
       restricted: '当前资料库默认设置将设为“资料库默认”的页面限制为你和受邀者。',
+    },
+    effectiveDefaultShort: {
+      public: '任何拥有链接的人',
+      authenticated: '任何已登录的人',
+      members: '资料库成员',
+      restricted: '受邀的人',
     },
     manageLibrary: '资料库共享设置',
     manageMembers: '管理成员',

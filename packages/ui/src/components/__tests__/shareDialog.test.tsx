@@ -15,7 +15,7 @@ vi.mock('@/providers', async (orig) => {
   return {
     ...actual,
     useForwarding: () =>
-      ({...actual.useForwarding(), supported: true, publishedHost: mockPublishedHost}) as ReturnType<
+      ({...actual.useForwarding(), supported: true, publishedHost: mockPublishedHost, siteVisibility: mockPublishedHost ? 'published' : null, canPublish: false}) as ReturnType<
         typeof actual.useForwarding
       >,
   };
@@ -32,13 +32,28 @@ const acl = (over: Partial<PageAcl> = {}): PageAcl => ({
   ...over,
 });
 
-const info = (): InstanceInfo => ({
+const info = (over: Partial<InstanceInfo> = {}): InstanceInfo => ({
   guestAccess: 'write',
   ownerSubject: null,
   trustedIssuers: [],
   audience: null,
   you: guestPrincipal('Rae'),
+  ...over,
 });
+
+const formPage = (ready: boolean) => ({
+  id: 'p1',
+  data: {blockdoc: {blocks: [{
+    id: 'form-block',
+    type: 'form',
+    props: {
+      enabled: true,
+      submissionKey: 'private-capability',
+      ...(ready ? {databaseId: 'responses-db'} : {}),
+      schema: {fields: ready ? [{id: 'name', columnId: 'name-column'}] : []},
+    },
+  }]}},
+}) as unknown as NonNullable<Awaited<ReturnType<DataClient['getPage']>>>;
 
 const wrap = (client: Partial<DataClient>) =>
   render(
@@ -58,18 +73,25 @@ afterEach(() => {
 });
 
 describe('ShareDialog delivery help (P0-2)', () => {
-  it('keeps every compact body row to at most one paragraph', async () => {
+  it.each([
+    ['unclaimed', () => ({getPage: async () => null, getInstanceInfo: async () => info()}), 'p.rounded-md'],
+    ['form', () => ({getPage: async () => formPage(false), getInstanceInfo: async () => info()}), '[data-form-not-ready]'],
+    ['guest-off', () => ({getPage: async () => formPage(true), getInstanceInfo: async () => info({guestAccess: 'off'})}), '[data-form-public-submissions]'],
+  ] as const)('keeps the %s compact row to one block-level text child', async (_state, client, selector) => {
     mockPublishedHost = 'rae.book.cloud';
     wrap({
       getPageVisibility: async () => ({visibility: 'inherit', listed: true}),
       listPageAcl: async () => [],
-      getInstanceInfo: async () => info(),
+      ...client(),
     });
     open();
     const body = await screen.findByTestId('share-dialog-body');
-    for (const row of Array.from(body.children)) {
-      expect(row.querySelectorAll(':scope > p').length).toBeLessThanOrEqual(1);
-    }
+    const row = await vi.waitFor(() => {
+      const found = body.querySelector(selector);
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    expect(row.querySelectorAll(':scope > p, :scope > span:not(.sr-only)').length).toBeLessThan(2);
   });
   it('offers copy-link + sign-in guidance when published with a pending email grant', async () => {
     mockPublishedHost = 'rae.book.cloud';

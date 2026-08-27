@@ -93,13 +93,13 @@ export function SiteVisibilityControl({compact = false}: {compact?: boolean}) {
     <div className={compact ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-2 rounded-lg border border-border p-3'}>
       <div className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-0.5'}>
         <span className="text-sm font-medium">{t('forwarding.visibility.label')}</span>
-        {compact ? <InfoTip text={`${t('share.siteGlobalHint')}\n${t(SCOPE_HINT[scope])}`} /> : <span className="text-xs text-muted-foreground">{t(SCOPE_HINT[scope])}</span>}
+        {compact ? <><span className="text-xs text-muted-foreground">{t('share.siteScopeLibraryTag')}</span><InfoTip text={t(SCOPE_HINT[scope])} /></> : <span className="text-xs text-muted-foreground">{t(SCOPE_HINT[scope])}</span>}
       </div>
       <Select
         aria-label={t('forwarding.visibility.label')}
         value={scope}
         disabled={siteVisibilityBusy}
-        wrapperClassName={compact ? 'w-56 shrink-0' : 'w-full'}
+        wrapperClassName={compact ? 'w-44 shrink-0' : 'w-full'}
         onChange={(e) => changeVisibility(e.target.value as SiteVisibility)}
       >
         <option value="restricted">{t('forwarding.visibility.private')}</option>
@@ -147,7 +147,7 @@ function NonBinarySiteVisibilityRow({visibility, compact = false}: {visibility: 
     <div className={compact ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-2 rounded-lg border border-border p-3'}>
       <div className={compact ? 'flex items-center gap-1.5' : 'flex flex-col gap-0.5'}>
         <span className="text-sm font-medium">{t('forwarding.visibility.label')}</span>
-        {compact ? <InfoTip text={`${t('share.siteGlobalHint')}\n${hint}`} /> : <span className="text-xs text-muted-foreground">{hint}</span>}
+        {compact ? <><span className="text-xs text-muted-foreground">{t('share.siteScopeLibraryTag')}</span><InfoTip text={hint} /></> : <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       {/* Disabled: this scope isn't one the control sets, so it must not be
           changeable here (a change would collapse it to `restricted`). */}
@@ -155,7 +155,7 @@ function NonBinarySiteVisibilityRow({visibility, compact = false}: {visibility: 
         aria-label={t('forwarding.visibility.label')}
         value={visibility}
         disabled
-        wrapperClassName={compact ? 'w-56 shrink-0' : 'w-full'}
+        wrapperClassName={compact ? 'w-44 shrink-0' : 'w-full'}
         onChange={() => undefined}
       >
         <option value={visibility}>{stateLabel}</option>

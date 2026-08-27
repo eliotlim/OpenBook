@@ -22,6 +22,7 @@ export const ja: PartialMessages = {
     undo: '元に戻す',
     settings: '設定',
     noOptions: 'オプションがありません',
+    moreInfo: '詳細情報',
   },
   comments: {
     delete: 'コメントを削除',
@@ -228,7 +229,7 @@ export const ja: PartialMessages = {
     title: 'このページを共有',
     description: 'このページにアクセスできる人を選び、閲覧または編集に招待します。',
     loadError: 'このページの共有設定を読み込めませんでした。',
-    unclaimedNotice: '設定はこのライブラリを要求すると適用されます。',
+    unclaimedNotice: '設定はこのライブラリを要求すると適用されます。それまでは、アクセスできる人なら誰でも編集できます。',
     browserLocalNotice: 'このブラウザだけがこのライブラリにアクセスできます — 共有するにはデスクトップアプリから公開してください。',
     enforcementCaveat:
       '招待した人は、公開された book.cloud リンクからこのページをまだ開けない場合があります — 現在順次対応中です。直接アクセスはここで設定したとおりすでに制限されています。',
@@ -236,10 +237,8 @@ export const ja: PartialMessages = {
       'このページは「リンクを知っている全員」に設定されていますが、アドレスはまだサインインしていない訪問者にページを配信していません。公開ページを有効にすると、彼らも開けるようになります。',
     makeSitePublished: '公開ページを配信する',
     publishState: {
-      liveAt: '公開先', notPublished: '未公開', guestOff: '公開済みですが、ゲストアクセスはオフです。',
+      liveAt: '公開先', notPublished: '未公開', guestOff: '公開済みですが、サインインしていない訪問者は開けません。',
       live: '公開中',
-      liveHint: 'リンクを知っている人なら誰でも {host} でこのページを開けます。',
-      hint: 'このページを公開すると、リンクを知っている人なら誰でも {host} で開けるようになります。',
       action: 'ページを公開',
     },
     listing: {
@@ -267,8 +266,8 @@ export const ja: PartialMessages = {
       manageGuestAccess: 'ゲストアクセスを管理',
     },
     siteGlobalHint: 'この設定はこのページだけでなく、ライブラリ全体に適用されます。',
+    siteScopeLibraryTag: '· ライブラリ全体',
     scopeLabel: 'アクセスできる人',
-    scopeAdvanced: 'その他のアクセスオプション',
     scopeAdvancedShort: 'その他',
     scope: {
       inherit: 'ライブラリの既定',
@@ -283,7 +282,6 @@ export const ja: PartialMessages = {
       restrictedHint: 'アクセスをあなたと下で招待した人に制限します。',
     },
     addLabel: '人を招待',
-    addPlaceholder: 'name@example.com',
     invitePlaceholder: 'メールで招待',
     levelLabel: 'アクセス権限',
     levelRead: '閲覧可能',
@@ -325,6 +323,12 @@ export const ja: PartialMessages = {
       authenticated: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはサインイン済みの人のみに制限されます。',
       members: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはライブラリのメンバーのみに制限されます。',
       restricted: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはあなたと招待した人のみに制限されます。',
+    },
+    effectiveDefaultShort: {
+      public: 'リンクを知っている全員',
+      authenticated: 'サインインしている全員',
+      members: 'ライブラリのメンバー',
+      restricted: '招待された人',
     },
     manageLibrary: 'ライブラリの共有設定',
     manageMembers: 'メンバーを管理',

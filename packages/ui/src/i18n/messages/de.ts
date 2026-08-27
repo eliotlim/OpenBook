@@ -22,6 +22,7 @@ export const de: PartialMessages = {
     undo: 'Rückgängig',
     settings: 'Einstellungen',
     noOptions: 'Keine Optionen',
+    moreInfo: 'Weitere Informationen',
   },
   comments: {
     delete: 'Kommentar löschen',
@@ -229,7 +230,7 @@ export const de: PartialMessages = {
     title: 'Diese Seite teilen',
     description: 'Lege fest, wer auf diese Seite zugreifen darf, und lade Personen zum Ansehen oder Bearbeiten ein.',
     loadError: 'Die Freigabeeinstellungen für diese Seite konnten nicht geladen werden.',
-    unclaimedNotice: 'Die Einstellungen gelten, sobald du diese Bibliothek beanspruchst.',
+    unclaimedNotice: 'Die Einstellungen gelten, sobald du diese Bibliothek beanspruchst — bis dahin kann jeder, der sie erreichen kann, sie bearbeiten.',
     browserLocalNotice: 'Nur dieser Browser kann diese Bibliothek erreichen — veröffentliche sie zum Teilen aus der Desktop-App.',
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
@@ -237,10 +238,8 @@ export const de: PartialMessages = {
       'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine Adresse liefert Seiten noch nicht an nicht angemeldete Besucher aus — aktiviere veröffentlichte Seiten, damit sie sie öffnen können.',
     makeSitePublished: 'Veröffentlichte Seiten ausliefern',
     publishState: {
-      liveAt: 'Veröffentlicht unter', notPublished: 'Nicht veröffentlicht', guestOff: 'Veröffentlicht, aber der Gastzugriff ist aus.',
+      liveAt: 'Veröffentlicht unter', notPublished: 'Nicht veröffentlicht', guestOff: 'Veröffentlicht, aber nicht angemeldete Besucher können sie nicht öffnen.',
       live: 'Veröffentlicht',
-      liveHint: 'Jeder mit dem Link kann diese Seite unter {host} öffnen.',
-      hint: 'Veröffentliche diese Seite, damit jeder mit dem Link sie unter {host} öffnen kann.',
       action: 'Seite veröffentlichen',
     },
     listing: {
@@ -268,8 +267,8 @@ export const de: PartialMessages = {
       manageGuestAccess: 'Gastzugriff verwalten',
     },
     siteGlobalHint: 'Gilt für deine gesamte Bibliothek, nicht nur für diese Seite.',
+    siteScopeLibraryTag: '· gesamte Bibliothek',
     scopeLabel: 'Wer hat Zugriff',
-    scopeAdvanced: 'Weitere Zugriffsoptionen',
     scopeAdvancedShort: 'Mehr Optionen',
     scope: {
       inherit: 'Bibliotheks-Standard',
@@ -284,7 +283,6 @@ export const de: PartialMessages = {
       restrictedHint: 'Beschränkt den Zugriff auf dich und die unten eingeladenen Personen.',
     },
     addLabel: 'Personen einladen',
-    addPlaceholder: 'name@example.com',
     invitePlaceholder: 'Per E-Mail einladen',
     levelLabel: 'Zugriffsebene',
     levelRead: 'Kann ansehen',
@@ -326,6 +324,12 @@ export const de: PartialMessages = {
       authenticated: 'Derzeit beschränkt der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ auf angemeldete Personen.',
       members: 'Derzeit beschränkt der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ auf Bibliotheks-Mitglieder.',
       restricted: 'Derzeit beschränkt der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ auf dich und dazu eingeladene Personen.',
+    },
+    effectiveDefaultShort: {
+      public: 'jeder mit dem Link',
+      authenticated: 'jeder Angemeldete',
+      members: 'Bibliotheksmitglieder',
+      restricted: 'eingeladene Personen',
     },
     manageLibrary: 'Freigabe-Einstellungen der Bibliothek',
     manageMembers: 'Mitglieder verwalten',

@@ -17,6 +17,7 @@ export const en = {
     undo: 'Undo',
     settings: 'Settings',
     noOptions: 'No options',
+    moreInfo: 'More info',
   },
   comments: {
     delete: 'Delete comment',
@@ -373,7 +374,7 @@ export const en = {
     title: 'Share this page',
     description: 'Choose who can access this page, and invite people to view or edit it.',
     loadError: 'Couldn’t load sharing settings for this page.',
-    unclaimedNotice: 'Settings apply once you claim this library.',
+    unclaimedNotice: 'Settings apply once you claim this library — until then anyone who can reach it can edit.',
     browserLocalNotice: 'Only this browser can reach this library — publish from the desktop app to share.',
     enforcementCaveat:
       'People you invite may not be able to open this page at its published link yet — that’s still rolling out. Direct access is already limited as set here.',
@@ -383,15 +384,14 @@ export const en = {
     // The address scope is library-global — shown here per-page, but it governs
     // every published page, so say so plainly to avoid a per-page misread.
     siteGlobalHint: 'Applies to your whole library, not just this page.',
+    siteScopeLibraryTag: '· whole library',
     // Publish to the web (GATE-6): the primary "make this page reachable at your
     // address" affordance and the live indicator once it is.
     publishState: {
       liveAt: 'Published at',
       notPublished: 'Not published',
-      guestOff: 'Published, but guest access is off.',
+      guestOff: 'Published, but signed-out visitors can\'t open it.',
       live: 'Published',
-      liveHint: 'Anyone with the link can open this page at {host}.',
-      hint: 'Publish this page so anyone with the link can open it at {host}.',
       action: 'Publish page',
     },
     listing: {
@@ -420,7 +420,6 @@ export const en = {
       manageGuestAccess: 'Manage guest access',
     },
     scopeLabel: 'Who can access',
-    scopeAdvanced: 'More access options',
     scopeAdvancedShort: 'More options',
     scope: {
       inherit: 'Library default',
@@ -435,7 +434,6 @@ export const en = {
       restrictedHint: 'Limits access to you and the people you invite below.',
     },
     addLabel: 'Invite people',
-    addPlaceholder: 'name@example.com',
     invitePlaceholder: 'Invite by email',
     levelLabel: 'Access level',
     levelRead: 'Can view',
@@ -483,6 +481,12 @@ export const en = {
       authenticated: 'Right now the library default limits pages set to Library default to anyone signed in.',
       members: 'Right now the library default limits pages set to Library default to library members.',
       restricted: 'Right now the library default limits pages set to Library default to you and people invited to them.',
+    },
+    effectiveDefaultShort: {
+      public: 'anyone with the link',
+      authenticated: 'anyone signed in',
+      members: 'library members',
+      restricted: 'invited people',
     },
     manageLibrary: 'Library sharing settings',
     manageMembers: 'Manage members',

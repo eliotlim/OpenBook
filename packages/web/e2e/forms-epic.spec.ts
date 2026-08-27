@@ -268,7 +268,10 @@ async function publishWithShareDialog(page: Page, instance: ClaimedInstance, pag
   await expect
     .poll(async () => (await ownerJson<{visibility: string}>(instance, `/api/pages/${pageId}/visibility`)).visibility)
     .toBe('public');
-  await expect(dialog.getByText('Signed-out visitors who can open this public page can submit.')).toBeVisible();
+  const formRow = dialog.locator('[data-form-public-submissions]');
+  await expect(formRow.getByText('Ready')).toBeVisible();
+  await formRow.getByRole('button', {name: 'More info'}).hover();
+  await expect(page.getByRole('tooltip')).toContainText('Signed-out visitors who can open this public page can submit.');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 }

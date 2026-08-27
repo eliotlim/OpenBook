@@ -246,7 +246,7 @@ function FormSubmissionRow({
         aria-live="polite"
         className="flex items-center justify-between gap-3 text-xs text-amber-700 dark:text-amber-400"
       >
-        <span className="flex items-center gap-1.5"><FileText className="h-4 w-4" />{t('share.forms.notReady')}<InfoTip text={t('share.forms.notReady')} /></span>
+        <span className="flex items-center gap-1.5"><FileText className="h-4 w-4" />{t('share.forms.notReady')}</span>
         {canManage && (
           <button
             type="button"
@@ -264,9 +264,28 @@ function FormSubmissionRow({
     : t(reachability.key);
   return (
     <div data-form-public-submissions className="flex items-center gap-2 text-xs">
-      <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground"><FileText className="h-4 w-4" />{t('share.forms.accepts')}</span>
-      <span className="text-muted-foreground">{t('share.forms.status')}</span>
-      <InfoTip text={reachabilityText} />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground"><FileText className="h-4 w-4" />{t('share.forms.accepts')}</span>
+        <span className="text-muted-foreground">{t(guestOff ? 'share.forms.blocked' : 'share.forms.status')}</span>
+        <InfoTip text={reachabilityText} />
+        {guestOff && (
+          <span aria-live="polite" className="text-amber-700 dark:text-amber-400">
+            <InfoTip text={t('share.forms.guestOffCaveat')} />
+            {canManage && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={onManageGuestAccess}
+                >
+                  {t('share.forms.manageGuestAccess')}
+                </button>
+              </>
+            )}
+          </span>
+        )}
+      </span>
       {canManage && (
         <button
           type="button"
@@ -275,24 +294,6 @@ function FormSubmissionRow({
         >
           {t('share.forms.settings')}
         </button>
-      )}
-      {guestOff && (
-        <span aria-live="polite" className="text-amber-700 dark:text-amber-400">
-          {t('share.forms.blocked')}
-          <InfoTip text={t('share.forms.guestOffCaveat')} />
-          {canManage && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="underline underline-offset-2 hover:text-foreground"
-                onClick={onManageGuestAccess}
-              >
-                {t('share.forms.manageGuestAccess')}
-              </button>
-            </>
-          )}
-        </span>
       )}
     </div>
   );
@@ -321,6 +322,7 @@ function PublishRow({
   host,
   busy,
   onPublish,
+  onManageGuestAccess,
 }: {
   live: boolean;
   canPublish: boolean;
@@ -328,6 +330,7 @@ function PublishRow({
   host: string;
   busy: boolean;
   onPublish: () => void;
+  onManageGuestAccess: () => void;
 }) {
   const {t} = useTranslation();
   if (live) {
@@ -335,7 +338,7 @@ function PublishRow({
       <div className="flex items-center gap-2 text-xs">
         <Globe className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="font-medium">{t('share.publishState.liveAt')}</span>
-        <a className="min-w-0 truncate font-mono text-muted-foreground underline" href={`https://${host}`} target="_blank" rel="noreferrer">{host}</a>
+        <a className="min-w-0 truncate font-mono text-muted-foreground underline" title={host} href={`https://${host}`} target="_blank" rel="noreferrer">{host}</a>
       </div>
     );
   }
@@ -351,7 +354,7 @@ function PublishRow({
         aria-live="polite"
         className="flex items-center justify-between gap-3 text-xs text-amber-700 dark:text-amber-400"
       >
-        <span>{t('share.publishState.guestOff')}</span><button type="button" className="underline" onClick={() => {}}>{t('share.forms.manageGuestAccess')}</button>
+        <span className="flex items-center gap-1.5">{t('share.publishState.guestOff')}<InfoTip text={t('forwarding.visibility.guestOffCaveat')} /></span><button type="button" className="underline" onClick={onManageGuestAccess}>{t('share.forms.manageGuestAccess')}</button>
       </div>
     );
   }
@@ -709,7 +712,7 @@ export default function ShareDialog({
           {loadError ? (
             <p className="text-sm text-destructive">{t('share.loadError')}</p>
           ) : (
-            <div data-testid="share-dialog-body" className="min-w-0 flex flex-col gap-3">
+            <div data-testid="share-dialog-body" className="min-w-0 flex flex-col gap-2.5">
               {/* grid-item min-width guard — the real overflow fix; a base-level min-w-0 on DialogContent does NOT subsume this */}
               {/* In-browser library disclosure (P0-4): nothing outside this
                 browser can reach the library, so these settings can't take
@@ -761,6 +764,7 @@ export default function ShareDialog({
                   host={publishedHost}
                   busy={loading}
                   onPublish={() => void changeScope('public')}
+                  onManageGuestAccess={openGuestAccessSettings}
                 />
               )}
 
@@ -770,7 +774,7 @@ export default function ShareDialog({
                 discovery relevance. `inherit` remains page-local and available. */}
               {canManage && (
                 <div className="flex flex-col gap-1">
-                  <label className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
                       {t('share.listing.label')}
                       <InfoTip text={t(
@@ -787,7 +791,7 @@ export default function ShareDialog({
                       aria-label={t('share.listing.label')}
                       onCheckedChange={(hidden) => void changeHidden(hidden)}
                     />
-                  </label>
+                  </div>
                   {listingError && (
                     <span role="alert" aria-live="assertive" className="mt-1.5 block text-xs text-destructive">
                       {t(listingError)}
@@ -808,25 +812,30 @@ export default function ShareDialog({
               )}
 
               {/* Visibility scope */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-1.5"><Label htmlFor="share-scope">{t('share.scopeLabel')}</Label>
-                  <InfoTip text={[t(SCOPE_LABEL[scope].hint), scope === 'inherit' && (claimStatus === 'claimed' && defaultVisibility !== null ? t(`share.effectiveDefault.${defaultVisibility}`) : guestAccess !== null ? t(`share.effective.${guestAccess}`) : ''), !browserLocal && claimStatus === 'claimed' && scope !== 'public' ? t('share.enforcementCaveat') : ''].filter(Boolean).join('\n')} />
-                  {!showAdvanced && canManage && <button type="button" onClick={() => {setShowAdvanced(true); scopeSelectRef.current?.focus();}} className="text-xs text-muted-foreground underline">{t('share.scopeAdvancedShort')}</button>}</span>
-                <Select
-                  ref={scopeSelectRef}
-                  id="share-scope"
-                  aria-label={t('share.scopeLabel')}
-                  value={scope}
-                  disabled={loading || !canManage}
-                  wrapperClassName="w-56 shrink-0"
-                  onChange={(e) => void changeScope(e.target.value as PageVisibility)}
-                >
-                  {scopeOptions.map((v) => (
-                    <option key={v} value={v} data-description={t(SCOPE_LABEL[v].hint)}>
-                      {t(SCOPE_LABEL[v].label)}
-                    </option>
-                  ))}
-                </Select>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-baseline gap-2"><Label className="whitespace-nowrap" htmlFor="share-scope">{t('share.scopeLabel')}</Label>
+                    {!browserLocal && claimStatus === 'claimed' && scope !== 'public' && <InfoTip text={t('share.enforcementCaveat')} />}
+                  </span>
+                  <Select
+                    ref={scopeSelectRef}
+                    id="share-scope"
+                    aria-label={t('share.scopeLabel')}
+                    value={scope}
+                    disabled={loading || !canManage}
+                    wrapperClassName="w-44 shrink-0"
+                    onChange={(e) => void changeScope(e.target.value as PageVisibility)}
+                  >
+                    {scopeOptions.map((v) => (
+                      <option key={v} value={v} data-description={t(SCOPE_LABEL[v].hint)}>
+                        {v === 'inherit' && claimStatus === 'claimed' && defaultVisibility
+                          ? `${t('share.scope.inherit')} (${t(`share.effectiveDefaultShort.${defaultVisibility}`)})`
+                          : t(SCOPE_LABEL[v].label)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                {!showAdvanced && canManage && <button type="button" onClick={() => {setShowAdvanced(true); scopeSelectRef.current?.focus();}} className="ml-auto block text-xs text-muted-foreground underline">{t('share.scopeAdvancedShort')}</button>}
                 {/* Reveal the power-user scopes on demand (SHR-4). Hidden once
                   expanded, and suppressed for a read-only viewer who can't change
                   the scope anyway. Moving focus to the scope Select on reveal makes
@@ -838,20 +847,11 @@ export default function ShareDialog({
                   does the legacy guest gate govern — reading the guest gate for a
                   claimed instance was the bug. Falls back to the guest-gate line
                   when a pre-SHR-6 server doesn't report the default. */}
-                <span className="hidden">{scope === 'inherit' &&
-                (claimStatus === 'claimed' && defaultVisibility !== null ? (
-                  <span>
-                    {t(`share.effectiveDefault.${defaultVisibility}`)}
-                  </span>
-                ) : guestAccess !== null ? (
-                  <span>{t(`share.effective.${guestAccess}`)}</span>
-                ) : null)}
                 {/* The origin already enforces every scope for forwarded requests
                   too (a non-grantee 404s — fail-safe, never a leak). The real gap
                   is that a legitimate grantee can't yet *open* a restricted page
                   through its published *.book.pub link until the identity bridge
                   (D2 + OB-202) lands — caveat that, only once confirmed claimed. */}
-                </span>
                 {scopeError && (
                   <p role="alert" aria-live="assertive" className="text-xs text-destructive">
                     {t(scopeError)}
@@ -894,13 +894,13 @@ export default function ShareDialog({
                   )}
                   <SiteVisibilityControl compact />
                   {/* The address scope is library-global, not per-page — say so here,
-                    in a per-page dialog, so it isn't misread as this page only (Devon F4). */}
+                    in a per-page dialog, so it isn't misread as this page only. */}
                 </div>
               )}
 
               {/* Add a person (managers only — read-only viewers still see the roster below) */}
               {canManage && (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 border-t border-border pt-3">
                   <Label className="sr-only" htmlFor="share-invitee">{t('share.addLabel')}</Label>
                   <div className="flex items-center gap-2">
                     <Input
@@ -948,12 +948,12 @@ export default function ShareDialog({
               {aclReadable && (
                 <div className="flex flex-col gap-1.5">
                   {loading ? (
-                    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <><span className="text-sm font-medium leading-none">{t('share.peopleLabel')}</span><p className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       {t('share.loadingPeople')}
-                    </p>
+                    </p></>
                   ) : grants.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">{t('share.noPeople')}</p>
+                    <><span className="text-sm font-medium leading-none">{t('share.peopleLabel')}</span><p className="text-xs text-muted-foreground">{t('share.noPeople')}</p></>
                   ) : (
                     <><span className="text-sm font-medium leading-none">{t('share.peopleLabel')}</span><ul className="flex flex-col gap-1">
                       {grants.map((grant) => {
@@ -1082,9 +1082,7 @@ export default function ShareDialog({
                     ) : linkIsLocalOnly ? (
                       t('share.linkHints.localOnly')
                     ) : (
-                      <><HostHint msg={publishedAddressHint} host={publishedHost ?? ''}/><InfoTip text={[t(LINK_HINT[scope]), !listed && scope !== 'restricted' ? t('share.linkHints.hidden') : ''].filter(Boolean).join('\n')} />
-                        <span className="sr-only">{publishedHost && t('share.linkHints.publishedAt', {host: publishedHost})}</span>
-                      </>
+                      <>{publishedHost === null ? t(LINK_HINT[scope]) : <HostHint msg={publishedAddressHint} host={publishedHost}/>}<InfoTip text={[t(LINK_HINT[scope]), !listed && scope !== 'restricted' ? t('share.linkHints.hidden') : ''].filter(Boolean).join('\n')} /></>
                     )}
                   </span>
                   <Button

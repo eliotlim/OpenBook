@@ -57,7 +57,7 @@ const DialogContent = React.forwardRef<
         ref={ref}
         className={cn(
           // `min-w-0 [&>*]:min-w-0` removes the panel/direct-child auto minimums so long children cannot widen it past max-w-*; deep content still needs min-w-0/truncate/break-*.
-          // Nothing is clipped, so portaled Select/Popover content and edge focus rings are unaffected; a future direct child's min-w-* loses to `[&>*]:min-w-0` by utility order, not intent.
+          // The body may scroll; floating content is portaled so it is not clipped. A future direct child's min-w-* loses to `[&>*]:min-w-0` by utility order, not intent.
           "relative grid max-h-[calc(100vh-4rem)] min-w-0 w-full gap-4 overflow-y-auto rounded-lg border bg-background p-6 shadow-overlay duration-[var(--default-transition-duration)] ease-[var(--ease-out-soft)] [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           dialogContentSizes[size],
           className
