@@ -20,6 +20,7 @@ import type {
 } from './ai';
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibilitySettings, PageVisibilityUpdate, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
+import {ICON_PROPERTY_ID} from './pageProperties';
 import {
   DatabaseFormRequestError,
   FormSubmissionError,
@@ -685,6 +686,10 @@ class LiveStream {
   // page's durable save/delete events through the already read-gated per-page SSE
   // endpoint instead. One fallback source is shared by every listener for an id.
   private streamedPageIds: Set<string> | null = null;
+  // Last list snapshot delivered to chrome/navigation consumers. A subsequent
+  // `page` frame may be the only event for a metadata-only write, so keep enough
+  // state to patch and re-emit that entry without waiting for a list frame.
+  private streamedPages: PageMeta[] | null = null;
   private readonly pageFallbackSources = new Map<string, LiveSourceLike>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
   // Live collaboration — per-page incremental Yjs-update listeners (Collab T1).
@@ -756,6 +761,7 @@ class LiveStream {
     // The previous identity's filtered list cannot decide which pages need a
     // fallback under the new identity. Wait for the replacement firehose list.
     this.streamedPageIds = null;
+    this.streamedPages = null;
     // Reset the transport state machine so the reopen is evaluated from scratch
     // (a fresh grace window, no inherited poll/error state).
     this.clearGraceTimer();
@@ -777,12 +783,29 @@ class LiveStream {
     }
     if (ev.type === 'list') {
       const pages = ev.pages as PageMeta[];
+      this.streamedPages = pages;
       this.streamedPageIds = new Set(pages.map((page) => page.id));
       this.reconcilePageFallbacks();
       this.listListeners.forEach((fn) => fn(pages));
     } else if (ev.type === 'page') {
       const page = ev.page as StoredPage;
       this.pageListeners.get(page.id)?.forEach((s) => s.onPage?.(page));
+      if (this.streamedPages?.some((meta) => meta.id === page.id)) {
+        this.streamedPages = this.streamedPages.map((meta) =>
+          meta.id === page.id
+            ? {
+              ...meta,
+              name: page.name,
+              hostedDatabaseId: page.hostedDatabaseId,
+              parentId: page.parentId,
+              deletedAt: page.deletedAt,
+              updatedAt: page.updatedAt,
+              icon: (page.properties?.[ICON_PROPERTY_ID] as string | null | undefined) ?? null,
+            }
+            : meta,
+        );
+        this.listListeners.forEach((fn) => fn(this.streamedPages!));
+      }
     } else if (ev.type === 'deleted') {
       const id = ev.id as string;
       this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
@@ -1030,6 +1053,7 @@ class LiveStream {
       this.source = null;
       this.closePageFallbacks();
       this.streamedPageIds = null;
+      this.streamedPages = null;
       // Tear down both fallbacks and reset, so a later re-subscribe re-evaluates
       // the stream from scratch instead of inheriting a stale poll/grace timer.
       this.clearGraceTimer();
