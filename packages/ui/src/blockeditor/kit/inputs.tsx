@@ -348,7 +348,18 @@ const ButtonBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
       ) : (
         <div className="flex gap-2">
           <ConfigField label="Input">
-            <ConfigInput mono value={target} readOnly={editor.readOnly} aria-label="Target input name" placeholder="x" onChange={(e) => kitSet(editor, block, 'target', e.target.value.trim())} />
+            <ConfigInput
+              mono
+              value={target}
+              readOnly={editor.readOnly}
+              aria-label="Target input name"
+              placeholder="x"
+              onChange={(e) => kitSet(editor, block, 'target', e.target.value)}
+              onBlur={(e) => kitSet(editor, block, 'target', e.target.value.trim())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+            />
           </ConfigField>
           {action !== 'toggle' && (
             <ConfigField label={action === 'set' ? 'value' : 'by'}>

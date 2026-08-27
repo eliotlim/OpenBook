@@ -85,6 +85,10 @@ export const OptionsListEditor: React.FC<{
               aria-label={`${copy.valuePlaceholder} ${i + 1}`}
               placeholder={slugify(row.label) || copy.valuePlaceholder}
               onChange={(e) => update(i, {value: e.target.value})}
+              onBlur={(e) => update(i, {value: e.target.value.trim()})}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
             />
             {!readOnly && (
               <button
@@ -139,7 +143,7 @@ async function fileToImageDataUrl(file: File, max = 320): Promise<string> {
 /** Strip empties so a row only stores the fields it actually uses. */
 const cleanRow = (r: Row): Row => ({
   label: r.label,
-  ...(r.value.trim() ? {value: r.value.trim()} : {}),
+  ...(r.value ? {value: r.value} : {}),
   ...(r.image ? {image: r.image} : {}),
   ...(r.icon ? {icon: r.icon} : {}),
   ...(r.color ? {color: r.color} : {}),
@@ -186,6 +190,10 @@ export const OptionsEditor: React.FC<{block: BlockMap; editor: BlockEditorContro
                 aria-label={`Option ${i + 1} value`}
                 placeholder={slugify(row.label) || 'value'}
                 onChange={(e) => update(i, {value: e.target.value})}
+                onBlur={(e) => update(i, {value: e.target.value.trim()})}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
               />
               {!editor.readOnly && (
                 <IconButton
@@ -232,7 +240,8 @@ const MediaRow: React.FC<{
         aria-label={`Option ${index + 1} image URL`}
         placeholder={row.image?.startsWith('data:') ? 'uploaded image' : 'Image URL…'}
         spellCheck={false}
-        onChange={(e) => onChange({image: e.target.value.trim() || undefined})}
+        onChange={(e) => onChange({image: e.target.value || undefined})}
+        onBlur={(e) => onChange({image: e.target.value.trim() || undefined})}
       />
       {!editor.readOnly && (
         <>
@@ -265,7 +274,7 @@ const MediaRow: React.FC<{
         readOnly={editor.readOnly}
         aria-label={`Option ${index + 1} icon`}
         placeholder="🙂"
-        onChange={(e) => onChange({icon: e.target.value.trim() || undefined})}
+        onChange={(e) => onChange({icon: e.target.value || undefined})}
       />
       <Select unstyled
         className="rounded-md border border-border bg-card px-1.5 py-1 text-sm"

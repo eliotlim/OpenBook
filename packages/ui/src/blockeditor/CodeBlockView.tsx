@@ -74,7 +74,11 @@ export const CodeBlockView: React.FC<{
           readOnly={editor.readOnly}
           spellCheck={false}
           aria-label={live ? 'Output name' : 'File name'}
-          onChange={(e) => set('name', e.target.value.trim())}
+          onChange={(e) => set('name', e.target.value)}
+          onBlur={(e) => set('name', e.target.value.trim())}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
         />
       </ConfigField>
       <ConfigField label="Language">
@@ -84,7 +88,11 @@ export const CodeBlockView: React.FC<{
           readOnly={editor.readOnly}
           spellCheck={false}
           aria-label="Code language"
-          onChange={(e) => set('language', e.target.value.trim())}
+          onChange={(e) => set('language', e.target.value)}
+          onBlur={(e) => set('language', e.target.value.trim())}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
         />
       </ConfigField>
       <ConfigToggle
