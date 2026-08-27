@@ -56,6 +56,16 @@ function makeClient() {
 }
 
 describe('LiveStream unlisted-page fallback (UP-2 security round)', () => {
+  it('patches list subscribers when a page frame arrives without a following list frame', () => {
+    const {client, getSource} = makeClient();
+    const lists: Array<Array<{id: string; name: string | null}>> = [];
+    const unsub = client.subscribePages((pages) => lists.push(pages));
+    getSource().emit('list', JSON.stringify({type: 'list', pages: [{id: 'p1', name: 'Before'}]}));
+    getSource().emit('page', JSON.stringify({type: 'page', page: {id: 'p1', name: 'After'}}));
+    expect(lists[lists.length - 1]?.[0]?.name).toBe('After');
+    unsub();
+  });
+
   it('uses the read-gated per-page SSE only while an open page is absent from the firehose list', () => {
     const sources: Array<{url: string; source: FakeSource}> = [];
     const client = new HttpDataClient('https://remote.example', 'instance-token', {
@@ -108,6 +118,32 @@ describe('LiveStream unlisted-page fallback (UP-2 security round)', () => {
 describe('LiveStream poll fallback', () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('delivers a server rename to an open page listener within one poll interval', async () => {
+    vi.useFakeTimers();
+    let name = 'Before';
+    const page = () => ({
+      id: 'p1', name, data: {editorjs: {blocks: []}, values: [], names: []},
+      hostedDatabaseId: null, databaseId: null, parentId: null, properties: {}, deletedAt: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: name === 'Before' ? '2026-01-01T00:00:00.000Z' : '2026-01-01T00:00:01.000Z',
+    });
+    const client = new HttpDataClient('', undefined, {
+      fetchImpl: (input: string) => Promise.resolve(new Response(
+        JSON.stringify(input === '/api/pages' ? [] : page()),
+        {status: 200, headers: {'content-type': 'application/json'}},
+      )),
+      createLiveSource: () => new FakeSource(),
+    });
+    const seen: string[] = [];
+    const unsub = client.subscribePage('p1', {onPage: (value) => seen.push(value.name ?? '')});
+
+    await vi.advanceTimersByTimeAsync(LIVE_OPEN_GRACE_MS);
+    expect(seen).toEqual(['Before']);
+    name = 'After';
+    await vi.advanceTimersByTimeAsync(LIVE_POLL_INTERVAL_MS);
+    expect(seen).toEqual(['Before', 'After']);
+    unsub();
   });
 
   it('falls back to polling when the SSE stream never opens', async () => {
