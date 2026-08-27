@@ -275,6 +275,7 @@ const MediaRow: React.FC<{
         aria-label={`Option ${index + 1} icon`}
         placeholder="🙂"
         onChange={(e) => onChange({icon: e.target.value || undefined})}
+        onBlur={(e) => onChange({icon: e.target.value.trim() || undefined})}
       />
       <Select unstyled
         className="rounded-md border border-border bg-card px-1.5 py-1 text-sm"

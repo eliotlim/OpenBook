@@ -269,7 +269,7 @@ const FieldOptionsSettings: React.FC<{
       onChange={(next) => onChange({
         ...field,
         options: next.map((option, index) => ({
-          id: option.value.trim() || field.options?.[index]?.id || randomFormFieldId(),
+          id: option.value || field.options?.[index]?.id || randomFormFieldId(),
           label: option.label,
         })),
       })}

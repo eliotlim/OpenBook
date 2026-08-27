@@ -150,7 +150,7 @@ export function dataflowGraph(doc: Y.Doc, computed: ComputedScope, outlets: Data
     }
 
     if (type === 'actionbutton') {
-      const target = blockProp<string>(block, 'target') ?? '';
+      const target = (blockProp<string>(block, 'target') ?? '').trim();
       const targetId = publisherOf.get(target);
       if (!targetId) continue; // a button with no live target isn't part of the flow
       nodes.push({id, kind: 'button', type, label: blockProp<string>(block, 'btnlabel') || 'Button'});

@@ -10,7 +10,7 @@ const reactiveDoc = () =>
     {id: 'lc', type: 'code', text: 'rate * years', props: {live: true, name: 'total'}},
     {id: 'chart', type: 'kitchart', props: {kind: 'bar', title: 'Growth', source: '[rate, total]'}},
     {id: 'light', type: 'statuslight', props: {label: 'OK?', source: 'total > 10'}},
-    {id: 'btn', type: 'actionbutton', props: {btnlabel: 'Bump', action: 'increment', target: 'rate', amount: 1}},
+    {id: 'btn', type: 'actionbutton', props: {btnlabel: 'Bump', action: 'increment', target: ' rate ', amount: 1}},
     {id: 'p', type: 'paragraph', text: 'prose stays out of the graph'},
     {id: 'dead', type: 'code', text: '1 + 1', props: {live: false, name: 'file.ts'}},
   ]);

@@ -2,6 +2,7 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, it} from 'vitest';
 import {BlockEditor} from '../BlockEditor';
 import {blockProp, createDoc, findBlock} from '../model';
+import {computeScopeAuthoritative, setNamedNumber} from '../kit/scope';
 import {registerReactiveBlocks} from '../reactiveBlocks';
 
 beforeAll(() => registerReactiveBlocks());
@@ -52,14 +53,36 @@ describe('kit inline text editing', () => {
     expect(blockProp(block, 'name')).toBe('foo');
   });
 
-  it('keeps the settings-popover Display name behavior unchanged', () => {
-    const {block} = renderSlider({label: 'Old label'});
+  it('publishes a stored live-code name after trimming it at the read boundary', async () => {
+    const doc = createDoc([{id: 'code', type: 'code', text: '6 * 7', props: {live: true, name: ' total '}}]);
+
+    expect((await computeScopeAuthoritative(doc)).scope.total).toBe(42);
+  });
+
+  it('resolves an action-button target after trimming it at the read boundary', () => {
+    const doc = createDoc([
+      {id: 'count', type: 'number', props: {name: 'count', value: 1}},
+      {id: 'button', type: 'actionbutton', props: {action: 'increment', target: ' count ', amount: 2}},
+    ]);
+    const button = findBlock(doc, 'button')!.block;
+
+    setNamedNumber(doc, blockProp<string>(button, 'target')!, (value) => value + 2);
+
+    expect(blockProp(findBlock(doc, 'count')!.block, 'value')).toBe(3);
+  });
+
+  it('normalizes a live code output name on blur, not during typing', () => {
+    const doc = createDoc([{id: 'code', type: 'code', text: '42', props: {live: true, name: 'result'}}]);
+    render(<BlockEditor doc={doc} />);
+    const block = findBlock(doc, 'code')!.block;
     fireEvent.click(screen.getByRole('button', {name: 'Block settings'}));
-    const [, popoverLabel] = screen.getAllByRole('textbox', {name: 'Display name'});
+    const name = screen.getByRole('textbox', {name: 'Output name'});
 
-    fireEvent.change(popoverLabel, {target: {value: 'New friendly name'}});
+    fireEvent.change(name, {target: {value: ' total '}});
+    expect((name as HTMLInputElement).value).toBe(' total ');
+    expect(blockProp(block, 'name')).toBe(' total ');
+    fireEvent.blur(name);
 
-    expect((popoverLabel as HTMLInputElement).value).toBe('New friendly name');
-    expect(blockProp(block, 'label')).toBe('New friendly name');
+    expect(blockProp(block, 'name')).toBe('total');
   });
 });

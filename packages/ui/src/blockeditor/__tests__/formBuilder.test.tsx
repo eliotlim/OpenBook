@@ -128,8 +128,14 @@ describe('form builder canvas', () => {
     expect(within(choiceSettings).getByRole('textbox', {name: 'Label for Choice'})).toBeTruthy();
     fireEvent.click(within(choiceSettings).getByRole('button', {name: /Add option/}));
     fireEvent.change(within(choiceSettings).getByLabelText('Option label 1'), {target: {value: 'First option'}});
-    fireEvent.change(within(choiceSettings).getByLabelText('Option ID 1'), {target: {value: 'first'}});
-    expect(read().fields[2].options).toEqual([{id: 'first', label: 'First option'}]);
+    const optionId = within(choiceSettings).getByLabelText('Option ID 1');
+    for (const value of [' a', ' a ', ' a b', ' a b ']) {
+      fireEvent.change(optionId, {target: {value}});
+      expect((optionId as HTMLInputElement).value).toBe(value);
+    }
+    expect(read().fields[2].options).toEqual([{id: ' a b ', label: 'First option'}]);
+    fireEvent.blur(optionId);
+    expect(read().fields[2].options).toEqual([{id: 'a b', label: 'First option'}]);
   });
 
   it('surfaces the same unsafe pattern classes as the SDK validator screen', () => {
