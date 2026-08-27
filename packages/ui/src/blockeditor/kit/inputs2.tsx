@@ -27,6 +27,8 @@ import {OptionsEditor} from './OptionsEditor';
 
 const ChoiceCardsBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'choice';
+  // Match the kit's visible display label while preserving the symbol fallback.
+  const ariaLabel = blockProp<string>(block, 'label')?.trim() || name;
   const multi = Boolean(blockProp<boolean>(block, 'multi'));
   const options = resolveOptions(block);
   const value = blockProp<string>(block, 'value') ?? null;
@@ -47,7 +49,7 @@ const ChoiceCardsBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const isOn = (val: string): boolean => (multi ? selected.has(val) : value === val);
 
   const control = (
-    <div className="obe-kit-cardgrid" role={multi ? 'group' : 'radiogroup'} aria-label={name}>
+    <div className="obe-kit-cardgrid" role={multi ? 'group' : 'radiogroup'} aria-label={ariaLabel}>
       {options.map((opt) => (
         <button
           key={opt.value}
