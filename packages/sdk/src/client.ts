@@ -790,22 +790,26 @@ class LiveStream {
     } else if (ev.type === 'page') {
       const page = ev.page as StoredPage;
       this.pageListeners.get(page.id)?.forEach((s) => s.onPage?.(page));
-      if (this.streamedPages?.some((meta) => meta.id === page.id)) {
-        this.streamedPages = this.streamedPages.map((meta) =>
-          meta.id === page.id
-            ? {
-              ...meta,
-              name: page.name,
-              hostedDatabaseId: page.hostedDatabaseId,
-              parentId: page.parentId,
-              deletedAt: page.deletedAt,
-              updatedAt: page.updatedAt,
-              icon: (page.properties?.[ICON_PROPERTY_ID] as string | null | undefined) ?? null,
-            }
-            : meta,
-        );
-        this.listListeners.forEach((fn) => fn(this.streamedPages!));
-      }
+      const existing = this.streamedPages?.find((meta) => meta.id === page.id);
+      if (!existing) return;
+      const patched = {
+        ...existing,
+        name: page.name,
+        hostedDatabaseId: page.hostedDatabaseId,
+        parentId: page.parentId,
+        deletedAt: page.deletedAt,
+        updatedAt: page.updatedAt,
+        icon: (page.properties?.[ICON_PROPERTY_ID] as string | null | undefined) ?? null,
+      };
+      if (
+        patched.name === existing.name &&
+        patched.hostedDatabaseId === existing.hostedDatabaseId &&
+        patched.parentId === existing.parentId &&
+        patched.deletedAt === existing.deletedAt &&
+        patched.icon === existing.icon
+      ) return;
+      this.streamedPages = this.streamedPages!.map((meta) => meta.id === page.id ? patched : meta);
+      this.listListeners.forEach((fn) => fn(this.streamedPages!));
     } else if (ev.type === 'deleted') {
       const id = ev.id as string;
       this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
@@ -1011,6 +1015,7 @@ class LiveStream {
     try {
       try {
         const pages = await this.fetchers.listPages();
+        this.streamedPages = pages;
         this.listListeners.forEach((fn) => fn(pages));
       } catch {
         // Server still coming back up — the next event or resync will catch up.

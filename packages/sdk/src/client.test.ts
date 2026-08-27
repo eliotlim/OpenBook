@@ -66,6 +66,72 @@ describe('LiveStream unlisted-page fallback (UP-2 security round)', () => {
     unsub();
   });
 
+  it('does not add an unlisted page to list subscribers from a page frame', () => {
+    const {client, getSource} = makeClient();
+    const lists: Array<Array<{id: string}>> = [];
+    const unsub = client.subscribePages((pages) => lists.push(pages));
+    getSource().emit('list', JSON.stringify({type: 'list', pages: [{id: 'p1', name: 'Listed'}]}));
+
+    getSource().emit('page', JSON.stringify({type: 'page', page: {id: 'p2', name: 'Private'}}));
+
+    expect(lists).toHaveLength(1);
+    expect(lists[0]).toEqual([{id: 'p1', name: 'Listed'}]);
+    expect(lists[0]?.some((meta) => meta.id === 'p2')).toBe(false);
+    unsub();
+  });
+
+  it('does not notify list subscribers when projected page metadata is unchanged', () => {
+    const {client, getSource} = makeClient();
+    const lists: Array<Array<{id: string}>> = [];
+    const unsub = client.subscribePages((pages) => lists.push(pages));
+    const meta = {
+      id: 'p1', name: 'Same', hostedDatabaseId: null, parentId: null, deletedAt: null,
+      updatedAt: '2026-01-01T00:00:00.000Z', icon: null,
+    };
+    getSource().emit('list', JSON.stringify({type: 'list', pages: [meta]}));
+
+    getSource().emit('page', JSON.stringify({
+      type: 'page',
+      page: {
+        ...meta,
+        updatedAt: '2026-01-01T00:00:01.000Z',
+        properties: {},
+        data: {editorjs: {blocks: [{id: 'autosaved'}]}, values: [], names: []},
+      },
+    }));
+
+    expect(lists).toHaveLength(1);
+    unsub();
+  });
+
+  it('patches the fresh list base established by resync', async () => {
+    const resynced = {
+      id: 'p1', name: 'Resynced', hostedDatabaseId: null, parentId: null, deletedAt: null,
+      updatedAt: '2026-01-01T00:00:01.000Z', icon: null,
+    };
+    let source: FakeSource | null = null;
+    const client = new HttpDataClient('', undefined, {
+      fetchImpl: () => Promise.resolve(new Response(JSON.stringify([resynced]), {
+        status: 200, headers: {'content-type': 'application/json'},
+      })),
+      createLiveSource: () => (source = new FakeSource()),
+    });
+    const lists: Array<Array<{id: string; name: string | null}>> = [];
+    const unsub = client.subscribePages((pages) => lists.push(pages));
+    source!.emit('list', JSON.stringify({type: 'list', pages: [{...resynced, name: 'Stale'}]}));
+    source!.emit('error');
+    source!.emit('open');
+    await vi.waitFor(() => expect(lists[lists.length - 1]?.[0]?.name).toBe('Resynced'));
+
+    source!.emit('page', JSON.stringify({
+      type: 'page',
+      page: {...resynced, name: 'Patched', updatedAt: '2026-01-01T00:00:02.000Z', properties: {}},
+    }));
+
+    expect(lists[lists.length - 1]?.[0]?.name).toBe('Patched');
+    unsub();
+  });
+
   it('uses the read-gated per-page SSE only while an open page is absent from the firehose list', () => {
     const sources: Array<{url: string; source: FakeSource}> = [];
     const client = new HttpDataClient('https://remote.example', 'instance-token', {

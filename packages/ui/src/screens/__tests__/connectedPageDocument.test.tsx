@@ -68,6 +68,9 @@ describe('ConnectedPageDocument live title metadata', () => {
   it('does not clobber typing with either its echo or an older-name stale echo', () => {
     render(<ConnectedPageDocument pageId="p1" />);
     const input = screen.getByLabelText('page title');
+    act(() => mocks.subscription?.onPage?.(page('Newest', '2026-01-01T00:00:03.000Z')));
+    act(() => mocks.subscription?.onPage?.(page('Older', '2026-01-01T00:00:02.000Z')));
+    expect((input as HTMLInputElement).value).toBe('Newest');
     fireEvent.focus(input);
     fireEvent.change(input, {target: {value: 'Hello'}});
     act(() => mocks.subscription?.onPage?.(page('Hello', '2026-01-01T00:00:02.000Z')));
