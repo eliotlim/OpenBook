@@ -64,6 +64,13 @@ export interface TextRun {
   a?: InlineAttrs;
 }
 
+/** Ephemeral render-order coordinates for a selected table-cell rectangle. */
+export interface CellSelection {
+  tableId: string;
+  anchor: {row: number; col: number};
+  focus: {row: number; col: number};
+}
+
 /** The JSON projection of a block (exports, server, tests). */
 export interface BlockJSON {
   id: string;
@@ -1672,6 +1679,60 @@ export function clearCellRange(doc: Y.Doc, tableId: string, rect: CellRect): voi
       for (const cell of line) {
         const text = cell && blockText(cell);
         if (text && text.length > 0) text.delete(0, text.length);
+      }
+    }
+  }, 'local');
+}
+
+/**
+ * Replace cells from a clipboard grid, growing at the bottom/right as needed.
+ * A grid tiles only when a multi-cell selection is an exact multiple of it;
+ * otherwise its own dimensions are written from the selection's top-left.
+ * Covered merge slots are ignored and declarations are never changed.
+ */
+export function tablePasteGrid(
+  doc: Y.Doc,
+  tableId: string,
+  anchor: {row: number; col: number},
+  source: string[][],
+  opts: {range?: CellSelection} = {},
+): void {
+  const sourceRows = source.length;
+  const sourceCols = source.reduce((max, row) => Math.max(max, row.length), 0);
+  if (sourceRows === 0 || sourceCols === 0) return;
+  doc.transact(() => {
+    const initial = findBlock(doc, tableId);
+    if (!initial || blockType(initial.block) !== 'table') return;
+    const rect = opts.range ? normalizeCellRect(opts.range.anchor, opts.range.focus) : null;
+    const rangeRows = rect ? rect.bottom - rect.top + 1 : 1;
+    const rangeCols = rect ? rect.right - rect.left + 1 : 1;
+    const tile = !!rect && rangeRows * rangeCols >= 2 && rangeRows % sourceRows === 0 && rangeCols % sourceCols === 0;
+    const start = rect ? {row: rect.top, col: rect.left} : anchor;
+    const writeRows = tile ? rangeRows : sourceRows;
+    const writeCols = tile ? rangeCols : sourceCols;
+
+    let grid = tableGrid(initial.block);
+    while (grid.rows.length < start.row + writeRows) {
+      tableInsertRow(doc, tableId, grid.rows.length);
+      grid = tableGrid(initial.block);
+    }
+    while (grid.width < start.col + writeCols) {
+      tableInsertColumn(doc, tableId, grid.width);
+      grid = tableGrid(initial.block);
+    }
+
+    const spans = tableSpans(grid);
+    for (let r = 0; r < writeRows; r += 1) {
+      for (let c = 0; c < writeCols; c += 1) {
+        const row = start.row + r;
+        const col = start.col + c;
+        if (spans[row]?.[col]?.kind === 'covered') continue;
+        const cell = grid.cells[row]?.[col];
+        const text = cell && blockType(cell) === 'cell' ? blockText(cell) : null;
+        if (!text) continue;
+        if (text.length > 0) text.delete(0, text.length);
+        const value = source[r % sourceRows]?.[c % sourceCols] ?? '';
+        if (value) text.insert(0, value, {});
       }
     }
   }, 'local');

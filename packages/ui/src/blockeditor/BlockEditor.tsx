@@ -70,6 +70,7 @@ import {
   tableMergeCells,
   tableMoveColumn,
   tableMoveRow,
+  tablePasteGrid,
   tableRowColor,
   tableSnapRectToSpans,
   tableSpans,
@@ -83,6 +84,7 @@ import {
   type BlockMap,
   type BlockType,
   type CellRect,
+  type CellSelection,
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
@@ -143,6 +145,7 @@ import {getPageIdForDoc} from '@/lib/aiBridge';
 import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/suggestBridge';
 import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelection, type SelectionReporter} from './localSelection';
 import {passEditableContextMenuToBrowser} from './nativeContextMenu';
+import {parseClipboardGrid} from './tablePaste';
 
 // Re-exported so the page host can type its onSelectionChange handler. Collab T5.
 export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
@@ -154,11 +157,7 @@ export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
  * awareness (per-user, ephemeral). The BlockEditor root owns it and threads it
  * to the table through {@link CellSelectionContext}.
  */
-export interface CellSelection {
-  tableId: string;
-  anchor: {row: number; col: number};
-  focus: {row: number; col: number};
-}
+export type {CellSelection} from './model';
 
 interface CellSelectionCtx {
   sel: CellSelection | null;
@@ -642,8 +641,62 @@ export const BlockEditor: React.FC<{
     return root.length > 0 ? blockId(root.get(root.length - 1)) : null;
   };
 
+  const pasteIntoTable = useCallback(
+    (e: ClipboardEvent): boolean => {
+      if (readOnly || e.defaultPrevented || !e.clipboardData) return false;
+      const range = cellSelRef.current;
+      const eventEl = e.target instanceof Element ? e.target : document.activeElement;
+      const cellEl = eventEl?.closest?.('[data-block-text]') as HTMLElement | null;
+      const cellId = cellEl?.dataset.blockText;
+      const caret = cellId ? cellPosition(doc, cellId) : null;
+      if (!range && (!cellEl || !rootRef.current?.contains(cellEl) || !caret)) return false;
+      const tableId = range?.tableId ?? blockId(caret!.table);
+      const anchor = range
+        ? {row: Math.min(range.anchor.row, range.focus.row), col: Math.min(range.anchor.col, range.focus.col)}
+        : {row: caret!.row, col: caret!.col};
+      const table = findBlock(doc, tableId);
+      if (!table) return false;
+      const anchorCell = tableCellAt(tableGrid(table.block), anchor.row, anchor.col);
+      const tableCellEl = range && anchorCell
+        ? (rootRef.current?.querySelector(`[data-block-text="${blockId(anchorCell)}"]`) as HTMLElement | null)
+        : cellEl;
+      if (
+        tableCellEl?.closest('.obe-group-locked,.obe-cnt-locked') ||
+        tableCellEl?.getAttribute('contenteditable') === 'false'
+      ) return false;
+      const grid = parseClipboardGrid({
+        html: e.clipboardData.getData('text/html'),
+        text: e.clipboardData.getData('text/plain'),
+      });
+      if (!grid) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      tablePasteGrid(doc, tableId, anchor, grid, {range: range ?? undefined});
+      const sourceRows = grid.length;
+      const sourceCols = grid.reduce((max, row) => Math.max(max, row.length), 0);
+      const rect = range ? normalizeCellRect(range.anchor, range.focus) : null;
+      const rangeRows = rect ? rect.bottom - rect.top + 1 : 1;
+      const rangeCols = rect ? rect.right - rect.left + 1 : 1;
+      const tiled = !!rect && rangeRows * rangeCols >= 2 && rangeRows % sourceRows === 0 && rangeCols % sourceCols === 0;
+      const rows = tiled ? rangeRows : sourceRows;
+      const cols = tiled ? rangeCols : sourceCols;
+      setCellSel({tableId, anchor, focus: {row: anchor.row + rows - 1, col: anchor.col + cols - 1}});
+      setLive('Pasted cells');
+      return true;
+    },
+    [doc, readOnly],
+  );
+
+  React.useEffect(() => {
+    if (!cellSel) return;
+    const onPaste = (e: ClipboardEvent): void => { pasteIntoTable(e); };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [cellSel, pasteIntoTable]);
+
   const onRootPaste = (e: React.ClipboardEvent): void => {
     if (!insideRoot(e) || readOnly) return;
+    if (pasteIntoTable(e.nativeEvent)) return;
     const files = editorFilesFromTransfer(e.clipboardData);
     if (files.length === 0) return; // let text paste fall through to the block
     e.preventDefault();
