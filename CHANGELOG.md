@@ -1,3 +1,20 @@
+## 3.16.0 (2026-08-28)
+
+### 🚀 Features
+
+- **ui:** compact share dialog — one line per row, InfoTips, −33% height (SHARE-1) ([#346](https://github.com/lab255/OpenBook/pull/346))
+
+### 🩹 Fixes
+
+- **sdk,ui:** page renames reach viewers live — title ordering + list metadata propagation (LIVE-1) ([#345](https://github.com/lab255/OpenBook/pull/345))
+- **ui:** kit inline label/name fields swallow spaces in WYSIWYG (KITFIX-1) ([#342](https://github.com/lab255/OpenBook/pull/342))
+- **ui:** kit inputs derive aria-label from the display label (KITFIX-3) ([#343](https://github.com/lab255/OpenBook/pull/343))
+- **ui:** table row grip overhangs the gutter instead of indenting the table (TABLE-1) ([#344](https://github.com/lab255/OpenBook/pull/344))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 3.15.2 (2026-08-27)
 
 ### 🩹 Fixes
