@@ -273,7 +273,7 @@ async function publishWithShareDialog(page: Page, instance: ClaimedInstance, pag
   await openInfoTip(
     page,
     formRow.getByRole('button', {name: 'More info'}),
-    'Signed-out visitors who can open this public page can submit.',
+    /Signed-out visitors.*public page can submit/,
   );
   await page.mouse.move(0, 0, {steps: 5});
   await expect(page.getByRole('tooltip')).toHaveCount(0);

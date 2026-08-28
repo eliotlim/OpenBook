@@ -57,7 +57,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
 
 // SHR-4 progressive disclosure: the scope picker surfaces only the everyday
 // scopes (Workspace default / public / restricted) up front and tucks the
-// obscure `authenticated` behind a "More access options" reveal, hiding the
+// obscure `authenticated` behind a "More options" reveal, hiding the
 // dormant `members` scope entirely. The reveal moves focus onto the picker so a
 // keyboard user lands on the control that just gained options, and a scope
 // chosen from behind the reveal persists and rehydrates on reopen.
@@ -116,7 +116,7 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await hidden.click();
   await expect(hidden).toBeChecked();
   const copyRow = dialog.getByRole('button', {name: 'Copy link'}).locator('..');
-  await openInfoTip(page, copyRow.getByRole('button', {name: 'More info'}), /stays hidden from navigation and search/);
+  await openInfoTip(page, copyRow.getByRole('button', {name: 'More info'}), /hidden from navigation and search/);
   await expect
     .poll(async () => (await (await ownerRequest.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
     .toBe(false);
