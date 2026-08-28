@@ -2060,12 +2060,17 @@ a.obe-mention {
 .obe-table-col-grip-anchor { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
-/* divider owns the gap at rest; a revealed grip takes pointer ownership above it */
-.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; pointer-events: none; }
+/* The row grip overhangs into the block gutter / column gap. At rest it sits at
+   --z-index-raised (1), UNDER the column-resize divider (z 4), so the divider
+   still owns the gap; hovering the row lifts the grip above it. Stacking — not
+   `pointer-events: none` — is what yields: a pointer-events:none source breaks
+   HTML5 drag, because Chromium re-hit-tests the drag ORIGIN when the drag
+   threshold is crossed, and by then the pointer has left the row (killing
+   `tr:hover`) so the grip is no longer hittable and dragstart never fires. */
+.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; }
 .obe-table-col-grip { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
 .obe-table tr:hover .obe-table-row-grip {
   opacity: 0.55;
-  pointer-events: auto;
   z-index: var(--z-index-local-overlay);
 }
 .obe-table tr .obe-table-row-grip:focus-visible,

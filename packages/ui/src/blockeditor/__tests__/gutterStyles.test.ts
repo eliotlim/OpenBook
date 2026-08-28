@@ -79,9 +79,15 @@ describe('table grip geometry', () => {
     const grip = ruleBody('.obe-table-row-grip');
     expect(grip).toMatch(/left:\s*-1\.25rem/);
     expect(grip).toMatch(/width:\s*1\.25rem/);
-    expect(grip).toMatch(/pointer-events:\s*none/);
+    // The grip yields the column gap to the resize divider by STACKING, never by
+    // `pointer-events: none` — an unhittable drag origin kills HTML5 dragstart
+    // once the pointer leaves the row and `tr:hover` drops (TABLE-2).
+    expect(grip).not.toMatch(/pointer-events/);
+    expect(ruleBody('.obe-table-row-grip,\n.obe-table-col-grip')).toMatch(
+      /z-index:\s*var\(--z-index-raised\)/,
+    );
     const revealedGrip = ruleBody('.obe-table tr:hover .obe-table-row-grip');
-    expect(revealedGrip).toMatch(/pointer-events:\s*auto/);
+    expect(revealedGrip).not.toMatch(/pointer-events/);
     expect(revealedGrip).toMatch(/z-index:\s*var\(--z-index-local-overlay\)/);
     expect(ruleBody('.obe-row[data-block-type=\'table\']:has(.obe-has-grips) > .obe-gutter')).toMatch(
       /top:\s*-0\.25rem/,

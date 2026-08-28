@@ -113,6 +113,16 @@ test.describe('in columns', () => {
     await expect(table).toBeVisible();
     const tableBlock = table.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " obe-row ")][1]');
     const bodyRow = table.locator('tbody > tr').first();
+
+    await page.mouse.move(0, 0); // no row hovered: the grip is at rest
+    // At rest the grip sits UNDER the column-resize divider (stacking, not
+    // pointer-events — see index.css), so the divider stays grabbable.
+    const divider = secondColumn.locator('.obe-col-divider').first();
+    expect(await divider.evaluate((d) => {
+      const b = d.getBoundingClientRect();
+      return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.obe-col-divider') === d;
+    })).toBe(true);
+
     await bodyRow.hover();
 
     const rowGrip = bodyRow.locator('.obe-table-row-grip');
