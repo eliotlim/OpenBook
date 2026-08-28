@@ -1,9 +1,10 @@
 import {Info} from "lucide-react"
 
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip"
-import {t} from "@/i18n"
+import {useTranslation} from "@/providers"
 
 export function InfoTip({text}: {text: string}) {
+  const {t} = useTranslation()
   return (
     <Tooltip>
       <TooltipTrigger asChild>

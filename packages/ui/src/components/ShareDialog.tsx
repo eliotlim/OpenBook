@@ -821,21 +821,26 @@ export default function ShareDialog({
                     ref={scopeSelectRef}
                     id="share-scope"
                     aria-label={t('share.scopeLabel')}
+                    title={scope === 'inherit' && claimStatus === 'claimed' && defaultVisibility
+                      ? `${t('share.scope.inherit')} (${t(`share.effectiveDefaultShort.${defaultVisibility}`)})`
+                      : t(SCOPE_LABEL[scope].label)}
                     value={scope}
                     disabled={loading || !canManage}
                     wrapperClassName="w-44 shrink-0"
                     onChange={(e) => void changeScope(e.target.value as PageVisibility)}
                   >
                     {scopeOptions.map((v) => (
-                      <option key={v} value={v} data-description={t(SCOPE_LABEL[v].hint)}>
-                        {v === 'inherit' && claimStatus === 'claimed' && defaultVisibility
-                          ? `${t('share.scope.inherit')} (${t(`share.effectiveDefaultShort.${defaultVisibility}`)})`
-                          : t(SCOPE_LABEL[v].label)}
+                      <option key={v} value={v} data-description={
+                        v === 'inherit' && claimStatus === 'claimed' && defaultVisibility
+                          ? t(`share.effectiveDefaultShort.${defaultVisibility}`)
+                          : t(SCOPE_LABEL[v].hint)
+                      }>
+                        {t(SCOPE_LABEL[v].label)}
                       </option>
                     ))}
                   </Select>
                 </div>
-                {!showAdvanced && canManage && <button type="button" onClick={() => {setShowAdvanced(true); scopeSelectRef.current?.focus();}} className="ml-auto block text-xs text-muted-foreground underline">{t('share.scopeAdvancedShort')}</button>}
+                {!showAdvanced && canManage && <button type="button" onClick={() => {setShowAdvanced(true); scopeSelectRef.current?.focus();}} className="mt-0.5 ml-auto block text-xs text-muted-foreground underline">{t('share.scopeAdvancedShort')}</button>}
                 {/* Reveal the power-user scopes on demand (SHR-4). Hidden once
                   expanded, and suppressed for a read-only viewer who can't change
                   the scope anyway. Moving focus to the scope Select on reveal makes
@@ -852,6 +857,9 @@ export default function ShareDialog({
                   is that a legitimate grantee can't yet *open* a restricted page
                   through its published *.book.pub link until the identity bridge
                   (D2 + OB-202) lands — caveat that, only once confirmed claimed. */}
+                {claimStatus !== 'claimed' && guestAccess !== null && (
+                  <p className="text-xs text-muted-foreground">{t(`share.effective.${guestAccess}`)}</p>
+                )}
                 {scopeError && (
                   <p role="alert" aria-live="assertive" className="text-xs text-destructive">
                     {t(scopeError)}

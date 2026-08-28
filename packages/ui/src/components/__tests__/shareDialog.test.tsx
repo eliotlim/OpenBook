@@ -73,6 +73,16 @@ afterEach(() => {
 });
 
 describe('ShareDialog delivery help (P0-2)', () => {
+  it('shows the effective guest-access fallback while the library is unclaimed', async () => {
+    wrap({
+      getPageVisibility: async () => ({visibility: 'inherit', listed: true}),
+      listPageAcl: async () => [],
+      getInstanceInfo: async () => info({guestAccess: 'read'}),
+    });
+    open();
+    expect(await screen.findByText('Right now the library default lets anyone who can reach it view.')).toBeTruthy();
+  });
+
   it.each([
     ['unclaimed', () => ({getPage: async () => null, getInstanceInfo: async () => info()}), 'p.rounded-md'],
     ['form', () => ({getPage: async () => formPage(false), getInstanceInfo: async () => info()}), '[data-form-not-ready]'],

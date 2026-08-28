@@ -130,12 +130,18 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     expect(select.parentElement?.className).toContain('w-44');
   });
 
-  it('includes the resolved claimed default in the inherit option label', async () => {
+  it('keeps the inherit trigger compact and exposes the resolved claimed default in its title and option description', async () => {
     wrap('inherit', {}, {ownerSubject: 'acct#rae', defaultVisibility: 'members'});
     open();
 
     const select = await screen.findByRole('combobox', {name: 'Who can access'});
-    await waitFor(() => expect(select.textContent).toContain('Library default (library members)'));
+    await waitFor(() => {
+      expect(select.textContent).toBe('Library default');
+      expect(select.getAttribute('title')).toBe('Library default (library members)');
+    });
+    fireEvent.click(select);
+    const inheritOption = await screen.findByRole('option', {name: /Library default/});
+    expect(inheritOption.textContent).toContain('library members');
   });
 
   it.each([

@@ -45,6 +45,7 @@ export interface SelectProps {
    *  change. Forwarded to the trigger so a live hint below the picker can be its
    *  accessible description (the native `<select>` behaviour this control replaced). */
   "aria-describedby"?: string
+  title?: string
   id?: string
   name?: string
 }
@@ -161,6 +162,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
             aria-expanded={open}
             aria-label={rest["aria-label"]}
             aria-describedby={rest["aria-describedby"]}
+            title={rest.title}
             data-value={current}
             disabled={disabled}
             className={cn(
