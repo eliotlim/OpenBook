@@ -142,6 +142,44 @@ afterEach(async () => {
 });
 
 describe('listed:false enumeration enforcement (UP-2)', () => {
+  it.each([true, false])('publishes a rename to a public guest through the %s listing path', async (listed) => {
+    await store.updateInstanceConfig({
+      trustedIssuers: [{issuer: ISS, jwks}],
+      ownerSubject: `${ISS}#owner`,
+      defaultVisibility: 'public',
+      guestAccess: 'read',
+    });
+    const page = await store.upsertPage({name: 'Before', data: snapshot(), listed});
+    await store.setPageVisibility(page.id, 'public');
+    const hub = new PageHub();
+    const gates = streamGates(store, guestPrincipal());
+    const firehose: string[] = [];
+    const direct: string[] = [];
+    const offLive = hub.subscribeLive((event) => {
+      if (event.type === 'page') firehose.push(event.page.name ?? '');
+    }, gates.live);
+    const offPage = hub.subscribePage(page.id, (event) => {
+      if (event.type === 'page') direct.push(event.page.name ?? '');
+    }, gates.page);
+    const app = createApp(store, undefined, hub, {identity: new IdentityService(store)});
+
+    const response = await app.request(`/api/pages/${page.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-OpenBook-Client': '1',
+        [IDENTITY_HEADER]: await idFor('owner'),
+      },
+      body: JSON.stringify({name: 'After'}),
+    });
+    expect(response.status).toBe(200);
+    await waitFor(() => direct.includes('After'));
+    if (listed) await waitFor(() => firehose.includes('After'));
+    else expect(firehose).not.toContain('After');
+    offLive();
+    offPage();
+  });
+
   it('fails closed when a future PageMeta producer omits listed', async () => {
     const page = await store.upsertPage({name: `producer-${seq}`, data: snapshot()});
     const meta = (await store.listPages()).find((entry) => entry.id === page.id)!;
