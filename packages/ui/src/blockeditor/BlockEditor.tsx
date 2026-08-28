@@ -108,9 +108,6 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {
@@ -118,6 +115,7 @@ import {
   MENU_DESTRUCTIVE_CLASS,
   MENU_WIDTH_MD,
   MENU_WIDTH_SM,
+  type MenuComponentSet,
 } from '@/components/ui/menu-components';
 import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {suppressContextMenu} from '@/lib/suppressContextMenu';
@@ -2724,23 +2722,92 @@ const TableColorSubmenu: React.FC<{
   label: string;
   current: string | null;
   onPick: (token: string | null) => void;
-}> = ({label, current, onPick}) => (
-  <ContextMenuSub>
-    <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
-    <ContextMenuSubContent className={MENU_WIDTH_SM}>
-      {COLOR_MENU.map((c) => (
-        <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
-          <span
-            className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
-            aria-hidden
-          />
-          {c.label}
-          {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
-        </ContextMenuItem>
-      ))}
-    </ContextMenuSubContent>
-  </ContextMenuSub>
-);
+  menu?: MenuComponentSet;
+}> = ({label, current, onPick, menu = MENU_COMPONENTS.context}) => {
+  const {Item, Sub, SubContent, SubTrigger} = menu;
+  return (
+    <Sub>
+      <SubTrigger>{label}</SubTrigger>
+      <SubContent className={MENU_WIDTH_SM}>
+        {COLOR_MENU.map((c) => (
+          <Item key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
+            <span
+              className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
+              aria-hidden
+            />
+            {c.label}
+            {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
+          </Item>
+        ))}
+      </SubContent>
+    </Sub>
+  );
+};
+
+interface TableAxisMenuItemsProps {
+  tableId: string;
+  editor: BlockEditorController;
+  index: number;
+  id: string;
+  count: number;
+  header: boolean;
+  menu?: MenuComponentSet;
+}
+
+export const TableRowMenuItems: React.FC<TableAxisMenuItemsProps> = ({
+  tableId, editor, index: row, id: rowId, count: rowCount, header, menu = MENU_COMPONENTS.context,
+}) => {
+  const {Item} = menu;
+  const doc = editor.doc;
+  const found = findBlock(doc, tableId);
+  const rowBlock = found && blockType(found.block) === 'table' ? tableGrid(found.block).rows[row] : null;
+  if (!rowBlock) return null;
+  return (
+    <>
+      {!(header && row === 0) && (
+        <Item onSelect={() => tableInsertRow(doc, tableId, row)}>
+          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
+        </Item>
+      )}
+      <Item onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
+      </Item>
+      <Item onSelect={() => tableDuplicateRow(doc, tableId, row)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
+      </Item>
+      <Item disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
+        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
+      </Item>
+      <Item disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
+        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
+      </Item>
+      <TableColorSubmenu menu={menu} label={t('menu.table.rowColour')} current={tableRowColor(rowBlock)} onPick={(token) => setTableRowColor(doc, tableId, rowId, token)} />
+      <Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => tableDeleteRow(doc, tableId, row)}>
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
+      </Item>
+    </>
+  );
+};
+
+export const TableColumnMenuItems: React.FC<TableAxisMenuItemsProps> = ({
+  tableId, editor, index: col, id: colId, count: colCount, menu = MENU_COMPONENTS.context,
+}) => {
+  const {Item} = menu;
+  const doc = editor.doc;
+  const found = findBlock(doc, tableId);
+  if (!found || blockType(found.block) !== 'table') return null;
+  const table = found.block;
+  return (
+    <>
+      <Item onSelect={() => tableInsertColumn(doc, tableId, col)}><ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}</Item>
+      <Item onSelect={() => tableInsertColumn(doc, tableId, col + 1)}><ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}</Item>
+      <TableColorSubmenu menu={menu} label={t('menu.table.columnColour')} current={tableColumnColor(table, colId)} onPick={(token) => setTableColumnColor(doc, tableId, colId, token)} />
+      <Item disabled={col === 0} onSelect={() => tableMoveColumn(doc, tableId, colId, col - 1)}><ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}</Item>
+      <Item disabled={col >= colCount - 1} onSelect={() => tableMoveColumn(doc, tableId, colId, col + 1)}><ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}</Item>
+      <Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => tableDeleteColumn(doc, tableId, col)}><Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}</Item>
+    </>
+  );
+};
 
 /**
  * The RANGE variant of the cell menu (TBL-6): shown when the right-clicked cell
@@ -2865,9 +2932,6 @@ const TableCellMenuContent: React.FC<{
   const merged = cellSlot?.kind === 'cell' && (cellSlot.colspan > 1 || cellSlot.rowspan > 1);
   const rowId = blockId(rowBlock);
   const colId = tableColumns(table)[col]?.id;
-  // Live colours for the swatch checks (TBL-4).
-  const rowColor = tableRowColor(rowBlock);
-  const colColor = colId ? tableColumnColor(table, colId) : null;
   const header = blockProp<boolean>(table, 'header') ?? false;
   const toggleHeader = (): void => {
     doc.transact(() => setBlockProp(table, 'header', !header), 'local');
@@ -2883,78 +2947,11 @@ const TableCellMenuContent: React.FC<{
         </>
       )}
       <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
-      {/* Rendering is positional: with `header`, sorted row 0 IS the header.
-          Inserting above it would make the blank new row the header and
-          silently demote the real one — so hide the item in that case. */}
-      {!(header && row === 0) && (
-        <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
-          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
-        </ContextMenuItem>
-      )}
-      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
-        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => tableDuplicateRow(doc, tableId, row)}>
-        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
-      </ContextMenuItem>
-      {/* TBL-2 anchor: Move row up / down. Disabled at the extremes; ops take the
-          row id + a sorted target index (moved row removed) per the contract. */}
-      <ContextMenuItem disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
-        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
-      </ContextMenuItem>
-      <ContextMenuItem disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
-        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
-      </ContextMenuItem>
-      {/* TBL-4: row tint = the row block's `bg` prop. */}
-      <TableColorSubmenu
-        label={t('menu.table.rowColour')}
-        current={rowColor}
-        onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
-      />
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => tableDeleteRow(doc, tableId, row)}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
-      </ContextMenuItem>
+      <TableRowMenuItems tableId={tableId} editor={editor} index={row} id={rowId} count={rowCount} header={header} />
 
       <ContextMenuSeparator />
       <ContextMenuLabel>{t('menu.table.sectionColumn')}</ContextMenuLabel>
-      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col)}>
-        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
-        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
-      </ContextMenuItem>
-      {/* TBL-4 anchor: column tint = the table-level `colbg:<colId>` prop, keyed
-          on the stable column id (survives reorder / concurrent inserts). */}
-      {colId && (
-        <TableColorSubmenu
-          label={t('menu.table.columnColour')}
-          current={colColor}
-          onPick={(token) => setTableColumnColor(doc, tableId, colId, token)}
-        />
-      )}
-      {/* TBL-2 anchor: Move column left / right. Disabled at the extremes; ops take
-          the column id + a sorted target index (moved column removed). */}
-      <ContextMenuItem
-        disabled={col === 0 || !colId}
-        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}
-      >
-        <ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={col >= colCount - 1 || !colId}
-        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}
-      >
-        <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
-      </ContextMenuItem>
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => tableDeleteColumn(doc, tableId, col)}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}
-      </ContextMenuItem>
+      {colId && <TableColumnMenuItems tableId={tableId} editor={editor} index={col} id={colId} count={colCount} header={header} />}
 
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={toggleHeader}>
