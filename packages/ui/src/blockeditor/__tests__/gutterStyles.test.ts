@@ -79,7 +79,13 @@ describe('table grip geometry', () => {
     const grip = ruleBody('.obe-table-row-grip');
     expect(grip).toMatch(/left:\s*-1\.25rem/);
     expect(grip).toMatch(/width:\s*1\.25rem/);
-    expect(ruleBody('.obe-row[data-block-type=\'table\'] > .obe-gutter')).toMatch(/top:\s*-0\.25rem/);
+    expect(grip).toMatch(/pointer-events:\s*none/);
+    const revealedGrip = ruleBody('.obe-table tr:hover .obe-table-row-grip');
+    expect(revealedGrip).toMatch(/pointer-events:\s*auto/);
+    expect(revealedGrip).toMatch(/z-index:\s*var\(--z-index-local-overlay\)/);
+    expect(ruleBody('.obe-row[data-block-type=\'table\']:has(.obe-has-grips) > .obe-gutter')).toMatch(
+      /top:\s*-0\.25rem/,
+    );
   });
 });
 

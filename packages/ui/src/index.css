@@ -1065,7 +1065,7 @@
 .obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
 .obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
 /* Meet the table row grip at the edge of the 1.5rem block gutter. */
-.obe-row[data-block-type='table'] > .obe-gutter { top: -0.25rem; }
+.obe-row[data-block-type='table']:has(.obe-has-grips) > .obe-gutter { top: -0.25rem; }
 /* Code top: border + .75rem block pad + the actions row and its grid-aligned
    divider spacing. Centre the 1.5rem gutter on the .85rem × 1.55 code line. */
 .obe-row[data-block-type='code'] > .obe-gutter { top: 3rem; }
@@ -2053,9 +2053,14 @@ a.obe-mention {
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
-.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; }
+/* divider owns the gap at rest; a revealed grip takes pointer ownership above it */
+.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; pointer-events: none; }
 .obe-table-col-grip { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
-.obe-table tr:hover .obe-table-row-grip { opacity: 0.55; }
+.obe-table tr:hover .obe-table-row-grip {
+  opacity: 0.55;
+  pointer-events: auto;
+  z-index: var(--z-index-local-overlay);
+}
 .obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }
 .obe-table-row-grip:hover,
 .obe-table-col-grip:hover { opacity: 1; background: var(--hover); }

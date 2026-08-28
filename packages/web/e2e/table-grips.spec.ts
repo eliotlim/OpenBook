@@ -3,7 +3,6 @@ import {expect, test} from './fixtures';
 import {newPage} from './seed';
 
 test.describe.configure({mode: 'parallel'});
-test.use({freshWorkspace: true});
 
 type Rect = {x: number; y: number; width: number; height: number};
 
@@ -92,38 +91,46 @@ test('table fills the content column without blocking the block drag handle', {t
   expect(hitTargetIsHandle).toBe(true);
 });
 
-test('row grip stays outside the cells inside a column layout', {tag: ['@editor', '@p1']}, async ({
-  page,
-  request,
-}) => {
-  const pageId = await columnsPage(request);
-  await page.goto(`/?page=${pageId}`);
+test.describe('in columns', () => {
+  test.use({freshWorkspace: true});
 
-  const leftColumn = page.locator('.obe-columns > .obe-column').first();
-  const paragraph = leftColumn.locator('.obe-text').first();
-  await paragraph.click();
-  await page.keyboard.press('End');
-  await page.keyboard.press('Enter');
-  await page.keyboard.type('/table');
-  await page.keyboard.press('Enter');
+  test('row grip stays outside the cells inside a column layout', {tag: ['@editor', '@p1']}, async ({
+    page,
+    request,
+  }) => {
+    const pageId = await columnsPage(request);
+    await page.goto(`/?page=${pageId}`);
 
-  const table = leftColumn.locator('.obe-table');
-  await expect(table).toBeVisible();
-  const tableBlock = table.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " obe-row ")][1]');
-  const bodyRow = table.locator('tbody > tr').first();
-  await bodyRow.hover();
+    const secondColumn = page.locator('.obe-columns > .obe-column').nth(1);
+    const paragraph = secondColumn.locator('.obe-text').first();
+    await paragraph.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/table');
+    await page.keyboard.press('Enter');
 
-  const rowGrip = bodyRow.locator('.obe-table-row-grip');
-  const firstCell = bodyRow.locator('td').first();
-  const blockHandle = tableBlock.locator('.obe-gutter .obe-handle');
-  await expect(rowGrip).toBeVisible();
-  await expect(blockHandle).toBeVisible();
+    const table = secondColumn.locator('.obe-table');
+    await expect(table).toBeVisible();
+    const tableBlock = table.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " obe-row ")][1]');
+    const bodyRow = table.locator('tbody > tr').first();
+    await bodyRow.hover();
 
-  const gripBox = (await rowGrip.boundingBox())!;
-  const cellBox = (await firstCell.boundingBox())!;
-  const handleBox = (await blockHandle.boundingBox())!;
-  expect(rectanglesIntersect(gripBox, cellBox)).toBe(false);
-  expect(rectanglesIntersect(gripBox, handleBox)).toBe(false);
+    const rowGrip = bodyRow.locator('.obe-table-row-grip');
+    const firstCell = bodyRow.locator('td').first();
+    const blockHandle = tableBlock.locator('.obe-gutter .obe-handle');
+    await expect(rowGrip).toBeVisible();
+    await expect(blockHandle).toBeVisible();
+    expect(await rowGrip.evaluate((g) => {
+      const b = g.getBoundingClientRect();
+      return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.obe-table-row-grip') !== null;
+    })).toBe(true);
+
+    const gripBox = (await rowGrip.boundingBox())!;
+    const cellBox = (await firstCell.boundingBox())!;
+    const handleBox = (await blockHandle.boundingBox())!;
+    expect(rectanglesIntersect(gripBox, cellBox)).toBe(false);
+    expect(rectanglesIntersect(gripBox, handleBox)).toBe(false);
+  });
 });
 
 test('merged table rows keep grips bound to their own row payload', {tag: ['@editor', '@p1']}, async ({page}) => {
