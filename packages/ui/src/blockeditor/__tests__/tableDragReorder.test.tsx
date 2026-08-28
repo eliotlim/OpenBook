@@ -74,13 +74,27 @@ describe('table drag grips (render gating)', () => {
   });
 
   it('renders keyboard-focusable buttons with localized row/column option names', () => {
-    render(<BlockEditor doc={seedTableDoc(3, 3)} />);
+    const {container} = render(<BlockEditor doc={seedTableDoc(3, 3)} />);
     const row = screen.getByRole('button', {name: 'Row 3 options'});
     const col = screen.getByRole('button', {name: 'Column B options'});
     expect(row.tabIndex).toBe(0);
     expect(col.tabIndex).toBe(0);
     expect(row.getAttribute('aria-haspopup')).toBe('menu');
     expect(col.getAttribute('aria-haspopup')).toBe('menu');
+    for (const host of container.querySelectorAll('.obe-table-row-grip-host')) {
+      expect(host.getAttribute('role')).toBe('presentation');
+    }
+  });
+
+  it('does not open the dropdown after a touch long-press opens the context menu', async () => {
+    render(<BlockEditor doc={seedTableDoc(3, 3)} />);
+    const grip = screen.getByRole('button', {name: 'Row 2 options'});
+    fireEvent.pointerDown(grip, {button: 0, pointerType: 'touch', clientX: 1, clientY: 1});
+    fireEvent.contextMenu(grip);
+    expect(await screen.findByRole('menuitem', {name: 'Insert row below'})).not.toBeNull();
+    fireEvent.pointerUp(grip, {button: 0, pointerType: 'touch', clientX: 1, clientY: 1});
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(grip.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('right-click row 3 and column B menus delete exactly their subjects', async () => {

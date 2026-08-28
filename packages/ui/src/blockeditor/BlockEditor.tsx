@@ -2791,7 +2791,7 @@ export const TableRowMenuItems: React.FC<TableAxisMenuItemsProps> = ({
   );
 };
 
-export const TableColumnMenuItems: React.FC<TableAxisMenuItemsProps> = ({
+export const TableColumnMenuItems: React.FC<Omit<TableAxisMenuItemsProps, 'id'> & {id?: string}> = ({
   tableId, editor, index: col, id: colId, count: colCount, menu = MENU_COMPONENTS.context,
 }) => {
   const {Item} = menu;
@@ -2803,11 +2803,28 @@ export const TableColumnMenuItems: React.FC<TableAxisMenuItemsProps> = ({
     <>
       <Item onSelect={() => tableInsertColumn(doc, tableId, col)}><ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}</Item>
       <Item onSelect={() => tableInsertColumn(doc, tableId, col + 1)}><ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}</Item>
-      <TableColorSubmenu menu={menu} label={t('menu.table.columnColour')} current={tableColumnColor(table, colId)} onPick={(token) => setTableColumnColor(doc, tableId, colId, token)} />
-      <Item disabled={col === 0} onSelect={() => tableMoveColumn(doc, tableId, colId, col - 1)}><ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}</Item>
-      <Item disabled={col >= colCount - 1} onSelect={() => tableMoveColumn(doc, tableId, colId, col + 1)}><ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}</Item>
+      {colId && <TableColorSubmenu menu={menu} label={t('menu.table.columnColour')} current={tableColumnColor(table, colId)} onPick={(token) => setTableColumnColor(doc, tableId, colId, token)} />}
+      <Item disabled={col === 0 || !colId} onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}><ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}</Item>
+      <Item disabled={col >= colCount - 1 || !colId} onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}><ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}</Item>
       <Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => tableDeleteColumn(doc, tableId, col)}><Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}</Item>
     </>
+  );
+};
+
+const TableHeaderMenuItem: React.FC<{
+  menu: MenuComponentSet;
+  tableId: string;
+  editor: BlockEditorController;
+  header: boolean;
+}> = ({menu, tableId, editor, header}) => {
+  const {Item} = menu;
+  return (
+    <Item onSelect={() => {
+      const found = findBlock(editor.doc, tableId);
+      if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
+    }}>
+      <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
+    </Item>
   );
 };
 
@@ -2935,9 +2952,6 @@ const TableCellMenuContent: React.FC<{
   const rowId = blockId(rowBlock);
   const colId = tableColumns(table)[col]?.id;
   const header = blockProp<boolean>(table, 'header') ?? false;
-  const toggleHeader = (): void => {
-    doc.transact(() => setBlockProp(table, 'header', !header), 'local');
-  };
   return (
     <ContextMenuContent className={MENU_WIDTH_MD}>
       {merged && (
@@ -2953,12 +2967,10 @@ const TableCellMenuContent: React.FC<{
 
       <ContextMenuSeparator />
       <ContextMenuLabel>{t('menu.table.sectionColumn')}</ContextMenuLabel>
-      {colId && <TableColumnMenuItems tableId={tableId} editor={editor} index={col} id={colId} count={colCount} header={header} />}
+      <TableColumnMenuItems tableId={tableId} editor={editor} index={col} id={colId} count={colCount} header={header} />
 
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={toggleHeader}>
-        <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
-      </ContextMenuItem>
+      <TableHeaderMenuItem menu={MENU_COMPONENTS.context} tableId={tableId} editor={editor} header={header} />
     </ContextMenuContent>
   );
 };
@@ -3057,6 +3069,7 @@ const TableGripMenu: React.FC<TableGripMenuProps> = ({
   axis, tableId, index, itemId, count, header, editor, style, spanOffset, onDragStart, onDragEnd,
 }) => {
   const [open, setOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const press = useRef<{x: number; y: number; moved: boolean} | null>(null);
   const dragged = useRef(false);
@@ -3066,7 +3079,6 @@ const TableGripMenu: React.FC<TableGripMenuProps> = ({
   const items = (menu: MenuComponentSet): React.ReactNode => axis === 'row'
     ? <TableRowMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />
     : <TableColumnMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />;
-  const DropdownItem = MENU_COMPONENTS.dropdown.Item;
   const openFromKeyboard = (e: React.KeyboardEvent): void => {
     if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ArrowDown') return;
     e.preventDefault();
@@ -3082,7 +3094,7 @@ const TableGripMenu: React.FC<TableGripMenuProps> = ({
       className={axis === 'row' ? 'obe-table-row-grip' : 'obe-table-col-grip'}
       aria-label={label}
       aria-haspopup="menu"
-      aria-expanded={open}
+      aria-expanded={open || ctxOpen}
       contentEditable={false}
       data-drag-axis={axis}
       data-drag-from={index}
@@ -3122,24 +3134,24 @@ const TableGripMenu: React.FC<TableGripMenuProps> = ({
   return (
     <DropdownMenu open={open} onOpenChange={(next) => { setOpen(next); if (!next) refocus(); }}>
       <DropdownMenuTrigger asChild><span className={`obe-table-grip-anchor obe-table-${axis}-grip-anchor`} style={style} aria-hidden /></DropdownMenuTrigger>
-      <ContextMenu onOpenChange={(next) => { if (next) setOpen(false); }}>
+      <ContextMenu onOpenChange={(next) => {
+        if (next) {
+          press.current = null;
+          setOpen(false);
+        }
+        setCtxOpen(next);
+      }}>
         <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>{button}</ContextMenuTrigger>
         <ContextMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
           <ContextMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</ContextMenuLabel>
           {items(MENU_COMPONENTS.context)}
-          {axis === 'col' && <><ContextMenuSeparator /><ContextMenuItem onSelect={() => {
-            const found = findBlock(editor.doc, tableId);
-            if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
-          }}><Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}</ContextMenuItem></>}
+          {axis === 'col' && <><ContextMenuSeparator /><TableHeaderMenuItem menu={MENU_COMPONENTS.context} tableId={tableId} editor={editor} header={header} /></>}
         </ContextMenuContent>
       </ContextMenu>
       <DropdownMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
         <DropdownMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</DropdownMenuLabel>
         {items(MENU_COMPONENTS.dropdown)}
-        {axis === 'col' && <><DropdownMenuSeparator /><DropdownItem onSelect={() => {
-          const found = findBlock(editor.doc, tableId);
-          if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
-        }}><Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}</DropdownItem></>}
+        {axis === 'col' && <><DropdownMenuSeparator /><TableHeaderMenuItem menu={MENU_COMPONENTS.dropdown} tableId={tableId} editor={editor} header={header} /></>}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -3173,9 +3185,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const showHandles = !editor.readOnly && !lockText;
 
   // Internal (grip) drag state — separate from the block-level `shared.drag`
-  // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
-  // Radix trigger — that kills native drag; see BlockRow) so caret / cell edits
-  // and the block gutter are untouched (acceptance #5).
+  // that moves the whole table block.
   const [drag, setDrag] = useState<TableDrag | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const clearDrag = useCallback(() => {
@@ -3293,6 +3303,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   <th
                     className="obe-table-row-grip-host"
                     data-obe-chrome="row-grip-host"
+                    role="presentation"
                     contentEditable={false}
                   >
                     <TableGripMenu
@@ -3338,8 +3349,6 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   // model moves registry columns independently; its positional,
                   // self-healing spans contract if a move separates a column
                   // from its anchor instead of silently moving the anchor col.
-                  // aria-hidden: grips are mouse-only; the canonical a11y path
-                  // remains the context-menu "Move" items.
                   const colGrips =
                     showHandles && r === 0 && cell && slot?.kind === 'cell'
                       ? Array.from({length: slot.colspan}, (_, offset) => {

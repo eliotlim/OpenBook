@@ -2068,7 +2068,8 @@ a.obe-mention {
   pointer-events: auto;
   z-index: var(--z-index-local-overlay);
 }
-.obe-table-row-grip:focus-visible {
+.obe-table tr .obe-table-row-grip:focus-visible,
+.obe-table-col-grip:focus-visible {
   opacity: 1;
   pointer-events: auto;
   z-index: var(--z-index-local-overlay);
@@ -2076,7 +2077,7 @@ a.obe-mention {
 .obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }
 .obe-table-row-grip:hover,
 .obe-table-col-grip:hover { opacity: 1; background: var(--hover); }
-.obe-table-row-grip:focus-visible,
+.obe-table tr .obe-table-row-grip:focus-visible,
 .obe-table-col-grip:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
