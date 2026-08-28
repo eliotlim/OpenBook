@@ -520,6 +520,8 @@ test('table drag-reorder: row + column grips, menu moves, single undo', {tag: ['
   await page.waitForTimeout(600); // let the label edits settle into their own undo step
 
   // Drag row 3 (index 2) above row 1 (index 0) — cell contents follow the grip.
+  // row grips are hover-revealed (TABLE-2) — hover the row so the grip is hit-testable
+  await rows.nth(2).hover();
   await rows.nth(2).locator('.obe-table-row-grip').dragTo(rows.nth(0), {targetPosition: {x: 4, y: 2}});
   expect(await firstCol()).toEqual(['R2', 'R0', 'R1']);
 
@@ -575,6 +577,8 @@ test('table drag-reorder: after-last boundary — drop into bottom/right half la
   // so the row must land LAST.
   const lastRow = rows.nth(2);
   const lastRowBox = (await lastRow.boundingBox())!;
+  // row grips are hover-revealed (TABLE-2) — hover the row so the grip is hit-testable
+  await rows.nth(0).hover();
   await rows.nth(0).locator('.obe-table-row-grip').dragTo(lastRow, {targetPosition: {x: 4, y: lastRowBox.height - 2}});
   expect(await firstCol()).toEqual(['R1', 'R2', 'R0']);
 
