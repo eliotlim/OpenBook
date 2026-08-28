@@ -1064,6 +1064,8 @@
 .obe-row[data-block-type='heading'][data-block-level='2'] > .obe-gutter { top: 0.7rem; }
 .obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
 .obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
+/* Meet the table row grip at the edge of the 1.5rem block gutter. */
+.obe-row[data-block-type='table'] > .obe-gutter { top: -0.25rem; }
 /* Code top: border + .75rem block pad + the actions row and its grid-aligned
    divider spacing. Centre the 1.5rem gutter on the .85rem × 1.55 code line. */
 .obe-row[data-block-type='code'] > .obe-gutter { top: 3rem; }
@@ -2022,10 +2024,11 @@ a.obe-mention {
 .obe-table-tools button:hover { background: var(--hover); }
 .obe-table-tools button[aria-pressed='true'] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
-/* TBL-2 drag-reorder: row/column grips live in a gutter reserved only when the
-   handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
-   are the positioning context for column grips. Every row gets a zero-width
-   header-cell host so a rowspan covering column 0 cannot swallow its grip. */
+/* TBL-2 drag-reorder: row grips overhang fully into the block gutter or column
+   gap, while the table edge stays flush with paragraph text (TABLE-1). Top
+   space is reserved for column grips only when handles are shown (editable,
+   unlocked) — readOnly/present stay tight. Cells position column grips; every
+   row gets a zero-width header-cell host so rowspan cannot swallow its grip. */
 .obe-table-wrap.obe-has-grips { padding-top: 1.25rem; }
 .obe-has-grips .obe-table-add-col { top: 1.25rem; }
 .obe-table td { position: relative; }
@@ -2050,7 +2053,7 @@ a.obe-mention {
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
-.obe-table-row-grip { left: -0.25rem; top: 0; bottom: 0; width: 0.875rem; }
+.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; }
 .obe-table-col-grip { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
 .obe-table tr:hover .obe-table-row-grip { opacity: 0.55; }
 .obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }
