@@ -68,6 +68,22 @@ describe('block gutter pane geometry', () => {
   });
 });
 
+describe('table grip geometry', () => {
+  it('does not charge the row grip or add-row control to the table width', () => {
+    expect(ruleBody('.obe-table-wrap.obe-has-grips')).not.toMatch(/padding-left/);
+    expect(ruleBody('.obe-table-add-row')).toMatch(/left:\s*0/);
+    expect(CSS).not.toMatch(/\.obe-has-grips \.obe-table-add-row\s*{[^}]*left/);
+  });
+
+  it('keeps the row grip overhang within half a rem', () => {
+    const grip = ruleBody('.obe-table-row-grip');
+    const left = grip.match(/left:\s*(-?[\d.]+)rem/)?.[1];
+    expect(left, 'row grip needs a rem-based left edge').toBeDefined();
+    expect(Number(left)).toBeGreaterThanOrEqual(-0.5);
+    expect(Number(left)).toBeLessThan(0);
+  });
+});
+
 describe('column resize styles', () => {
   it('uses the editor width, not the window width, to stack columns', () => {
     const root = ruleBody('.obe-root');

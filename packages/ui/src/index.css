@@ -2026,9 +2026,8 @@ a.obe-mention {
    handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
    are the positioning context for column grips. Every row gets a zero-width
    header-cell host so a rowspan covering column 0 cannot swallow its grip. */
-.obe-table-wrap.obe-has-grips { padding-top: 1.25rem; padding-left: 1.25rem; }
+.obe-table-wrap.obe-has-grips { padding-top: 1.25rem; }
 .obe-has-grips .obe-table-add-col { top: 1.25rem; }
-.obe-has-grips .obe-table-add-row { left: 1.25rem; }
 .obe-table td { position: relative; }
 .obe-table .obe-table-row-grip-host {
   position: relative;
@@ -2051,7 +2050,7 @@ a.obe-mention {
 }
 .obe-table-row-grip:active,
 .obe-table-col-grip:active { cursor: grabbing; }
-.obe-table-row-grip { left: -1.25rem; top: 0; bottom: 0; width: 1.25rem; }
+.obe-table-row-grip { left: -0.25rem; top: 0; bottom: 0; width: 0.875rem; }
 .obe-table-col-grip { top: -1.25rem; left: 0; right: 0; height: 1.25rem; }
 .obe-table tr:hover .obe-table-row-grip { opacity: 0.55; }
 .obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }

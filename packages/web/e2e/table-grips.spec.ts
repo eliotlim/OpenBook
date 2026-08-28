@@ -35,6 +35,37 @@ async function mergeTopLeft2x2(page: import('@playwright/test').Page): Promise<i
   return table;
 }
 
+test('table fills the content column without blocking the block drag handle', {tag: ['@editor', '@p1']}, async ({
+  page,
+}) => {
+  const table = await freshTable(page);
+  const paragraph = page.locator('.obe-row[data-block-type="paragraph"] .obe-text').first();
+  const tableBox = (await table.boundingBox())!;
+  const paragraphBox = (await paragraph.boundingBox())!;
+  expect(Math.abs(tableBox.x - paragraphBox.x)).toBeLessThanOrEqual(1);
+
+  const tableBlock = table.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " obe-row ")][1]');
+  const bodyRow = table.locator('tbody > tr').first();
+  await bodyRow.hover();
+  const rowGrip = bodyRow.locator('.obe-table-row-grip');
+  await expect(rowGrip).toBeVisible();
+
+  const dragHandle = tableBlock.locator('.obe-gutter .obe-handle');
+  const gripBox = (await rowGrip.boundingBox())!;
+  const handleBox = (await dragHandle.boundingBox())!;
+  const horizontalOverlap = Math.max(
+    0,
+    Math.min(gripBox.x + gripBox.width, handleBox.x + handleBox.width) - Math.max(gripBox.x, handleBox.x),
+  );
+  expect(horizontalOverlap).toBeLessThanOrEqual(8);
+
+  const hitTargetIsHandle = await dragHandle.evaluate((handle) => {
+    const box = handle.getBoundingClientRect();
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('.obe-handle') === handle;
+  });
+  expect(hitTargetIsHandle).toBe(true);
+});
+
 test('merged table rows keep grips bound to their own row payload', {tag: ['@editor', '@p1']}, async ({page}) => {
   const table = await mergeTopLeft2x2(page);
   const bindings = await table.locator('tbody > tr').evaluateAll((rows) =>
