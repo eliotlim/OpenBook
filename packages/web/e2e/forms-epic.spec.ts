@@ -275,7 +275,7 @@ async function publishWithShareDialog(page: Page, instance: ClaimedInstance, pag
     formRow.getByRole('button', {name: 'More info'}),
     'Signed-out visitors who can open this public page can submit.',
   );
-  await page.mouse.move(0, 0);
+  await page.mouse.move(0, 0, {steps: 5});
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();

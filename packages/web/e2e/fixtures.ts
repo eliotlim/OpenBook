@@ -35,7 +35,7 @@ const ARCHIVE_VISUALS = process.env.CHROMATIC_ARCHIVE === '1';
 const base = (ARCHIVE_VISUALS ? chromaticTest : playwrightTest) as typeof playwrightTest;
 
 export async function openInfoTip(page: Page, trigger: Locator, text: string | RegExp): Promise<void> {
-  await page.mouse.move(0, 0);
+  await page.mouse.move(0, 0, {steps: 5});
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   await trigger.hover();
   await expect(page.getByRole('tooltip').filter({hasText: text})).toBeVisible();

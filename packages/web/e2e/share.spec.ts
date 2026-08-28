@@ -135,7 +135,7 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await takeSnapshot(page, testInfo);
 
   // The portaled tooltip is the top DismissableLayer, so hide it before Escape closes the dialog.
-  await page.mouse.move(0, 0);
+  await page.mouse.move(0, 0, {steps: 5});
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   const row = page.getByRole('treeitem').filter({hasText: name});

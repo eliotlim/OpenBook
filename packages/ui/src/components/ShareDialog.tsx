@@ -432,6 +432,8 @@ export default function ShareDialog({
   // The scope Select's trigger, so revealing the extra options can move focus to
   // it — making it obvious it just gained choices (SHR-4 a11y).
   const scopeSelectRef = useRef<HTMLButtonElement>(null);
+  const firstControlRef = useRef<HTMLButtonElement>(null);
+  const initialFocusPendingRef = useRef(false);
   const [grants, setGrants] = useState<PageAcl[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -472,6 +474,13 @@ export default function ShareDialog({
   // read-only viewer gets a 403 — degrade to scope-only rather than erroring
   // the whole dialog they were just granted access to).
   const [aclReadable, setAclReadable] = useState(true);
+
+  useEffect(() => {
+    if (open && !loading && initialFocusPendingRef.current) {
+      firstControlRef.current?.focus();
+      initialFocusPendingRef.current = false;
+    }
+  }, [open, loading]);
 
   // The scopes offered in the picker (SHR-4): the primary two, plus the advanced
   // two once revealed, plus whatever this page is *currently* set to — so a stored
@@ -702,8 +711,15 @@ export default function ShareDialog({
           </IconButton>
         </DialogTrigger>
       )}
-      <TooltipProvider>
-        <DialogContent size="sm">
+      <TooltipProvider disableHoverableContent>
+        <DialogContent
+          size="sm"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            initialFocusPendingRef.current = true;
+            firstControlRef.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{t('share.title')}</DialogTitle>
             <DialogDescription className="sr-only">{t(canManage ? 'share.description' : 'share.readOnlyDescription')}</DialogDescription>
@@ -786,6 +802,7 @@ export default function ShareDialog({
                       )} />
                     </span>
                     <Switch
+                      ref={firstControlRef}
                       checked={!listed}
                       disabled={loading || listingBusy || scope === 'restricted'}
                       aria-label={t('share.listing.label')}
@@ -818,7 +835,10 @@ export default function ShareDialog({
                     {!browserLocal && claimStatus === 'claimed' && scope !== 'public' && <InfoTip text={t('share.enforcementCaveat')} />}
                   </span>
                   <Select
-                    ref={scopeSelectRef}
+                    ref={(node) => {
+                      scopeSelectRef.current = node;
+                      if (!canManage) firstControlRef.current = node;
+                    }}
                     id="share-scope"
                     aria-label={t('share.scopeLabel')}
                     title={scope === 'inherit' && claimStatus === 'claimed' && defaultVisibility

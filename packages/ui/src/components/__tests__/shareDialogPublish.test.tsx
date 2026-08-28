@@ -111,6 +111,16 @@ afterEach(() => {
 });
 
 describe('ShareDialog — page discovery (UP-3)', () => {
+  it('focuses the first real control without opening an info tip', async () => {
+    wrap('inherit');
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    await waitFor(() => expect(document.activeElement).toBe(toggle));
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('More info');
+  });
+
   it('portals tooltip content outside the dialog', async () => {
     wrap('inherit');
     open();
