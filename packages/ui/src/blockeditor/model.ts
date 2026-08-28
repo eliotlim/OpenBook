@@ -1690,16 +1690,19 @@ export function clearCellRange(doc: Y.Doc, tableId: string, rect: CellRect): voi
  * otherwise its own dimensions are written from the selection's top-left.
  * Covered merge slots are ignored and declarations are never changed.
  */
+const MAX_PASTE_CELLS = 20000;
+
 export function tablePasteGrid(
   doc: Y.Doc,
   tableId: string,
   anchor: {row: number; col: number},
   source: string[][],
   opts: {range?: CellSelection} = {},
-): void {
+): {rows: number; cols: number} | null {
   const sourceRows = source.length;
   const sourceCols = source.reduce((max, row) => Math.max(max, row.length), 0);
-  if (sourceRows === 0 || sourceCols === 0) return;
+  if (sourceRows === 0 || sourceCols === 0) return null;
+  let written: {rows: number; cols: number} | null = null;
   doc.transact(() => {
     const initial = findBlock(doc, tableId);
     if (!initial || blockType(initial.block) !== 'table') return;
@@ -1710,24 +1713,31 @@ export function tablePasteGrid(
     const start = rect ? {row: rect.top, col: rect.left} : anchor;
     const writeRows = tile ? rangeRows : sourceRows;
     const writeCols = tile ? rangeCols : sourceCols;
+    if (writeRows * writeCols > MAX_PASTE_CELLS) return;
 
     let grid = tableGrid(initial.block);
     while (grid.rows.length < start.row + writeRows) {
-      tableInsertRow(doc, tableId, grid.rows.length);
+      const n = grid.rows.length;
+      tableInsertRow(doc, tableId, n);
       grid = tableGrid(initial.block);
+      if (grid.rows.length === n) return;
     }
     while (grid.width < start.col + writeCols) {
-      tableInsertColumn(doc, tableId, grid.width);
+      const n = grid.width;
+      tableInsertColumn(doc, tableId, n);
       grid = tableGrid(initial.block);
+      if (grid.width === n) return;
     }
 
     const spans = tableSpans(grid);
+    written = {rows: writeRows, cols: writeCols};
     for (let r = 0; r < writeRows; r += 1) {
       for (let c = 0; c < writeCols; c += 1) {
         const row = start.row + r;
         const col = start.col + c;
         if (spans[row]?.[col]?.kind === 'covered') continue;
         const cell = grid.cells[row]?.[col];
+        // gap slot (ragged legacy row): no cell node to write into — skipped.
         const text = cell && blockType(cell) === 'cell' ? blockText(cell) : null;
         if (!text) continue;
         if (text.length > 0) text.delete(0, text.length);
@@ -1736,6 +1746,7 @@ export function tablePasteGrid(
       }
     }
   }, 'local');
+  return written;
 }
 
 // ── Range-scoped table ops (TBL-6) ───────────────────────────────────────────

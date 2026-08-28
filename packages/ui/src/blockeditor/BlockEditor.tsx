@@ -671,16 +671,14 @@ export const BlockEditor: React.FC<{
       if (!grid) return false;
       e.preventDefault();
       e.stopPropagation();
-      tablePasteGrid(doc, tableId, anchor, grid, {range: range ?? undefined});
-      const sourceRows = grid.length;
-      const sourceCols = grid.reduce((max, row) => Math.max(max, row.length), 0);
-      const rect = range ? normalizeCellRect(range.anchor, range.focus) : null;
-      const rangeRows = rect ? rect.bottom - rect.top + 1 : 1;
-      const rangeCols = rect ? rect.right - rect.left + 1 : 1;
-      const tiled = !!rect && rangeRows * rangeCols >= 2 && rangeRows % sourceRows === 0 && rangeCols % sourceCols === 0;
-      const rows = tiled ? rangeRows : sourceRows;
-      const cols = tiled ? rangeCols : sourceCols;
-      setCellSel({tableId, anchor, focus: {row: anchor.row + rows - 1, col: anchor.col + cols - 1}});
+      const written = tablePasteGrid(doc, tableId, anchor, grid, {range: range ?? undefined});
+      if (written) {
+        setCellSel({
+          tableId,
+          anchor,
+          focus: {row: anchor.row + written.rows - 1, col: anchor.col + written.cols - 1},
+        });
+      }
       setLive('Pasted cells');
       return true;
     },

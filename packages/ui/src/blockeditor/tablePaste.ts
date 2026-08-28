@@ -65,7 +65,7 @@ const parseTsv = (text: string): string[][] => {
 export function parseClipboardGrid(data: ClipboardGridData): string[][] | null {
   const htmlGrid = parseHtmlTable(data.html ?? '');
   if (htmlGrid) return htmlGrid;
-  const text = data.text ?? '';
+  const text = (data.text ?? '').replace(/\r\n$|[\r\n]$/, '');
   if (!text || (!text.includes('\t') && !text.includes('\n') && !text.includes('\r'))) return null;
   return parseTsv(text);
 }

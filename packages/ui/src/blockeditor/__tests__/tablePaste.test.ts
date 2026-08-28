@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {parseClipboardGrid} from '../tablePaste';
 import * as Y from 'yjs';
 import {
@@ -34,6 +34,13 @@ describe('parseClipboardGrid', () => {
     ]);
   });
 
+  it.each(['A\tB\nC\tD\n', 'A\tB\r\nC\tD\r\n'])('does not add a trailing row for %j', (text) => {
+    expect(parseClipboardGrid({text})).toEqual([
+      ['A', 'B'],
+      ['C', 'D'],
+    ]);
+  });
+
   it('parses quoted tabs/newlines and escaped quotes', () => {
     expect(parseClipboardGrid({text: '"a\tb"\t"line 1\nline 2 and ""quote"""'})).toEqual([['a\tb', 'line 1\nline 2 and "quote"']]);
   });
@@ -59,6 +66,21 @@ const texts = (doc: Y.Doc): string[][] =>
   tableGrid(findBlock(doc, 'tbl')!.block).cells.map((row) => row.map((cell) => (cell ? blockText(cell)!.toString() : '')));
 
 describe('tablePasteGrid', () => {
+  it('does nothing when the write exceeds the paste cell limit', () => {
+    const doc = seededTable();
+    const before = texts(doc);
+    expect(tablePasteGrid(doc, 'tbl', {row: 0, col: 0}, Array.from({length: 20001}, () => ['X']))).toBeNull();
+    expect(texts(doc)).toEqual(before);
+  });
+
+  it('terminates when a structural insert makes no progress', () => {
+    const doc = createDoc([{id: 'tbl', type: 'table', props: {header: false, 'col:c0': 'a0'}, children: []}]);
+    const rows = findBlock(doc, 'tbl')!.block.get('children') as Y.Array<unknown>;
+    vi.spyOn(rows, 'insert').mockImplementation(() => {});
+    expect(tablePasteGrid(doc, 'tbl', {row: 0, col: 0}, [['X']])).toBeNull();
+    expect(tableGrid(findBlock(doc, 'tbl')!.block).rows).toHaveLength(0);
+  });
+
   it('fills a selected 2x2 range', () => {
     const doc = seededTable();
     tablePasteGrid(doc, 'tbl', {row: 1, col: 1}, [['A', 'B'], ['C', 'D']], {
