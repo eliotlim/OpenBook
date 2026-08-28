@@ -1,14 +1,5 @@
-import {test, expect, takeSnapshot, chooseValue} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue, openInfoTip} from './fixtures';
 import {newPage, SERVER} from './seed';
-
-async function openInfoTip(
-  page: import('@playwright/test').Page,
-  trigger: import('@playwright/test').Locator,
-  text: string | RegExp,
-): Promise<void> {
-  await trigger.hover();
-  await expect(page.getByRole('tooltip')).toContainText(text);
-}
 
 // The per-page Share dialog (OB-203): open it from the page-actions cluster, set
 // the page's audience-scope visibility, and grant a person view access by email
@@ -143,6 +134,9 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
     .toBe(false);
   await takeSnapshot(page, testInfo);
 
+  // The portaled tooltip is the top DismissableLayer, so hide it before Escape closes the dialog.
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   const row = page.getByRole('treeitem').filter({hasText: name});
   const badge = row.locator('[data-hidden-page-badge]');

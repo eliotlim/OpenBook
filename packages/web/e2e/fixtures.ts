@@ -34,6 +34,13 @@ const ARCHIVE_VISUALS = process.env.CHROMATIC_ARCHIVE === '1';
 // `.extend` below identically typed on both paths.
 const base = (ARCHIVE_VISUALS ? chromaticTest : playwrightTest) as typeof playwrightTest;
 
+export async function openInfoTip(page: Page, trigger: Locator, text: string | RegExp): Promise<void> {
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await trigger.hover();
+  await expect(page.getByRole('tooltip').filter({hasText: text})).toBeVisible();
+}
+
 /**
  * Worker isolation for the e2e suite: every Playwright worker runs its own
  * OpenBook data server (own port, own throwaway PGlite data dir), and every
