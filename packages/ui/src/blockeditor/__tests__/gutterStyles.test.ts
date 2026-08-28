@@ -75,12 +75,11 @@ describe('table grip geometry', () => {
     expect(CSS).not.toMatch(/\.obe-has-grips \.obe-table-add-row\s*{[^}]*left/);
   });
 
-  it('keeps the row grip overhang within half a rem', () => {
+  it('keeps the row grip fully outside the cells and aligns the table gutter', () => {
     const grip = ruleBody('.obe-table-row-grip');
-    const left = grip.match(/left:\s*(-?[\d.]+)rem/)?.[1];
-    expect(left, 'row grip needs a rem-based left edge').toBeDefined();
-    expect(Number(left)).toBeGreaterThanOrEqual(-0.5);
-    expect(Number(left)).toBeLessThan(0);
+    expect(grip).toMatch(/left:\s*-1\.25rem/);
+    expect(grip).toMatch(/width:\s*1\.25rem/);
+    expect(ruleBody('.obe-row[data-block-type=\'table\'] > .obe-gutter')).toMatch(/top:\s*-0\.25rem/);
   });
 });
 
