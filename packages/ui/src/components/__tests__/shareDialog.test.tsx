@@ -80,7 +80,7 @@ describe('ShareDialog delivery help (P0-2)', () => {
       getInstanceInfo: async () => info({guestAccess: 'read'}),
     });
     open();
-    expect(await screen.findByText('Right now the library default lets anyone who can reach it view.')).toBeTruthy();
+    expect(await screen.findByText('Library default now: anyone who can reach it can view.')).toBeTruthy();
   });
 
   it.each([

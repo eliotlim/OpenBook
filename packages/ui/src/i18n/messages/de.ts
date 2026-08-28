@@ -315,9 +315,9 @@ export const de: PartialMessages = {
     copied: 'Kopiert',
     readOnlyDescription: 'Wer auf diese Seite zugreifen kann. Bitte einen Bibliotheks-Admin, diese Einstellungen zu ändern.',
     effective: {
-      write: 'Derzeit erlaubt der Bibliotheks-Standard allen mit Zugang das Ansehen und Bearbeiten.',
-      read: 'Derzeit erlaubt der Bibliotheks-Standard allen mit Zugang das Ansehen.',
-      off: 'Derzeit beschränkt der Bibliotheks-Standard den Zugriff auf Mitglieder.',
+      write: 'Bibliotheksstandard: Alle mit Zugang können bearbeiten.',
+      read: 'Bibliotheksstandard: Alle mit Zugang können ansehen.',
+      off: 'Bibliotheksstandard: Nur Eingeladene haben Zugang.',
     },
     effectiveDefault: {
       public: 'Derzeit macht der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ für alle mit dem Link sichtbar.',

@@ -313,9 +313,9 @@ export const zh: PartialMessages = {
     copied: '已复制',
     readOnlyDescription: '谁可以访问此页面。如需更改这些设置，请联系资料库管理员。',
     effective: {
-      write: '当前资料库默认设置允许所有可访问者查看和编辑。',
-      read: '当前资料库默认设置允许所有可访问者查看。',
-      off: '当前资料库默认设置仅允许成员访问。',
+      write: '资料库默认：所有可访问者均可编辑。',
+      read: '资料库默认：所有可访问者均可查看。',
+      off: '资料库默认：仅限受邀者。',
     },
     effectiveDefault: {
       public: '当前资料库默认设置让设为“资料库默认”的页面对所有持有链接的人可见。',

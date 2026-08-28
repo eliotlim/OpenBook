@@ -470,9 +470,9 @@ export const en = {
     copied: 'Copied',
     readOnlyDescription: 'Who can access this page. Ask a library admin to change these settings.',
     effective: {
-      write: 'Right now the library default lets anyone who can reach it view and edit.',
-      read: 'Right now the library default lets anyone who can reach it view.',
-      off: 'Right now the library default limits access to members.',
+      write: 'Library default now: anyone who can reach it can edit.',
+      read: 'Library default now: anyone who can reach it can view.',
+      off: 'Library default now: only invited people.',
     },
     // The effective default once the instance is claimed (SHR-6) — what `inherit`
     // resolves to via the root `defaultVisibility`, not the guest gate above.
