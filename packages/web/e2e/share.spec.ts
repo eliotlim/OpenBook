@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot, chooseValue} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue, openInfoTip} from './fixtures';
 import {newPage, SERVER} from './seed';
 
 // The per-page Share dialog (OB-203): open it from the page-actions cluster, set
@@ -26,7 +26,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
 
   // The worker instance is unclaimed, so the dialog honestly discloses that these
   // saved but unenforced until the library is claimed (OB-203 pre-claim notice).
-  await expect(dialog.getByText(/take effect only once you claim this library/)).toBeVisible();
+  await expect(dialog.getByText(/Settings apply once you claim this library/)).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: the open Share dialog
 
   // 1. Set the page's visibility scope → persisted via setPageVisibility.
@@ -37,7 +37,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
     .toBe('restricted');
 
   // 2. Add a person as can-view → persisted via sharePage, then listed.
-  await dialog.getByLabel('Invite people').fill('alice@example.com');
+  await dialog.getByPlaceholder('Invite by email').fill('alice@example.com');
   await dialog.getByRole('button', {name: 'Add', exact: true}).click();
 
   const grant = dialog.getByRole('listitem').filter({hasText: 'alice@example.com'});
@@ -57,7 +57,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
 
 // SHR-4 progressive disclosure: the scope picker surfaces only the everyday
 // scopes (Workspace default / public / restricted) up front and tucks the
-// obscure `authenticated` behind a "More access options" reveal, hiding the
+// obscure `authenticated` behind a "More options" reveal, hiding the
 // dormant `members` scope entirely. The reveal moves focus onto the picker so a
 // keyboard user lands on the control that just gained options, and a scope
 // chosen from behind the reveal persists and rehydrates on reopen.
@@ -80,7 +80,7 @@ test('share: the scope picker progressively discloses advanced scopes', {tag: ['
   await expect(page.locator('[role="option"]')).toHaveCount(0);
 
   // The reveal exposes `authenticated` and shifts focus onto the scope Select.
-  await dialog.getByRole('button', {name: 'More access options'}).click();
+  await dialog.getByRole('button', {name: 'More options'}).click();
   await expect(page.locator('#share-scope')).toBeFocused();
   await page.locator('#share-scope').click();
   await expect(option('authenticated')).toBeVisible();
@@ -115,7 +115,8 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
   await expect(hidden).toBeEnabled();
   await hidden.click();
   await expect(hidden).toBeChecked();
-  await expect(dialog.getByText(/stays hidden from navigation and search/)).toBeVisible();
+  const copyRow = dialog.getByRole('button', {name: 'Copy link'}).locator('..');
+  await openInfoTip(page, copyRow.getByRole('button', {name: 'More info'}), /hidden from navigation and search/);
   await expect
     .poll(async () => (await (await ownerRequest.get(`${SERVER}/api/pages/${id}/visibility`)).json()).listed)
     .toBe(false);
@@ -133,6 +134,9 @@ test('share: hide a reachable page and retain its owner sidebar badge', {tag: ['
     .toBe(false);
   await takeSnapshot(page, testInfo);
 
+  // The portaled tooltip is the top DismissableLayer, so hide it before Escape closes the dialog.
+  await page.mouse.move(0, 0, {steps: 5});
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   const row = page.getByRole('treeitem').filter({hasText: name});
   const badge = row.locator('[data-hidden-page-badge]');

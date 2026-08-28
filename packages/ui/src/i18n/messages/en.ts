@@ -17,6 +17,7 @@ export const en = {
     undo: 'Undo',
     settings: 'Settings',
     noOptions: 'No options',
+    moreInfo: 'More info',
   },
   comments: {
     delete: 'Delete comment',
@@ -373,10 +374,8 @@ export const en = {
     title: 'Share this page',
     description: 'Choose who can access this page, and invite people to view or edit it.',
     loadError: 'Couldn’t load sharing settings for this page.',
-    unclaimedNotice:
-      'These settings are saved, but take effect only once you claim this library. Until then, anyone who can reach it can view and edit.',
-    browserLocalNotice:
-      'This library lives only in this browser — no one else can reach it, so these settings don’t apply to anyone yet. To share, publish a library from the OpenBook desktop app.',
+    unclaimedNotice: 'Settings apply once you claim this library — until then anyone who can reach it can edit.',
+    browserLocalNotice: 'Only this browser can reach this library — publish from the desktop app to share.',
     enforcementCaveat:
       'People you invite may not be able to open this page at its published link yet — that’s still rolling out. Direct access is already limited as set here.',
     siteRestrictedNotice:
@@ -385,12 +384,14 @@ export const en = {
     // The address scope is library-global — shown here per-page, but it governs
     // every published page, so say so plainly to avoid a per-page misread.
     siteGlobalHint: 'Applies to your whole library, not just this page.',
+    siteScopeLibraryTag: '· whole library',
     // Publish to the web (GATE-6): the primary "make this page reachable at your
     // address" affordance and the live indicator once it is.
     publishState: {
+      liveAt: 'Published at',
+      notPublished: 'Not published',
+      guestOff: 'Published, but signed-out visitors can\'t open it.',
       live: 'Published',
-      liveHint: 'Anyone with the link can open this page at {host}.',
-      hint: 'Publish this page so anyone with the link can open it at {host}.',
       action: 'Publish page',
     },
     listing: {
@@ -401,6 +402,8 @@ export const en = {
     },
     forms: {
       accepts: 'This page accepts public submissions',
+      status: 'Ready',
+      blocked: 'Blocked',
       settings: 'Form settings',
       notReady: 'This form isn\'t ready — bind a database to accept responses',
       reachability: {
@@ -417,7 +420,7 @@ export const en = {
       manageGuestAccess: 'Manage guest access',
     },
     scopeLabel: 'Who can access',
-    scopeAdvanced: 'More access options',
+    scopeAdvancedShort: 'More options',
     scope: {
       inherit: 'Library default',
       inheritHint: 'Follows the library’s default access setting.',
@@ -431,24 +434,25 @@ export const en = {
       restrictedHint: 'Limits access to you and the people you invite below.',
     },
     addLabel: 'Invite people',
-    addPlaceholder: 'name@example.com',
+    invitePlaceholder: 'Invite by email',
     levelLabel: 'Access level',
     levelRead: 'Can view',
     levelWrite: 'Can edit',
     peopleLabel: 'People with access',
     loadingPeople: 'Loading people…',
-    noPeople: 'No one’s been invited yet.',
+    noPeople: 'No one invited yet.',
     remove: 'Remove {name}',
     // Delivery help (P0-2): the instance invite writes an access row but sends
     // no email, so the owner has to hand over the link and explain the sign-in.
     deliver: {
+      short: 'Invitees aren’t notified — send them the link.',
       hint: 'Invitees aren’t notified automatically. Send them this page’s link — each opens it by signing in with the email you invited them as.',
       copy: 'Copy link to send',
     },
     // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
     // of a dead local-only link, driving the same publish the Settings toggle does.
     publish: {
-      hint: 'This link only works on this device. Publish it to get a link you can share.',
+      hint: 'This link only works on this device.',
     },
     linkHints: {
       inherit: 'People with library access can open this link.',
@@ -466,9 +470,9 @@ export const en = {
     copied: 'Copied',
     readOnlyDescription: 'Who can access this page. Ask a library admin to change these settings.',
     effective: {
-      write: 'Right now the library default lets anyone who can reach it view and edit.',
-      read: 'Right now the library default lets anyone who can reach it view.',
-      off: 'Right now the library default limits access to members.',
+      write: 'Library default now: anyone who can reach it can edit.',
+      read: 'Library default now: anyone who can reach it can view.',
+      off: 'Library default now: only invited people.',
     },
     // The effective default once the instance is claimed (SHR-6) — what `inherit`
     // resolves to via the root `defaultVisibility`, not the guest gate above.
@@ -477,6 +481,12 @@ export const en = {
       authenticated: 'Right now the library default limits pages set to Library default to anyone signed in.',
       members: 'Right now the library default limits pages set to Library default to library members.',
       restricted: 'Right now the library default limits pages set to Library default to you and people invited to them.',
+    },
+    effectiveDefaultShort: {
+      public: 'anyone with the link',
+      authenticated: 'anyone signed in',
+      members: 'library members',
+      restricted: 'invited people',
     },
     manageLibrary: 'Library sharing settings',
     manageMembers: 'Manage members',

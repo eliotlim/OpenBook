@@ -22,6 +22,7 @@ export const ja: PartialMessages = {
     undo: '元に戻す',
     settings: '設定',
     noOptions: 'オプションがありません',
+    moreInfo: '詳細情報',
   },
   comments: {
     delete: 'コメントを削除',
@@ -228,19 +229,16 @@ export const ja: PartialMessages = {
     title: 'このページを共有',
     description: 'このページにアクセスできる人を選び、閲覧または編集に招待します。',
     loadError: 'このページの共有設定を読み込めませんでした。',
-    unclaimedNotice:
-      'これらの設定は保存されますが、このライブラリを要求したあとにのみ有効になります。それまでは、アクセスできる人なら誰でも閲覧・編集できます。',
-    browserLocalNotice:
-      'このライブラリはこのブラウザ内にのみ存在し、他の人はアクセスできないため、これらの設定はまだ誰にも影響しません。他の人と共有するには、OpenBook デスクトップアプリからライブラリを公開してください。',
+    unclaimedNotice: '設定はこのライブラリを要求すると適用されます。それまでは、アクセスできる人なら誰でも編集できます。',
+    browserLocalNotice: 'このブラウザだけがこのライブラリにアクセスできます — 共有するにはデスクトップアプリから公開してください。',
     enforcementCaveat:
       '招待した人は、公開された book.cloud リンクからこのページをまだ開けない場合があります — 現在順次対応中です。直接アクセスはここで設定したとおりすでに制限されています。',
     siteRestrictedNotice:
       'このページは「リンクを知っている全員」に設定されていますが、アドレスはまだサインインしていない訪問者にページを配信していません。公開ページを有効にすると、彼らも開けるようになります。',
     makeSitePublished: '公開ページを配信する',
     publishState: {
+      liveAt: '公開先', notPublished: '未公開', guestOff: '公開済みですが、サインインしていない訪問者は開けません。',
       live: '公開中',
-      liveHint: 'リンクを知っている人なら誰でも {host} でこのページを開けます。',
-      hint: 'このページを公開すると、リンクを知っている人なら誰でも {host} で開けるようになります。',
       action: 'ページを公開',
     },
     listing: {
@@ -251,6 +249,7 @@ export const ja: PartialMessages = {
     },
     forms: {
       accepts: 'このページは公開フォームの回答を受け付けます',
+      status: '準備完了', blocked: 'ブロック中',
       settings: 'フォーム設定',
       notReady: 'このフォームはまだ準備ができていません。回答を受け付けるにはデータベースを関連付けてください。',
       reachability: {
@@ -267,8 +266,9 @@ export const ja: PartialMessages = {
       manageGuestAccess: 'ゲストアクセスを管理',
     },
     siteGlobalHint: 'この設定はこのページだけでなく、ライブラリ全体に適用されます。',
+    siteScopeLibraryTag: '· ライブラリ全体',
     scopeLabel: 'アクセスできる人',
-    scopeAdvanced: 'その他のアクセスオプション',
+    scopeAdvancedShort: 'その他',
     scope: {
       inherit: 'ライブラリの既定',
       inheritHint: 'ライブラリの既定のアクセス設定に従います。',
@@ -282,7 +282,7 @@ export const ja: PartialMessages = {
       restrictedHint: 'アクセスをあなたと下で招待した人に制限します。',
     },
     addLabel: '人を招待',
-    addPlaceholder: 'name@example.com',
+    invitePlaceholder: 'メールで招待',
     levelLabel: 'アクセス権限',
     levelRead: '閲覧可能',
     levelWrite: '編集可能',
@@ -291,6 +291,7 @@ export const ja: PartialMessages = {
     noPeople: 'まだ誰も招待されていません。',
     remove: '{name} を削除',
     deliver: {
+      short: '招待相手には通知されません — リンクを送ってください。',
       hint: '招待した相手に自動で通知は届きません。このページのリンクを送ってください。各自が招待したメールアドレスでサインインして開きます。',
       copy: '送信用リンクをコピー',
     },
@@ -313,15 +314,21 @@ export const ja: PartialMessages = {
     copied: 'コピーしました',
     readOnlyDescription: 'このページにアクセスできる人。設定の変更はライブラリ管理者に依頼してください。',
     effective: {
-      write: '現在のライブラリ既定では、アクセスできる全員が閲覧・編集できます。',
-      read: '現在のライブラリ既定では、アクセスできる全員が閲覧できます。',
-      off: '現在のライブラリ既定では、メンバーのみアクセスできます。',
+      write: 'ライブラリ既定：アクセスできる全員が編集可能。',
+      read: 'ライブラリ既定：アクセスできる全員が閲覧可能。',
+      off: 'ライブラリ既定：招待された人のみ。',
     },
     effectiveDefault: {
       public: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはリンクを持つ全員に表示されます。',
       authenticated: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはサインイン済みの人のみに制限されます。',
       members: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはライブラリのメンバーのみに制限されます。',
       restricted: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはあなたと招待した人のみに制限されます。',
+    },
+    effectiveDefaultShort: {
+      public: 'リンクを知っている全員',
+      authenticated: 'サインインしている全員',
+      members: 'ライブラリのメンバー',
+      restricted: '招待された人',
     },
     manageLibrary: 'ライブラリの共有設定',
     manageMembers: 'メンバーを管理',

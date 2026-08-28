@@ -111,6 +111,49 @@ afterEach(() => {
 });
 
 describe('ShareDialog — page discovery (UP-3)', () => {
+  it('focuses the first real control without opening an info tip', async () => {
+    wrap('inherit');
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    await waitFor(() => expect(document.activeElement).toBe(toggle));
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('More info');
+  });
+
+  it('portals tooltip content outside the dialog', async () => {
+    wrap('inherit');
+    open();
+
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const tip = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.closest('[role="dialog"]')).toBeNull();
+  });
+
+  it('uses the compact w-44 scope select width', async () => {
+    wrap('inherit');
+    open();
+
+    const select = await screen.findByRole('combobox', {name: 'Who can access'});
+    expect(select.parentElement?.className).toContain('w-44');
+  });
+
+  it('keeps the inherit trigger compact and exposes the resolved claimed default in its title and option description', async () => {
+    wrap('inherit', {}, {ownerSubject: 'acct#rae', defaultVisibility: 'members'});
+    open();
+
+    const select = await screen.findByRole('combobox', {name: 'Who can access'});
+    await waitFor(() => {
+      expect(select.textContent).toBe('Library default');
+      expect(select.getAttribute('title')).toBe('Library default (library members)');
+    });
+    fireEvent.click(select);
+    const inheritOption = await screen.findByRole('option', {name: /Library default/});
+    expect(inheritOption.textContent).toContain('library members');
+  });
+
   it.each([
     ['inherit', false],
     ['public', false],
@@ -129,10 +172,9 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     wrap('restricted');
     open();
 
-    const hint = await screen.findByText(
-      'Only invited people can reach this page, so navigation and search visibility do not apply.',
-    );
-    expect(hint.closest('label')?.className).not.toContain('opacity');
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const hint = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    expect(hint?.closest('div')?.className).not.toContain('opacity');
     expect(screen.getByRole('switch', {name: 'Hide from navigation and search'}).hasAttribute('disabled')).toBe(true);
   });
 
@@ -140,7 +182,10 @@ describe('ShareDialog — page discovery (UP-3)', () => {
     wrap('inherit');
     open();
 
-    expect(await screen.findByText('Applies only to this page; access still follows the library default.')).toBeTruthy();
+    const toggle = await screen.findByRole('switch', {name: 'Hide from navigation and search'});
+    const tip = toggle.parentElement?.querySelector<HTMLButtonElement>('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Applies only to this page; access still follows the library default.');
   });
 
   it('persists a hidden flip through the SDK client and rehydrates it on reopen', async () => {
@@ -165,7 +210,9 @@ describe('ShareDialog — page discovery (UP-3)', () => {
 
     await waitFor(() => expect(setPageVisibility).toHaveBeenCalledWith('p1', {listed: false}));
     expect(toggle.getAttribute('data-state')).toBe('checked');
-    expect(screen.getByText(/This page stays hidden from navigation and search/)).toBeTruthy();
+    const tip = screen.getAllByRole('button', {name: 'More info'})[0];
+    fireEvent.focus(tip);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/Keep this page out of navigation and search/);
 
     cleanup();
     wrap(settings, client);
@@ -193,19 +240,17 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
   it('shows a "Published" indicator with the address when the page is public on a serving address', async () => {
     wrap('public');
     open();
-    const published = await screen.findByText('Published');
-    expect(published.parentElement?.textContent).toContain('open this page at rae.book.cloud');
+    const published = await screen.findByText('Published at');
+    expect(published.parentElement?.textContent).toContain('rae.book.cloud');
   });
 
   it('lets the published address break mid-token so it cannot overflow the panel', async () => {
     mockHost = 'a-very-long-library-slug-for-overflow.book.cloud';
     wrap('public');
     open();
-    const published = await screen.findByText('Published');
-    const host = Array.from(published.parentElement?.querySelectorAll('span') ?? []).find(
-      (span) => span.textContent === mockHost,
-    );
-    expect(host?.className).toContain('break-all');
+    const published = await screen.findByText('Published at');
+    const host = published.parentElement?.querySelector('a');
+    expect(host?.className).toContain('truncate');
     expect(host?.textContent).toBe(mockHost);
   });
 
@@ -213,10 +258,7 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     mockHost = 'a-very-long-library-slug-for-overflow.book.cloud';
     wrap('restricted');
     open();
-    const hint = await screen.findByText(/Publish this page so anyone with the link can open it at/);
-    const host = Array.from(hint.querySelectorAll('span')).find((span) => span.textContent === mockHost);
-    expect(host?.className).toContain('break-all');
-    expect(host?.textContent).toBe(mockHost);
+    expect(await screen.findByText('Not published')).toBeTruthy();
   });
 
   it('offers a one-click "Publish page" that sets the page public when it is not yet', async () => {
@@ -238,7 +280,7 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     // The reworked honesty warning offers the recommended address fix…
     expect(await screen.findByRole('button', {name: 'Serve published pages'})).toBeTruthy();
     // …and the page is NOT advertised as live.
-    expect(screen.queryByText('Published')).toBeNull();
+    expect(screen.queryByText('Published at')).toBeNull();
   });
 
   it('clicking the address fix turns on published-pages (not full public)', async () => {
@@ -257,23 +299,23 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     // The guest-off caveat explains why the page isn't reachable. It appears in the
     // Publish row (this fix) alongside the SiteVisibilityControl's own copy of the
     // same caveat, so there is at least one — assert on all matches.
-    expect((await screen.findAllByText(/Guest access is off/)).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText(/guest access is off/i)).length).toBeGreaterThanOrEqual(1);
     // …and the page is NOT advertised as live.
-    expect(screen.queryByText('Published')).toBeNull();
+    expect(screen.queryByText('Published at')).toBeNull();
   });
 
   it('shows "Published" when the guest gate admits signed-out reads (read)', async () => {
     wrap('public', {}, {guestAccess: 'read'});
     open();
-    const published = await screen.findByText('Published');
-    expect(published.parentElement?.textContent).toContain('open this page at rae.book.cloud');
+    const published = await screen.findByText('Published at');
+    expect(published.parentElement?.textContent).toContain('rae.book.cloud');
     expect(screen.queryByText(/Guest access is off/)).toBeNull();
   });
 
   it('shows "Published" when the guest gate admits signed-out reads (write)', async () => {
     wrap('public', {}, {guestAccess: 'write'});
     open();
-    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(await screen.findByText('Published at')).toBeTruthy();
     expect(screen.queryByText(/Guest access is off/)).toBeNull();
   });
 });
@@ -283,8 +325,10 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     wrap('public', {getPage: async () => formPage()});
     open();
 
-    const line = await screen.findByText('This page accepts public submissions');
-    expect(line.parentElement?.textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
+    await screen.findByText('This page accepts public submissions');
+    const tip = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelector('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Signed-out visitors can submit at rae.book.cloud.');
     expect(screen.getByRole('button', {name: 'Form settings'})).toBeTruthy();
     expect(document.body.textContent).not.toContain('private-capability-never-rendered');
   });
@@ -302,7 +346,9 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
-    expect(screen.getByText(/signed-out visitors cannot reach it until this page is public/)).toBeTruthy();
+    const tip = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelector('button[aria-label="More info"]');
+    fireEvent.focus(tip!);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/signed-out visitors cannot reach it until this page is public/i);
   });
 
   it('mirrors the guest-off 404 caveat at an otherwise public form address', async () => {
@@ -310,8 +356,11 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     expect(await screen.findByText('This page accepts public submissions')).toBeTruthy();
-    expect(screen.getByText(/signed-out visitors get a "page not found" \(404\) error even at this public address/)).toBeTruthy();
-    expect(screen.getByRole('button', {name: 'Manage guest access'})).toBeTruthy();
+    expect(screen.getAllByText('Blocked')).toHaveLength(1);
+    const tips = screen.getByText('This page accepts public submissions').closest('[data-form-public-submissions]')?.querySelectorAll('button[aria-label="More info"]');
+    fireEvent.focus(tips![1]);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/signed-out visitors get a "page not found" \(404\) error even at this public address/i);
+    expect(screen.getAllByRole('button', {name: 'Manage guest access'}).length).toBeGreaterThanOrEqual(1);
   });
 
   it.each([
@@ -322,7 +371,7 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     open();
 
     const message = await screen.findByText('This form isn\'t ready — bind a database to accept responses');
-    expect(message.closest('[data-form-not-ready]')?.className).toContain('border-amber-500/40');
+    expect(message.closest('[data-form-not-ready]')?.className).toContain('text-amber-700');
     expect(screen.queryByText('This page accepts public submissions')).toBeNull();
     expect(screen.queryByText(/Signed-out visitors can submit at/)).toBeNull();
 
@@ -337,7 +386,7 @@ describe('ShareDialog — enabled form reachability (FORM-8)', () => {
     wrap('public', {getPage: async () => formPage(over)});
     open();
 
-    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(await screen.findByText('Published at')).toBeTruthy();
     expect(screen.queryByText('This page accepts public submissions')).toBeNull();
   });
 });

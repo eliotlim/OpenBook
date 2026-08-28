@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import type {Browser, BrowserContext, Page} from '@playwright/test';
 import type {FormSchema, StoredDatabase, StoredPage, StoredSuggestion} from '@book.dev/sdk';
 import {mintIdentityKeypair, signIdentity} from '../../sdk/src/identity';
-import {expect, test, WORKER_DATA_DIR_PREFIX} from './fixtures';
+import {expect, test, openInfoTip, WORKER_DATA_DIR_PREFIX} from './fixtures';
 
 /**
  * FORM-8 closes the forms epic through its real boundaries: owner UI authoring,
@@ -268,7 +268,15 @@ async function publishWithShareDialog(page: Page, instance: ClaimedInstance, pag
   await expect
     .poll(async () => (await ownerJson<{visibility: string}>(instance, `/api/pages/${pageId}/visibility`)).visibility)
     .toBe('public');
-  await expect(dialog.getByText('Signed-out visitors who can open this public page can submit.')).toBeVisible();
+  const formRow = dialog.locator('[data-form-public-submissions]');
+  await expect(formRow.getByText('Ready')).toBeVisible();
+  await openInfoTip(
+    page,
+    formRow.getByRole('button', {name: 'More info'}),
+    /Signed-out visitors.*public page can submit/,
+  );
+  await page.mouse.move(0, 0, {steps: 5});
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 }
