@@ -1,5 +1,5 @@
 import {describe, it, expect, afterEach} from 'vitest';
-import {render, cleanup, fireEvent} from '@testing-library/react';
+import {render, cleanup, fireEvent, screen, waitFor} from '@testing-library/react';
 import * as Y from 'yjs';
 import {BlockEditor, tableDropTarget} from '../BlockEditor';
 import {
@@ -71,6 +71,59 @@ describe('table drag grips (render gating)', () => {
     for (const g of container.querySelectorAll('.obe-table-row-grip')) {
       expect(g.getAttribute('draggable')).toBe('true');
     }
+  });
+
+  it('renders keyboard-focusable buttons with localized row/column option names', () => {
+    render(<BlockEditor doc={seedTableDoc(3, 3)} />);
+    const row = screen.getByRole('button', {name: 'Row 3 options'});
+    const col = screen.getByRole('button', {name: 'Column B options'});
+    expect(row.tabIndex).toBe(0);
+    expect(col.tabIndex).toBe(0);
+    expect(row.getAttribute('aria-haspopup')).toBe('menu');
+    expect(col.getAttribute('aria-haspopup')).toBe('menu');
+  });
+
+  it('right-click row 3 and column B menus delete exactly their subjects', async () => {
+    const doc = seedTableDoc(3, 3);
+    render(<BlockEditor doc={doc} />);
+    fireEvent.contextMenu(screen.getByRole('button', {name: 'Row 3 options'}));
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete row'}));
+    expect(rowOrder(doc)).toEqual(['row0', 'row1']);
+
+    fireEvent.contextMenu(screen.getByRole('button', {name: 'Column B options'}));
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete column'}));
+    expect(colOrder(doc)).toHaveLength(2);
+  });
+
+  it('plain pointer click opens, but a 10px move followed by drag/drop only reorders', async () => {
+    const doc = seedTableDoc(3, 3);
+    render(<BlockEditor doc={doc} />);
+    const grip = screen.getByRole('button', {name: 'Row 3 options'});
+    fireEvent.pointerDown(grip, {button: 0, clientX: 1, clientY: 1});
+    fireEvent.pointerUp(grip, {button: 0, clientX: 1, clientY: 1});
+    expect(await screen.findByRole('menuitem', {name: 'Insert row below'})).not.toBeNull();
+    fireEvent.keyDown(document, {key: 'Escape'});
+    await waitFor(() => expect(screen.queryByRole('menuitem', {name: 'Insert row below'})).toBeNull());
+
+    fireEvent.pointerDown(grip, {button: 0, clientX: 1, clientY: 1});
+    fireEvent.pointerMove(grip, {clientX: 11, clientY: 1});
+    fireEvent.dragStart(grip, {dataTransfer: dt()});
+    const firstRow = document.querySelector('.obe-table tbody > tr')!;
+    fireEvent.dragOver(firstRow, {dataTransfer: dt(), clientY: 0});
+    fireEvent.drop(firstRow, {dataTransfer: dt()});
+    fireEvent.pointerUp(grip, {button: 0, clientX: 11, clientY: 1});
+    expect(rowOrder(doc)).toEqual(['row2', 'row0', 'row1']);
+    expect(screen.queryByRole('menuitem', {name: 'Insert row below'})).toBeNull();
+  });
+
+  it('Enter opens the row menu and Escape closes it and restores grip focus', async () => {
+    render(<BlockEditor doc={seedTableDoc(3, 3)} />);
+    const grip = screen.getByRole('button', {name: 'Row 2 options'});
+    grip.focus();
+    fireEvent.keyDown(grip, {key: 'Enter'});
+    expect(await screen.findByRole('menuitem', {name: 'Insert row below'})).not.toBeNull();
+    fireEvent.keyDown(document, {key: 'Escape'});
+    await waitFor(() => expect(document.activeElement).toBe(grip));
   });
 
   it('hides all grips in readOnly (present/export chrome parity)', () => {

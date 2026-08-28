@@ -201,6 +201,8 @@ export const de: PartialMessages = {
     table: {
       sectionRow: 'Zeile',
       sectionColumn: 'Spalte',
+      rowOptions: 'Optionen für Zeile {n}',
+      columnOptions: 'Optionen für Spalte {n}',
       insertRowAbove: 'Zeile darüber einfügen',
       insertRowBelow: 'Zeile darunter einfügen',
       insertColumnLeft: 'Spalte links einfügen',

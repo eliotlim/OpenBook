@@ -100,6 +100,8 @@ import {pageIconToText} from '@/lib/iconValue';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -3026,6 +3028,123 @@ export function tableDropTarget(dropIndex: number, from: number): number | null 
   return dropIndex > from ? dropIndex - 1 : dropIndex;
 }
 
+const tableColumnName = (index: number): string => {
+  let value = index + 1;
+  let name = '';
+  while (value > 0) {
+    value -= 1;
+    name = String.fromCharCode(65 + (value % 26)) + name;
+    value = Math.floor(value / 26);
+  }
+  return name;
+};
+
+interface TableGripMenuProps {
+  axis: 'row' | 'col';
+  tableId: string;
+  index: number;
+  itemId: string;
+  count: number;
+  header: boolean;
+  editor: BlockEditorController;
+  style?: React.CSSProperties;
+  spanOffset?: number;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}
+
+const TableGripMenu: React.FC<TableGripMenuProps> = ({
+  axis, tableId, index, itemId, count, header, editor, style, spanOffset, onDragStart, onDragEnd,
+}) => {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const press = useRef<{x: number; y: number; moved: boolean} | null>(null);
+  const dragged = useRef(false);
+  const label = axis === 'row'
+    ? t('menu.table.rowOptions', {n: index + 1})
+    : t('menu.table.columnOptions', {n: tableColumnName(index)});
+  const items = (menu: MenuComponentSet): React.ReactNode => axis === 'row'
+    ? <TableRowMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />
+    : <TableColumnMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />;
+  const DropdownItem = MENU_COMPONENTS.dropdown.Item;
+  const openFromKeyboard = (e: React.KeyboardEvent): void => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    setOpen(true);
+  };
+  const refocus = (): void => {
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
+  const button = (
+    <button
+      ref={buttonRef}
+      type="button"
+      className={axis === 'row' ? 'obe-table-row-grip' : 'obe-table-col-grip'}
+      aria-label={label}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      contentEditable={false}
+      data-drag-axis={axis}
+      data-drag-from={index}
+      data-drag-id={itemId}
+      data-span-offset={spanOffset}
+      draggable
+      style={style}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        press.current = {x: e.clientX, y: e.clientY, moved: false};
+        dragged.current = false;
+      }}
+      onPointerMove={(e) => {
+        const p = press.current;
+        if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) >= 4) p.moved = true;
+      }}
+      onPointerUp={() => {
+        const p = press.current;
+        press.current = null;
+        if (p && !p.moved && !dragged.current) setOpen(true);
+      }}
+      onKeyDown={openFromKeyboard}
+      onDragStart={(e) => {
+        dragged.current = true;
+        setOpen(false);
+        onDragStart(e);
+      }}
+      onDragEnd={() => {
+        press.current = null;
+        onDragEnd();
+      }}
+    >
+      {axis === 'row' ? <GripVertical className="h-3.5 w-3.5" /> : <GripHorizontal className="h-3.5 w-3.5" />}
+    </button>
+  );
+  return (
+    <DropdownMenu open={open} onOpenChange={(next) => { setOpen(next); if (!next) refocus(); }}>
+      <DropdownMenuTrigger asChild><span className={`obe-table-grip-anchor obe-table-${axis}-grip-anchor`} style={style} aria-hidden /></DropdownMenuTrigger>
+      <ContextMenu onOpenChange={(next) => { if (next) setOpen(false); }}>
+        <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>{button}</ContextMenuTrigger>
+        <ContextMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
+          <ContextMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</ContextMenuLabel>
+          {items(MENU_COMPONENTS.context)}
+          {axis === 'col' && <><ContextMenuSeparator /><ContextMenuItem onSelect={() => {
+            const found = findBlock(editor.doc, tableId);
+            if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
+          }}><Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}</ContextMenuItem></>}
+        </ContextMenuContent>
+      </ContextMenu>
+      <DropdownMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
+        <DropdownMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</DropdownMenuLabel>
+        {items(MENU_COMPONENTS.dropdown)}
+        {axis === 'col' && <><DropdownMenuSeparator /><DropdownItem onSelect={() => {
+          const found = findBlock(editor.doc, tableId);
+          if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
+        }}><Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}</DropdownItem></>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
@@ -3174,21 +3293,19 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   <th
                     className="obe-table-row-grip-host"
                     data-obe-chrome="row-grip-host"
-                    aria-hidden="true"
                     contentEditable={false}
                   >
-                    <span
-                      className="obe-table-row-grip"
-                      data-drag-axis="row"
-                      data-drag-from={r}
-                      data-drag-id={rowId}
-                      draggable
-                      onMouseDown={(e) => e.stopPropagation()}
+                    <TableGripMenu
+                      axis="row"
+                      tableId={id}
+                      index={r}
+                      itemId={rowId}
+                      count={rows.length}
+                      header={header}
+                      editor={editor}
                       onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
                       onDragEnd={clearDrag}
-                    >
-                      <GripVertical className="h-3.5 w-3.5" />
-                    </span>
+                    />
                   </th>
                 )}
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
@@ -3230,27 +3347,24 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                         const gripColId = columns[from]?.id;
                         if (!gripColId) return null;
                         return (
-                          <span
+                          <TableGripMenu
                             key={gripColId}
-                            className="obe-table-col-grip"
-                            contentEditable={false}
-                            data-drag-axis="col"
-                            data-drag-from={from}
-                            data-drag-id={gripColId}
-                            data-span-offset={offset}
-                            draggable
-                            aria-hidden="true"
+                            axis="col"
+                            tableId={id}
+                            index={from}
+                            itemId={gripColId}
+                            count={cols}
+                            header={header}
+                            editor={editor}
+                            spanOffset={offset}
                             style={{
                               left: `${(offset / slot.colspan) * 100}%`,
                               right: 'auto',
                               width: `${100 / slot.colspan}%`,
                             }}
-                            onMouseDown={(e) => e.stopPropagation()}
                             onDragStart={startDrag({axis: 'col', from, id: gripColId})}
                             onDragEnd={clearDrag}
-                          >
-                            <GripHorizontal className="h-3.5 w-3.5" />
-                          </span>
+                          />
                         );
                       })
                       : null;
