@@ -15,7 +15,7 @@ import {quickJSSyncEvalBackend} from './sandbox/quickjsSyncBackend';
  */
 
 /** A legal reactive identifier. */
-const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+export const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
  * The name a block publishes under: its explicit variable `name` when set,
@@ -143,8 +143,9 @@ export function inputScope(doc: Y.Doc): Record<string, unknown> {
 
 /** Find the first input block published under `name`, or null. */
 export function findInput(doc: Y.Doc, name: string): BlockMap | null {
+  const target = name.trim();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
-    if (INPUT_TYPES.has(blockType(block) as string) && publishedName(block) === name) return block;
+    if (INPUT_TYPES.has(blockType(block) as string) && publishedName(block) === target) return block;
   }
   return null;
 }
@@ -341,7 +342,8 @@ export async function evaluateScopeProgram(
   for (const cell of program.cells) {
     const result = await backend.evaluate({...cell.request, scope});
     results.set(cell.id, result);
-    if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
+    const name = cell.name?.trim();
+    if (name && NAME_RE.test(name) && !result.error) scope[name] = result.value;
   }
   return {scope, results};
 }
@@ -405,7 +407,8 @@ export async function computeScopeAuthoritative(
         ? evalCodeSync(cell.request.source, scope, backend, evaluationDeadline)
         : evalExprSync(cell.request.source, scope, backend, evaluationDeadline));
     results.set(cell.id, result);
-    if (cell.name && NAME_RE.test(cell.name) && !result.error) scope[cell.name] = result.value;
+    const name = cell.name?.trim();
+    if (name && NAME_RE.test(name) && !result.error) scope[name] = result.value;
   }
   return {scope, results};
 }

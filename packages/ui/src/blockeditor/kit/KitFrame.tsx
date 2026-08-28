@@ -5,6 +5,7 @@ import {KitSettings} from './KitSettings';
 import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
 import {useCachedInputScope} from './useCachedEval';
+import {NAME_RE} from './scope';
 import {cn} from '@/lib/utils';
 
 /**
@@ -152,6 +153,9 @@ export const KitInlineText: React.FC<{
       aria-label={ariaLabel}
       spellCheck={false}
       onChange={(e) => onCommit(e.target.value)}
+      onBlur={(e) => {
+        if (e.target.value !== '' && e.target.value.trim() === '') onCommit('');
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
         e.stopPropagation();
@@ -171,10 +175,12 @@ const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorControlle
   editor,
   defaultName,
 }) => {
-  const explicit = (blockProp<string>(block, 'name') ?? '').trim();
+  const explicit = blockProp<string>(block, 'name') ?? '';
   const derived = varNameFromLabel(blockProp<string>(block, 'label') ?? '');
   const [editing, setEditing] = useState(explicit.length > 0);
   const shown = explicit || derived || defaultName || 'value';
+  const trimmedExplicit = explicit.trim();
+  const invalid = trimmedExplicit !== '' && !NAME_RE.test(trimmedExplicit);
 
   if (!editing) {
     return (
@@ -192,7 +198,10 @@ const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorControlle
     );
   }
   return (
-    <ConfigField label="Variable name" hint="The symbol formulas and charts reference.">
+    <ConfigField
+      label="Variable name"
+      hint={invalid ? 'Letters, digits and _ only — not published' : 'The symbol formulas and charts reference.'}
+    >
       <ConfigInput
         mono
         autoFocus
@@ -201,7 +210,11 @@ const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorControlle
         readOnly={editor.readOnly}
         spellCheck={false}
         aria-label="Variable name"
-        onChange={(e) => kitSet(editor, block, 'name', e.target.value.trim())}
+        onChange={(e) => kitSet(editor, block, 'name', e.target.value)}
+        onBlur={(e) => kitSet(editor, block, 'name', e.target.value.trim())}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
       />
     </ConfigField>
   );
@@ -312,12 +325,12 @@ export const KitFrame: React.FC<KitFrameProps> = ({
   symbol = true,
 }) => {
   const id = blockId(block);
-  const explicitName = (blockProp<string>(block, 'name') ?? '').trim();
-  const displayLabel = (blockProp<string>(block, 'label') ?? '').trim();
+  const explicitName = blockProp<string>(block, 'name') ?? '';
+  const displayLabel = blockProp<string>(block, 'label') ?? '';
   // The symbol the block publishes under: explicit name, else derived from the
   // display label, else the type's fallback. Mirrors scope.ts `publishedName`.
-  const name = explicitName || varNameFromLabel(displayLabel) || defaultName;
-  const label = displayLabel || name;
+  const name = explicitName.trim() || varNameFromLabel(displayLabel) || defaultName;
+  const label = displayLabel.trim().length > 0 ? displayLabel : name;
   const description = blockProp<string>(block, 'description');
   const wide = supportsWide && kitWide(block);
 
