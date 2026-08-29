@@ -27,16 +27,16 @@
 | slider | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | number | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | textfield | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
-| longtext | ✅ | ✅ | ➖ | ✅ | exempt: kit-value tools omit this newer UI input from their MCP input registry | ➖ |
-| richtext | ✅ | ✅ | ➖ | ✅ | exempt: kit-value tools omit this newer UI input from their MCP input registry | ➖ |
+| longtext | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
+| richtext | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | toggle | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | radio | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | dropdown | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | checklist | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
-| choicecards | ✅ | ✅ | ➖ | ✅ | exempt: kit-value tools omit this newer UI input from their MCP input registry | ➖ |
-| searchselect | ✅ | ✅ | ➖ | ✅ | exempt: kit-value tools omit this newer UI input from their MCP input registry | ➖ |
-| tagfield | ✅ | ✅ | ➖ | ✅ | exempt: kit-value tools omit this newer UI input from their MCP input registry | ➖ |
-| location | ✅ | ✅ | ➖ | ✅ | exempt: kit-value getter has no location value projection, so a set cannot round-trip | ➖ |
+| choicecards | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
+| searchselect | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
+| tagfield | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
+| location | ✅ | ✅ | ➖ | ✅ | ✅ | ➖ |
 | actionbutton | ✅ | ✅ | ➖ | ✅ | ➖ | ➖ |
 | kitchart | ✅ | ✅ | ➖ | ✅ | ➖ | ➖ |
 | statuslight | ✅ | ✅ | ➖ | ✅ | ➖ | ➖ |

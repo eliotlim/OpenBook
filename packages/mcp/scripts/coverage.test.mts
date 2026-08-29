@@ -26,12 +26,6 @@ const LOCAL_OWNER_SECRET = 'mcp-coverage-local-owner';
 
 /** Deliberate gaps belong here, with a reviewable and type-specific reason. */
 const EXEMPT: Record<string, string> = {
-  longtext: 'kit-value tools omit this newer UI input from their MCP input registry',
-  richtext: 'kit-value tools omit this newer UI input from their MCP input registry',
-  choicecards: 'kit-value tools omit this newer UI input from their MCP input registry',
-  searchselect: 'kit-value tools omit this newer UI input from their MCP input registry',
-  tagfield: 'kit-value tools omit this newer UI input from their MCP input registry',
-  location: 'kit-value getter has no location value projection, so a set cannot round-trip',
 };
 
 const resultText = (res: {content?: unknown}): string =>
@@ -189,6 +183,7 @@ async function main(): Promise<void> {
         const value = info.type === 'slider' || info.type === 'number' ? 2
           : info.type === 'toggle' ? false
           : info.type === 'checklist' || info.type === 'tagfield' ? ['round-trip']
+          : info.type === 'location' ? {lat: 1.3521, lng: 103.8198, label: 'Singapore'}
           : 'round-trip';
         await callOk('set_kit_value', {pageId: page.id, name, value});
         const after = await callOk('get_kit_values', {pageId: page.id});
