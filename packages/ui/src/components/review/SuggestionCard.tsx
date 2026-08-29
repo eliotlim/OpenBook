@@ -36,6 +36,7 @@ const KIND_LABEL: Record<StoredSuggestion['kind'], string> = {
   'set-theme': 'Page theme',
   'table-op': 'Table structure',
   'database-op': 'Database change',
+  'page-op': 'Page change',
 };
 
 export function SuggestionCard({

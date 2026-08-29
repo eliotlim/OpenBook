@@ -150,7 +150,7 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 // so the live-vs-stored branching is unit-testable against the doc registry.
 
 /** The subset of the data client the agent write path calls. */
-export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage'>;
+export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage' | 'setPageProperties' | 'movePage'>;
 
 /**
  * When deleting `found` would empty its table, the id of the TABLE to delete
@@ -448,6 +448,14 @@ export const applyProposal = async (client: ApplyClient, p: AgentProposal): Prom
     // Appearance is a per-page viewing preference (localStorage), not CRDT
     // content — apply it directly here on the client.
     applyPageAppearance(pageId, payload);
+    return;
+  }
+  if (p.kind === 'set_page_appearance' || p.kind === 'set_page_properties') {
+    await client.setPageProperties(pageId, payload.properties as Record<string, unknown>);
+    return;
+  }
+  if (p.kind === 'move_page') {
+    await client.movePage(pageId, payload.move as {parentId: string | null; orderedIds: string[]});
     return;
   }
 

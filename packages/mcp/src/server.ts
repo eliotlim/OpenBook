@@ -940,7 +940,13 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     async () => {
       const pages = await client.listPages();
       if (pages.length === 0) return text('The library has no pages yet.');
-      return text(pages.map((p) => `- [${p.id}] ${p.name ?? 'Untitled'}`).join('\n'));
+      const siblingIndex = new Map<string, number>();
+      return text(pages.map((p) => {
+        const parent = p.parentId ?? 'root';
+        const order = siblingIndex.get(parent) ?? 0;
+        siblingIndex.set(parent, order + 1);
+        return `- [${p.id}] ${p.name ?? 'Untitled'} (parent=${parent}, order=${order})`;
+      }).join('\n'));
     },
   );
 

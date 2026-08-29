@@ -65,6 +65,8 @@ function makeClient(opts: {
     createDatabase: vi.fn(async () => ({}) as never),
     updateDatabase: vi.fn(async () => ({}) as never),
     deletePage: vi.fn(async () => true),
+    movePage: vi.fn(async () => ({} as never)),
+    setPageProperties: vi.fn(async () => ({} as never)),
     getPage: vi.fn(async () => opts.storedPage ?? null),
     savePage: vi.fn(async (input: PageInput) => {
       saved.push(input);
@@ -86,6 +88,23 @@ describe('database suggestions: accept replays the recorded operation payload', 
     ['update_property', 'updateDatabase', {databaseId: 'db', patch: {schema: {properties: [{id: 'p1', name: 'New'}]}}}, ['db', {schema: {properties: [{id: 'p1', name: 'New'}]}}]],
     ['update_row', 'updateRow', {databaseId: 'db', rowId: 'row', patch: {name: 'Done', properties: {p1: 3}}}, ['db', 'row', {name: 'Done', properties: {p1: 3}}]],
     ['delete_row', 'deletePage', {databaseId: 'db', rowId: 'row'}, ['row']],
+  ] as const)('%s calls %s with the recorded payload', async (kind, method, payload, expectedArgs) => {
+    const client = makeClient({pagePolicy: () => 'inherit'});
+    await applyProposal(client, suggestionToProposal(suggestion(kind, payload)));
+    expect(client[method]).toHaveBeenCalledWith(...expectedArgs);
+  });
+});
+
+describe('API-10 page suggestions: accept replays the recorded operation payload', () => {
+  const suggestion = (applyKind: string, payload: Record<string, unknown>): StoredSuggestion => ({
+    id: `s-${applyKind}`, pageId: 'page-1', authorKind: 'ai', authorName: 'MCP client', kind: applyKind === 'set_page_appearance' ? 'set-theme' : 'page-op',
+    target: {}, before: '', after: '', status: 'open', payload: {applyKind, pageId: 'page-1', ...payload}, createdAt: '', updatedAt: '',
+  });
+
+  it.each([
+    ['set_page_appearance', 'setPageProperties', {properties: {sys_icon: '✨'}}, ['page-1', {sys_icon: '✨'}]],
+    ['set_page_properties', 'setPageProperties', {properties: {sys_owner: 'Ada'}}, ['page-1', {sys_owner: 'Ada'}]],
+    ['move_page', 'movePage', {move: {parentId: 'parent', orderedIds: ['page-1']}}, ['page-1', {parentId: 'parent', orderedIds: ['page-1']}]],
   ] as const)('%s calls %s with the recorded payload', async (kind, method, payload, expectedArgs) => {
     const client = makeClient({pagePolicy: () => 'inherit'});
     await applyProposal(client, suggestionToProposal(suggestion(kind, payload)));
