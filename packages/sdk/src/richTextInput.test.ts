@@ -14,10 +14,22 @@ describe('parseMiniMarkdown', () => {
     {t: 'bold ', a: {b: true}},
     {t: 'italic', a: {i: true, b: true}},
   ]));
+  it.each(['snake_case_name', 'C:\\path_to\\file_name.txt', '__bold__'])(
+    'keeps intraword underscores literal in %s',
+    (input) => expect(parseMiniMarkdown(input)).toEqual([{t: input}]),
+  );
+  it.each([
+    ['`a_b_c`', 'a_b_c'],
+    ['`**x**`', '**x**'],
+  ])('keeps code span contents literal in %s', (input, text) => expect(parseMiniMarkdown(input)).toEqual([{t: text, a: {c: true}}]));
   it('unescapes supported punctuation', () => expect(parseMiniMarkdown('\\*literal\\*')).toEqual([{t: '*literal*'}]));
   it('keeps unbalanced markers literal', () => expect(parseMiniMarkdown('before **after')).toEqual([{t: 'before **after'}]));
   it('parses safe links', () => expect(parseMiniMarkdown('[site](https://x.test)')).toEqual([{t: 'site', a: {a: 'https://x.test'}}]));
+  it.each(['/p/abc', '#x'])('parses internal link %s', (href) => expect(parseMiniMarkdown(`[site](${href})`)).toEqual([{t: 'site', a: {a: href}}]));
+  it('strips a trailing link title', () => expect(parseMiniMarkdown('[site](https://x.test "title")')).toEqual([{t: 'site', a: {a: 'https://x.test'}}]));
+  it('keeps an unparseable title-bearing link literal', () => expect(parseMiniMarkdown('[site](not a url \'title\')')).toEqual([{t: '[site](not a url \'title\')'}]));
   it('rejects unsafe links with a typed error', () => expect(() => parseMiniMarkdown('[x](javascript:alert(1))')).toThrow(RichTextInputError));
+  it('rejects data links with a typed error', () => expect(() => parseMiniMarkdown('[x](data:text/plain,x)')).toThrow(RichTextInputError));
   it('stores empty text as no runs', () => expect(parseMiniMarkdown('')).toEqual([]));
   it('leaves wikilinks literal because titles cannot resolve to page ids headlessly', () => expect(parseMiniMarkdown('[[Page Title]]')).toEqual([{t: '[[Page Title]]'}]));
   it('preserves ordinary strings byte-for-byte', () => expect(parseMiniMarkdown('plain <text> & bytes')).toEqual([{t: 'plain <text> & bytes'}]));

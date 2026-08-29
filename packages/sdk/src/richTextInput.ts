@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {isSafeHref} from './bookfile';
 
 /** Inline attributes supported by agent/MCP rich-text input. */
 export interface RunAttrs extends Record<string, unknown> {
@@ -39,14 +40,7 @@ const attrsSchema = z.object({
 
 const runSchema = z.object({t: z.string(), a: attrsSchema.optional()}).strict();
 
-const safeLink = (href: string): boolean => {
-  try {
-    const url = new URL(href);
-    return url.protocol === 'https:' || url.protocol === 'http:' || url.protocol === 'mailto:';
-  } catch {
-    return false;
-  }
-};
+const safeLink = (href: string): boolean => href.trim() !== '' && isSafeHref(href);
 
 const sameAttrs = (a?: RunAttrs, b?: RunAttrs): boolean =>
   JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
@@ -89,6 +83,7 @@ const closingAt = (text: string, token: string, from: number): number => {
     // In `**bold *italic***`, the first star in the closing triple belongs to
     // the inner italic span; the final two close the outer bold span.
     if (token === '**' && text.startsWith('***', i)) return i + 1;
+    if (token === '_' && /[\p{L}\p{N}]/u.test(text[i + token.length] ?? '')) continue;
     if (text.startsWith(token, i)) return i;
   }
   return -1;
@@ -115,20 +110,37 @@ const parseRange = (source: string): Run[] => {
       if (labelEnd >= 0 && source[labelEnd + 1] === '(') {
         const urlEnd = closingAt(source, ')', labelEnd + 2);
         if (urlEnd >= 0) {
-          const href = source.slice(labelEnd + 2, urlEnd);
-          if (!safeLink(href)) throw new RichTextInputError('unsafe-link', `Unsafe link scheme in "${href}"; use https, http, or mailto.`);
-          flush();
-          runs.push(...withAttr(parseRange(source.slice(i + 1, labelEnd)), 'a', href));
-          i = urlEnd + 1;
-          continue;
+          let href = source.slice(labelEnd + 2, urlEnd).trim();
+          const title = /\s+(?:"[^"]*"|'[^']*')$/.exec(href);
+          if (title) href = href.slice(0, title.index).trim();
+          if (safeLink(href) && !/\s/u.test(href)) {
+            flush();
+            runs.push(...withAttr(parseRange(source.slice(i + 1, labelEnd)), 'a', href));
+            i = urlEnd + 1;
+            continue;
+          }
+          if (/^[a-z][a-z0-9+.-]*:/iu.test(href)) {
+            throw new RichTextInputError('unsafe-link', `Unsafe link scheme in "${href}"; use https, http, or mailto.`);
+          }
         }
       }
     }
-    const marker = MARKERS.find(({token}) => source.startsWith(token, i));
+    if (source[i] === '_' && (source[i - 1] === '_' || source[i + 1] === '_')) {
+      literal += source[i];
+      i += 1;
+      continue;
+    }
+    const leftOk = i === 0 || !/[\p{L}\p{N}]/u.test(source[i - 1]);
+    const marker = MARKERS.find(({token}) => source.startsWith(token, i) && (token !== '_' || leftOk));
     if (marker) {
       const end = closingAt(source, marker.token, i + marker.token.length);
       if (end >= 0 && end > i + marker.token.length) {
         flush();
+        if (marker.token === '`') {
+          runs.push({t: source.slice(i + 1, end), a: {c: true}});
+          i = end + 1;
+          continue;
+        }
         runs.push(...withAttr(parseRange(source.slice(i + marker.token.length, end)), marker.attr, true));
         i = end + marker.token.length;
         continue;

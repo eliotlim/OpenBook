@@ -21,4 +21,10 @@ describe('SDK rich-text input parity', () => {
     const markdown = blocksToMarkdown([{id: 'p', type: 'paragraph', text: runs}]);
     expect(parseMiniMarkdown(markdown.trim())).toEqual(runs);
   });
+
+  it('round-trips nested bold italic runs through markdown', () => {
+    const runs = parseMiniMarkdown('**bold *italic***');
+    const markdown = blocksToMarkdown([{id: 'p', type: 'paragraph', text: runs}]);
+    expect(parseMiniMarkdown(markdown.trim())).toEqual(runs);
+  });
 });

@@ -158,11 +158,16 @@ export function coerceNewBlock(value: unknown): NewBlock | null {
   const type = typeof v.type === 'string' && v.type ? v.type : 'paragraph';
   const block: NewBlock = {type};
   if (typeof v.id === 'string') block.id = v.id;
-  if (typeof v.text === 'string') {
-    block.text = richTextRuns(v.text, v.plain === true);
-  } else if (v.text && typeof v.text === 'object' && !Array.isArray(v.text) && Array.isArray((v.text as {runs?: unknown}).runs)) {
-    block.text = richTextRuns(v.text as {runs: never[]});
-  } else if (Array.isArray(v.text)) {
+  try {
+    if (typeof v.text === 'string') {
+      block.text = richTextRuns(v.text, v.plain === true);
+    } else if (v.text && typeof v.text === 'object' && !Array.isArray(v.text) && Array.isArray((v.text as {runs?: unknown}).runs)) {
+      block.text = richTextRuns(v.text as {runs: never[]});
+    }
+  } catch {
+    return null;
+  }
+  if (Array.isArray(v.text)) {
     const runs: TextRun[] = [];
     for (const r of v.text) {
       if (!r || typeof r !== 'object') continue;
