@@ -226,7 +226,7 @@ export function tableOpError(shape: TableShape, op: TableOpRequest): string | nu
       inRange(op.colIndex!, 'colIndex', cols - 1);
     if (bad) return bad;
     try {
-      if (op.text === undefined) return 'text is required.';
+      if (op.text === undefined) return 'text must be a string or {runs: Run[]}.';
       richTextRuns(op.text, op.plain);
       return null;
     } catch (error) {
