@@ -17,7 +17,6 @@ export class AssetUploadError extends Error {
 export interface AgentAssetUploadInput {
   pageId: string;
   mime: string;
-  filename?: string;
   base64: string;
 }
 
@@ -30,8 +29,8 @@ export interface AgentAssetUploadResult {
 
 export interface AgentAssetUploader {
   pageExists(pageId: string): Promise<boolean>;
-  canWrite(pageId: string): Promise<boolean>;
-  put(bytes: Uint8Array, mime: string, pageId: string, filename?: string): Promise<{id: string; url?: string}>;
+  canWrite(pageId: string): Promise<boolean | 'direct' | 'suggest'>;
+  put(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string; url?: string}>;
 }
 
 /** Shared upload implementation used by both the MCP and in-app agent tools. */
@@ -44,15 +43,18 @@ export async function uploadAgentAsset(
   if (!AGENT_ASSET_MIMES.has(mime)) {
     throw new AssetUploadError('mime-not-allowed', `Asset MIME type "${input.mime}" is not allowed.`);
   }
-  // Deliberately conservative and performed before decode/allocation. Padding can
-  // only reduce the real size by two bytes, which is immaterial at the cap.
-  if (Math.ceil(input.base64.length * 3 / 4) > DEFAULT_MAX_ASSET_BYTES) {
+  const pad = input.base64.endsWith('==') ? 2 : input.base64.endsWith('=') ? 1 : 0;
+  if (input.base64.length / 4 * 3 - pad > DEFAULT_MAX_ASSET_BYTES) {
     throw new AssetUploadError('too-large', `Asset exceeds the ${DEFAULT_MAX_ASSET_BYTES}-byte limit.`);
   }
   if (!(await uploader.pageExists(input.pageId))) {
     throw new AssetUploadError('page-not-found', 'Page not found.');
   }
-  if (!(await uploader.canWrite(input.pageId))) {
+  const writePolicy = await uploader.canWrite(input.pageId);
+  if (writePolicy === 'suggest') {
+    throw new AssetUploadError('read-only', 'Uploads apply immediately and are never queued as suggestions, so this page needs direct agent-edit access.');
+  }
+  if (writePolicy !== true && writePolicy !== 'direct') {
     throw new AssetUploadError('read-only', 'This page or instance is read-only.');
   }
   const bytes = decode(input.base64);
@@ -60,7 +62,7 @@ export async function uploadAgentAsset(
   if (bytes.byteLength > DEFAULT_MAX_ASSET_BYTES) {
     throw new AssetUploadError('too-large', `Asset exceeds the ${DEFAULT_MAX_ASSET_BYTES}-byte limit.`);
   }
-  const stored = await uploader.put(bytes, mime, input.pageId, input.filename);
+  const stored = await uploader.put(bytes, mime, input.pageId);
   return {assetId: stored.id, ...(stored.url ? {url: stored.url} : {}), bytes: bytes.byteLength, mime};
 }
 

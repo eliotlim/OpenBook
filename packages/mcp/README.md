@@ -31,11 +31,12 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 
 ### Images via MCP
 
-1. Call `upload_asset` with `pageId`, an image `mime`, and `base64` bytes.
-2. Copy the returned `assetId`; the payload itself is never echoed.
-3. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
-4. Later use `update_block_props` to change `alt` or `width`.
-5. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
+1. On suggest-mode installs, call `request_edit_access` first; uploads apply immediately and cannot be queued as suggestions.
+2. Call `upload_asset` with `pageId`, an image `mime`, and `base64` bytes.
+3. Copy the returned `assetId`; the payload itself is never echoed.
+4. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
+5. Later use `update_block_props` to change `alt` or `width`.
+6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
 
 Table coordinates are **render order** (the sorted order you see), not positions in
 the stored array — a reordered table's arrays are not in display order. Tables built

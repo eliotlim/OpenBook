@@ -679,21 +679,20 @@ export class AgentRunner {
       {
         name: 'upload_asset',
         description: 'Upload a raster image or inert binary asset for a page. Returns an assetId for an image or htmlArtifact block. Applied immediately, but refused without page write access.',
-        args: '{"pageId": string, "mime": string, "filename"?: string, "base64": string}',
+        args: '{"pageId": string, "mime": string, "base64": string}',
         schema: obj({
           pageId: str('The page that will reference the asset.'),
           mime: str('An allowed raster image MIME, or application/octet-stream for htmlArtifact.'),
-          filename: str('Optional display filename.'),
           base64: str('Base64-encoded bytes.'),
         }, ['pageId', 'mime', 'base64']),
         write: false,
         run: async (args) => {
+          if (!this.directEdits || this.tainted) return 'read-only: Uploads apply immediately, so they need direct edit access. Call request_edit_access first.';
           const pageId = String(args.pageId ?? '');
           try {
             const result = await uploadAgentAsset({
               pageId,
               mime: String(args.mime ?? ''),
-              ...(typeof args.filename === 'string' ? {filename: args.filename} : {}),
               base64: String(args.base64 ?? ''),
             }, {
               pageExists: async (id) => Boolean(await this.readablePage(id)),

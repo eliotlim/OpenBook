@@ -1039,15 +1039,14 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       inputSchema: {
         pageId: z.string().describe('The existing page that will reference the asset.'),
         mime: z.string().describe('An allowed raster image MIME, or application/octet-stream for htmlArtifact.'),
-        filename: z.string().optional().describe('Optional display filename.'),
         base64: z.string().describe('Base64-encoded bytes. Never echoed in the result.'),
       },
     },
-    async ({pageId, mime, filename, base64}) => {
+    async ({pageId, mime, base64}) => {
       try {
-        const result = await uploadAgentAsset({pageId, mime, filename, base64}, {
+        const result = await uploadAgentAsset({pageId, mime, base64}, {
           pageExists: async (id) => Boolean(await client.getPage(id)),
-          canWrite: async (id) => (await resolveWritePolicy(id)) === 'direct',
+          canWrite: (id) => resolveWritePolicy(id),
           put: async (bytes, safeMime, id) => client.putAsset(bytes, safeMime, id),
         });
         return text(JSON.stringify(result));
