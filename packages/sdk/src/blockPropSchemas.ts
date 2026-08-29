@@ -10,12 +10,12 @@ type Field = {schema: z.ZodTypeAny; json: Record<string, unknown>};
 const string = (description?: string, constraints: Record<string, unknown> = {}): Field => ({
   schema: z.string(), json: {type: 'string', ...constraints, ...(description ? {description} : {})},
 });
-const number = (description?: string, minimum?: number, maximum?: number): Field => ({
-  schema: z.number().finite().refine((n) => minimum === undefined || n >= minimum).refine((n) => maximum === undefined || n <= maximum),
-  json: {type: 'number', ...(minimum === undefined ? {} : {minimum}), ...(maximum === undefined ? {} : {maximum}), ...(description ? {description} : {})},
+const number = (description?: string, minimum = Number.NEGATIVE_INFINITY, maximum = Number.POSITIVE_INFINITY): Field => ({
+  schema: z.number().finite().min(minimum).max(maximum),
+  json: {type: 'number', ...(Number.isFinite(minimum) ? {minimum} : {}), ...(Number.isFinite(maximum) ? {maximum} : {}), ...(description ? {description} : {})},
 });
 const cssLength = (description?: string): Field => ({
-  schema: z.string().regex(/^\d+(\.\d+)?(%|px)$/),
+  schema: z.string().regex(/^\d+(\.\d+)?(%|px)$/, 'must be a CSS length like "60%" or "320px"'),
   json: {type: 'string', pattern: '^\\d+(\\.\\d+)?(%|px)$', ...(description ? {description} : {})},
 });
 const boolean = (description?: string): Field => ({schema: z.boolean(), json: {type: 'boolean', ...(description ? {description} : {})}});
@@ -53,7 +53,7 @@ const fields = {
   todo: {checked: boolean()}, quote: {}, callout: {variant: enumeration(['info', 'warn', 'success'])},
   code: {language: text, live: boolean(), name: text, collapsed: boolean()}, notes: {}, divider: {},
   image: {assetId: id, src: text, alt: text, caption: text, width: cssLength('Rendered width as a CSS length such as "60%" or "320px".')},
-  htmlArtifact: {assetId: id, title: text, height: number('Sandbox height in CSS pixels.', 80, 4096)},
+  htmlArtifact: {assetId: id, title: text, height: number('Sandbox height in CSS pixels.', 120, 1200)},
   columns: {}, column: {span: number('Grid columns.', 1, 12)}, table: {}, row: {header: boolean()}, cell: {},
   group: {name: text, locked: boolean()}, tabs: {}, tab: {label: text}, accordion: {name: text, gated: boolean()}, accordionsection: {label: text, collapsed: boolean()},
   slider: {...frame, value: number(), min: number(), max: number(), step: number(undefined, 0)},

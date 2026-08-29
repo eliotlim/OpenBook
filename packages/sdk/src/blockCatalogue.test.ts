@@ -175,6 +175,7 @@ describe('typed prop schemas', () => {
   it('image width is a CSS length STRING (the editor writes "30%"/"60%", never numbers)', () => {
     expect(invalidBlockProps('image', {width: '60%'})).toBeNull();
     expect(invalidBlockProps('image', {width: 60})).toContain('"width"');
+    expect(invalidBlockProps('image', {width: 'auto'})).toContain('CSS length');
     expect(blockTypeInfo('image')?.hint).toContain('"60%"');
     // htmlArtifact height stays numeric (CSS pixels from the resize handle).
     expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();

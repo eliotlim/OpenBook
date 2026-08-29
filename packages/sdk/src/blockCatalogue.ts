@@ -354,8 +354,9 @@ export interface PluginBlockSource {
  * (`PluginManifest.blocks`). Pass the installed plugins where a listing is
  * available; omit it and the plugin section says so instead of guessing.
  */
-export function blockCatalogueText(plugins?: readonly PluginBlockSource[]): string {
-  const blocks = BLOCK_TYPE_CATALOGUE.map((e) => ({
+export function blockCatalogueText(plugins?: readonly PluginBlockSource[], types?: readonly string[]): string {
+  const wanted = types ? new Set(types) : null;
+  const blocks = BLOCK_TYPE_CATALOGUE.filter((e) => !wanted || wanted.has(e.type)).map((e) => ({
     type: e.type, category: e.category, nature: e.nature,
     ...(e.parent ? {parent: e.parent} : {}), ...(e.kitValue ? {kitValue: true} : {}),
     description: e.hint ?? `${e.type} ${e.nature} block.`,
@@ -365,8 +366,8 @@ export function blockCatalogueText(plugins?: readonly PluginBlockSource[]): stri
     type: `${p.manifest.id}/${b.type}`, category: 'plugin', nature: 'void',
     description: b.description ?? `${p.manifest.name ?? p.manifest.id} plugin block.`,
     propsSchema: {type: 'object', properties: {}, additionalProperties: true}, enabled: p.enabled !== false,
-  }))) ?? null;
-  return JSON.stringify({blocks, pluginBlocks, pluginListingAvailable: plugins !== undefined}, null, 2);
+  })).filter((b) => !wanted || wanted.has(b.type))) ?? null;
+  return JSON.stringify({blocks, pluginBlocks, pluginListingAvailable: plugins !== undefined});
 }
 
 /**

@@ -999,9 +999,9 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       title: 'List block types',
       description:
         'List every block type append_blocks / create_artifact_page / update_block_props accept — core blocks, the interactive kit, and installed plugin blocks — with each type\'s nature (container/text/void), where child-only types must sit, declared props, and whether it publishes a reactive kit value.',
-      inputSchema: {},
+      inputSchema: {types: z.array(z.string()).max(50).optional()},
     },
-    async () => {
+    async ({types}) => {
       // Failure-tolerant: an older server without the plugins endpoint still
       // gets the core + kit catalogue, with the plugin section saying so.
       let plugins;
@@ -1010,7 +1010,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       } catch {
         plugins = undefined;
       }
-      return text(blockCatalogueText(plugins));
+      return text(blockCatalogueText(plugins, types));
     },
   );
 

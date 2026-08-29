@@ -176,6 +176,10 @@ async function main(): Promise<void> {
   console.log('  ✓ list_block_types lists every catalogued core + kit type');
   check('with no plugins installed, pluginBlocks is empty', before.pluginBlocks.length === 0);
 
+  const filtered = JSON.parse(resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {types: ['heading', 'kitchart']}})));
+  check('list_block_types filters its payload to requested types',
+    filtered.blocks.length === 2 && filtered.blocks.every((b: {type: string}) => ['heading', 'kitchart'].includes(b.type)));
+
   await ownerSeed.installPlugin(ledgerPackage());
   const after = JSON.parse(resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}})));
   check('after installing the bundled ledger plugin, its declared blocks are listed',

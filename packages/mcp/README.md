@@ -56,7 +56,7 @@ Call `list_block_types` for the machine-readable source of truth: every entry ha
 | `callout` | `variant:"info"\|"warn"\|"success"` |
 | `code` | `language:string`, `live:boolean`, `name:string`, `collapsed:boolean` |
 | `image` | `assetId:string` or `src:string`, `alt:string`, `caption:string`, `width:string` (CSS length, e.g. `"60%"` or `"320px"`) |
-| `htmlArtifact` | `assetId:string`, `title:string`, `height:number` (CSS px, 80–4096) |
+| `htmlArtifact` | `assetId:string`, `title:string`, `height:number` (CSS px, 120–1200) |
 | `column` | `span:number` (1–12) |
 | `row` | `header:boolean` |
 | `group` | `name:string`, `locked:boolean` |
@@ -74,7 +74,7 @@ Call `list_block_types` for the machine-readable source of truth: every entry ha
 | `tagfield` | shared input props, `selected:string[]`, options, `dynamic:expression`, `freeEntry:boolean` |
 | `location` | shared input props, `labeltext:string`, `lat:number` (-90–90), `lng:number` (-180–180) |
 | `actionbutton` | shared frame props; `btnlabel:string`, `action:"increment"\|"set"\|"toggle"\|"link"`, `target:string`, `amount:number`, `url:string` |
-| `kitchart` | shared frame props; `kind:"line"\|"area"\|"bar"\|"pie"\|"donut"\|"scatter"\|"funnel"`, `title:string`, `source:expression`, `labels:expression`; database-source fields are in its returned schema |
+| `kitchart` | shared frame props; `kind:"line"\|"area"\|"bar"\|"pie"\|"donut"\|"scatter"\|"funnel"`, `title:string`, `source:expression`, `labels:string`; database-source fields are in its returned schema |
 | `statuslight` | shared frame props; `source:expression`, `okAt:number`, `warnAt:number` |
 | `progressbar` | shared frame props; `source:expression`, `max:number`, `format:string` |
 | `formula` | shared frame props; `source:expression` |
@@ -88,10 +88,10 @@ Shared input/frame props are `name`, `label`, and `description` strings plus `co
 
 ### Reactive expression grammar
 
-`source`, `labels`, and `dynamic` are non-empty JavaScript expressions (maximum 4096 characters), evaluated in a QuickJS sandbox. Input names are identifiers matching `[A-Za-z_$][A-Za-z0-9_$]*` and are available as bare names or through `scope`; normal literals, arrays, objects, property access, arithmetic, comparisons, boolean/ternary operators, and built-in array/string methods work. Named groups publish `group.field.value`. Expressions cannot access the browser/Node environment, and execution is time- and memory-limited. Use a single expression, not statements.
+`source` and `dynamic` are expressions; `kitchart.labels` is a plain comma-separated string. Expressions are non-empty JavaScript expressions (maximum 4096 characters), evaluated in a QuickJS sandbox. Input names are identifiers matching `[A-Za-z_$][A-Za-z0-9_$]*` and are available as bare names or through `scope`; normal literals, arrays, objects, property access, arithmetic, comparisons, boolean/ternary operators, built-in array/string methods, and `Math`/`JSON`/`Number` idioms work. Named groups publish `group.field.value`. Expressions cannot access the browser/Node environment, and execution is time- and memory-limited. Use a single expression, not statements.
 
-- Kitchart: inputs `revenue` and `cost` → `{"source":"[revenue, cost]","labels":"['Revenue', 'Cost']"}`.
-- Status light: `{"source":"budget - spent >= 0","okAt":1,"warnAt":0}`.
+- Kitchart: inputs `revenue` and `cost` → `{"source":"[revenue, cost]","labels":"Revenue, Cost"}`.
+- Status light: `{"source":"budget - spent","okAt":0,"warnAt":-20}`.
 - Formula: `{"source":"subtotal * (1 + taxRate)"}`.
 
 For media, follow [Images via MCP](#images-via-mcp) and upload the asset before appending `image` or `htmlArtifact`. For formatted content, see [Rich text input](#rich-text-input). For precise structure changes, inspect first, then use `insert_blocks` or `move_block`; tables must use the `table_*` tools.
@@ -103,7 +103,7 @@ For media, follow [Images via MCP](#images-via-mcp) and upload the asset before 
 3. Copy the returned `assetId`; the payload itself is never echoed.
 4. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
 5. Later use `update_block_props` to change `alt` or `width`.
-6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
+6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,title,height}`.
 
 Table coordinates are **render order** (the sorted order you see), not positions in
 the stored array — a reordered table's arrays are not in display order. Tables built
