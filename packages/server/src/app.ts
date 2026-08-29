@@ -1949,6 +1949,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
+    await requireAgentDirectWrite(c, id);
     const body = await c.req.json<{parentId?: string | null; orderedIds?: string[]}>();
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);

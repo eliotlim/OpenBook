@@ -15,6 +15,20 @@ export const PAGE_THEME_IDS = [
 ] as const;
 export const PAGE_BACKGROUND_TOKENS = ['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'] as const;
 export const PAGE_COVER_GRADIENT_IDS = ['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night'] as const;
+export const COVER_GRADIENTS: ReadonlyArray<{id: typeof PAGE_COVER_GRADIENT_IDS[number]; css: string}> = [
+  {id: 'dawn', css: 'linear-gradient(120deg, #f6d365 0%, #fda085 100%)'},
+  {id: 'ocean', css: 'linear-gradient(120deg, #4facfe 0%, #00f2fe 100%)'},
+  {id: 'dusk', css: 'linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%)'},
+  {id: 'forest', css: 'linear-gradient(120deg, #0ba360 0%, #3cba92 100%)'},
+  {id: 'ember', css: 'linear-gradient(120deg, #ff6a88 0%, #ff99ac 60%, #ffc3a0 100%)'},
+  {id: 'slate', css: 'linear-gradient(120deg, #2b5876 0%, #4e4376 100%)'},
+  {id: 'citrus', css: 'linear-gradient(120deg, #f7971e 0%, #ffd200 100%)'},
+  {id: 'mint', css: 'linear-gradient(120deg, #43e97b 0%, #38f9d7 100%)'},
+  {id: 'grape', css: 'linear-gradient(120deg, #667eea 0%, #764ba2 100%)'},
+  {id: 'sand', css: 'linear-gradient(120deg, #e6dada 0%, #d3a17b 100%)'},
+  {id: 'rose', css: 'linear-gradient(120deg, #ee9ca7 0%, #ffdde1 100%)'},
+  {id: 'night', css: 'linear-gradient(120deg, #232526 0%, #414345 100%)'},
+];
 
 export type PageToolErrorCode = 'page_not_found' | 'parent_not_found' | 'invalid_input' | 'invalid_move' | 'permission_denied';
 export class PageToolError extends Error {
@@ -37,7 +51,7 @@ const oneOf = (value: unknown, values: readonly string[]): value is string => ty
 
 export interface PageAppearanceInput {
   icon?: string | null;
-  cover?: {kind: 'gradient'; css: string} | {kind: 'image'; url: string; position?: number} | null;
+  cover?: {kind: 'gradient'; gradientId: typeof PAGE_COVER_GRADIENT_IDS[number]} | {kind: 'image'; url: string; position?: number} | null;
   theme?: {themeId?: string; background?: string; controlIntensity?: number; interfaceIntensity?: number} | null;
   fullWidth?: boolean | null;
 }
@@ -73,10 +87,16 @@ export function buildPageAppearancePatch(input: PageAppearanceInput): Record<str
     else {
       const cover = record(input.cover);
       if (!cover || (cover.kind !== 'gradient' && cover.kind !== 'image')) throw new PageToolError('invalid_input', 'cover must be a gradient or image cover.');
-      if (cover.kind === 'gradient' && (typeof cover.css !== 'string' || !cover.css)) throw new PageToolError('invalid_input', 'A gradient cover requires css.');
-      if (cover.kind === 'image' && (typeof cover.url !== 'string' || !cover.url)) throw new PageToolError('invalid_input', 'An image cover requires a url.');
+      const allowed = cover.kind === 'gradient' ? new Set(['kind', 'gradientId']) : new Set(['kind', 'url', 'position']);
+      if (Object.keys(cover).some((key) => !allowed.has(key))) throw new PageToolError('invalid_input', 'cover contains an unknown setting.');
+      if (cover.kind === 'gradient' && !oneOf(cover.gradientId, PAGE_COVER_GRADIENT_IDS)) throw new PageToolError('invalid_input', 'A gradient cover requires a valid gradientId.');
+      if (cover.kind === 'image' && (typeof cover.url !== 'string' || (!/^https:\/\//i.test(cover.url) && !cover.url.startsWith('/api/assets/')))) {
+        throw new PageToolError('invalid_input', 'cover.url must be https or an OpenBook asset URL');
+      }
       if (cover.position !== undefined && (typeof cover.position !== 'number' || cover.position < 0 || cover.position > 1)) throw new PageToolError('invalid_input', 'cover.position must be between 0 and 1.');
-      patch[COVER_PROPERTY_ID] = cover;
+      patch[COVER_PROPERTY_ID] = cover.kind === 'gradient'
+        ? {kind: 'gradient', css: COVER_GRADIENTS.find(({id}) => id === cover.gradientId)!.css}
+        : cover;
     }
   }
   if (Object.keys(patch).length === 0) throw new PageToolError('invalid_input', 'Pass at least one appearance setting.');
@@ -129,9 +149,11 @@ export async function setPagePropertiesTool(store: PageToolStore, pageId: string
   return updated;
 }
 
-export async function movePageTool(store: PageToolStore, input: {pageId: string; parentId: string | null; position?: {index: number} | {afterId: string}}): Promise<StoredPage> {
-  await page(store, input.pageId);
-  const pages = await store.listPages();
+export type PageToolMoveInput = {pageId: string; parentId: string | null; position?: {index: number} | {afterId: string}};
+
+/** Validate a page move and compute the ordered destination siblings without writing. */
+export function buildMovePlan(pages: PageMeta[], input: PageToolMoveInput): {parentId: string | null; orderedIds: string[]} {
+  if (!pages.some((candidate) => candidate.id === input.pageId)) throw new PageToolError('page_not_found', 'Page not found.');
   if (input.parentId === input.pageId) throw new PageToolError('invalid_move', 'A page cannot be its own parent.');
   if (input.parentId !== null && !pages.some((candidate) => candidate.id === input.parentId)) throw new PageToolError('parent_not_found', 'Parent page not found.');
   const byId = new Map(pages.map((candidate) => [candidate.id, candidate]));
@@ -148,7 +170,13 @@ export async function movePageTool(store: PageToolStore, input: {pageId: string;
     if (!Number.isInteger(index) || index < 0 || index > siblings.length) throw new PageToolError('invalid_input', 'position.index is outside the destination sibling range.');
     siblings.splice(index, 0, input.pageId);
   }
-  const moved = await store.movePage(input.pageId, {parentId: input.parentId, orderedIds: siblings});
+  return {parentId: input.parentId, orderedIds: siblings};
+}
+
+export async function movePageTool(store: PageToolStore, input: PageToolMoveInput): Promise<StoredPage> {
+  await page(store, input.pageId);
+  const move = buildMovePlan(await store.listPages(), input);
+  const moved = await store.movePage(input.pageId, move);
   if (!moved) throw new PageToolError('invalid_move', 'The move was refused.');
   return moved;
 }

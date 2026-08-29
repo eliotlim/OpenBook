@@ -7,6 +7,8 @@ import {
   BLOCK_TYPE_CATALOGUE,
   blockCatalogueText,
   blockTreeError,
+  buildMovePlan,
+  buildPageAppearancePatch,
   buildDatabaseToolOptions,
   buildDatabaseToolProperty,
   CONTAINER_BLOCK_TYPES,
@@ -26,9 +28,11 @@ import {
   movePageTool,
   PageToolError,
   PAGE_BACKGROUND_TOKENS,
+  PAGE_COVER_GRADIENT_IDS,
   PAGE_THEME_IDS,
   setPageAppearanceTool,
   setPagePropertiesTool,
+  validatePageProperties,
   getPagePropertiesTool,
   projectAppendBlocks,
   resolveDatabaseToolRowValues,
@@ -1019,8 +1023,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     interfaceIntensity: z.number().int().min(0).max(3).optional(),
   }).strict();
   const appearanceCover = z.discriminatedUnion('kind', [
-    z.object({kind: z.literal('gradient'), css: z.string().min(1)}).strict(),
-    z.object({kind: z.literal('image'), url: z.string().url(), position: z.number().min(0).max(1).optional()}).strict(),
+    z.object({kind: z.literal('gradient'), gradientId: z.enum(PAGE_COVER_GRADIENT_IDS)}).strict(),
+    z.object({kind: z.literal('image'), url: z.string().url().or(z.string().startsWith('/api/assets/')).refine((u) => /^https:\/\//i.test(u) || u.startsWith('/api/assets/'), 'cover.url must be https or an OpenBook asset URL'), position: z.number().min(0).max(1).optional()}).strict(),
   ]);
 
   server.registerTool('set_page_appearance', {
@@ -1035,11 +1039,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     try {
       const input = {icon, cover, theme, fullWidth};
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
-        let properties: Record<string, unknown> = {};
-        await setPageAppearanceTool(Object.assign(Object.create(client) as PolicyClient, {setPageProperties: async (_id: string, patch: Record<string, unknown>) => {
-          properties = patch;
-          return (await client.getPage(pageId))!;
-        }}), pageId, input);
+        const properties = buildPageAppearancePatch(input);
         const summary = 'Update page appearance';
         const suggestion = await recordSuggestion({kind: 'set_page_appearance', pageId, summary, target: {},
           after: JSON.stringify(properties), payload: {pageId, properties}});
@@ -1064,11 +1064,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   }, async ({pageId, properties}) => {
     try {
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
-        let patch: Record<string, unknown> = {};
-        await setPagePropertiesTool(Object.assign(Object.create(client) as PolicyClient, {setPageProperties: async (_id: string, value: Record<string, unknown>) => {
-          patch = value;
-          return (await client.getPage(pageId))!;
-        }}), pageId, properties);
+        const patch = validatePageProperties(properties);
         const summary = 'Update page properties';
         const suggestion = await recordSuggestion({kind: 'set_page_properties', pageId, summary, target: {},
           after: JSON.stringify(patch), payload: {pageId, properties: patch}});
@@ -1088,11 +1084,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     try {
       const input = {pageId, parentId, position};
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
-        let move = {parentId, orderedIds: [] as string[]};
-        await movePageTool(Object.assign(Object.create(client) as PolicyClient, {movePage: async (_id: string, value: {parentId: string | null; orderedIds: string[]}) => {
-          move = value;
-          return (await client.getPage(pageId))!;
-        }}), input);
+        buildMovePlan(await client.listPages(), input);
+        const move = {parentId, ...(position && 'afterId' in position ? {afterId: position.afterId} : position ? {index: position.index} : {})};
         const summary = 'Move page';
         const suggestion = await recordSuggestion({kind: 'move_page', pageId, summary, target: {},
           after: JSON.stringify(move), payload: {pageId, move}});

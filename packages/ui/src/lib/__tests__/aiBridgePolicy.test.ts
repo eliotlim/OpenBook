@@ -65,6 +65,11 @@ function makeClient(opts: {
     createDatabase: vi.fn(async () => ({}) as never),
     updateDatabase: vi.fn(async () => ({}) as never),
     deletePage: vi.fn(async () => true),
+    listPages: vi.fn(async () => [
+      {id: 'parent', name: 'Parent', parentId: null},
+      {id: 'existing', name: 'Existing', parentId: 'parent'},
+      {id: 'page-1', name: 'Page 1', parentId: null},
+    ] as never),
     movePage: vi.fn(async () => ({} as never)),
     setPageProperties: vi.fn(async () => ({} as never)),
     getPage: vi.fn(async () => opts.storedPage ?? null),
@@ -104,7 +109,7 @@ describe('API-10 page suggestions: accept replays the recorded operation payload
   it.each([
     ['set_page_appearance', 'setPageProperties', {properties: {sys_icon: '✨'}}, ['page-1', {sys_icon: '✨'}]],
     ['set_page_properties', 'setPageProperties', {properties: {sys_owner: 'Ada'}}, ['page-1', {sys_owner: 'Ada'}]],
-    ['move_page', 'movePage', {move: {parentId: 'parent', orderedIds: ['page-1']}}, ['page-1', {parentId: 'parent', orderedIds: ['page-1']}]],
+    ['move_page', 'movePage', {move: {parentId: 'parent', afterId: 'existing'}}, ['page-1', {parentId: 'parent', orderedIds: ['existing', 'page-1']}]],
   ] as const)('%s calls %s with the recorded payload', async (kind, method, payload, expectedArgs) => {
     const client = makeClient({pagePolicy: () => 'inherit'});
     await applyProposal(client, suggestionToProposal(suggestion(kind, payload)));

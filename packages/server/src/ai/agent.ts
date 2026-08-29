@@ -5,6 +5,10 @@ import {
   buildDatabaseToolOptions,
   buildDatabaseToolProperty,
   buildPageAppearancePatch,
+  PAGE_BACKGROUND_TOKENS,
+  PAGE_COVER_GRADIENT_IDS,
+  PAGE_THEME_IDS,
+  THEME_PROPERTY_ID,
   createDatabaseTool,
   createPropertyTool,
   DATABASE_TOOL_PROPERTY_TYPES,
@@ -1045,14 +1049,15 @@ export class AgentRunner {
           };
           if (level(args.controlIntensity) !== undefined) theme.controlIntensity = level(args.controlIntensity);
           if (level(args.interfaceIntensity) !== undefined) theme.interfaceIntensity = level(args.interfaceIntensity);
-          if (Object.keys(theme).length > 0) buildPageAppearancePatch({theme});
+          const patch = Object.keys(theme).length > 0 ? buildPageAppearancePatch({theme}) : {};
+          const proposalTheme = patch[THEME_PROPERTY_ID] as Record<string, unknown> | undefined;
           const coverGradientId =
             typeof args.cover === 'string' && COVER_GRADIENT_IDS.has(args.cover) ? args.cover : undefined;
           if (Object.keys(theme).length === 0 && !coverGradientId) {
             return `Nothing to set. Themes: ${[...THEME_IDS].join(', ')}. Backgrounds: ${[...BACKGROUND_TOKENS].join(', ')}. Covers: ${[...COVER_GRADIENT_IDS].join(', ')}.`;
           }
           const parts = [
-            ...Object.entries(theme).map(([k, v]) => `${k}=${v}`),
+            ...Object.entries(proposalTheme ?? {}).map(([k, v]) => `${k}=${v}`),
             ...(coverGradientId ? [`cover=${coverGradientId}`] : []),
           ];
           return this.propose({
@@ -1060,7 +1065,7 @@ export class AgentRunner {
             summary: `Restyle "${page.name ?? 'Untitled'}": ${parts.join(', ')}`,
             pageId,
             after: parts.join(', '),
-            payload: {pageId, ...(Object.keys(theme).length ? {theme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
+            payload: {pageId, ...(proposalTheme ? {theme: proposalTheme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
           });
         },
       },
@@ -1110,11 +1115,13 @@ export class AgentRunner {
           if (parentId === pageId) return 'A page cannot be its own parent.';
           if (parentId && !pages.some((p) => p.id === parentId)) return `Parent page "${parentId}" not found.`;
           const before = typeof args.beforePageId === 'string' ? args.beforePageId : '';
+          const siblings = pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId);
+          const at = siblings.findIndex((p) => p.id === before);
           try {
             await movePageTool(pageStore(), {
               pageId,
               parentId,
-              ...(before ? {position: {index: Math.max(0, pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId).findIndex((p) => p.id === before))}} : {}),
+              ...(before && at >= 0 ? {position: {index: at}} : {}),
             });
           } catch (error) {
             return error instanceof Error ? error.message : 'Could not move the page.';
@@ -1687,12 +1694,10 @@ const resolveRowValues = (schema: Parameters<typeof resolveDatabaseToolRowValues
 
 // ── Layout / rich-block + appearance helpers ─────────────────────────────────────
 
-/** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
-const THEME_IDS = new Set<string>([
-  'default', 'amber', 'forest', 'graphite', 'ocean', 'rose', 'sandstone', 'slate', 'sunset', 'teal', 'violet',
-]);
-const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
-const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);
+/** Per-page theme values the agent may set (shared with SDK consumers and UI). */
+const THEME_IDS = new Set<string>(PAGE_THEME_IDS);
+const BACKGROUND_TOKENS = new Set<string>(PAGE_BACKGROUND_TOKENS);
+const COVER_GRADIENT_IDS = new Set<string>(PAGE_COVER_GRADIENT_IDS);
 
 /** A short "type ×n" summary of a block list (for the review card). */
 function summarizeBlocks(blocks: unknown[]): string {

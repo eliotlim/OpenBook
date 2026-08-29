@@ -1,5 +1,6 @@
 import type * as Y from 'yjs';
 import {
+  buildMovePlan,
   resolveAgentEdits,
   resolveTableOp,
   tableOpError,
@@ -150,7 +151,7 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 // so the live-vs-stored branching is unit-testable against the doc registry.
 
 /** The subset of the data client the agent write path calls. */
-export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage' | 'setPageProperties' | 'movePage'>;
+export type ApplyClient = Pick<DataClient, 'listPages' | 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage' | 'setPageProperties' | 'movePage'>;
 
 /**
  * When deleting `found` would empty its table, the id of the TABLE to delete
@@ -455,7 +456,9 @@ export const applyProposal = async (client: ApplyClient, p: AgentProposal): Prom
     return;
   }
   if (p.kind === 'move_page') {
-    await client.movePage(pageId, payload.move as {parentId: string | null; orderedIds: string[]});
+    const move = payload.move as {parentId: string | null; afterId?: string; index?: number};
+    const position = move.afterId !== undefined ? {afterId: move.afterId} : move.index !== undefined ? {index: move.index} : undefined;
+    await client.movePage(pageId, buildMovePlan(await client.listPages(), {pageId, parentId: move.parentId, position}));
     return;
   }
 

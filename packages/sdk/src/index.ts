@@ -221,9 +221,11 @@ export {
   PAGE_THEME_IDS,
   PAGE_BACKGROUND_TOKENS,
   PAGE_COVER_GRADIENT_IDS,
+  COVER_GRADIENTS,
   PageToolError,
   buildPageAppearancePatch,
   validatePageProperties,
+  buildMovePlan,
   setPageAppearanceTool,
   getPagePropertiesTool,
   setPagePropertiesTool,
@@ -231,6 +233,7 @@ export {
   type PageAppearanceInput,
   type PageToolErrorCode,
   type PageToolStore,
+  type PageToolMoveInput,
 } from './pageTools';
 export {
   TITLE_PROPERTY_ID,
