@@ -9,13 +9,13 @@ import {
   blockTreeError,
   buildDatabaseToolOptions,
   buildDatabaseToolProperty,
+  CONTAINER_BLOCK_TYPES,
   createDatabaseTool,
   createPropertyTool,
   DATABASE_TOOL_PROPERTY_TYPES,
   DatabaseToolError,
   deleteRowTool,
   describeDatabaseTool,
-  CONTAINER_BLOCK_TYPES,
   findUnknownBlockType,
   FORM_FIELD_KINDS,
   invalidBlockProps,
@@ -23,32 +23,32 @@ import {
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
-  tableOrderContractKey,
-  tableOrderContractRefusal,
-  TEXT_BLOCK_TYPES,
-  unknownBlockTypeMessage,
   projectAppendBlocks,
-  resolveTableOp,
   resolveDatabaseToolRowValues,
-  updateDatabaseTool,
-  updatePropertyTool,
-  updateRowTool,
+  resolveTableOp,
   snapshotTableIdFor,
   snapshotTableView,
   snapshotTables,
   snapshotText,
   tableOpError,
   tableOpRemovesTable,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   tableShapeOf,
+  TEXT_BLOCK_TYPES,
   textSnapshot,
+  unknownBlockTypeMessage,
+  updateDatabaseTool,
+  updatePropertyTool,
+  updateRowTool,
   type AgentEditsMode,
   type DataClient,
   type DatabaseRow,
   type FormField,
   type FormSchema,
   type PageSnapshot,
-  type StoredPage,
   type SnapshotTableView,
+  type StoredPage,
   type StoredSuggestion,
   type SuggestionKind,
   type SuggestionTarget,
@@ -1752,9 +1752,9 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       : failure('[invalid_input] The database operation could not be completed.');
   };
   const databasePropertySchema = {
-    name: z.string().min(1).describe('Property name.'),
+    name: z.string().min(1).max(200).describe('Property name.'),
     type: z.enum(DATABASE_TOOL_PROPERTY_TYPES).describe('Manual database property type.'),
-    options: z.array(z.string()).optional().describe('Choice labels for select-style properties.'),
+    options: z.array(z.string().max(200)).max(100).optional().describe('Choice labels for select-style properties.'),
   };
 
   server.registerTool('describe_database', {
@@ -1769,7 +1769,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   server.registerTool('create_database', {
     title: 'Create a database',
     description: 'Create a database on a new host page, optionally with initial manual properties.',
-    inputSchema: {title: z.string().min(1), properties: z.array(z.object(databasePropertySchema).strict()).optional()},
+    inputSchema: {title: z.string().min(1).max(200), properties: z.array(z.object(databasePropertySchema).strict()).max(100).optional()},
   }, async ({title, properties}) => {
     try {
       const page = await client.savePage({name: title.trim(), data: textSnapshot('', 'mcp')});
@@ -1788,7 +1788,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
 
   server.registerTool('update_database', {
     title: 'Update a database', description: 'Rename the database hosted by a page.',
-    inputSchema: {pageId: z.string(), name: z.string().min(1)},
+    inputSchema: {pageId: z.string(), name: z.string().min(1).max(200)},
   }, async ({pageId, name}) => {
     try {
       const database = await client.getPageDatabase(pageId);
@@ -1826,7 +1826,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
 
   server.registerTool('update_property', {
     title: 'Update a database property', description: 'Rename a property and/or replace select-style options.',
-    inputSchema: {pageId: z.string(), propertyId: z.string(), name: z.string().min(1).optional(), options: z.array(z.string()).optional()},
+    inputSchema: {pageId: z.string(), propertyId: z.string(), name: z.string().min(1).max(200).optional(), options: z.array(z.string().max(200)).max(100).optional()},
   }, async ({pageId, propertyId, name, options}) => {
     try {
       const database = await client.getPageDatabase(pageId);
@@ -1835,7 +1835,11 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       if (index < 0) throw new DatabaseToolError('property_not_found', `Unknown property "${propertyId}".`);
       if (name === undefined && options === undefined) throw new DatabaseToolError('invalid_input', 'Pass a name and/or options.');
       const property = {...database.schema.properties[index]};
-      if (name !== undefined) property.name = name.trim();
+      if (name !== undefined) {
+        const trimmed = name.trim();
+        if (!trimmed) throw new DatabaseToolError('invalid_input', 'A property name is required.');
+        property.name = trimmed;
+      }
       if (options !== undefined) property.options = buildDatabaseToolOptions(options, property.options);
       const schema = {...database.schema, properties: database.schema.properties.map((p, i) => i === index ? property : p)};
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
@@ -1851,7 +1855,10 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
 
   server.registerTool('update_row', {
     title: 'Update a database row', description: 'Update a row title and/or validated property values without changing other cells.',
-    inputSchema: {pageId: z.string(), rowId: z.string(), name: z.string().optional(), properties: z.record(z.unknown()).optional()},
+    inputSchema: {
+      pageId: z.string(), rowId: z.string(), name: z.string().max(200).optional(),
+      properties: z.record(z.unknown()).refine((value) => Object.keys(value).length <= 100, 'Too many properties').optional(),
+    },
   }, async ({pageId, rowId, name, properties}) => {
     try {
       const database = await client.getPageDatabase(pageId);

@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import type {AgentEditsMode, AgentEditsPolicy, PageInput, StoredPage, StoredSuggestion} from '@book.dev/sdk';
-import {applyProposalToDoc, registerBlockEditorDoc, routeAiSuggestions, type ApplyClient, type PolicyClient} from '../aiBridge';
+import {applyProposal, applyProposalToDoc, registerBlockEditorDoc, routeAiSuggestions, suggestionToProposal, type ApplyClient, type PolicyClient} from '../aiBridge';
 import {blockChildren, blockText, blockType, createDoc, encodeSnapshot, findBlock, decodeSnapshot, rootBlocks} from '@/blockeditor/model';
 import type {AgentProposal} from '@book.dev/sdk';
 
@@ -62,6 +62,9 @@ function makeClient(opts: {
       return {} as never;
     }),
     updateRow: vi.fn(async () => ({}) as never),
+    createDatabase: vi.fn(async () => ({}) as never),
+    updateDatabase: vi.fn(async () => ({}) as never),
+    deletePage: vi.fn(async () => true),
     getPage: vi.fn(async () => opts.storedPage ?? null),
     savePage: vi.fn(async (input: PageInput) => {
       saved.push(input);
@@ -69,6 +72,26 @@ function makeClient(opts: {
     }),
   };
 }
+
+describe('database suggestions: accept replays the recorded operation payload', () => {
+  const suggestion = (applyKind: string, payload: Record<string, unknown>): StoredSuggestion => ({
+    id: `s-${applyKind}`, pageId: 'host', authorKind: 'ai', authorName: 'Assistant', kind: 'database-op',
+    target: {}, before: '', after: '', status: 'open', payload: {applyKind, ...payload}, createdAt: '', updatedAt: '',
+  });
+
+  it.each([
+    ['create_database', 'createDatabase', {pageId: 'host', title: 'Tasks', schema: {properties: [], views: []}}, [{pageId: 'host', name: 'Tasks', schema: {properties: [], views: []}}]],
+    ['update_database', 'updateDatabase', {databaseId: 'db', patch: {name: 'Renamed'}}, ['db', {name: 'Renamed'}]],
+    ['create_property', 'updateDatabase', {databaseId: 'db', patch: {schema: {properties: [{id: 'p1'}]}}}, ['db', {schema: {properties: [{id: 'p1'}]}}]],
+    ['update_property', 'updateDatabase', {databaseId: 'db', patch: {schema: {properties: [{id: 'p1', name: 'New'}]}}}, ['db', {schema: {properties: [{id: 'p1', name: 'New'}]}}]],
+    ['update_row', 'updateRow', {databaseId: 'db', rowId: 'row', patch: {name: 'Done', properties: {p1: 3}}}, ['db', 'row', {name: 'Done', properties: {p1: 3}}]],
+    ['delete_row', 'deletePage', {databaseId: 'db', rowId: 'row'}, ['row']],
+  ] as const)('%s calls %s with the recorded payload', async (kind, method, payload, expectedArgs) => {
+    const client = makeClient({pagePolicy: () => 'inherit'});
+    await applyProposal(client, suggestionToProposal(suggestion(kind, payload)));
+    expect(client[method]).toHaveBeenCalledWith(...expectedArgs);
+  });
+});
 
 describe('AGED-4 routeAiSuggestions: resolved-direct applies immediately', () => {
   it('OPEN editor → mutates the live doc and deletes the review row (no suggestion kept)', async () => {

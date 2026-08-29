@@ -155,6 +155,12 @@ async function main(): Promise<void> {
     await dflt.client.callTool({name: 'delete_row', arguments: {pageId: dbHost.id, rowId: row.id}}),
   ];
   check('all six API-9 database writes suggest under suggest policy', dbSuggestCalls.every((result) => resultText(result).includes('Suggested for review')));
+  const suggestedDatabasePageId = /host page ([0-9a-f-]{36})/.exec(resultText(dbSuggestCalls[0]))?.[1];
+  check('create_database creates its host page immediately under suggest policy',
+    Boolean(suggestedDatabasePageId) && Boolean(await seed.getPage(suggestedDatabasePageId!)));
+  const suggestWhitespace = await dflt.client.callTool({name: 'update_property', arguments: {pageId: dbHost.id, propertyId: textProp.id, name: '   '}});
+  check('whitespace property name is refused under suggest policy',
+    suggestWhitespace.isError === true && resultText(suggestWhitespace).includes('[invalid_input]'));
   const dbDescription = await dflt.client.callTool({name: 'describe_database', arguments: {pageId: dbHost.id}});
   check('describe_database remains a read under suggest policy', resultText(dbDescription).includes(database.id));
   check('suggested update/delete row did not mutate', (await seed.listRows(database.id)).some((candidate) => candidate.id === row.id && candidate.name === 'A task'));
@@ -186,6 +192,9 @@ async function main(): Promise<void> {
     await direct.client.callTool({name: 'delete_row', arguments: {pageId: directDbHost.id, rowId: directRow.id}}),
   ];
   check('all six API-9 database writes apply under direct policy', directCalls.every((result) => result.isError !== true && !resultText(result).includes('Suggested for review')));
+  const directWhitespace = await direct.client.callTool({name: 'update_property', arguments: {pageId: directDbHost.id, propertyId: directText.id, name: '   '}});
+  check('whitespace property name is refused under direct policy',
+    directWhitespace.isError === true && resultText(directWhitespace).includes('[invalid_input]'));
   check('direct delete_row moved the row to trash', (await seed.listRows(directDb.id)).length === 0 && (await seed.listTrash()).some((candidate) => candidate.id === directRow.id));
 
   const updD = await direct.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'edited by instance direct'}});

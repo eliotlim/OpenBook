@@ -80,14 +80,18 @@ const optionId = (property: DatabaseProperty, value: unknown): string => {
     ?? options.find((option) => option.label.toLowerCase() === candidate.toLowerCase()))?.id ?? candidate;
 };
 
-const cellValue = (property: DatabaseProperty, value: unknown): unknown => {
+const cellValue = (property: DatabaseProperty, value: unknown, lenient: boolean): unknown => {
   if (value === null || value === undefined) return null;
   if (property.type === 'number' || property.type === 'rating') {
     const number = Number(value);
-    if (!Number.isFinite(number)) throw new DatabaseToolError('invalid_input', `Invalid number for property "${property.name}".`);
+    if (!Number.isFinite(number)) {
+      if (lenient) return null;
+      throw new DatabaseToolError('invalid_input', `Invalid number for property "${property.name}".`);
+    }
     return number;
   }
   if (property.type === 'checkbox') {
+    if (lenient) return Boolean(value);
     if (typeof value !== 'boolean') throw new DatabaseToolError('invalid_input', `Invalid checkbox value for property "${property.name}".`);
     return value;
   }
@@ -97,14 +101,17 @@ const cellValue = (property: DatabaseProperty, value: unknown): unknown => {
 };
 
 export const resolveDatabaseToolRowValues = (
-  schema: DatabaseSchema, input: Record<string, unknown>,
+  schema: DatabaseSchema, input: Record<string, unknown>, opts: {lenient?: boolean} = {},
 ): Record<string, unknown> => {
   const values: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     const property = schema.properties.find((item) => item.id === key)
       ?? schema.properties.find((item) => item.name.toLowerCase() === key.toLowerCase());
-    if (!property) throw new DatabaseToolError('property_not_found', `Unknown property "${key}".`);
-    values[property.id] = cellValue(property, value);
+    if (!property) {
+      if (opts.lenient) continue;
+      throw new DatabaseToolError('property_not_found', `Unknown property "${key}".`);
+    }
+    values[property.id] = cellValue(property, value, opts.lenient === true);
   }
   return values;
 };

@@ -28,7 +28,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
 | `describe_database` | Return a database's schema, first 40 row identities, and total row count. |
-| `create_database` | Create a database on a new host page, with optional initial properties. |
+| `create_database` | Creates the host page immediately (like `create_page`); under Suggest the schema itself is queued for review. |
 | `update_database` | Rename a database by its host page id. |
 | `create_property` | Add a validated manual property and return its generated id. |
 | `update_property` | Rename a property and/or replace its select-style options. |

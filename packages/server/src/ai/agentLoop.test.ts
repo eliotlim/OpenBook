@@ -217,6 +217,23 @@ describe('schema fix: set_db_cell points at describe_database for a bad property
   });
 });
 
+describe('agent database rows preserve lenient model-value coercion', () => {
+  it('ignores unknown columns, nulls bad numbers, and Boolean-coerces checkboxes', async () => {
+    const host = await store.upsertPage({name: `lenient-db-${seq}`, data: snapshot()});
+    const database = await store.createDatabase({pageId: host.id, name: 'DB', schema: {properties: [
+      {id: 'points', name: 'Points', type: 'number'},
+      {id: 'done', name: 'Done', type: 'checkbox'},
+    ], views: []}});
+    const events = await runCapture(guestPrincipal(), 'create_row', {
+      pageId: host.id, name: 'Loose row', properties: {Missing: 'ignored', Points: 'not-a-number', Done: 'yes'},
+    });
+
+    expect(resultOf(events, 'create_row')).toContain(' (ignored unknown column(s): Missing)');
+    const rows = await store.listRows(database.id);
+    expect(rows[0]?.properties).toMatchObject({points: null, done: true});
+  });
+});
+
 describe('effort: maxSteps per effort is raised with a bounded ceiling', () => {
   it('low/med/high are 6/12/24 — monotonic and finite', () => {
     expect(effortProfile('low').maxSteps).toBe(6);

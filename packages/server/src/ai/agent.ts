@@ -1661,10 +1661,15 @@ const buildOptions = buildDatabaseToolOptions;
 const buildProperty = (spec: Record<string, unknown>): DatabaseProperty | null => {
   try { return buildDatabaseToolProperty(spec); } catch { return null; }
 };
-const resolveRowValues = (schema: Parameters<typeof resolveDatabaseToolRowValues>[0], input: Record<string, unknown>) => ({
-  values: resolveDatabaseToolRowValues(schema, input),
-  unknown: [] as string[],
-});
+const resolveRowValues = (schema: Parameters<typeof resolveDatabaseToolRowValues>[0], input: Record<string, unknown>) => {
+  const unknown: string[] = [];
+  for (const key of Object.keys(input)) {
+    const property = schema.properties.find((item) => item.id === key)
+      ?? schema.properties.find((item) => item.name.toLowerCase() === key.toLowerCase());
+    if (!property) unknown.push(key);
+  }
+  return {values: resolveDatabaseToolRowValues(schema, input, {lenient: true}), unknown};
+};
 
 // ── Layout / rich-block + appearance helpers ─────────────────────────────────────
 
