@@ -64,6 +64,13 @@ export interface TextRun {
   a?: InlineAttrs;
 }
 
+/** Ephemeral render-order coordinates for a selected table-cell rectangle. */
+export interface CellSelection {
+  tableId: string;
+  anchor: {row: number; col: number};
+  focus: {row: number; col: number};
+}
+
 /** The JSON projection of a block (exports, server, tests). */
 export interface BlockJSON {
   id: string;
@@ -1675,6 +1682,71 @@ export function clearCellRange(doc: Y.Doc, tableId: string, rect: CellRect): voi
       }
     }
   }, 'local');
+}
+
+/**
+ * Replace cells from a clipboard grid, growing at the bottom/right as needed.
+ * A grid tiles only when a multi-cell selection is an exact multiple of it;
+ * otherwise its own dimensions are written from the selection's top-left.
+ * Covered merge slots are ignored and declarations are never changed.
+ */
+const MAX_PASTE_CELLS = 20000;
+
+export function tablePasteGrid(
+  doc: Y.Doc,
+  tableId: string,
+  anchor: {row: number; col: number},
+  source: string[][],
+  opts: {range?: CellSelection} = {},
+): {rows: number; cols: number} | null {
+  const sourceRows = source.length;
+  const sourceCols = source.reduce((max, row) => Math.max(max, row.length), 0);
+  if (sourceRows === 0 || sourceCols === 0) return null;
+  let written: {rows: number; cols: number} | null = null;
+  doc.transact(() => {
+    const initial = findBlock(doc, tableId);
+    if (!initial || blockType(initial.block) !== 'table') return;
+    const rect = opts.range ? normalizeCellRect(opts.range.anchor, opts.range.focus) : null;
+    const rangeRows = rect ? rect.bottom - rect.top + 1 : 1;
+    const rangeCols = rect ? rect.right - rect.left + 1 : 1;
+    const tile = !!rect && rangeRows * rangeCols >= 2 && rangeRows % sourceRows === 0 && rangeCols % sourceCols === 0;
+    const start = rect ? {row: rect.top, col: rect.left} : anchor;
+    const writeRows = tile ? rangeRows : sourceRows;
+    const writeCols = tile ? rangeCols : sourceCols;
+    if (writeRows * writeCols > MAX_PASTE_CELLS) return;
+
+    let grid = tableGrid(initial.block);
+    while (grid.rows.length < start.row + writeRows) {
+      const n = grid.rows.length;
+      tableInsertRow(doc, tableId, n);
+      grid = tableGrid(initial.block);
+      if (grid.rows.length === n) return;
+    }
+    while (grid.width < start.col + writeCols) {
+      const n = grid.width;
+      tableInsertColumn(doc, tableId, n);
+      grid = tableGrid(initial.block);
+      if (grid.width === n) return;
+    }
+
+    const spans = tableSpans(grid);
+    written = {rows: writeRows, cols: writeCols};
+    for (let r = 0; r < writeRows; r += 1) {
+      for (let c = 0; c < writeCols; c += 1) {
+        const row = start.row + r;
+        const col = start.col + c;
+        if (spans[row]?.[col]?.kind === 'covered') continue;
+        const cell = grid.cells[row]?.[col];
+        // gap slot (ragged legacy row): no cell node to write into — skipped.
+        const text = cell && blockType(cell) === 'cell' ? blockText(cell) : null;
+        if (!text) continue;
+        if (text.length > 0) text.delete(0, text.length);
+        const value = source[r % sourceRows]?.[c % sourceCols] ?? '';
+        if (value) text.insert(0, value, {});
+      }
+    }
+  }, 'local');
+  return written;
 }
 
 // ── Range-scoped table ops (TBL-6) ───────────────────────────────────────────
