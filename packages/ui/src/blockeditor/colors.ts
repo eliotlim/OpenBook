@@ -11,7 +11,7 @@ export interface ColorToken {
 }
 
 export const COLOR_TOKENS: readonly ColorToken[] = [
-  {id: 'gray', label: 'Gray'},
+  {id: 'gray', label: 'Grey'},
   {id: 'brown', label: 'Brown'},
   {id: 'orange', label: 'Orange'},
   {id: 'yellow', label: 'Yellow'},

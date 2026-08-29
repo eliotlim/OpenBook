@@ -162,6 +162,11 @@ export const ja: PartialMessages = {
     noResults: '移動先が見つかりません。',
   },
   menu: {
+    clipboard: {copy: 'コピー', cut: '切り取り', paste: '貼り付け'},
+    colour: {
+      default: 'デフォルト', gray: 'グレー', brown: '茶色', orange: 'オレンジ', yellow: '黄色',
+      green: '緑', blue: '青', purple: '紫', pink: 'ピンク', red: '赤',
+    },
     openTab: '新しいタブで開く',
     openWindow: '新しいウィンドウで開く',
     addSubpage: 'サブページを追加',
@@ -207,6 +212,10 @@ export const ja: PartialMessages = {
       insertRowBelow: '下に行を挿入',
       insertColumnLeft: '左に列を挿入',
       insertColumnRight: '右に列を挿入',
+      insertRowsAboveN: '上に {n} 行挿入',
+      insertRowsBelowN: '下に {n} 行挿入',
+      insertColumnsLeftN: '左に {n} 列挿入',
+      insertColumnsRightN: '右に {n} 列挿入',
       duplicateRow: '行を複製',
       moveRowUp: '行を上へ移動',
       moveRowDown: '行を下へ移動',

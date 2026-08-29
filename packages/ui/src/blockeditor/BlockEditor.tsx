@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,
   Copy,
+  ClipboardPaste,
   Eraser,
   EyeOff,
   GripHorizontal,
@@ -20,6 +21,7 @@ import {
   LockOpen,
   Plus,
   RefreshCw,
+  Scissors,
   TableCellsMerge,
   TableCellsSplit,
   Trash2,
@@ -126,7 +128,7 @@ import {
 } from '@/components/ui/menu-components';
 import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {suppressContextMenu} from '@/lib/suppressContextMenu';
-import {t} from '../i18n';
+import {t, type TKey} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
@@ -161,6 +163,14 @@ export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
  * to the table through {@link CellSelectionContext}.
  */
 export type {CellSelection} from './model';
+
+/** Both native copy/cut events and range-menu clipboard commands use this payload. */
+export function tableRangeClipboardPayload(doc: Y.Doc, tableId: string, rect: CellRect): {text: string; html: string} {
+  return {
+    text: cellRangeToTsv(tableRangeRuns(doc, tableId, rect)),
+    html: cellRangeExportToHtml(tableRangeExport(doc, tableId, rect)),
+  };
+}
 
 interface CellSelectionCtx {
   sel: CellSelection | null;
@@ -952,9 +962,9 @@ export const BlockEditor: React.FC<{
       if (!csel || !e.clipboardData) return; // block copy handler owns the rest
       e.preventDefault();
       const rect = normalizeCellRect(csel.anchor, csel.focus);
-      const grid = tableRangeRuns(doc, csel.tableId, rect);
-      e.clipboardData.setData('text/plain', cellRangeToTsv(grid));
-      e.clipboardData.setData('text/html', cellRangeExportToHtml(tableRangeExport(doc, csel.tableId, rect)));
+      const payload = tableRangeClipboardPayload(doc, csel.tableId, rect);
+      e.clipboardData.setData('text/plain', payload.text);
+      e.clipboardData.setData('text/html', payload.html);
       // Cut = copy + clear; the clear half is disabled on a read-only surface,
       // so there Cut degrades to a plain Copy (never mutates — acceptance #4).
       if (cut && !readOnly) {
@@ -1855,9 +1865,9 @@ function blockOps(editor: BlockEditorController, id: string) {
 }
 
 /** Colour choices for the block menus (a leading "Default" clears the prop). */
-const COLOR_MENU: Array<{id: string | null; label: string}> = [
-  {id: null, label: 'Default'},
-  ...COLOR_TOKENS.map((c) => ({id: c.id, label: c.label})),
+const COLOR_MENU: Array<{id: string | null; label: TKey}> = [
+  {id: null, label: 'menu.colour.default'},
+  ...COLOR_TOKENS.map((c) => ({id: c.id, label: `menu.colour.${c.id}` as TKey})),
 ];
 
 /**
@@ -1935,7 +1945,7 @@ const BlockMenuItems: React.FC<{
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
               <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
-              {c.label}
+              {t(c.label)}
             </C.Item>
           ))}
         </C.SubContent>
@@ -1946,7 +1956,7 @@ const BlockMenuItems: React.FC<{
           {COLOR_MENU.map((c) => (
             <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
-              {c.label}
+              {t(c.label)}
             </C.Item>
           ))}
         </C.SubContent>
@@ -2069,7 +2079,7 @@ const BlockBulkMenu: React.FC<{editor: BlockEditorController}> = ({editor}) => {
           {COLOR_MENU.map((color) => (
             <C.Item key={color.id ?? 'default'} onSelect={() => colorAll('fg', color.id)}>
               <span className={`obe-mi-sw ${color.id ? `obe-fg-${color.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
-              {color.label}
+              {t(color.label)}
             </C.Item>
           ))}
         </C.SubContent>
@@ -2080,7 +2090,7 @@ const BlockBulkMenu: React.FC<{editor: BlockEditorController}> = ({editor}) => {
           {COLOR_MENU.map((color) => (
             <C.Item key={color.id ?? 'default'} onSelect={() => colorAll('bg', color.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${color.id ? `obe-hl-${color.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
-              {color.label}
+              {t(color.label)}
             </C.Item>
           ))}
         </C.SubContent>
@@ -2791,7 +2801,7 @@ const TableColorSubmenu: React.FC<{
               className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
               aria-hidden
             />
-            {c.label}
+            {t(c.label)}
             {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
           </Item>
         ))}
@@ -2924,11 +2934,75 @@ const TableRangeMenuContent: React.FC<{
   const cells = tableRangeCells(doc, tableId, rect).flat().filter((c): c is BlockMap => c !== null);
   const first = cells.length > 0 ? tableCellOwnColor(cells[0]) : null;
   const current = cells.length > 0 && cells.every((c) => tableCellOwnColor(c) === first) ? first : null;
+  const clipboard: Partial<Clipboard> | undefined = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+  const canWriteClipboard = !!clipboard?.write && typeof ClipboardItem !== 'undefined';
+  const canPasteClipboard = !!clipboard && (!!clipboard.read || !!clipboard.readText);
+  const copyRange = async (cut: boolean): Promise<void> => {
+    if (!canWriteClipboard) return;
+    try {
+      const payload = tableRangeClipboardPayload(doc, tableId, rect);
+      await clipboard!.write!([new ClipboardItem({
+        'text/plain': new Blob([payload.text], {type: 'text/plain'}),
+        'text/html': new Blob([payload.html], {type: 'text/html'}),
+      })]);
+      if (cut) clearCellRange(doc, tableId, rect);
+    } catch {
+      // Clipboard permission can be denied between menu open and selection.
+    }
+  };
+  const pasteRange = async (): Promise<void> => {
+    if (!canPasteClipboard) return;
+    try {
+      let html = '';
+      let text = '';
+      if (clipboard!.read) {
+        const items = await clipboard!.read();
+        const item = items[0];
+        if (item?.types.includes('text/html')) html = await (await item.getType('text/html')).text();
+        if (item?.types.includes('text/plain')) text = await (await item.getType('text/plain')).text();
+      } else if (clipboard!.readText) text = await clipboard!.readText();
+      const source = parseClipboardGrid({html, text});
+      if (source) tablePasteGrid(doc, tableId, {row: rowFrom, col: colFrom}, source, {
+        range: {tableId, anchor: {row: rowFrom, col: colFrom}, focus: {row: rowTo, col: colTo}},
+      });
+    } catch {
+      // Unsupported/denied clipboard reads leave the document untouched.
+    }
+  };
+  const insertRows = (at: number): void => doc.transact(() => {
+    for (let i = 0; i < rowCount; i += 1) tableInsertRow(doc, tableId, at);
+  }, 'local');
+  const insertColumns = (at: number): void => doc.transact(() => {
+    for (let i = 0; i < colCount; i += 1) tableInsertColumn(doc, tableId, at);
+  }, 'local');
   return (
     <ContextMenuContent className={MENU_WIDTH_MD}>
       <ContextMenuLabel>
         {t('menu.table.sectionSelection')} · {rowCount} × {colCount}
       </ContextMenuLabel>
+      <ContextMenuItem disabled={!canWriteClipboard} onSelect={() => void copyRange(false)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.copy')}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!canWriteClipboard} onSelect={() => void copyRange(true)}>
+        <Scissors className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.cut')}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!canPasteClipboard} onSelect={() => void pasteRange()}>
+        <ClipboardPaste className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.paste')}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => insertRows(rowFrom)}>
+        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowAbove') : t('menu.table.insertRowsAboveN', {n: rowCount})}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => insertRows(rowTo + 1)}>
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowBelow') : t('menu.table.insertRowsBelowN', {n: rowCount})}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => insertColumns(colFrom)}>
+        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnLeft') : t('menu.table.insertColumnsLeftN', {n: colCount})}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => insertColumns(colTo + 1)}>
+        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnRight') : t('menu.table.insertColumnsRightN', {n: colCount})}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>
         <Eraser className="mr-2 h-3.5 w-3.5" /> {t('menu.table.clearCells')}
       </ContextMenuItem>

@@ -162,6 +162,11 @@ export const zh: PartialMessages = {
     noResults: '未找到目标位置。',
   },
   menu: {
+    clipboard: {copy: '复制', cut: '剪切', paste: '粘贴'},
+    colour: {
+      default: '默认', gray: '灰色', brown: '棕色', orange: '橙色', yellow: '黄色',
+      green: '绿色', blue: '蓝色', purple: '紫色', pink: '粉色', red: '红色',
+    },
     openTab: '在新标签页中打开',
     openWindow: '在新窗口中打开',
     addSubpage: '添加子页面',
@@ -207,6 +212,10 @@ export const zh: PartialMessages = {
       insertRowBelow: '在下方插入行',
       insertColumnLeft: '在左侧插入列',
       insertColumnRight: '在右侧插入列',
+      insertRowsAboveN: '在上方插入 {n} 行',
+      insertRowsBelowN: '在下方插入 {n} 行',
+      insertColumnsLeftN: '在左侧插入 {n} 列',
+      insertColumnsRightN: '在右侧插入 {n} 列',
       duplicateRow: '复制行',
       moveRowUp: '上移行',
       moveRowDown: '下移行',

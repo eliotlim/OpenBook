@@ -1,5 +1,5 @@
-import {describe, it, expect, afterEach} from 'vitest';
-import {render, screen, cleanup, fireEvent} from '@testing-library/react';
+import {describe, it, expect, afterEach, vi} from 'vitest';
+import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import * as Y from 'yjs';
 import {TableCellMenu} from '../BlockEditor';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -28,6 +28,7 @@ import {
 } from '../model';
 import {COLOR_EXPORT_HEX} from '../colors';
 import {blocksToHtml, projectBlocksForExport} from '../exportBlocks';
+import {setLocale} from '@/i18n';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,12 @@ const openMenuWithRange = (doc: Y.Doc, cellId: string, range: CellRect, onClearR
   fireEvent.contextMenu(screen.getByTestId('cell'));
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  setLocale('en');
+  vi.unstubAllGlobals();
+  Object.defineProperty(navigator, 'clipboard', {configurable: true, value: undefined});
+});
 
 // ── The duplicate-row model op (TBL-3 adds it per the contract) ──────────────
 
@@ -365,13 +371,63 @@ const RANGE_2x3: CellRect = {top: 0, left: 0, bottom: 1, right: 2};
 describe('TableCellMenu — range variant (TBL-6)', () => {
   it('a right-click INSIDE the rect shows the range items with exact counts', () => {
     openMenuWithRange(seedTableDoc(3, 3), 'r1c1', RANGE_2x3);
-    for (const label of ['Selection · 2 × 3', 'Clear contents', 'Cell colour', 'Delete 2 rows', 'Delete table']) {
+    for (const label of ['Selection · 2 × 3', 'Copy', 'Cut', 'Paste', 'Insert 2 rows above', 'Insert 2 rows below', 'Insert 3 columns left', 'Insert 3 columns right', 'Clear contents', 'Cell colour', 'Delete 2 rows', 'Delete table']) {
       expect(screen.getByText(label), label).toBeTruthy();
     }
     // …and NONE of the single-cell items.
     for (const label of ['Insert row above', 'Insert row below', 'Duplicate row', 'Row colour', 'Toggle header row']) {
       expect(screen.queryByText(label), label).toBeNull();
     }
+  });
+
+  it('uses singular insert labels for a one-row range', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r0c1', {top: 0, left: 0, bottom: 0, right: 2});
+    expect(screen.getByText('Insert row above')).toBeTruthy();
+    expect(screen.getByText('Insert 3 columns left')).toBeTruthy();
+  });
+
+  it('inserts the selected row count in one undo step', () => {
+    const doc = seedTableDoc(3, 3);
+    const undo = new Y.UndoManager(blockChildren(findBlock(doc, 'tbl')!.block)!, {trackedOrigins: new Set(['local'])});
+    openMenuWithRange(doc, 'r1c1', RANGE_2x3);
+    fireEvent.click(screen.getByText('Insert 2 rows below'));
+    expect(tableGrid(findBlock(doc, 'tbl')!.block).rows).toHaveLength(5);
+    undo.undo();
+    expect(tableGrid(findBlock(doc, 'tbl')!.block).rows).toHaveLength(3);
+  });
+
+  it('marks range deletes as destructive', () => {
+    openMenuWithRange(seedTableDoc(4, 4), 'r1c1', RANGE_2x3);
+    expect(screen.getByText('Delete 2 rows').closest('[role="menuitem"]')?.className).toContain('text-destructive');
+    expect(screen.getByText('Delete 3 columns').closest('[role="menuitem"]')?.className).toContain('text-destructive');
+  });
+
+  it('disables Paste when the Clipboard API is unavailable', () => {
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: undefined});
+    openMenuWithRange(seedTableDoc(), 'r0c0', {top: 0, left: 0, bottom: 1, right: 1});
+    expect(screen.getByText('Paste').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('copies TSV and HTML through the menu Clipboard API', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    class FakeClipboardItem { constructor(public data: Record<string, Blob>) {} }
+    vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {write}});
+    openMenuWithRange(seedTableDoc(), 'r0c0', {top: 0, left: 0, bottom: 1, right: 1});
+    fireEvent.click(screen.getByText('Copy'));
+    await waitFor(() => expect(write).toHaveBeenCalledOnce());
+    expect(Object.keys(write.mock.calls[0][0][0].data).sort()).toEqual(['text/html', 'text/plain']);
+  });
+
+  it('pastes an HTML grid through the menu Clipboard API', async () => {
+    const html = '<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>';
+    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {read: vi.fn().mockResolvedValue([{
+      types: ['text/html'], getType: vi.fn().mockResolvedValue(new Blob([html], {type: 'text/html'})),
+    }])}});
+    const doc = seedTableDoc();
+    openMenuWithRange(doc, 'r0c0', {top: 0, left: 0, bottom: 1, right: 1});
+    fireEvent.click(screen.getByText('Paste'));
+    await waitFor(() => expect(rowTexts(doc).slice(0, 2).map((row) => row.slice(0, 2))).toEqual([['A', 'B'], ['C', 'D']]));
   });
 
   it('a right-click OUTSIDE the rect shows the unchanged single-cell menu', () => {
@@ -505,6 +561,16 @@ describe('per-cell tint (TBL-6)', () => {
     const grid = tableGrid(findBlock(doc, 'tbl')!.block);
     expect(blockProp<string>(grid.cells[0][0]!, 'bg')).toBe('green');
     expect(blockProp<string>(grid.cells[2][0]!, 'bg')).toBeUndefined();
+  });
+
+  it('translates every colour swatch label in German', () => {
+    setLocale('de');
+    openMenuWithRange(seedTableDoc(), 'r0c0', {top: 0, left: 0, bottom: 1, right: 1});
+    fireEvent.click(screen.getByText('Zellenfarbe'));
+    expect(screen.getByText('Grau')).toBeTruthy();
+    for (const english of ['Grey', 'Brown', 'Yellow', 'Green', 'Blue', 'Purple', 'Pink', 'Red']) {
+      expect(screen.queryByText(english)).toBeNull();
+    }
   });
 
   it('"Default" clears the range tint, exposing the row/column tint underneath', () => {

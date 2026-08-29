@@ -10,6 +10,7 @@ import {
   rootBlocks,
   tableGrid,
   tablePasteGrid,
+  tableCellOwnColor,
   type NewBlock,
 } from '../model';
 
@@ -17,6 +18,12 @@ describe('parseClipboardGrid', () => {
   it('parses the first HTML table and preserves br as a newline', () => {
     expect(parseClipboardGrid({html: '<p>before</p><table><tr><th> A<br>B </th><th>C</th></tr></table><table><tr><td>ignored</td></tr></table>'})).toEqual([
       ['A\nB', 'C'],
+    ]);
+  });
+
+  it('preserves an exported cell background token', () => {
+    expect(parseClipboardGrid({html: '<table><tr><td style="background:#dcfce7">A</td></tr></table>'})).toEqual([
+      [{text: 'A', color: 'green'}],
     ]);
   });
 
@@ -91,6 +98,23 @@ describe('tablePasteGrid', () => {
       ['1,0', 'A', 'B'],
       ['2,0', 'C', 'D'],
     ]);
+  });
+
+  it('applies tint-carrying HTML cells to the destination range', () => {
+    const doc = seededTable();
+    const source = parseClipboardGrid({html: '<table><tr><td style="background:#dbeafe">A</td><td style="background:#fee2e2">B</td></tr></table>'})!;
+    tablePasteGrid(doc, 'tbl', {row: 1, col: 1}, source);
+    const grid = tableGrid(findBlock(doc, 'tbl')!.block);
+    expect(tableCellOwnColor(grid.cells[1][1]!)).toBe('blue');
+    expect(tableCellOwnColor(grid.cells[1][2]!)).toBe('red');
+  });
+
+  it('clears a stale tint when pasting an untinted HTML cell', () => {
+    const doc = seededTable();
+    const cell = tableGrid(findBlock(doc, 'tbl')!.block).cells[1][1]!;
+    (cell.get('props') as Y.Map<unknown>).set('bg', 'blue');
+    tablePasteGrid(doc, 'tbl', {row: 1, col: 1}, [[{text: 'A'}]]);
+    expect(tableCellOwnColor(cell)).toBeNull();
   });
 
   it('grows a 3x3 table to 5x5 when pasted at its last cell', () => {

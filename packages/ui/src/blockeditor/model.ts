@@ -1661,7 +1661,7 @@ export function tableRangeRuns(doc: Y.Doc, tableId: string, rect: CellRect): Tex
 
 /** One slot of a span-aware cell-range HTML projection. */
 export type CellRangeExportCell =
-  | {kind: 'cell'; runs: TextRun[]; colspan: number; rowspan: number}
+  | {kind: 'cell'; runs: TextRun[]; colspan: number; rowspan: number; color: string | null}
   | {kind: 'covered'};
 
 /**
@@ -1669,6 +1669,7 @@ export type CellRangeExportCell =
  * this retains anchor spans and marks covered slots so the serializer omits
  * their `<td>` elements. The rectangle first snaps to whole merged cells.
  */
+// Composite (not own) tint: a pasted cell materialises the row/column tint it inherited, so the range looks identical at the destination.
 export function tableRangeExport(doc: Y.Doc, tableId: string, rect: CellRect): CellRangeExportCell[][] {
   const found = findBlock(doc, tableId);
   if (!found || blockType(found.block) !== 'table') return [];
@@ -1690,6 +1691,9 @@ export function tableRangeExport(doc: Y.Doc, tableId: string, rect: CellRect): C
         runs: cell && blockType(cell) === 'cell' ? cellRuns(cell) : [],
         colspan: slot?.kind === 'cell' ? slot.colspan : 1,
         rowspan: slot?.kind === 'cell' ? slot.rowspan : 1,
+        color: cell && blockType(cell) === 'cell'
+          ? tableCellColor(found.block, grid.rows[r], grid.colIds[c] ?? null, cell)
+          : null,
       });
     }
     out.push(row);
@@ -1721,7 +1725,7 @@ export function tablePasteGrid(
   doc: Y.Doc,
   tableId: string,
   anchor: {row: number; col: number},
-  source: string[][],
+  source: Array<Array<string | {text: string; color?: string}>>,
   opts: {range?: CellSelection} = {},
 ): {rows: number; cols: number} | null {
   const sourceRows = source.length;
@@ -1763,11 +1767,14 @@ export function tablePasteGrid(
         if (spans[row]?.[col]?.kind === 'covered') continue;
         const cell = grid.cells[row]?.[col];
         // gap slot (ragged legacy row): no cell node to write into — skipped.
-        const text = cell && blockType(cell) === 'cell' ? blockText(cell) : null;
+        if (!cell || blockType(cell) !== 'cell') continue;
+        const text = blockText(cell);
         if (!text) continue;
         if (text.length > 0) text.delete(0, text.length);
         const value = source[r % sourceRows]?.[c % sourceCols] ?? '';
-        if (value) text.insert(0, value, {});
+        const content = typeof value === 'string' ? value : value.text;
+        if (content) text.insert(0, content, {});
+        if (typeof value !== 'string') setBlockProp(cell, 'bg', value.color ?? undefined);
       }
     }
   }, 'local');

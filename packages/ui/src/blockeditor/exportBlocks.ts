@@ -154,7 +154,7 @@ export function cellRangeExportToHtml(grid: CellRangeExportCell[][]): string {
         .flatMap((cell) =>
           cell.kind === 'covered'
             ? []
-            : [`<td${cell.colspan > 1 ? ` colspan="${cell.colspan}"` : ''}${cell.rowspan > 1 ? ` rowspan="${cell.rowspan}"` : ''}>${textHtml(cell.runs)}</td>`],
+            : [`<td${cell.colspan > 1 ? ` colspan="${cell.colspan}"` : ''}${cell.rowspan > 1 ? ` rowspan="${cell.rowspan}"` : ''}${tintStyle(cell.color)}>${textHtml(cell.runs)}</td>`],
         )
         .join('')}</tr>`,
     )

@@ -163,6 +163,11 @@ export const de: PartialMessages = {
     noResults: 'Kein Ziel gefunden.',
   },
   menu: {
+    clipboard: {copy: 'Kopieren', cut: 'Ausschneiden', paste: 'Einfügen'},
+    colour: {
+      default: 'Standard', gray: 'Grau', brown: 'Braun', orange: 'Orange', yellow: 'Gelb',
+      green: 'Grün', blue: 'Blau', purple: 'Lila', pink: 'Rosa', red: 'Rot',
+    },
     openTab: 'In neuem Tab öffnen',
     openWindow: 'In neuem Fenster öffnen',
     addSubpage: 'Unterseite hinzufügen',
@@ -208,6 +213,10 @@ export const de: PartialMessages = {
       insertRowBelow: 'Zeile darunter einfügen',
       insertColumnLeft: 'Spalte links einfügen',
       insertColumnRight: 'Spalte rechts einfügen',
+      insertRowsAboveN: '{n} Zeilen oberhalb einfügen',
+      insertRowsBelowN: '{n} Zeilen unterhalb einfügen',
+      insertColumnsLeftN: '{n} Spalten links einfügen',
+      insertColumnsRightN: '{n} Spalten rechts einfügen',
       duplicateRow: 'Zeile duplizieren',
       moveRowUp: 'Zeile nach oben',
       moveRowDown: 'Zeile nach unten',

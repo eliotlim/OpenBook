@@ -300,6 +300,11 @@ export const en = {
     noResults: 'No destination found.',
   },
   menu: {
+    clipboard: {copy: 'Copy', cut: 'Cut', paste: 'Paste'},
+    colour: {
+      default: 'Default', gray: 'Grey', brown: 'Brown', orange: 'Orange', yellow: 'Yellow',
+      green: 'Green', blue: 'Blue', purple: 'Purple', pink: 'Pink', red: 'Red',
+    },
     openTab: 'Open in new tab',
     openWindow: 'Open in new window',
     openSplit: 'Open in split view',
@@ -348,6 +353,10 @@ export const en = {
       insertRowBelow: 'Insert row below',
       insertColumnLeft: 'Insert column left',
       insertColumnRight: 'Insert column right',
+      insertRowsAboveN: 'Insert {n} rows above',
+      insertRowsBelowN: 'Insert {n} rows below',
+      insertColumnsLeftN: 'Insert {n} columns left',
+      insertColumnsRightN: 'Insert {n} columns right',
       duplicateRow: 'Duplicate row',
       moveRowUp: 'Move row up',
       moveRowDown: 'Move row down',
