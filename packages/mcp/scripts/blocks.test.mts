@@ -134,6 +134,7 @@ async function main(): Promise<void> {
   const tools = await mcp.client.listTools();
   const byName = new Map(tools.tools.map((t) => [t.name, t]));
   check('the catalogue includes delete_block and update_block_props', byName.has('delete_block') && byName.has('update_block_props'));
+  check('the catalogue includes move_block and insert_blocks', byName.has('move_block') && byName.has('insert_blocks'));
   const appendSchema = JSON.stringify(byName.get('append_blocks')?.inputSchema ?? {});
   check('append_blocks advertises a recursive `children` array in its JSON Schema',
     appendSchema.includes('"children"') && appendSchema.includes('$ref'));
@@ -154,6 +155,23 @@ async function main(): Promise<void> {
   check('nested block ids are unique and addressable', new Set(tree.map((l) => l.id)).size === tree.length);
   check('read_page projects the nested text', resultText(await mcp.client.callTool({name: 'read_page', arguments: {pageId: page.id}})).includes('deep leaf'));
 
+  console.log('\nAPI-7: move_block and insert_blocks apply directly at precise positions');
+  const opsPage = await seed.savePage({
+    ...blockPage('Move and insert target'),
+    data: {editor: 'blocks', blockdoc: {blocks: [
+      {id: 'oa', type: 'paragraph', text: [{t: 'A'}]},
+      {id: 'og', type: 'group', children: [{id: 'ob', type: 'paragraph', text: [{t: 'B'}]}]},
+      {id: 'oc', type: 'paragraph', text: [{t: 'C'}]},
+    ]}, editorjs: {blocks: []}, values: [], names: []},
+  });
+  const moved = await mcp.client.callTool({name: 'move_block', arguments: {pageId: opsPage.id, blockId: 'oc', parentId: 'og', afterId: 'ob'}});
+  check('move_block reparents directly using afterId', !isError(moved) && resultText(moved).includes('directly'));
+  const inserted = await mcp.client.callTool({name: 'insert_blocks', arguments: {pageId: opsPage.id, parentId: 'og', index: 1, blocks: [{type: 'group', children: [{type: 'heading', text: 'nested insert', props: {level: 2}}]}]}});
+  check('insert_blocks accepts a nested payload at index', !isError(inserted) && resultText(inserted).includes('including nested'));
+  const opsTree = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: opsPage.id}})));
+  check('direct move + insert produced B, nested insert, C inside the group',
+    opsTree.filter((line) => line.depth === 1).map((line) => line.text || line.type).join('|') === 'B|group|C' && opsTree.some((line) => line.text === 'nested insert'));
+
   console.log('\nAPI-1: a table → row → cell payload lands as a 3×3 table');
   await mcp.client.callTool({name: 'append_blocks', arguments: {pageId: page.id, blocks: TABLE_PAYLOAD}});
   const tTree = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: page.id}})));
@@ -164,6 +182,10 @@ async function main(): Promise<void> {
   check('every cell kept its text in payload order',
     cells.map((c) => c.text).join('|') === 'Item|Qty|Price|Apples|3|1.20|Pears|5|2.40');
   check('the header row kept its props', /"header":true/.test(rows[0].raw));
+  const tableMove = await mcp.client.callTool({name: 'move_block', arguments: {pageId: page.id, blockId: table.id, index: 0}});
+  check('move_block allows moving a whole table block', !isError(tableMove));
+  const rowMove = await mcp.client.callTool({name: 'move_block', arguments: {pageId: page.id, blockId: rows[0].id, index: 0}});
+  check('move_block refuses moving table internals in favour of table_* tools', isError(rowMove) && /table_\*/.test(resultText(rowMove)));
 
   console.log('\nAPI-1: structural caps are refused with an actionable message');
   const tooDeep = await mcp.client.callTool({name: 'append_blocks', arguments: {pageId: page.id, blocks: [deepChain(9)]}});
@@ -398,7 +420,7 @@ async function main(): Promise<void> {
     ...blockPage('Review target'),
     data: {
       editor: 'blocks',
-      blockdoc: {blocks: [{id: 'r1', type: 'callout', text: [{t: 'review me'}], props: {variant: 'info'}}]},
+      blockdoc: {blocks: [{id: 'r1', type: 'callout', text: [{t: 'review me'}], props: {variant: 'info'}}, {id: 'r2', type: 'paragraph', text: [{t: 'anchor'}]}]},
       editorjs: {blocks: []},
       values: [],
       names: [],
@@ -412,13 +434,22 @@ async function main(): Promise<void> {
   check('delete_block under suggest is queued, not applied', resultText(sDel).includes('Suggested for review'));
   const sProps = await sug.client.callTool({name: 'update_block_props', arguments: {pageId: rPage.id, blockId: 'r1', props: {variant: 'warn'}}});
   check('update_block_props under suggest is queued, not applied', resultText(sProps).includes('Suggested for review'));
+  const sMove = await sug.client.callTool({name: 'move_block', arguments: {pageId: rPage.id, blockId: 'r1', afterId: 'r2'}});
+  check('move_block under suggest is queued, not applied', resultText(sMove).includes('Suggested for review'));
+  const sInsert = await sug.client.callTool({name: 'insert_blocks', arguments: {pageId: rPage.id, afterId: 'r1', blocks: [{type: 'group', children: [{type: 'paragraph', text: 'queued nested'}]}]}});
+  check('insert_blocks under suggest keeps a nested payload', resultText(sInsert).includes('Suggested for review'));
 
   const stored = await seed.listSuggestions(rPage.id);
   const kindOf = (applyKind: string) => stored.find((s) => (s.payload as {applyKind?: string}).applyKind === applyKind);
   const insert = kindOf('append_blocks');
   const del = kindOf('delete_block');
   const props = kindOf('set_block_props');
-  check('three suggestions were recorded', stored.length === 3 && Boolean(insert && del && props));
+  const move = kindOf('move_block');
+  const insertedSuggestion = kindOf('insert_blocks');
+  check('five suggestions were recorded', stored.length === 5 && Boolean(insert && del && props && move && insertedSuggestion));
+  check('move_block uses the move review kind and insert_blocks reuses insert', move!.kind === 'move' && insertedSuggestion!.kind === 'insert');
+  check('insert_blocks suggestion preserves recursive children',
+    ((insertedSuggestion!.payload as {blocks?: Array<{children?: unknown[]}>}).blocks?.[0]?.children?.length ?? 0) === 1);
   // THE API-1 regression: the flat zod object used to STRIP `children`, so review
   // replayed a table with no rows. The stored payload must carry the full tree.
   const payloadBlocks = (insert!.payload as {blocks?: Array<{children?: Array<{children?: unknown[]}>}>}).blocks ?? [];
@@ -443,7 +474,10 @@ async function main(): Promise<void> {
   // A cap violation is refused BEFORE the policy branch, so nothing is queued.
   const sTooDeep = await sug.client.callTool({name: 'append_blocks', arguments: {pageId: rPage.id, blocks: [deepChain(12)]}});
   check('a cap violation errors under suggest too, queueing nothing',
-    isError(sTooDeep) && (await seed.listSuggestions(rPage.id)).length === 3);
+    isError(sTooDeep) && (await seed.listSuggestions(rPage.id)).length === 5);
+  const insertTooDeep = await sug.client.callTool({name: 'insert_blocks', arguments: {pageId: rPage.id, index: 0, blocks: [deepChain(12)]}});
+  check('insert_blocks enforces the same depth cap before queueing',
+    isError(insertTooDeep) && (await seed.listSuggestions(rPage.id)).length === 5);
 
   await sug.close();
   await server.close();

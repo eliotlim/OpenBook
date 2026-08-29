@@ -185,6 +185,8 @@ const AI_AUTHOR_NAME = 'Assistant';
 const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   update_block: 'replace-text',
   append_blocks: 'insert',
+  insert_blocks: 'insert',
+  move_block: 'move',
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
   set_page_theme: 'set-theme',

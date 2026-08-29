@@ -32,6 +32,7 @@ const KIND_LABEL: Record<StoredSuggestion['kind'], string> = {
   'replace-text': 'Replace text',
   'set-cell': 'Set cell',
   insert: 'Insert',
+  move: 'Move',
   delete: 'Delete',
   'set-theme': 'Page theme',
   'table-op': 'Table structure',

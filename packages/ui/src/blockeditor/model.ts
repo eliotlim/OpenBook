@@ -319,7 +319,7 @@ export function removeBlock(doc: Y.Doc, id: string): void {
 /**
  * Move a block to `toIndex` of the array identified by `targetParentId`
  * (`null` = the root list). Clones under the hood (Yjs re-parent rule);
- * `toIndex` is interpreted against the array *without* the moved block.
+ * `toIndex` is interpreted against the array *before* removing the moved block.
  */
 export function moveBlock(doc: Y.Doc, id: string, targetParentId: string | null, toIndex: number): void {
   doc.transact(() => {

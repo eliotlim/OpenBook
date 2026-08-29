@@ -1,5 +1,8 @@
 import type * as Y from 'yjs';
 import {
+  findBlock as findSnapshotBlock,
+  insertBlocks as insertSnapshotBlocks,
+  moveBlock as moveSnapshotBlock,
   resolveAgentEdits,
   resolveTableOp,
   tableOpError,
@@ -7,6 +10,7 @@ import {
   TABLE_OP_KINDS,
   type AgentEditsMode,
   type AgentProposal,
+  type AppendBlock,
   type DataClient,
   type SnapshotTableView,
   type StoredSuggestion,
@@ -24,7 +28,9 @@ import {
   decodeSnapshot,
   encodeSnapshot,
   findBlock,
+  insertBlock,
   makeBlock,
+  moveBlock as moveEditorBlock,
   parentBlockOf,
   patchBlock,
   removeBlock,
@@ -323,6 +329,7 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
 export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
   doc.transact(() => {
     const payload = p.payload;
+    const pageSnapshot = () => ({editor: 'blocks' as const, blockdoc: encodeSnapshot(doc), editorjs: {blocks: []}, values: [], names: []});
     if (p.kind === 'set_kit_value') {
       const block = findInput(doc, String(payload.name));
       if (block) setInputValue(block, payload.value);
@@ -347,6 +354,50 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
         .filter((b): b is NewBlock => b !== null)
         .map(makeBlock);
       if (built.length > 0) list.push(built);
+    } else if (p.kind === 'move_block') {
+      const blockId = String(payload.blockId);
+      const parentId = typeof payload.parentId === 'string' ? payload.parentId : undefined;
+      const request = {
+        blockId,
+        ...(parentId === undefined ? {} : {parentId}),
+        ...(typeof payload.index === 'number' ? {index: payload.index} : {}),
+        ...(typeof payload.afterId === 'string' ? {afterId: payload.afterId} : {}),
+      };
+      // Let the shared snapshot twin validate table ownership, parent contracts,
+      // cycles, and addressing before touching the live CRDT.
+      const projected = moveSnapshotBlock(pageSnapshot(), request);
+      const destination = findSnapshotBlock(projected, blockId);
+      const source = findBlock(doc, blockId);
+      if (!destination || !source) throw new Error(`no block "${blockId}" on this page`);
+      const target = parentId === undefined ? rootBlocks(doc) : blockChildren(findBlock(doc, parentId)?.block as BlockMap);
+      if (!target) throw new Error(`no destination block "${parentId}" on this page`);
+      const anchorId = destination.index > 0 ? destination.siblings[destination.index - 1].id : null;
+      const anchorAt = anchorId === null ? -1 : target.toArray().findIndex((b) => b.get('id') === anchorId);
+      const modelIndex = anchorAt + 1;
+      moveEditorBlock(doc, blockId, parentId ?? null, modelIndex);
+    } else if (p.kind === 'insert_blocks') {
+      const parentId = typeof payload.parentId === 'string' ? payload.parentId : undefined;
+      const raw = Array.isArray(payload.blocks) ? payload.blocks as AppendBlock[] : [];
+      const built = raw.map(coerceNewBlock).filter((block): block is NewBlock => block !== null);
+      const request = {
+        ...(parentId === undefined ? {} : {parentId}),
+        ...(typeof payload.index === 'number' ? {index: payload.index} : {}),
+        ...(typeof payload.afterId === 'string' ? {afterId: payload.afterId} : {}),
+        blocks: raw,
+        idPrefix: '__ai_insert__',
+      };
+      const projected = insertSnapshotBlocks(pageSnapshot(), request);
+      const target = parentId === undefined ? rootBlocks(doc) : blockChildren(findBlock(doc, parentId)?.block as BlockMap);
+      if (!target) throw new Error(`no destination block "${parentId}" on this page`);
+      const beforeLength = target.length;
+      const projectedTarget = parentId === undefined
+        ? (projected.blockdoc as {blocks?: Array<{id?: string}>}).blocks ?? []
+        : findSnapshotBlock(projected, parentId)?.block.children ?? [];
+      const at = projectedTarget.length - beforeLength === built.length
+        ? projectedTarget.findIndex((block) => block.id?.startsWith('__ai_insert__-'))
+        : -1;
+      if (at < 0) throw new Error('could not resolve the insertion position');
+      built.forEach((block, offset) => insertBlock(doc, target, at + offset, block));
     } else if (p.kind === 'delete_block') {
       const id = String(payload.blockId);
       const found = findBlock(doc, id);

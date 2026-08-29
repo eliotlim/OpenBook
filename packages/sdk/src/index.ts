@@ -361,6 +361,19 @@ export {
 } from './authorize';
 export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
 export {
+  BlockSnapshotError,
+  deleteBlock,
+  findBlock,
+  insertBlocks,
+  moveBlock,
+  setBlockProps,
+  setBlockText,
+  type BlockSnapshotErrorCode,
+  type FoundSnapshotBlock,
+  type InsertBlocksInput,
+  type MoveBlockInput,
+} from './blockSnapshot';
+export {
   ORDER_KEY_REBALANCE_LENGTH,
   isOrderKey,
   compareOrderKeys,
