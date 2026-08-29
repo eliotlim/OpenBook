@@ -200,6 +200,7 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   table_set_cell: 'table-op',
   table_set_row_color: 'table-op',
   table_set_column_color: 'table-op',
+  table_set_column_width: 'table-op',
 };
 
 export class AgentRunner {

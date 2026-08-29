@@ -766,6 +766,7 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   table_set_cell: 'table-op',
   table_set_row_color: 'table-op',
   table_set_column_color: 'table-op',
+  table_set_column_width: 'table-op',
 };
 
 /**
@@ -1760,7 +1761,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // `update_block_props` refuses those keys.
 
   /** The write-summary label for a table op (also the suggestion's summary). */
-  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null}): string => {
+  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): string => {
     const where = `table ${view.tableId}`;
     switch (kind) {
     case 'table_insert_row': return `Insert a row at position ${resolved.rowIndex} of ${where}`;
@@ -1773,11 +1774,12 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(resolved.text ?? '', 60)}"`;
     case 'table_set_row_color': return `${resolved.color ? `Tint row ${resolved.rowIndex} ${resolved.color}` : `Clear the tint on row ${resolved.rowIndex}`} of ${where}`;
     case 'table_set_column_color': return `${resolved.color ? `Tint column ${resolved.colIndex} ${resolved.color}` : `Clear the tint on column ${resolved.colIndex}`} of ${where}`;
+    case 'table_set_column_width': return `${resolved.width === null ? 'Reset' : `Set ${resolved.width}px for`} column ${resolved.colIndex} of ${where}`;
     }
   };
 
   /** The before→after pair the review card shows for a table op. */
-  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null}): {before: string; after: string} => {
+  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): {before: string; after: string} => {
     const row = (r: number | undefined): string => (r === undefined ? '' : (view.cells[r] ?? []).join(' | '));
     const column = (c: number | undefined): string => (c === undefined ? '' : view.cells.map((cells) => cells[c] ?? '').join(' | '));
     switch (kind) {
@@ -1791,6 +1793,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: resolved.text ?? ''};
     case 'table_set_row_color': return {before: '(row tint)', after: resolved.color ?? '(none)'};
     case 'table_set_column_color': return {before: '(column tint)', after: resolved.color ?? '(none)'};
+    case 'table_set_column_width': return {before: '(column width)', after: resolved.width === null ? '(auto)' : `${resolved.width}px`};
     }
   };
 
