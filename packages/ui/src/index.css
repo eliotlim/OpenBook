@@ -1943,7 +1943,6 @@ a.obe-mention {
 }
 /* TBL-12 — fixed only after a width is stored; auto columns share the fluid remainder. */
 .obe-table-fixed { table-layout: fixed; width: 100%; }
-.obe-table td { position: relative; }
 .obe-table-col-resizer {
   position: absolute;
   z-index: calc(var(--z-index-local-overlay) - 1);

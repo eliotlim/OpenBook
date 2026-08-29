@@ -3113,6 +3113,16 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const [previewWidths, setPreviewWidths] = useState<Record<string, number>>({});
   const renderedWidths = columns.map((column, index) => previewWidths[column.id] ?? storedWidths[index]);
   const hasWidths = renderedWidths.some((width) => width !== null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const [tableHeight, setTableHeight] = useState(0);
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    setTableHeight(table.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) => setTableHeight(entry.contentRect.height));
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, []);
 
   // Internal (grip) drag state — separate from the block-level `shared.drag`
   // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
@@ -3210,8 +3220,9 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   return (
     <div className={[showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap', activeCellSel && 'obe-cell-selecting'].filter(Boolean).join(' ')}>
-      <table className={hasWidths ? 'obe-table obe-table-fixed' : 'obe-table'}>
+      <table ref={tableRef} className={hasWidths ? 'obe-table obe-table-fixed' : 'obe-table'}>
         <colgroup>
+          {showHandles && <col className="obe-table-grip-host-col" style={{width: 0}} />}
           {columns.map((column, c) => <col key={column.id} style={renderedWidths[c] === null ? undefined : {width: `${renderedWidths[c]}px`}} />)}
         </colgroup>
         <tbody>
@@ -3321,7 +3332,13 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                                 width={renderedWidths[from]}
                                 spanCount={slot.colspan}
                                 left={`${((offset + 1) / slot.colspan) * 100}%`}
-                                onPreview={(width) => setPreviewWidths((current) => ({...current, [gripColId]: width}))}
+                                height={tableHeight}
+                                onPreview={(width) => setPreviewWidths((current) => {
+                                  const next = {...current};
+                                  if (width === null) delete next[gripColId];
+                                  else next[gripColId] = width;
+                                  return next;
+                                })}
                                 onCommit={(width) => {
                                   setPreviewWidths((current) => {
                                     const next = {...current};

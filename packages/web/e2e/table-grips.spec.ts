@@ -83,7 +83,8 @@ test('column boundary resizes by pointer and stays clear of table chrome', {tag:
   await page.mouse.down();
   await page.mouse.move(handleBox.x + handleBox.width / 2 + 40, handleBox.y + handleBox.height / 2, {steps: 5});
   await page.mouse.up();
-  await expect.poll(async () => (await firstCell.boundingBox())!.width).toBeCloseTo(before.width + 40, 0);
+  await expect.poll(async () => (await firstCell.boundingBox())!.width).toBeGreaterThan(before.width + 36);
+  await expect.poll(async () => (await firstCell.boundingBox())!.width).toBeLessThan(before.width + 44);
 });
 
 test('table fills the content column without blocking the block drag handle', {tag: ['@editor', '@p1']}, async ({

@@ -1,5 +1,13 @@
 import * as Y from 'yjs';
-import {CONTAINER_BLOCK_TYPES, shortId, TEXT_BLOCK_TYPES, type CoreBlockType} from '@book.dev/sdk';
+import {
+  CONTAINER_BLOCK_TYPES,
+  shortId,
+  TABLE_COLUMN_MIN_WIDTH,
+  TABLE_COLW_PREFIX,
+  TEXT_BLOCK_TYPES,
+  type CoreBlockType,
+} from '@book.dev/sdk';
+export {TABLE_COLUMN_MIN_WIDTH, TABLE_COLW_PREFIX} from '@book.dev/sdk';
 import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 
 /**
@@ -858,10 +866,6 @@ export const TABLE_COL_PREFIX = 'col:';
  * {@link tableCellColor}).
  */
 export const TABLE_COLBG_PREFIX = 'colbg:';
-
-/** Prefix of per-column pixel widths, keyed by stable column id (TBL-12). */
-export const TABLE_COLW_PREFIX = 'colw:';
-export const TABLE_COLUMN_MIN_WIDTH = 48;
 
 const rowOrd = (row: BlockMap): string | null => {
   const v = blockProp<unknown>(row, 'ord');

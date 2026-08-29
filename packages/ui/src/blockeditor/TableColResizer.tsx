@@ -18,19 +18,21 @@ interface TableColResizerProps {
   width: number | null;
   spanCount: number;
   left: string;
-  onPreview: (width: number) => void;
+  height: number;
+  onPreview: (width: number | null) => void;
   onCommit: (width: number | null) => void;
 }
 
 /** TBL-12's isolated pointer/keyboard separator; the model commit happens once. */
-export const TableColResizer: React.FC<TableColResizerProps> = ({columnIndex, width, spanCount, left, onPreview, onCommit}) => {
-  const drag = useRef<{pointerId: number; startX: number; startWidth: number} | null>(null);
+export const TableColResizer: React.FC<TableColResizerProps> = ({columnIndex, width, spanCount, left, height, onPreview, onCommit}) => {
+  const drag = useRef<{pointerId: number; startX: number; startWidth: number; moved: boolean} | null>(null);
   const handle = useRef<HTMLSpanElement>(null);
   const currentWidth = (): number => width ?? Math.max(
     TABLE_COLUMN_MIN_WIDTH,
     Math.round((handle.current?.parentElement?.getBoundingClientRect().width ?? TABLE_COLUMN_MIN_WIDTH) / spanCount),
   );
-  const resize = (next: number): number => Math.max(TABLE_COLUMN_MIN_WIDTH, Math.round(next));
+  const max = handle.current?.closest('table')?.getBoundingClientRect().width ?? 1e4;
+  const resize = (next: number): number => Math.min(max, Math.max(TABLE_COLUMN_MIN_WIDTH, Math.round(next)));
 
   return (
     <span
@@ -42,30 +44,40 @@ export const TableColResizer: React.FC<TableColResizerProps> = ({columnIndex, wi
       aria-orientation="vertical"
       aria-label={t('blockEditor.resizeColumn', {column: tableColumnLabel(columnIndex)})}
       aria-valuemin={TABLE_COLUMN_MIN_WIDTH}
-      aria-valuenow={width ?? TABLE_COLUMN_MIN_WIDTH}
+      {...(width === null ? {'aria-valuetext': 'auto'} : {'aria-valuenow': width})}
+      {...(max === 1e4 ? {} : {'aria-valuemax': max})}
       tabIndex={0}
-      style={{left}}
+      style={{left, height}}
       onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onCommit(null); }}
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
         const host = event.currentTarget.parentElement?.getBoundingClientRect();
         const startWidth = width ?? Math.max(TABLE_COLUMN_MIN_WIDTH, Math.round((host?.width ?? TABLE_COLUMN_MIN_WIDTH) / spanCount));
-        drag.current = {pointerId: event.pointerId, startX: event.clientX, startWidth};
+        drag.current = {pointerId: event.pointerId, startX: event.clientX, startWidth, moved: false};
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
         if (drag.current?.pointerId !== event.pointerId) return;
-        onPreview(resize(drag.current.startWidth + event.clientX - drag.current.startX));
+        drag.current.moved = true;
+        const dir = getComputedStyle(event.currentTarget).direction === 'rtl' ? -1 : 1;
+        onPreview(resize(drag.current.startWidth + dir * (event.clientX - drag.current.startX)));
       }}
       onPointerUp={(event) => {
         if (drag.current?.pointerId !== event.pointerId) return;
-        const next = resize(drag.current.startWidth + event.clientX - drag.current.startX);
+        const s = drag.current;
         drag.current = null;
         event.currentTarget.releasePointerCapture(event.pointerId);
-        onCommit(next);
+        if (!s.moved) return;
+        const dir = getComputedStyle(event.currentTarget).direction === 'rtl' ? -1 : 1;
+        onCommit(resize(s.startWidth + dir * (event.clientX - s.startX)));
       }}
-      onPointerCancel={() => { drag.current = null; }}
+      onPointerCancel={(event) => {
+        if (drag.current?.pointerId !== event.pointerId) return;
+        drag.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        onPreview(null);
+      }}
       onKeyDown={(event) => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
         event.preventDefault();
