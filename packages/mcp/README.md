@@ -12,6 +12,10 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `read_page` | Read one page's title and full text. |
 | `search_notes` | Ranked search with snippets over every page's content. |
 | `create_page` | Create a page from a title and plain-text body. |
+| `set_page_appearance` | Set validated icon, cover, theme, and full-width page appearance. |
+| `move_page` | Reparent and reorder a page without allowing tree cycles. |
+| `get_page_properties` | Read a page's structured metadata properties. |
+| `set_page_properties` | Set validated writable page metadata properties. |
 | `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
 | `inspect_page_structure` | Show a page's block TREE — ids, types, short text, props — including nested blocks. Read this before editing blocks. |

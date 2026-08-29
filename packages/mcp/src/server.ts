@@ -23,6 +23,13 @@ import {
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
+  movePageTool,
+  PageToolError,
+  PAGE_BACKGROUND_TOKENS,
+  PAGE_THEME_IDS,
+  setPageAppearanceTool,
+  setPagePropertiesTool,
+  getPagePropertiesTool,
   projectAppendBlocks,
   resolveDatabaseToolRowValues,
   resolveTableOp,
@@ -758,6 +765,7 @@ const blockPayloadError = (blocks: NestedBlockInput[]): string | null =>
  */
 type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props'
   | 'create_database' | 'update_database' | 'create_property' | 'update_property' | 'update_row' | 'delete_row'
+  | 'set_page_appearance' | 'move_page' | 'set_page_properties'
   | TableOpKind;
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
@@ -773,6 +781,9 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   update_property: 'database-op',
   update_row: 'database-op',
   delete_row: 'database-op',
+  set_page_appearance: 'set-theme',
+  move_page: 'page-op',
+  set_page_properties: 'page-op',
   // API-3: every table STRUCTURE op reviews as one `table-op` kind; the
   // `payload.applyKind` (the tool name, which is also the bridge's proposal kind)
   // says which op to replay.
@@ -943,7 +954,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     async ({pageId}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
-      return text(`Title: ${page.name ?? 'Untitled'}\n\n${clip(snapshotText(page.data) || '(empty page)')}`);
+      return text(`Title: ${page.name ?? 'Untitled'}\nProperties: ${JSON.stringify(page.properties ?? {})}\n\n${clip(snapshotText(page.data) || '(empty page)')}`);
     },
   );
 
@@ -986,6 +997,105 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       }
     },
   );
+
+  // ── Page tools (appearance, metadata, and library-tree structure) ──────────
+  const pageFailure = (error: unknown) => {
+    if (error instanceof PageToolError) return failure(`[${error.code}] ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    return /forbidden|permission|read.only|writer|unauthor/i.test(message)
+      ? failure('[permission_denied] This instance does not allow page writes.')
+      : failure('[invalid_input] The page operation could not be completed.');
+  };
+  const appearanceTheme = z.object({
+    themeId: z.enum(PAGE_THEME_IDS).optional(),
+    background: z.enum(PAGE_BACKGROUND_TOKENS).optional(),
+    controlIntensity: z.number().int().min(0).max(3).optional(),
+    interfaceIntensity: z.number().int().min(0).max(3).optional(),
+  }).strict();
+  const appearanceCover = z.discriminatedUnion('kind', [
+    z.object({kind: z.literal('gradient'), css: z.string().min(1)}).strict(),
+    z.object({kind: z.literal('image'), url: z.string().url(), position: z.number().min(0).max(1).optional()}).strict(),
+  ]);
+
+  server.registerTool('set_page_appearance', {
+    title: 'Set page appearance',
+    description: 'Set or clear a page icon, cover, theme override, or full-width layout. Suggests under Suggest policy and applies under Direct policy.',
+    inputSchema: {
+      pageId: z.string().min(1), icon: z.string().max(32).nullable().optional(),
+      cover: appearanceCover.nullable().optional(), theme: appearanceTheme.nullable().optional(),
+      fullWidth: z.boolean().nullable().optional(),
+    },
+  }, async ({pageId, icon, cover, theme, fullWidth}) => {
+    try {
+      const input = {icon, cover, theme, fullWidth};
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        let properties: Record<string, unknown> = {};
+        await setPageAppearanceTool(Object.assign(Object.create(client) as PolicyClient, {setPageProperties: async (_id: string, patch: Record<string, unknown>) => {
+          properties = patch;
+          return (await client.getPage(pageId))!;
+        }}), pageId, input);
+        const summary = 'Update page appearance';
+        const suggestion = await recordSuggestion({kind: 'set_page_appearance', pageId, summary, target: {},
+          after: JSON.stringify(properties), payload: {pageId, properties}});
+        return suggested(summary, suggestion);
+      }
+      const updated = await setPageAppearanceTool(client, pageId, input);
+      return text(JSON.stringify({pageId: updated.id, properties: updated.properties}));
+    } catch (error) { return pageFailure(error); }
+  });
+
+  server.registerTool('get_page_properties', {
+    title: 'Get page properties', description: 'Return a page’s stored metadata properties.',
+    inputSchema: {pageId: z.string().min(1)},
+  }, async ({pageId}) => {
+    try { return text(JSON.stringify({pageId, properties: await getPagePropertiesTool(client, pageId)})); }
+    catch (error) { return pageFailure(error); }
+  });
+
+  server.registerTool('set_page_properties', {
+    title: 'Set page properties', description: 'Set validated built-in page properties. Backlinks and appearance keys are not accepted here.',
+    inputSchema: {pageId: z.string().min(1), properties: z.record(z.string(), z.unknown())},
+  }, async ({pageId, properties}) => {
+    try {
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        let patch: Record<string, unknown> = {};
+        await setPagePropertiesTool(Object.assign(Object.create(client) as PolicyClient, {setPageProperties: async (_id: string, value: Record<string, unknown>) => {
+          patch = value;
+          return (await client.getPage(pageId))!;
+        }}), pageId, properties);
+        const summary = 'Update page properties';
+        const suggestion = await recordSuggestion({kind: 'set_page_properties', pageId, summary, target: {},
+          after: JSON.stringify(patch), payload: {pageId, properties: patch}});
+        return suggested(summary, suggestion);
+      }
+      const updated = await setPagePropertiesTool(client, pageId, properties);
+      return text(JSON.stringify({pageId: updated.id, properties: updated.properties}));
+    } catch (error) { return pageFailure(error); }
+  });
+
+  server.registerTool('move_page', {
+    title: 'Move a page', description: 'Move a page under a parent (or to the root) and place it by zero-based index or after a sibling.',
+    inputSchema: {pageId: z.string().min(1), parentId: z.string().min(1).nullable(), position: z.union([
+      z.object({index: z.number().int().min(0)}).strict(), z.object({afterId: z.string().min(1)}).strict(),
+    ]).optional()},
+  }, async ({pageId, parentId, position}) => {
+    try {
+      const input = {pageId, parentId, position};
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        let move = {parentId, orderedIds: [] as string[]};
+        await movePageTool(Object.assign(Object.create(client) as PolicyClient, {movePage: async (_id: string, value: {parentId: string | null; orderedIds: string[]}) => {
+          move = value;
+          return (await client.getPage(pageId))!;
+        }}), input);
+        const summary = 'Move page';
+        const suggestion = await recordSuggestion({kind: 'move_page', pageId, summary, target: {},
+          after: JSON.stringify(move), payload: {pageId, move}});
+        return suggested(summary, suggestion);
+      }
+      const moved = await movePageTool(client, input);
+      return text(JSON.stringify({pageId: moved.id, parentId: moved.parentId}));
+    } catch (error) { return pageFailure(error); }
+  });
 
   // The block types an artifact page may contain are the SDK block-type
   // catalogue's (core + kit — the same set the in-app agent accepts), plus
