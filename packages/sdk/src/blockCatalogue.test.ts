@@ -154,7 +154,7 @@ describe('structure validation (children-carrier + child-only + square tables)',
   });
 });
 
-describe('typed prop schemas', () => {
+describe('prop value validation (permissive but typed)', () => {
   it('checks declared props, passes unknown props, null removals, and unknown types', () => {
     expect(invalidBlockProps('heading', {level: 2})).toBeNull();
     expect(invalidBlockProps('heading', {level: 'two'})).toContain('"level"');
