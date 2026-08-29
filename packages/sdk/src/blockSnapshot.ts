@@ -152,7 +152,7 @@ const tableRefusal = (): never => {
 };
 
 const touchesTable = (found: FoundSnapshotBlock): boolean =>
-  found.block.type === 'table' || found.ancestors.some((block) => block.type === 'table');
+  found.ancestors.some((block) => block.type === 'table');
 
 const assertParentAccepts = (parent: SnapshotBlock | null, childTypes: string[]): void => {
   if (!parent) {
@@ -166,7 +166,7 @@ const assertParentAccepts = (parent: SnapshotBlock | null, childTypes: string[])
   }
   for (const childType of childTypes) {
     const required = CHILD_ONLY_PARENT[childType];
-    if ((required && required !== parent.type) || (!required && ['columns', 'tabs', 'accordion'].includes(parent.type))) {
+    if ((required && required !== parent.type) || (!required && Object.values(CHILD_ONLY_PARENT).includes(parent.type))) {
       throw new BlockSnapshotError('invalid-parent', `${parent.type} cannot contain ${childType} blocks.`);
     }
   }

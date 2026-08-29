@@ -14,6 +14,7 @@ const page = (): PageSnapshot => ({
 });
 
 const open = () => decodeSnapshot(page().blockdoc as BlockDocSnapshot);
+const openPage = (data: PageSnapshot) => decodeSnapshot(data.blockdoc as BlockDocSnapshot);
 interface BlockShape {type: string; text?: Array<{t: string}>; props?: Record<string, unknown>; children?: BlockShape[]}
 
 const shape = (blocks: Array<{type: string; text?: Array<{t: string}>; props?: Record<string, unknown>; children?: unknown[]}>): BlockShape[] =>
@@ -25,11 +26,51 @@ const shape = (blocks: Array<{type: string; text?: Array<{t: string}>; props?: R
   }));
 
 describe('aiBridge generic block operation parity', () => {
-  it('replays move_block with the same tree as the snapshot twin', () => {
-    const expected = moveBlock(page(), {blockId: 'c', parentId: 'group', afterId: 'b'});
-    const doc = open();
-    applyProposalToDoc(doc, {id: 'move', kind: 'move_block', summary: '', payload: {blockId: 'c', parentId: 'group', afterId: 'b'}});
-    expect(shape(docToJSON(doc))).toEqual(shape((expected.blockdoc as {blocks: Parameters<typeof shape>[0]}).blocks));
+  const paragraph = (id: string) => ({id, type: 'paragraph', text: [{t: id.toUpperCase()}]});
+  const moveCases: Array<{name: string; blocks: PageSnapshot['blockdoc']; payload: {blockId: string; parentId?: string; index?: number; afterId?: string}}> = [
+    {
+      name: 'moves forward in the same parent',
+      blocks: {blocks: [paragraph('a'), paragraph('b'), paragraph('c')]},
+      payload: {blockId: 'a', index: 2},
+    },
+    {
+      name: 'moves backward in the same parent',
+      blocks: {blocks: [paragraph('a'), paragraph('b'), paragraph('c')]},
+      payload: {blockId: 'c', index: 0},
+    },
+    {
+      name: 'moves afterId in the same parent',
+      blocks: {blocks: [paragraph('a'), paragraph('b'), paragraph('c')]},
+      payload: {blockId: 'a', afterId: 'b'},
+    },
+    {
+      name: 'moves into a group',
+      blocks: {blocks: [paragraph('a'), {id: 'group', type: 'group', children: [paragraph('b')]}, paragraph('c')]},
+      payload: {blockId: 'c', parentId: 'group', index: 0},
+    },
+    {
+      name: 'moves out of a group',
+      blocks: {blocks: [paragraph('a'), {id: 'group', type: 'group', children: [paragraph('b'), paragraph('c')]}, paragraph('d')]},
+      payload: {blockId: 'b', index: 1},
+    },
+    {
+      name: 'anchors after a preceding lone column is pruned',
+      blocks: {blocks: [{id: 'columns', type: 'columns', children: [{id: 'column', type: 'column', children: [paragraph('x')]}]}, paragraph('a'), paragraph('b')]},
+      payload: {blockId: 'x', index: 2},
+    },
+    {
+      name: 'anchors before a following lone column is pruned',
+      blocks: {blocks: [paragraph('a'), {id: 'columns', type: 'columns', children: [{id: 'column', type: 'column', children: [paragraph('x')]}]}, paragraph('b')]},
+      payload: {blockId: 'x', index: 0},
+    },
+  ];
+
+  it.each(moveCases)('$name with the same full nested tree as the snapshot twin', ({blocks, payload}) => {
+    const data: PageSnapshot = {...page(), blockdoc: blocks};
+    const expected = moveBlock(data, payload);
+    const doc = openPage(data);
+    applyProposalToDoc(doc, {id: 'move', kind: 'move_block', summary: '', payload});
+    expect(docToJSON(doc)).toEqual((expected.blockdoc as BlockDocSnapshot).blocks);
   });
 
   it('replays nested insert_blocks with the same tree as the snapshot twin', () => {

@@ -183,7 +183,9 @@ async function main(): Promise<void> {
     cells.map((c) => c.text).join('|') === 'Item|Qty|Price|Apples|3|1.20|Pears|5|2.40');
   check('the header row kept its props', /"header":true/.test(rows[0].raw));
   const tableMove = await mcp.client.callTool({name: 'move_block', arguments: {pageId: page.id, blockId: table.id, index: 0}});
-  check('move_block refuses table structure in favour of table_* tools', isError(tableMove) && /table_\*/.test(resultText(tableMove)));
+  check('move_block allows moving a whole table block', !isError(tableMove));
+  const rowMove = await mcp.client.callTool({name: 'move_block', arguments: {pageId: page.id, blockId: rows[0].id, index: 0}});
+  check('move_block refuses moving table internals in favour of table_* tools', isError(rowMove) && /table_\*/.test(resultText(rowMove)));
 
   console.log('\nAPI-1: structural caps are refused with an actionable message');
   const tooDeep = await mcp.client.callTool({name: 'append_blocks', arguments: {pageId: page.id, blocks: [deepChain(9)]}});

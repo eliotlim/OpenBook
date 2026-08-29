@@ -371,9 +371,9 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
       if (!destination || !source) throw new Error(`no block "${blockId}" on this page`);
       const target = parentId === undefined ? rootBlocks(doc) : blockChildren(findBlock(doc, parentId)?.block as BlockMap);
       if (!target) throw new Error(`no destination block "${parentId}" on this page`);
-      // model.moveBlock currently accepts the pre-removal array coordinate; turn
-      // the twin's definitive post-removal index into that coordinate.
-      const modelIndex = source.parent === target && source.index < destination.index ? destination.index + 1 : destination.index;
+      const anchorId = destination.index > 0 ? destination.siblings[destination.index - 1].id : null;
+      const anchorAt = anchorId === null ? -1 : target.toArray().findIndex((b) => b.get('id') === anchorId);
+      const modelIndex = anchorAt + 1;
       moveEditorBlock(doc, blockId, parentId ?? null, modelIndex);
     } else if (p.kind === 'insert_blocks') {
       const parentId = typeof payload.parentId === 'string' ? payload.parentId : undefined;
