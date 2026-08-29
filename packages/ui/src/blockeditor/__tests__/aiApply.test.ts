@@ -108,5 +108,7 @@ describe('AI apply: coerceNewBlock builds rich nested blocks', () => {
     expect(coerceNewBlock(null)).toBeNull();
     expect(coerceNewBlock(42)).toBeNull();
     expect(coerceNewBlock({})?.type).toBe('paragraph');
+    expect(coerceNewBlock({text: '[x](javascript:alert(1))'})).toBeNull();
+    expect(coerceNewBlock({text: {runs: [{t: 'x', a: {a: 'data:text/html,x'}}]}})).toBeNull();
   });
 });

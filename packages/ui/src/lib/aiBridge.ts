@@ -1,4 +1,5 @@
 import type * as Y from 'yjs';
+import {richTextRuns, type RichTextInput} from '@book.dev/sdk';
 import {
   findBlock as findSnapshotBlock,
   insertBlocks as insertSnapshotBlocks,
@@ -295,6 +296,7 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
     // Re-read the grid: the ops above may have run earlier in this same
     // transaction, and `tableGrid` is only valid until the table changes.
     const grid = tableGrid(table.block);
+    const runs = richTextRuns(op.text ?? '', op.plain);
     const cell = grid.cells[op.rowIndex!]?.[op.colIndex!];
     if (!cell) {
       // A merge gap has no cell node — materialize one bound to that column, so
@@ -304,12 +306,17 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
       const row = grid.rows[op.rowIndex!];
       const colId = grid.colIds[op.colIndex!];
       const rowCells = row && blockChildren(row);
-      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: [{t: op.text ?? ''}]})]);
+      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: runs})]);
       return;
     }
     const text = blockText(cell);
     if (!text) throw new Error(`row ${op.rowIndex} column ${op.colIndex} of table ${table.id} has no cell to write`);
-    replaceText(text, op.text ?? '');
+    text.delete(0, text.length);
+    let at = 0;
+    for (const run of runs) {
+      text.insert(at, run.t, run.a ?? {});
+      at += run.t.length;
+    }
     return;
   }
   case 'table_set_row_color':
@@ -337,14 +344,26 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
       const found = findBlock(doc, String(payload.blockId));
       const text = found && blockText(found.block);
       if (text) {
-        const theirs = String(payload.text ?? '');
+        const input = payload.text as RichTextInput;
+        const runs = richTextRuns(input, payload.plain === true);
+        const theirs = runs.map((run) => run.t).join('');
         // `payload.before` is the block text when the suggestion was made.
         // Merging against it (rather than replacing wholesale) means a second
         // suggestion accepted on the same block keeps the first one's edit
         // instead of clobbering it; with no base we fall back to a replace.
         const base = typeof payload.before === 'string' ? payload.before : null;
-        const next = base === null ? theirs : merge3(base, text.toString(), theirs);
-        replaceText(text, next);
+        const rich = typeof input !== 'string' || runs.some((run) => run.a);
+        if (rich) {
+          text.delete(0, text.length);
+          let at = 0;
+          for (const run of runs) {
+            text.insert(at, run.t, run.a ?? {});
+            at += run.t.length;
+          }
+        } else {
+          const next = base === null ? theirs : merge3(base, text.toString(), theirs);
+          replaceText(text, next);
+        }
       }
     } else if (p.kind === 'append_blocks') {
       const list = rootBlocks(doc);

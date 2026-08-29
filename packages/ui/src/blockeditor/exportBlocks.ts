@@ -222,14 +222,30 @@ function runToMd(run: TextRun): string {
   let out = run.t;
   const a: InlineAttrs = run.a ?? {};
   if (a.c) out = `\`${out}\``;
-  if (a.b) out = `**${out}**`;
-  if (a.i) out = `*${out}*`;
+  if (a.b && a.i) out = `***${out}***`;
+  else if (a.b) out = `**${out}**`;
+  else if (a.i) out = `*${out}*`;
   if (a.s) out = `~~${out}~~`;
   if (a.a) out = `[${out}](${a.a})`;
   return out;
 }
 
-const textMd = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToMd).join('');
+const textMd = (runs: TextRun[] | undefined): string => {
+  const source = runs ?? [];
+  let out = '';
+  for (let i = 0; i < source.length; i += 1) {
+    const run = source[i];
+    const next = source[i + 1];
+    if (run.a?.b && !run.a.i && Object.keys(run.a).length === 1
+      && next?.a?.b && next.a.i && Object.keys(next.a).length === 2) {
+      out += `**${run.t}*${next.t}***`;
+      i += 1;
+    } else {
+      out += runToMd(run);
+    }
+  }
+  return out;
+};
 
 const escapeMd = (s: string): string => s.replace(/([\\`*_[\]<>])/g, '\\$1');
 

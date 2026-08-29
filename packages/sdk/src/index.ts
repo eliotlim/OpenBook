@@ -361,6 +361,16 @@ export {
 } from './authorize';
 export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
 export {
+  RichTextInputError,
+  normalizeRuns,
+  parseMiniMarkdown,
+  richTextRuns,
+  type RichTextInput,
+  type RichTextInputErrorCode,
+  type Run,
+  type RunAttrs,
+} from './richTextInput';
+export {
   BlockSnapshotError,
   deleteBlock,
   findBlock,

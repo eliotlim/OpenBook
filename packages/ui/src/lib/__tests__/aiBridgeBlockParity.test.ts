@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {insertBlocks, moveBlock, type PageSnapshot} from '@book.dev/sdk';
+import {insertBlocks, moveBlock, setBlockText, type PageSnapshot} from '@book.dev/sdk';
 import {decodeSnapshot, docToJSON, encodeSnapshot, type BlockDocSnapshot} from '@/blockeditor/model';
 import {applyProposalToDoc} from '../aiBridge';
 
@@ -80,5 +80,21 @@ describe('aiBridge generic block operation parity', () => {
     applyProposalToDoc(doc, {id: 'insert', kind: 'insert_blocks', summary: '', payload: {parentId: 'group', index: 1, blocks}});
     expect(shape(docToJSON(doc))).toEqual(shape((expected.blockdoc as {blocks: Parameters<typeof shape>[0]}).blocks));
     expect(encodeSnapshot(doc).blocks).toHaveLength(3);
+  });
+
+  it('replays mini-markdown update_block with the same runs as the snapshot twin', () => {
+    const expected = setBlockText(page(), 'a', '**a** [b](https://x.test)')!;
+    const doc = open();
+    applyProposalToDoc(doc, {id: 'rich', kind: 'update_block', summary: '', payload: {blockId: 'a', text: '**a** [b](https://x.test)'}});
+    expect(docToJSON(doc)[0].text).toEqual((expected.blockdoc as BlockDocSnapshot).blocks[0].text);
+  });
+
+  it('replays explicit runs exactly and honors plain string opt-out', () => {
+    const runs = [{t: 'bold', a: {b: true as const}}, {t: ' link', a: {a: 'https://x.test'}}];
+    const doc = open();
+    applyProposalToDoc(doc, {id: 'runs', kind: 'update_block', summary: '', payload: {blockId: 'a', text: {runs}}});
+    expect(docToJSON(doc)[0].text).toEqual(runs);
+    applyProposalToDoc(doc, {id: 'plain', kind: 'update_block', summary: '', payload: {blockId: 'a', text: '**a**', plain: true}});
+    expect(docToJSON(doc)[0].text).toEqual([{t: '**a**'}]);
   });
 });

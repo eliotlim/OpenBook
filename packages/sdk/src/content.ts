@@ -1,4 +1,5 @@
 import type {PageSnapshot} from './types';
+import {richTextRuns, type RichTextInput, type Run} from './richTextInput';
 
 /**
  * Plain-text projection of page content, shared by every consumer that needs
@@ -152,7 +153,9 @@ export function appendTextToSnapshot(data: PageSnapshot, content: string, idPref
 export interface AppendBlock {
   type: string;
   /** Plain text (text-carrying blocks). */
-  text?: string;
+  text?: RichTextInput;
+  /** Treat a string `text` literally instead of parsing mini-markdown. */
+  plain?: boolean;
   props?: Record<string, unknown>;
   /**
    * Nested children — the document model is ONE recursive shape, so a container
@@ -173,7 +176,7 @@ export interface AppendBlock {
 export interface ProjectedBlock {
   id: string;
   type: string;
-  text?: Array<{t: string}>;
+  text?: Run[];
   props?: Record<string, unknown>;
   children?: ProjectedBlock[];
 }
@@ -197,7 +200,7 @@ export function projectAppendBlocks(blocks: AppendBlock[], idPrefix = 'gen'): Pr
     return {
       id,
       type: b.type,
-      ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
+      ...(b.text !== undefined ? {text: richTextRuns(b.text, b.plain)} : {}),
       ...(b.props ? {props: b.props} : {}),
       ...(b.children && b.children.length > 0 ? {children: projectAppendBlocks(b.children, id)} : {}),
     };
