@@ -32,6 +32,13 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `table_set_row_color` / `table_set_column_color` | Tint a row or column (a palette token, or `null` to clear). A row tint wins over a column tint. |
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
+| `describe_database` | Return a database's schema, first 40 row identities, and total row count. |
+| `create_database` | Create a database on a new host page, optionally with initial manual properties. |
+| `update_database` | Rename the database hosted by a page. |
+| `create_property` | Add a validated manual property to a database schema. |
+| `update_property` | Rename a property and/or replace select-style options. |
+| `update_row` | Update a row title and/or validated property values without changing other cells. |
+| `delete_row` | Move a database row page to the recoverable trash. |
 | `list_db_views` | List a database's views and their identifiers. |
 | `get_db_row` | Read one database row and its properties/exports. |
 | `set_db_cell` | Set one database row property. |
@@ -95,7 +102,6 @@ Shared input/frame props are `name`, `label`, and `description` strings plus `co
 - Formula: `{"source":"subtotal * (1 + taxRate)"}`.
 
 For media, follow [Images via MCP](#images-via-mcp) and upload the asset before appending `image` or `htmlArtifact`. For formatted content, see [Rich text input](#rich-text-input). For precise structure changes, inspect first, then use `insert_blocks` or `move_block`; tables must use the `table_*` tools.
-
 ### Images via MCP
 
 1. On suggest-mode installs, call `request_edit_access` first; uploads apply immediately and cannot be queued as suggestions.
@@ -177,7 +183,7 @@ At startup the connector performs a single `GET /api/instance` handshake (guest-
 
 ## Direct edits vs. reviewable suggestions
 
-Whether a write tool (`append_to_page`, `append_blocks`, `insert_blocks`, `move_block`, `update_block`, `update_block_props`, `delete_block`, every `table_*` op, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+Whether a write tool (`append_to_page`, `append_blocks`, `insert_blocks`, `move_block`, `update_block`, `update_block_props`, `delete_block`, every `table_*` op, `set_kit_value`, `set_db_cell`, and the database schema/row tools above) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row through the legacy `create_database_row` tool remains immediate. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
 
 The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
 

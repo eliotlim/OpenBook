@@ -11,7 +11,15 @@ import {
   BLOCK_TYPE_CATALOGUE,
   blockCatalogueText,
   blockTreeError,
+  buildDatabaseToolOptions,
+  buildDatabaseToolProperty,
   CONTAINER_BLOCK_TYPES,
+  createDatabaseTool,
+  createPropertyTool,
+  DATABASE_TOOL_PROPERTY_TYPES,
+  DatabaseToolError,
+  deleteRowTool,
+  describeDatabaseTool,
   findUnknownBlockType,
   FORM_FIELD_KINDS,
   invalidBlockProps,
@@ -21,13 +29,9 @@ import {
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
   moveBlock,
-  tableOrderContractKey,
-  tableOrderContractRefusal,
-  TEXT_BLOCK_TYPES,
-  unknownBlockTypeMessage,
-  uploadAgentAsset,
   projectAppendBlocks,
   richTextRuns,
+  resolveDatabaseToolRowValues,
   resolveTableOp,
   setBlockProps,
   setBlockText,
@@ -37,16 +41,24 @@ import {
   snapshotText,
   tableOpError,
   tableOpRemovesTable,
+  tableOrderContractKey,
+  tableOrderContractRefusal,
   tableShapeOf,
+  TEXT_BLOCK_TYPES,
   textSnapshot,
+  updateDatabaseTool,
+  updatePropertyTool,
+  updateRowTool,
+  unknownBlockTypeMessage,
+  uploadAgentAsset,
   type AgentEditsMode,
   type DataClient,
   type DatabaseRow,
   type FormField,
   type FormSchema,
   type PageSnapshot,
-  type StoredPage,
   type SnapshotTableView,
+  type StoredPage,
   type StoredSuggestion,
   type SuggestionKind,
   type SuggestionTarget,
@@ -591,7 +603,9 @@ const blockPayloadError = (blocks: NestedBlockInput[]): string | null =>
  * the identifier is the BRIDGE's, not the tool's). The SDK suggestion `kind` each
  * maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
  */
-type McpWriteKind = 'append_blocks' | 'insert_blocks' | 'move_block' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props' | TableOpKind;
+type McpWriteKind = 'append_blocks' | 'insert_blocks' | 'move_block' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props'
+  | 'create_database' | 'update_database' | 'create_property' | 'update_property' | 'update_row' | 'delete_row'
+  | TableOpKind;
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   append_blocks: 'insert',
@@ -602,6 +616,12 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   set_db_cell: 'set-cell',
   delete_block: 'delete',
   set_block_props: 'replace-text',
+  create_database: 'database-op',
+  update_database: 'database-op',
+  create_property: 'database-op',
+  update_property: 'database-op',
+  update_row: 'database-op',
+  delete_row: 'database-op',
   // API-3: every table STRUCTURE op reviews as one `table-op` kind; the
   // `payload.applyKind` (the tool name, which is also the bridge's proposal kind)
   // says which op to replay.
@@ -1702,6 +1722,160 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       return text(`Set ${prop.name} = ${JSON.stringify(value)} directly on row ${rowId}.`);
     },
   );
+
+  const databaseFailure = (error: unknown) => {
+    if (error instanceof DatabaseToolError) return failure(`[${error.code}] ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    return /forbidden|permission|read.only|writer|unauthor/i.test(message)
+      ? failure('[permission_denied] This instance does not allow database writes.')
+      : failure('[invalid_input] The database operation could not be completed.');
+  };
+  const databasePropertySchema = {
+    name: z.string().min(1).max(200).describe('Property name.'),
+    type: z.enum(DATABASE_TOOL_PROPERTY_TYPES).describe('Manual database property type.'),
+    options: z.array(z.string().max(200)).max(100).optional().describe('Choice labels for select-style properties.'),
+  };
+
+  server.registerTool('describe_database', {
+    title: 'Describe a database',
+    description: 'Return database identity, property schema, first 40 row identities, and total row count.',
+    inputSchema: {pageId: z.string().describe('The page hosting the database.')},
+  }, async ({pageId}) => {
+    try { return text(JSON.stringify(await describeDatabaseTool(client, pageId))); }
+    catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('create_database', {
+    title: 'Create a database',
+    description: 'Create a database on a new host page, optionally with initial manual properties.',
+    inputSchema: {title: z.string().min(1).max(200), properties: z.array(z.object(databasePropertySchema).strict()).max(100).optional()},
+  }, async ({title, properties}) => {
+    try {
+      const page = await client.savePage({name: title.trim(), data: textSnapshot('', 'mcp')});
+      const schema = {properties: (properties ?? []).map((p) => buildDatabaseToolProperty(p)),
+        views: [{id: `v_${crypto.randomUUID().slice(0, 8)}`, name: 'Table', type: 'table' as const, filters: [], sorts: []}]};
+      if ((await resolveWritePolicy(page.id)) !== 'direct') {
+        const summary = `Create database "${title.trim()}"`;
+        const suggestion = await recordSuggestion({kind: 'create_database', pageId: page.id, summary, target: {},
+          after: JSON.stringify({name: title.trim(), properties: schema.properties}), payload: {pageId: page.id, title: title.trim(), schema}});
+        return suggested(`${summary} on host page ${page.id}`, suggestion);
+      }
+      const database = await createDatabaseTool(client, {pageId: page.id, title, properties});
+      return text(JSON.stringify({pageId: page.id, databaseId: database.id, name: database.name, properties: database.schema.properties}));
+    } catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('update_database', {
+    title: 'Update a database', description: 'Rename the database hosted by a page.',
+    inputSchema: {pageId: z.string(), name: z.string().min(1).max(200)},
+  }, async ({pageId, name}) => {
+    try {
+      const database = await client.getPageDatabase(pageId);
+      if (!database) throw new DatabaseToolError('database_not_found', 'That page hosts no database.');
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Rename database to "${name.trim()}"`;
+        const suggestion = await recordSuggestion({kind: 'update_database', pageId, summary, before: database.name ?? '', after: name.trim(),
+          target: {databaseId: database.id}, payload: {databaseId: database.id, patch: {name: name.trim()}}});
+        return suggested(summary, suggestion);
+      }
+      const updated = await updateDatabaseTool(client, {pageId, name});
+      return text(JSON.stringify({databaseId: updated.id, name: updated.name}));
+    } catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('create_property', {
+    title: 'Create a database property', description: 'Add a validated manual property to a database schema.',
+    inputSchema: {pageId: z.string(), ...databasePropertySchema},
+  }, async ({pageId, name, type, options}) => {
+    try {
+      const database = await client.getPageDatabase(pageId);
+      if (!database) throw new DatabaseToolError('database_not_found', 'That page hosts no database.');
+      const property = buildDatabaseToolProperty({name, type, options});
+      const schema = {...database.schema, properties: [...database.schema.properties, property]};
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Add property "${property.name}"`;
+        const suggestion = await recordSuggestion({kind: 'create_property', pageId, summary, target: {databaseId: database.id},
+          after: JSON.stringify(property), payload: {databaseId: database.id, patch: {schema}}});
+        return suggested(`${summary} [${property.id}]`, suggestion);
+      }
+      const result = await createPropertyTool(client, {pageId, name, type, options});
+      return text(JSON.stringify({databaseId: result.database.id, property: result.property}));
+    } catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('update_property', {
+    title: 'Update a database property', description: 'Rename a property and/or replace select-style options.',
+    inputSchema: {pageId: z.string(), propertyId: z.string(), name: z.string().min(1).max(200).optional(), options: z.array(z.string().max(200)).max(100).optional()},
+  }, async ({pageId, propertyId, name, options}) => {
+    try {
+      const database = await client.getPageDatabase(pageId);
+      if (!database) throw new DatabaseToolError('database_not_found', 'That page hosts no database.');
+      const index = database.schema.properties.findIndex((p) => p.id === propertyId);
+      if (index < 0) throw new DatabaseToolError('property_not_found', `Unknown property "${propertyId}".`);
+      if (name === undefined && options === undefined) throw new DatabaseToolError('invalid_input', 'Pass a name and/or options.');
+      const property = {...database.schema.properties[index]};
+      if (name !== undefined) {
+        const trimmed = name.trim();
+        if (!trimmed) throw new DatabaseToolError('invalid_input', 'A property name is required.');
+        property.name = trimmed;
+      }
+      if (options !== undefined) property.options = buildDatabaseToolOptions(options, property.options);
+      const schema = {...database.schema, properties: database.schema.properties.map((p, i) => i === index ? property : p)};
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Update property "${property.name}"`;
+        const suggestion = await recordSuggestion({kind: 'update_property', pageId, summary, target: {databaseId: database.id, propertyId},
+          before: JSON.stringify(database.schema.properties[index]), after: JSON.stringify(property), payload: {databaseId: database.id, patch: {schema}}});
+        return suggested(summary, suggestion);
+      }
+      const result = await updatePropertyTool(client, {pageId, propertyId, name, options});
+      return text(JSON.stringify({databaseId: result.database.id, property: result.property}));
+    } catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('update_row', {
+    title: 'Update a database row', description: 'Update a row title and/or validated property values without changing other cells.',
+    inputSchema: {
+      pageId: z.string(), rowId: z.string(), name: z.string().max(200).optional(),
+      properties: z.record(z.unknown()).refine((value) => Object.keys(value).length <= 100, 'Too many properties').optional(),
+    },
+  }, async ({pageId, rowId, name, properties}) => {
+    try {
+      const database = await client.getPageDatabase(pageId);
+      if (!database) throw new DatabaseToolError('database_not_found', 'That page hosts no database.');
+      const row = (await client.listRows(database.id)).find((r) => r.id === rowId);
+      if (!row) throw new DatabaseToolError('row_not_found', 'Row not found in this database.');
+      if (name === undefined && properties === undefined) throw new DatabaseToolError('invalid_input', 'Pass a name and/or properties.');
+      const patch = {...(name !== undefined ? {name} : {}), ...(properties !== undefined
+        ? {properties: {...row.properties, ...resolveDatabaseToolRowValues(database.schema, properties)}} : {})};
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Update row "${name ?? row.name ?? 'Untitled'}"`;
+        const suggestion = await recordSuggestion({kind: 'update_row', pageId, summary, target: {databaseId: database.id, rowId},
+          before: JSON.stringify({name: row.name, properties: row.properties}), after: JSON.stringify(patch),
+          payload: {databaseId: database.id, rowId, patch}});
+        return suggested(summary, suggestion);
+      }
+      return text(JSON.stringify({row: await updateRowTool(client, {pageId, rowId, name, properties})}));
+    } catch (error) { return databaseFailure(error); }
+  });
+
+  server.registerTool('delete_row', {
+    title: 'Delete a database row', description: 'Move a database row page to the recoverable trash.',
+    inputSchema: {pageId: z.string(), rowId: z.string()},
+  }, async ({pageId, rowId}) => {
+    try {
+      const database = await client.getPageDatabase(pageId);
+      if (!database) throw new DatabaseToolError('database_not_found', 'That page hosts no database.');
+      const row = (await client.listRows(database.id)).find((r) => r.id === rowId);
+      if (!row) throw new DatabaseToolError('row_not_found', 'Row not found in this database.');
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const summary = `Move row "${row.name ?? 'Untitled'}" to trash`;
+        const suggestion = await recordSuggestion({kind: 'delete_row', pageId, summary, before: JSON.stringify({id: row.id, name: row.name}),
+          target: {databaseId: database.id, rowId}, payload: {databaseId: database.id, rowId}});
+        return suggested(summary, suggestion);
+      }
+      return text(JSON.stringify({deleted: await deleteRowTool(client, {pageId, rowId}), trashed: true}));
+    } catch (error) { return databaseFailure(error); }
+  });
 
   // ── Table structure (API-3) ──────────────────────────────────────────────────
   //
