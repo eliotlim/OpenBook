@@ -38,6 +38,23 @@ deterministically, matching what the editor would have assigned, without changin
 what you already saw. These tools are the only way to write those keys —
 `update_block_props` refuses `ord` / `col:` / `colbg:`.
 
+### Rich text input
+
+Every block-text write (`update_block`, block `text` in `append_blocks` and
+`insert_blocks`, and `table_set_cell`) accepts a string or explicit editor runs.
+Strings use a small markdown subset: `**bold**`, `*italic*` or `_italic_`,
+`` `code` ``, `~~strike~~`, and `[label](https://example.com)`. Backslash escapes
+marker punctuation. Unbalanced/unknown markers stay literal. Links allow only
+`https`, `http`, and `mailto`; `javascript:` and `data:` are rejected.
+
+Explicit runs use the blockdoc shape `{"runs":[{"t":"bold","a":{"b":true}}]}`.
+Allowed attributes are `b` (bold), `i` (italic), `u` (underline), `s` (strike),
+`c` (code), and `a` (safe link URL). Unknown attributes are rejected and adjacent
+equal-format runs are merged. Set `plain: true` beside `text` to store a string
+literally, for example `{"text":"**not bold**","plain":true}`. `[[Page Title]]`
+stays literal: mention runs need a page ID, which cannot be resolved from a title
+without a database lookup.
+
 ## Setup
 
 The in-app Settings card uses the HTTP transport; the stdio setup below is the source-checkout/development route and authenticates as an unauthenticated guest rather than with a scoped token.
