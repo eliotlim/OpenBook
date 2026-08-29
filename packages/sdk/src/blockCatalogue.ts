@@ -113,6 +113,7 @@ const CATALOGUE_LITERAL = [
   {type: 'dbview', category: 'kit', nature: 'void', props: {pageId: 'string'}, hint: 'embedded live database view {pageId} — the page hosting the database'},
   {type: 'dbform', category: 'kit', nature: 'void', props: {databaseId: 'string', viewId: 'string'}, hint: 'embedded database form {databaseId,viewId} — a live reference, never a copied schema or capability'},
   {type: 'form', category: 'kit', nature: 'void', kitValue: false, props: {formId: 'string', submissionKey: 'string', enabled: 'boolean', databaseId: 'string', schema: 'object', label: 'string', description: 'string'}, hint: 'public form definition {formId,submissionKey,enabled,databaseId?,schema}'},
+  {type: 'zzz-fake', category: 'core', nature: 'void', hint: 'API-6 red proof only'},
 ] as const satisfies readonly BlockTypeInfo[];
 
 /** The core block `type` union — the UI's `BlockType` is THIS type, so the
