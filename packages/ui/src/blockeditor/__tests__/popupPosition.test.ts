@@ -55,7 +55,7 @@ describe('observePopupPosition', () => {
       anchor: () => new DOMRect(200, 130, 100, 20),
       boundary: () => clip,
       onPosition: (next) => (position = next),
-      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+      options: {...INLINE_TOOLBAR_POSITION_OPTIONS, clampHorizontallyToBoundary: true},
     });
 
     expect(position).toEqual({left: 150, top: 158, maxHeight: undefined, placement: 'below'});
@@ -164,10 +164,27 @@ describe('observePopupPosition', () => {
       anchor: () => new DOMRect(80, 100, 40, 40),
       boundary: () => clip,
       onPosition: (next) => (position = next),
-      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+      options: {...INLINE_TOOLBAR_POSITION_OPTIONS, clampHorizontallyToBoundary: true},
     });
 
     expect(position?.left).toBe(128);
+    cleanup();
+  });
+
+  it('does not horizontally clamp to a clipping boundary unless opted in', () => {
+    viewport(1000, 600);
+    const clip = document.createElement('div');
+    vi.spyOn(clip, 'getBoundingClientRect').mockReturnValue(new DOMRect(120, 20, 500, 500));
+    let position: PopupPosition | undefined;
+    const cleanup = observePopupPosition({
+      popup: () => popup(200, 36),
+      anchor: () => new DOMRect(80, 100, 40, 40),
+      boundary: () => clip,
+      onPosition: (next) => (position = next),
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+
+    expect(position?.left).toBe(8);
     cleanup();
   });
 

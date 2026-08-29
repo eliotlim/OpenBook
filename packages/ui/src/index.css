@@ -2273,8 +2273,7 @@ a.obe-mention {
   border-radius: var(--radius-md);
   color: hsl(var(--foreground) / 0.85);
 }
-.obe-range-toolbar-button:hover,
-.obe-range-toolbar-button:focus-visible { background: var(--hover); outline: none; }
+.obe-range-toolbar-button:hover { background: var(--hover); }
 .obe-range-toolbar-button > svg { width: 0.875rem; height: 0.875rem; }
 .obe-range-toolbar-button:disabled { opacity: 0.4; }
 @media (pointer: coarse) {
@@ -2436,6 +2435,7 @@ a.obe-mention {
 /* Block editor: keyboard focus visibility (a11y) */
 .obe-gutter-btn:focus-visible,
 .obe-tb-btn:focus-visible,
+.obe-range-toolbar-button:focus-visible,
 .obe-table-add:focus-visible,
 .obe-table-tools button:focus-visible,
 .obe-callout-icon:focus-visible,

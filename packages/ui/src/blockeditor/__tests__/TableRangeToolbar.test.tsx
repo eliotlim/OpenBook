@@ -34,6 +34,7 @@ const Harness: React.FC<{
         if (element) vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(20, 20, 380, 480));
       }}
     >
+      <p tabIndex={-1}>Outside paragraph</p>
       <table ref={tableRef} tabIndex={-1}>
         <tbody><tr>{[0, 1, 2, 3].map((index) => (
           <td
@@ -70,7 +71,7 @@ afterEach(() => {
 });
 
 describe('TableRangeToolbar', () => {
-  it('shows for a 2×2 range above its union rect and within the editor pane', () => {
+  it('shows a row-0 range below its union rect and within the editor pane', () => {
     const {editor} = seed();
     render(<Harness editor={editor} />);
     fireEvent(window, new Event('resize'));
@@ -78,7 +79,14 @@ describe('TableRangeToolbar', () => {
     expect(toolbar.style.visibility).not.toBe('hidden');
     expect(Number.parseFloat(toolbar.style.left)).toBeGreaterThanOrEqual(28);
     expect(Number.parseFloat(toolbar.style.left) + 200).toBeLessThanOrEqual(392);
-    expect(Number.parseFloat(toolbar.style.top)).toBeLessThan(100);
+    expect(Number.parseFloat(toolbar.style.top)).toBeGreaterThan(200);
+  });
+
+  it('shows a range below row 0 above its union rect', () => {
+    const {editor} = seed();
+    render(<Harness editor={editor} rect={{top: 1, left: 0, bottom: 2, right: 1}} />);
+    fireEvent(window, new Event('resize'));
+    expect(Number.parseFloat(screen.getByRole('toolbar').style.top)).toBeLessThan(100);
   });
 
   it('does not show for an unmerged 1×1 range or in read-only mode', () => {
@@ -109,7 +117,7 @@ describe('TableRangeToolbar', () => {
     const {editor} = seed();
     const dismiss = vi.fn();
     render(<Harness editor={editor} onDismiss={dismiss} />);
-    const toolbar = screen.getByRole('toolbar', {name: 'Aktionen für ausgewählte Zellen'});
+    const toolbar = screen.getByRole('toolbar', {name: 'Aktionen für die Zellenauswahl'});
     const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>('[data-range-toolbar-button]')];
     expect(buttons.filter((button) => button.tabIndex === 0)).toEqual([buttons[0]]);
     buttons[0].focus();
@@ -118,5 +126,36 @@ describe('TableRangeToolbar', () => {
     fireEvent.keyDown(document, {key: 'Escape'});
     expect(dismiss).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(document.querySelector('table'));
+  });
+
+  it('only captures forward Tab from the table while the range toolbar is live', () => {
+    const {editor} = seed();
+    render(<Harness editor={editor} />);
+    const paragraph = screen.getByText('Outside paragraph');
+    paragraph.focus();
+    const outsideTab = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true});
+    paragraph.dispatchEvent(outsideTab);
+    expect(outsideTab.defaultPrevented).toBe(false);
+
+    const table = document.querySelector('table')!;
+    table.focus();
+    const tableTab = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true});
+    table.dispatchEvent(tableTab);
+    expect(tableTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(screen.getAllByTestId('range-action')[0]);
+  });
+
+  it('ignores Escape while hidden and while a submenu is open', () => {
+    const {editor} = seed();
+    const dismiss = vi.fn();
+    const view = render(<Harness editor={editor} onDismiss={dismiss} />);
+    const toolbar = screen.getByRole('toolbar');
+    toolbar.querySelector('button')!.setAttribute('data-state', 'open');
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(dismiss).not.toHaveBeenCalled();
+
+    view.rerender(<Harness editor={{...editor, readOnly: true}} onDismiss={dismiss} />);
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(dismiss).not.toHaveBeenCalled();
   });
 });

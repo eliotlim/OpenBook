@@ -51,38 +51,46 @@ export const TableRangeToolbar: React.FC<TableRangeMenuContext & {
   const [position, setPosition] = useState<PopupPosition | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const coarse = useCoarsePointer();
+  const rectKey = `${ctx.rect.top}:${ctx.rect.left}:${ctx.rect.bottom}:${ctx.rect.right}`;
   const items = useMemo(() => rangeMenuItems(ctx).filter(
     (item): item is RangeMenuActionItem | RangeMenuColourItem => item.toolbar,
-  ), [ctx.editor, ctx.onClearRange, ctx.rect, ctx.tableId]);
+  ), [ctx.editor, ctx.onClearRange, rectKey, ctx.tableId]);
   const actionableRange = ctx.rect.top !== ctx.rect.bottom || ctx.rect.left !== ctx.rect.right;
+  const hidden = coarse || ctx.editor.readOnly || !actionableRange;
 
   useLayoutEffect(() => observePopupPosition({
     popup: () => ref.current,
     anchor: () => tableRef.current && selectedCellRangeRect(tableRef.current),
     boundary: () => tableRef.current?.closest<HTMLElement>('[data-radix-scroll-area-viewport]') ?? tableRef.current?.closest<HTMLElement>('.obe-editor-pane') ?? null,
     onPosition: setPosition,
-    options: INLINE_TOOLBAR_POSITION_OPTIONS,
-  }), [tableRef, ctx.rect]);
+    options: {
+      ...INLINE_TOOLBAR_POSITION_OPTIONS,
+      preferredPlacement: ctx.rect.top === 0 ? 'below' : 'above',
+      clampHorizontallyToBoundary: true,
+    },
+  }), [tableRef, rectKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (hidden || !ref.current) return;
       if (event.key === 'Escape') {
+        if (ref.current.querySelector('[data-state="open"]')) return;
         event.preventDefault();
         onDismiss();
         tableRef.current?.focus();
         return;
       }
-      if (event.key === 'Tab' && !ref.current?.contains(document.activeElement)) {
+      if (event.key === 'Tab' && !event.shiftKey && tableRef.current?.contains(document.activeElement) && !ref.current.contains(document.activeElement)) {
         event.preventDefault();
         setActiveIndex(0);
-        ref.current?.querySelector<HTMLElement>('[data-range-toolbar-button]')?.focus();
+        ref.current.querySelector<HTMLElement>('[data-range-toolbar-button]')?.focus();
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [onDismiss, tableRef]);
+  }, [hidden, onDismiss, tableRef]);
 
-  if (coarse || ctx.editor.readOnly || !actionableRange) return null;
+  if (hidden) return null;
   const move = (from: number, delta: number): void => {
     const next = (from + delta + items.length + 1) % (items.length + 1);
     setActiveIndex(next);
@@ -105,6 +113,10 @@ export const TableRangeToolbar: React.FC<TableRangeMenuContext & {
       aria-label={t('menu.table.rangeToolbar')}
       data-placement={position?.placement}
       style={position ? {left: position.left, top: position.top} : {left: 0, top: 0, visibility: 'hidden'}}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       {items.map((item, index) => {
         if (item.kind === 'colour') return (

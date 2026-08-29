@@ -22,6 +22,8 @@ export interface PopupPositionOptions {
   anchorGap?: number;
   /** Horizontal edge clamp (and the above-placement top clamp). */
   viewportMargin?: number;
+  /** Clamp horizontal placement to the clipping boundary instead of the viewport. */
+  clampHorizontallyToBoundary?: boolean;
   /** Smallest useful scrollable menu height. Ignored when maxHeight is null. */
   minHeight?: number;
   /** Largest scrollable menu height; null leaves the measured height intact. */
@@ -132,8 +134,12 @@ export function observePopupPosition({
     const boundaryRect = boundary?.()?.getBoundingClientRect();
     const boundaryTop = Math.max(0, boundaryRect?.top ?? 0);
     const boundaryBottom = Math.min(window.innerHeight, boundaryRect?.bottom ?? window.innerHeight);
-    const boundaryLeft = Math.max(0, boundaryRect?.left ?? 0);
-    const boundaryRight = Math.min(window.innerWidth, boundaryRect?.right ?? window.innerWidth);
+    const boundaryLeft = options.clampHorizontallyToBoundary
+      ? Math.max(0, boundaryRect?.left ?? 0)
+      : 0;
+    const boundaryRight = options.clampHorizontallyToBoundary
+      ? Math.min(window.innerWidth, boundaryRect?.right ?? window.innerWidth)
+      : window.innerWidth;
     const available = {
       above: rect!.top - boundaryTop - availableSpaceInset,
       below: boundaryBottom - rect!.bottom - availableSpaceInset,
