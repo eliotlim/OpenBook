@@ -2251,6 +2251,35 @@ a.obe-mention {
 .obe-tb-strike { text-decoration: line-through; }
 .obe-tb-sep { width: 1px; height: 1.1rem; background: hsl(var(--border)); margin: 0 4px; }
 
+/* TBL-14 — compact cell-range actions, positioned against the selected cells. */
+.obe-range-toolbar {
+  position: fixed;
+  z-index: var(--z-index-menu);
+  display: flex;
+  align-items: center;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- TBL-14: compact icon toolbar matches the inline toolbar's half-step gap. */
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-lg);
+  background: hsl(var(--popover));
+  box-shadow: var(--shadow-menu);
+}
+.obe-range-toolbar-button {
+  display: grid;
+  width: var(--height-control-sm);
+  height: var(--height-control-sm);
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground) / 0.85);
+}
+.obe-range-toolbar-button:hover { background: var(--hover); }
+.obe-range-toolbar-button > svg { width: 0.875rem; height: 0.875rem; }
+.obe-range-toolbar-button:disabled { opacity: 0.4; }
+@media (pointer: coarse) {
+  .obe-range-toolbar { display: none; }
+}
+
 /* ── Editor colour palette ───────────────────────────────────────────────────
    Per-block colours (bg/fg props) and inline colours (hl/tc attrs) store a
    palette TOKEN; these theme-aware classes render it. */
@@ -2406,6 +2435,7 @@ a.obe-mention {
 /* Block editor: keyboard focus visibility (a11y) */
 .obe-gutter-btn:focus-visible,
 .obe-tb-btn:focus-visible,
+.obe-range-toolbar-button:focus-visible,
 .obe-table-add:focus-visible,
 .obe-table-tools button:focus-visible,
 .obe-callout-icon:focus-visible,

@@ -5,7 +5,10 @@ import {createDoc, findBlock, blockText, tableCellOwnColor} from '../model';
 import {registerArtifactKit} from '../kit';
 import {BlockEditor} from '../BlockEditor';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 registerArtifactKit();
 
 // TBL-5 — interaction regressions for multi-cell selection driven through the
@@ -81,6 +84,32 @@ describe('native span → cell-range selection (acceptance #5)', () => {
 });
 
 describe('cell-range keyboard', () => {
+  it('toolbar mousedown preserves the live range through click and runs the action', () => {
+    Object.defineProperty(window, 'matchMedia', {configurable: true, value: vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })});
+    const {doc, container, el, selectedCells} = build();
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: vi.fn().mockReturnValue([el('r1c1')]),
+    });
+    fireEvent.mouseDown(el('r0c0'), {button: 0, clientX: 1, clientY: 1});
+    fireEvent.mouseMove(window, {buttons: 1, clientX: 20, clientY: 20});
+    fireEvent.mouseUp(window);
+    const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear contents"]')!;
+    expect(clear).toBeTruthy();
+
+    fireEvent.mouseDown(clear);
+    fireEvent.click(clear);
+
+    expect(container.querySelector('[role="toolbar"][aria-label="Cell selection actions"]')).toBeTruthy();
+    expect(selectedCells()).toHaveLength(4);
+    const textOf = (id: string) => blockText(findBlock(doc, id)!.block)!.toString();
+    expect([textOf('r0c0'), textOf('r0c1'), textOf('r1c0'), textOf('r1c1')]).toEqual(['', '', '', '']);
+  });
+
   it('Backspace clears every selected cell in one undo step; Escape clears the selection', () => {
     const {doc, selectedCells, nativeSelect} = build();
     nativeSelect('r0c0', 'r1c1');

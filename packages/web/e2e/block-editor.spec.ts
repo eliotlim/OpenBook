@@ -668,6 +668,31 @@ test('multi-cell selection: no-cell-focused paste still makes a new table, delet
   expect(await origTexts()).toEqual(['A1', 'B1', 'A2', 'B2']);
 });
 
+test('table range toolbar clears a dragged 2x2 selection', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+
+  const textCells = page.locator('.obe-table .obe-text');
+  for (const index of [0, 1, 3, 4]) {
+    await textCells.nth(index).click();
+    await page.keyboard.type(`value-${index}`);
+  }
+  const cells = page.locator('.obe-table td');
+  const first = (await cells.nth(0).boundingBox())!;
+  const last = (await cells.nth(4).boundingBox())!;
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, {steps: 10});
+  await page.mouse.up();
+
+  await expect(page.getByRole('toolbar', {name: 'Cell selection actions'})).toBeVisible();
+  await page.getByRole('toolbar', {name: 'Cell selection actions'}).getByRole('button', {name: 'Clear contents'}).click();
+  await expect.poll(() => textCells.evaluateAll((elements) => [0, 1, 3, 4].map((index) => elements[index].textContent))).toEqual(['', '', '', '']);
+});
+
 test('table paste: a copied 2x2 range fills the selected 2x2 cells', {tag: ['@editor', '@p1']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
