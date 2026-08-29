@@ -170,7 +170,7 @@ const clip = (s: string, n = 1500): string => (s.length > n ? `${s.slice(0, n)}â
 
 /** Result-size bound for {@link ToolDef.fullResult} tools (fits the whole
  *  block-type catalogue with plugins; still bounded against runaway output). */
-const FULL_RESULT_CLIP = 12000;
+const FULL_RESULT_CLIP = 64000;
 
 const obj = (props: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({
   type: 'object',

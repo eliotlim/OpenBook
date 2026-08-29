@@ -183,7 +183,7 @@ describe('update_block_props: catalogue-typed props and type changes', () => {
     const page = await blockPage(`props-${seq}`);
     const {result, events} = await runTool('update_block_props', {pageId: page.id, blockId: 'b1', props: {level: 'two'}});
     expect(result).toContain('"level"');
-    expect(result).toContain('must be a number');
+    expect(result).toContain('Expected number');
     expect(events.some((e) => e.type === 'suggestions')).toBe(false);
   });
 
@@ -246,13 +246,18 @@ describe('update_block_props: catalogue-typed props and type changes', () => {
 describe('list_block_types', () => {
   it('returns the full catalogue, and installed plugins\' declared blocks', async () => {
     const before = await runTool('list_block_types', {});
-    for (const entry of BLOCK_TYPE_CATALOGUE) expect(before.result).toContain(`- ${entry.type} (`);
-    expect(before.result).toContain('Installed plugin blocks: none.');
+    const beforeCatalogue = JSON.parse(before.result);
+    expect(beforeCatalogue.blocks.map((entry: {type: string}) => entry.type)).toEqual(BLOCK_TYPE_CATALOGUE.map((entry) => entry.type));
+    expect(beforeCatalogue.blocks.every((entry: {propsSchema?: unknown}) => entry.propsSchema != null)).toBe(true);
+    expect(beforeCatalogue.pluginBlocks).toEqual([]);
 
-    await store.upsertPlugin({manifest: ledgerManifest(), files: {'src/index.ts': ''}});
+    const manifest = ledgerManifest();
+    await store.upsertPlugin({manifest, files: {'src/index.ts': ''}});
     const after = await runTool('list_block_types', {});
-    expect(after.result).toContain('openbook.ledger/journal-entry');
-    expect(after.result).toContain('openbook.ledger/beancount-export');
-    expect(after.result).toContain('(plugin: Ledger');
+    const afterCatalogue = JSON.parse(after.result);
+    expect(afterCatalogue.pluginBlocks.map((entry: {type: string}) => entry.type)).toEqual(
+      manifest.blocks?.map((entry) => `${manifest.id}/${entry.type}`),
+    );
+    expect(afterCatalogue.pluginBlocks.every((entry: {category: string}) => entry.category === 'plugin')).toBe(true);
   });
 });
