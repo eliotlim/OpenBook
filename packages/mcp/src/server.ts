@@ -4,6 +4,7 @@ import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
   applyTableOpToSnapshot,
+  BlockSnapshotError,
   deleteBlock,
   findBlock as findSnapshotBlock,
   BLOCK_TYPE_CATALOGUE,
@@ -13,10 +14,12 @@ import {
   findUnknownBlockType,
   FORM_FIELD_KINDS,
   invalidBlockProps,
+  insertBlocks,
   isHttpUrl,
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
+  moveBlock,
   tableOrderContractKey,
   tableOrderContractRefusal,
   TEXT_BLOCK_TYPES,
@@ -573,10 +576,12 @@ const blockPayloadError = (blocks: NestedBlockInput[]): string | null =>
  * the identifier is the BRIDGE's, not the tool's). The SDK suggestion `kind` each
  * maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
  */
-type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props' | TableOpKind;
+type McpWriteKind = 'append_blocks' | 'insert_blocks' | 'move_block' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props' | TableOpKind;
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   append_blocks: 'insert',
+  insert_blocks: 'insert',
+  move_block: 'move',
   update_block: 'replace-text',
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
@@ -1464,6 +1469,100 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return failure(`Could not delete the block (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
       return text(`Deleted ${info.type} block ${blockId} directly from "${page.name ?? 'Untitled'}".`);
+    },
+  );
+
+  server.registerTool(
+    'move_block',
+    {
+      title: 'Move a block',
+      description:
+        'Reorder or reparent one block. parentId omitted means the page root; provide exactly one of index (in the destination after removing the block) or afterId (a destination sibling). Generic moves refuse cycles and all table/row/cell structure; use table_* tools for tables. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION follows the page agent-edits policy.',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        blockId: z.string().describe('The block to move.'),
+        parentId: z.string().optional().describe('Destination container id; omit for the page root.'),
+        index: z.number().int().nonnegative().optional().describe('Destination index after removing the block. Mutually exclusive with afterId.'),
+        afterId: z.string().optional().describe('Insert after this destination sibling. Mutually exclusive with index.'),
+      },
+    },
+    async ({pageId, blockId, parentId, index, afterId}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      let data: PageSnapshot;
+      try {
+        data = moveBlock(page.data, {blockId, ...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})});
+      } catch (error) {
+        return failure(error instanceof BlockSnapshotError ? error.message : `Could not move the block: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const destination = parentId ? `inside ${parentId}` : 'at the page root';
+      const summary = `Move block ${blockId} ${destination}`;
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const suggestion = await recordSuggestion({
+          kind: 'move_block',
+          pageId,
+          summary,
+          target: {blockId},
+          before: blockId,
+          after: `${destination} ${afterId ? `after ${afterId}` : `at index ${index}`}`,
+          payload: {pageId, blockId, ...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})},
+        });
+        return suggested(summary, suggestion);
+      }
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (error) {
+        return failure(`Could not move the block (the server declined the direct write): ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return text(`Moved block ${blockId} directly ${destination} on "${page.name ?? 'Untitled'}".`);
+    },
+  );
+
+  server.registerTool(
+    'insert_blocks',
+    {
+      title: 'Insert blocks',
+      description:
+        'Insert nested typed blocks at a precise root or container position. parentId omitted means the page root; provide exactly one of index or afterId. The destination must accept children, and generic insertion into table/row/cell is refused in favour of table_* tools. Uses the same recursive validation and depth/node caps as append_blocks. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION follows the page agent-edits policy.',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        parentId: z.string().optional().describe('Destination container id; omit for the page root.'),
+        index: z.number().int().nonnegative().optional().describe('Destination index. Mutually exclusive with afterId.'),
+        afterId: z.string().optional().describe('Insert after this destination sibling. Mutually exclusive with index.'),
+        blocks: z.array(appendBlock).min(1).describe('Nested blocks to insert.'),
+      },
+    },
+    async ({pageId, parentId, index, afterId, blocks}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const invalid = blockPayloadError(blocks);
+      if (invalid) return failure(invalid);
+      const position = {...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})};
+      let data: PageSnapshot;
+      try {
+        data = insertBlocks(page.data, {...position, blocks, idPrefix: `mcp-${Date.now().toString(36)}`});
+      } catch (error) {
+        return failure(error instanceof BlockSnapshotError ? error.message : `Could not insert blocks: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const destination = parentId ? `inside ${parentId}` : 'at the page root';
+      const summary = `Insert ${blockCountLabel(blocks)} ${destination}`;
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const suggestion = await recordSuggestion({
+          kind: 'insert_blocks',
+          pageId,
+          summary,
+          target: parentId ? {blockId: parentId} : {},
+          after: clip(blocks.map((block) => block.text ? `${block.type}: ${block.text}` : block.type).join('\n'), 200),
+          payload: {pageId, ...position, blocks},
+        });
+        return suggested(summary, suggestion);
+      }
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (error) {
+        return failure(`Could not insert blocks (the server declined the direct write): ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return text(`Inserted ${blockCountLabel(blocks)} directly ${destination} on "${page.name ?? 'Untitled'}".`);
     },
   );
 

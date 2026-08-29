@@ -209,6 +209,7 @@ export function moveBlock(data: PageSnapshot, input: MoveBlockInput): PageSnapsh
   source.siblings.splice(source.index, 1);
   const at = insertionIndex(target, input);
   target.splice(at, 0, source.block);
+  pruneEmptyContainers(blocks);
   return draft;
 }
 
