@@ -51,6 +51,7 @@ import {MENU_DESTRUCTIVE_CLASS, MENU_WIDTH_MD, MENU_WIDTH_SM} from '@/components
 import {readPageIcon} from '@/lib/pageIcon';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {useNavigation, useTranslation} from '@/providers';
+import type {TKey} from '@/i18n';
 import {PageIcon} from '@/components/PageIcon';
 import {useCanManageSharing} from '@/components/ShareDialog';
 import {cn} from '@/lib/utils';
@@ -177,32 +178,34 @@ interface DragApi {
 /** One table row, optionally drag-reorderable and/or a sub-item tree node. */
 /** A one-click "filter by this value" condition for a cell, or null if the
  *  property type isn't sensibly filterable by an exact value. */
-function quickFilter(property: DatabaseProperty, value: unknown): {operator: FilterOperator; value?: unknown; label: string} | null {
+function quickFilter(property: DatabaseProperty, value: unknown): {operator: FilterOperator; value?: unknown; phraseKey: TKey; phraseValue?: string} | null {
   const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
-  if (property.type === 'checkbox') return value ? {operator: 'is_checked', label: 'is checked'} : {operator: 'is_unchecked', label: 'is unchecked'};
-  if (empty) return {operator: 'is_empty', label: 'is empty'};
+  if (property.type === 'checkbox') return value
+    ? {operator: 'is_checked', phraseKey: 'database.cellMenu.phrases.isChecked'}
+    : {operator: 'is_unchecked', phraseKey: 'database.cellMenu.phrases.isUnchecked'};
+  if (empty) return {operator: 'is_empty', phraseKey: 'database.cellMenu.phrases.isEmpty'};
   switch (property.type) {
   case 'select':
   case 'status': {
     const opt = property.options?.find((o) => o.id === value);
-    return {operator: 'equals', value, label: `is ${opt?.label ?? String(value)}`};
+    return {operator: 'equals', value, phraseKey: 'database.cellMenu.phrases.is', phraseValue: opt?.label ?? String(value)};
   }
   case 'multi_select': {
     const first = Array.isArray(value) ? (value[0] as string) : undefined;
     if (!first) return null;
     const opt = property.options?.find((o) => o.id === first);
-    return {operator: 'contains', value: first, label: `has ${opt?.label ?? first}`};
+    return {operator: 'contains', value: first, phraseKey: 'database.cellMenu.phrases.contains', phraseValue: opt?.label ?? first};
   }
   case 'number':
-    return {operator: 'equals', value, label: `is ${String(value)}`};
+    return {operator: 'equals', value, phraseKey: 'database.cellMenu.phrases.is', phraseValue: String(value)};
   case 'text':
   case 'url':
   case 'email':
   case 'phone':
-    return {operator: 'equals', value, label: `is "${String(value)}"`};
+    return {operator: 'equals', value, phraseKey: 'database.cellMenu.phrases.isQuoted', phraseValue: String(value)};
   case 'date': {
     const s = dateStart(value);
-    return s ? {operator: 'equals', value: s, label: `is ${s}`} : null;
+    return s ? {operator: 'equals', value: s, phraseKey: 'database.cellMenu.phrases.is', phraseValue: s} : null;
   }
   default:
     return null;
@@ -210,12 +213,12 @@ function quickFilter(property: DatabaseProperty, value: unknown): {operator: Fil
 }
 
 /** Relative date filter presets offered on a date cell's context menu. */
-const DATE_FILTER_PRESETS: {operator: FilterOperator; label: string}[] = [
-  {operator: 'is_today', label: 'Today'},
-  {operator: 'is_this_week', label: 'This week'},
-  {operator: 'is_this_month', label: 'This month'},
-  {operator: 'is_past_week', label: 'Past week'},
-  {operator: 'is_next_week', label: 'Next week'},
+const DATE_FILTER_PRESETS: {operator: FilterOperator; labelKey: TKey}[] = [
+  {operator: 'is_today', labelKey: 'database.cellMenu.datePresets.today'},
+  {operator: 'is_this_week', labelKey: 'database.cellMenu.datePresets.thisWeek'},
+  {operator: 'is_this_month', labelKey: 'database.cellMenu.datePresets.thisMonth'},
+  {operator: 'is_past_week', labelKey: 'database.cellMenu.datePresets.pastWeek'},
+  {operator: 'is_next_week', labelKey: 'database.cellMenu.datePresets.nextWeek'},
 ];
 
 /**
@@ -225,7 +228,7 @@ const DATE_FILTER_PRESETS: {operator: FilterOperator; label: string}[] = [
  * cell (row actions only). When the row is inside a 2+ selection, `bulk`
  * appends the whole-selection duplicate/delete pair.
  */
-const CellContextMenu: React.FC<{
+export const CellContextMenu: React.FC<{
   db: UseDatabase;
   view?: DbView | null;
   row: DatabaseRow;
@@ -236,6 +239,7 @@ const CellContextMenu: React.FC<{
 }> = ({db, view, row, property, value, bulk, children}) => {
   const {t} = useTranslation();
   const filter = property && view ? quickFilter(property, value) : null;
+  const filterPhrase = filter ? t(filter.phraseKey, filter.phraseValue === undefined ? undefined : {value: filter.phraseValue}) : '';
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -246,18 +250,18 @@ const CellContextMenu: React.FC<{
       <ContextMenuContent className={MENU_WIDTH_MD}>
         {property && view && filter && (
           <ContextMenuItem onSelect={() => addQuickFilter(db, view, property.id, filter.operator, filter.value)}>
-            <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter: {property.name} {filter.label}
+            <FilterIcon className="mr-2 h-3.5 w-3.5" /> {t('database.cellMenu.filterValue', {name: property.name, phrase: filterPhrase})}
           </ContextMenuItem>
         )}
         {property && view && property.type === 'date' && (
           <ContextMenuSub>
             <ContextMenuSubTrigger>
-              <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter by date
+              <FilterIcon className="mr-2 h-3.5 w-3.5" /> {t('database.cellMenu.filterByDate')}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className={MENU_WIDTH_SM}>
               {DATE_FILTER_PRESETS.map((preset) => (
                 <ContextMenuItem key={preset.operator} onSelect={() => addQuickFilter(db, view, property.id, preset.operator, undefined)}>
-                  {preset.label}
+                  {t(preset.labelKey)}
                 </ContextMenuItem>
               ))}
             </ContextMenuSubContent>
