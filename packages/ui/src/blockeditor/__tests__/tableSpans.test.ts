@@ -11,10 +11,14 @@ import {
   htmlToBlocks,
   makeTable,
   setBlockProp,
+  setTableCellRangeColor,
+  setTableColumnColor,
+  setTableRowColor,
   tableCellAt,
   tableDeleteColumn,
   tableDeleteRow,
   tableGrid,
+  tableColumns,
   tableInsertColumn,
   tableInsertRow,
   tableMergeCells,
@@ -195,6 +199,17 @@ describe('TBL-8 span-aware structural ops and navigation', () => {
 });
 
 describe('TBL-8 HTML export / import', () => {
+  it('keeps the column binding on a projected mid-row void cell', () => {
+    const doc = seedTable();
+    const table = tableBlock(doc);
+    const grid = tableGrid(table);
+    const middleId = blockId(grid.cells[1][1]!);
+    const found = findBlock(doc, middleId)!;
+    found.parent.delete(found.index, 1);
+    const row = docToJSON(doc).find((block) => block.id === 'tbl')!.children![1];
+    expect(row.children![1].props?.col).toBe(tableColumns(table)[1].id);
+  });
+
   it('round-trips colspan/rowspan and exposes spans to the static export projection', () => {
     const doc = seedTable();
     tableMergeCells(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1});
@@ -228,5 +243,17 @@ describe('TBL-8 HTML export / import', () => {
     const imported = createDoc(htmlToBlocks(html));
     const table = docToJSON(imported).find((block) => block.type === 'table')!;
     expect(table.children![0].children![0].props).toMatchObject({colspan: 2, rowspan: 2});
+  });
+
+  it('exports composite cell, row, and column tints in copied range HTML', () => {
+    const doc = seedTable();
+    const cols = tableColumns(tableBlock(doc));
+    setTableColumnColor(doc, 'tbl', cols[0].id, 'blue');
+    setTableRowColor(doc, 'tbl', 'row0', 'green');
+    setTableCellRangeColor(doc, 'tbl', {top: 0, left: 0, bottom: 0, right: 0}, 'red');
+    const html = cellRangeExportToHtml(tableRangeExport(doc, 'tbl', {top: 0, left: 0, bottom: 1, right: 1}));
+    expect(html).toContain('background:#fee2e2');
+    expect(html).toContain('background:#dcfce7');
+    expect(html).toContain('background:#dbeafe');
   });
 });

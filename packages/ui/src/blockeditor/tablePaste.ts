@@ -3,17 +3,30 @@ export interface ClipboardGridData {
   text?: string;
 }
 
+export interface ClipboardGridCell {text: string; color?: string}
+export type ClipboardGrid = Array<Array<string | ClipboardGridCell>>;
+
 const htmlCellText = (cell: Element): string => {
   const copy = cell.cloneNode(true) as Element;
   for (const br of copy.querySelectorAll('br')) br.replaceWith('\n');
   return (copy.textContent ?? '').trim();
 };
 
-const parseHtmlTable = (html: string): string[][] | null => {
+const colorByCss = new Map(Object.entries(COLOR_EXPORT_HEX).map(([token, value]) => [value.hl.toLowerCase(), token]));
+const cellColor = (cell: Element): string | undefined => {
+  const raw = (cell as HTMLElement).style.backgroundColor || (cell as HTMLElement).style.background;
+  if (!raw) return undefined;
+  if (colorByCss.has(raw.toLowerCase())) return colorByCss.get(raw.toLowerCase());
+  const match = raw.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i);
+  const hex = match ? `#${match.slice(1).map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : '';
+  return colorByCss.get(hex);
+};
+
+const parseHtmlTable = (html: string): ClipboardGrid | null => {
   if (!html.trim()) return null;
   const table = new DOMParser().parseFromString(html, 'text/html').querySelector('table');
   if (!table) return null;
-  const grid: string[][] = [];
+  const grid: ClipboardGrid = [];
   const rows = Array.from(table.querySelectorAll('tr')).filter((row) => row.closest('table') === table);
   for (let r = 0; r < rows.length; r += 1) {
     grid[r] ??= [];
@@ -25,7 +38,12 @@ const parseHtmlTable = (html: string): string[][] | null => {
       const rowspan = Math.max(1, Number.parseInt(cell.getAttribute('rowspan') ?? '1', 10) || 1);
       for (let rr = r; rr < r + rowspan; rr += 1) {
         grid[rr] ??= [];
-        for (let cc = c; cc < c + colspan; cc += 1) grid[rr][cc] = rr === r && cc === c ? htmlCellText(cell) : '';
+        for (let cc = c; cc < c + colspan; cc += 1) {
+          if (rr === r && cc === c) {
+            const color = cellColor(cell);
+            grid[rr][cc] = color ? {text: htmlCellText(cell), color} : htmlCellText(cell);
+          } else grid[rr][cc] = '';
+        }
       }
       c += colspan;
     }
@@ -62,10 +80,11 @@ const parseTsv = (text: string): string[][] => {
 };
 
 /** Parse a spreadsheet-shaped clipboard payload, preferring its first HTML table. */
-export function parseClipboardGrid(data: ClipboardGridData): string[][] | null {
+export function parseClipboardGrid(data: ClipboardGridData): ClipboardGrid | null {
   const htmlGrid = parseHtmlTable(data.html ?? '');
   if (htmlGrid) return htmlGrid;
   const text = (data.text ?? '').replace(/\r\n$|[\r\n]$/, '');
   if (!text || (!text.includes('\t') && !text.includes('\n') && !text.includes('\r'))) return null;
   return parseTsv(text);
 }
+import {COLOR_EXPORT_HEX} from './colors';
