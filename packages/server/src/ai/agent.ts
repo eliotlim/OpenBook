@@ -1,5 +1,6 @@
 import {
   addBlocksGuidance,
+  AssetUploadError,
   blockCatalogueText,
   blockTreeError,
   buildDatabaseToolOptions,
@@ -24,6 +25,7 @@ import {
   updatePropertyTool,
   updateRowTool,
   unknownBlockTypeMessage,
+  uploadAgentAsset,
   type AgentProposal,
   type AiEffort,
   type AiProvider,
@@ -728,6 +730,36 @@ export class AgentRunner {
 
   private writeTools(): ToolDef[] {
     return [
+      {
+        name: 'upload_asset',
+        description: 'Upload a raster image or inert binary asset for a page. Returns an assetId for an image or htmlArtifact block. Applied immediately, but refused without page write access.',
+        args: '{"pageId": string, "mime": string, "base64": string}',
+        schema: obj({
+          pageId: str('The page that will reference the asset.'),
+          mime: str('An allowed raster image MIME, or application/octet-stream for htmlArtifact.'),
+          base64: str('Base64-encoded bytes.'),
+        }, ['pageId', 'mime', 'base64']),
+        write: false,
+        run: async (args) => {
+          if (!this.directEdits || this.tainted) return 'read-only: Uploads apply immediately, so they need direct edit access. Call request_edit_access first.';
+          const pageId = String(args.pageId ?? '');
+          try {
+            const result = await uploadAgentAsset({
+              pageId,
+              mime: String(args.mime ?? ''),
+              base64: String(args.base64 ?? ''),
+            }, {
+              pageExists: async (id) => Boolean(await this.readablePage(id)),
+              canWrite: (id) => this.canWritePage(id),
+              put: async (bytes, mime, id) => this.store.putAssetAndRef(bytes, mime, id),
+            });
+            return JSON.stringify(result);
+          } catch (err) {
+            if (err instanceof AssetUploadError) return `${err.code}: ${err.message}`;
+            return `Could not upload asset: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        },
+      },
       {
         name: 'create_page',
         description: 'Create a new page with a title and optional text content (one paragraph per line). Applied immediately (creation is low-risk).',

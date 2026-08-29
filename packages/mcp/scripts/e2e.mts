@@ -115,6 +115,7 @@ async function main(): Promise<void> {
     JSON.stringify(names) === JSON.stringify(registered),
   );
   check('tools carry descriptions', tools.tools.every((t) => (t.description ?? '').length > 10));
+  check('handshake advertises upload_asset', names.includes('upload_asset'));
 
   console.log('\nRead tools');
   const list = await client.callTool({name: 'list_pages', arguments: {}});

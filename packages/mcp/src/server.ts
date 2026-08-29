@@ -2,6 +2,7 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {z} from 'zod';
 import {
   appendBlocksToSnapshot,
+  AssetUploadError,
   appendTextToSnapshot,
   applyTableOpToSnapshot,
   BLOCK_TYPE_CATALOGUE,
@@ -23,6 +24,8 @@ import {
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
+  unknownBlockTypeMessage,
+  uploadAgentAsset,
   projectAppendBlocks,
   resolveDatabaseToolRowValues,
   resolveTableOp,
@@ -37,7 +40,6 @@ import {
   tableShapeOf,
   TEXT_BLOCK_TYPES,
   textSnapshot,
-  unknownBlockTypeMessage,
   updateDatabaseTool,
   updatePropertyTool,
   updateRowTool,
@@ -1041,6 +1043,39 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return text(`Created artifact page "${name}" with id ${page.id} (${blocks.length} blocks).`);
       } catch (err) {
         return failure(`Could not create the page: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+
+  // Assets are immediate binary writes, never suggestions: suggestion payloads
+  // must not contain bytes. The same per-page policy gate as document writes is
+  // consulted, but only direct mode permits an upload; append_blocks remains
+  // independently gated and may still become a reviewable suggestion.
+  server.registerTool(
+    'upload_asset',
+    {
+      title: 'Upload asset',
+      description: 'Upload a raster image or inert binary asset and return its assetId for an image or htmlArtifact block. Requires direct-write policy; bytes are never put in a suggestion.',
+      inputSchema: {
+        pageId: z.string().describe('The existing page that will reference the asset.'),
+        mime: z.string().describe('An allowed raster image MIME, or application/octet-stream for htmlArtifact.'),
+        base64: z.string().describe('Base64-encoded bytes. Never echoed in the result.'),
+      },
+    },
+    async ({pageId, mime, base64}) => {
+      try {
+        const result = await uploadAgentAsset({pageId, mime, base64}, {
+          pageExists: async (id) => Boolean(await client.getPage(id)),
+          canWrite: (id) => resolveWritePolicy(id),
+          put: async (bytes, safeMime, id) => client.putAsset(bytes, safeMime, id),
+        });
+        return text(JSON.stringify(result));
+      } catch (err) {
+        if (err instanceof AssetUploadError) return failure(`${err.code}: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        if (/\(404\b/.test(message)) return failure('page-not-found: Page not found.');
+        if (/\(403\b/.test(message)) return failure('read-only: This page or instance is read-only.');
+        return failure(`Could not upload asset: ${message}`);
       }
     },
   );
