@@ -1,6 +1,7 @@
 import type {PartialMessages} from './en';
 
 export const zh: PartialMessages = {
+  blockEditor: {resizeColumn: '调整列 {column} 的宽度'},
   navigation: {
     loadError: {
       title: '无法连接到此资料库',

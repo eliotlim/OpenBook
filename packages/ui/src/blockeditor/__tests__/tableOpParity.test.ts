@@ -19,6 +19,7 @@ import {
   encodeSnapshot,
   findBlock,
   setTableColumnColor,
+  setTableColumnWidth,
   setTableRowColor,
   tableDeleteColumn,
   tableDeleteRow,
@@ -87,7 +88,7 @@ const gridText = (doc: Doc): string[][] =>
  * `fresh`; the DETERMINISTIC migration ids (`c0…cN-1`) are compared verbatim,
  * which is the part the paths have to agree on.
  */
-const gridMeta = (doc: Doc): {colIds: string[]; tints: Array<string | null>; colTints: Array<string | null>} => {
+const gridMeta = (doc: Doc): {colIds: string[]; tints: Array<string | null>; colTints: Array<string | null>; widths: Array<number | null>} => {
   const table = findBlock(doc, TABLE_ID)!.block;
   const grid = tableGrid(table);
   const props = blockToJSON(table).props ?? {};
@@ -95,6 +96,7 @@ const gridMeta = (doc: Doc): {colIds: string[]; tints: Array<string | null>; col
     colIds: grid.colIds.map((id) => (/^c\d+$/.test(id) ? id : 'fresh')),
     tints: grid.rows.map((r) => (blockToJSON(r).props?.bg as string | undefined) ?? null),
     colTints: grid.colIds.map((id) => (props[`colbg:${id}`] as string | undefined) ?? null),
+    widths: grid.colIds.map((id) => (props[`colw:${id}`] as number | undefined) ?? null),
   };
 };
 
@@ -120,6 +122,7 @@ const runEditor = (doc: Doc, step: Step): void => {
   case 'table_move_column': tableMoveColumn(doc, TABLE_ID, view.colIds[op.colIndex!], op.toIndex!); return;
   case 'table_set_row_color': setTableRowColor(doc, TABLE_ID, view.rowIds[op.rowIndex!], op.color ?? null); return;
   case 'table_set_column_color': setTableColumnColor(doc, TABLE_ID, view.colIds[op.colIndex!], op.color ?? null); return;
+  case 'table_set_column_width': setTableColumnWidth(doc, TABLE_ID, view.colIds[op.colIndex!], op.width ?? null); return;
   case 'table_set_cell': {
     // The editor writes a cell through ordinary text editing; the proposal path's
     // `table_set_cell` is the same write, so replay it there.
@@ -169,6 +172,7 @@ const SEQUENCE: Step[] = [
   {kind: 'table_move_row', address: {rowIndex: 4, toIndex: 1}},
   {kind: 'table_set_row_color', address: {rowIndex: 1, color: 'amber'}},
   {kind: 'table_set_column_color', address: {colIndex: 2, color: 'blue'}},
+  {kind: 'table_set_column_width', address: {colIndex: 2, width: 136}},
   {kind: 'table_delete_row', address: {rowIndex: 5}},
   {kind: 'table_delete_column', address: {colIndex: 0}},
 ];

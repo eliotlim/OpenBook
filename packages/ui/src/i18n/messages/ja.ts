@@ -1,6 +1,7 @@
 import type {PartialMessages} from './en';
 
 export const ja: PartialMessages = {
+  blockEditor: {resizeColumn: '列 {column} の幅を変更'},
   navigation: {
     loadError: {
       title: 'このライブラリに接続できません',

@@ -1,5 +1,13 @@
 import * as Y from 'yjs';
-import {CONTAINER_BLOCK_TYPES, shortId, TEXT_BLOCK_TYPES, type CoreBlockType} from '@book.dev/sdk';
+import {
+  CONTAINER_BLOCK_TYPES,
+  shortId,
+  TABLE_COLUMN_MIN_WIDTH,
+  TABLE_COLW_PREFIX,
+  TEXT_BLOCK_TYPES,
+  type CoreBlockType,
+} from '@book.dev/sdk';
+export {TABLE_COLUMN_MIN_WIDTH, TABLE_COLW_PREFIX} from '@book.dev/sdk';
 import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 
 /**
@@ -1360,6 +1368,7 @@ function tableDeleteColumnInTx(doc: Y.Doc, tableId: string, colIndex: number): v
   setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[colIndex], undefined);
   // Drop the column's colour entry too, so a deleted column leaves no orphan.
   setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[colIndex], undefined);
+  setBlockProp(table.block, TABLE_COLW_PREFIX + grid.colIds[colIndex], undefined);
   grid.rows.forEach((row, r) => {
     const cell = grid.cells[r][colIndex];
     if (!cell) return;
@@ -1443,6 +1452,22 @@ export function tableRowColor(row: BlockMap): string | null {
 export function tableColumnColor(table: BlockMap, colId: string): string | null {
   const v = blockProp<unknown>(table, TABLE_COLBG_PREFIX + colId);
   return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/** Stored integer pixel width for a stable column id; malformed values are auto. */
+export function tableColumnWidth(table: BlockMap, colId: string): number | null {
+  const value = blockProp<unknown>(table, TABLE_COLW_PREFIX + colId);
+  return typeof value === 'number' && Number.isInteger(value) && value >= TABLE_COLUMN_MIN_WIDTH ? value : null;
+}
+
+/** Set a column width, or clear it back to fluid/auto. One call is one undo step. */
+export function setTableColumnWidth(doc: Y.Doc, tableId: string, colId: string, px: number | null): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table || tableColumns(table.block).every((column) => column.id !== colId)) return;
+    const width = px === null ? undefined : Math.max(TABLE_COLUMN_MIN_WIDTH, Math.round(px));
+    setBlockProp(table.block, TABLE_COLW_PREFIX + colId, width);
+  }, 'local');
 }
 
 /**
@@ -2357,14 +2382,18 @@ const normalizeTableGrid = (table: HTMLElement): (NormalizedTableCell | null)[][
 };
 
 /** Build a keyed table while retaining the null covered slots from HTML. */
-function tableFromNormalizedGrid(grid: (NormalizedTableCell | null)[][], header: boolean): NewBlock {
+function tableFromNormalizedGrid(grid: (NormalizedTableCell | null)[][], header: boolean, widths: Array<number | null> = []): NewBlock {
   const width = Math.max(1, ...grid.map((row) => row.length));
   const colIds = Array.from({length: width}, (_, i) => `c${i}`);
   const colKeys = keysBetween(null, null, width);
   const rowKeys = keysBetween(null, null, grid.length);
   return {
     type: 'table',
-    props: {header, ...Object.fromEntries(colIds.map((id, i) => [TABLE_COL_PREFIX + id, colKeys[i]]))},
+    props: {
+      header,
+      ...Object.fromEntries(colIds.map((id, i) => [TABLE_COL_PREFIX + id, colKeys[i]])),
+      ...Object.fromEntries(colIds.flatMap((id, i) => widths[i] == null ? [] : [[TABLE_COLW_PREFIX + id, widths[i]]] )),
+    },
     children: grid.map((cells, r) => ({
       type: 'row' as const,
       props: {ord: rowKeys[r]},
@@ -2533,7 +2562,11 @@ export function htmlToBlocks(html: string, opts: HtmlToBlocksOptions = {}): NewB
       const rows = normalizeTableGrid(node);
       if (rows.length > 0) {
         const firstRow = directTableRows(node)[0];
-        out.push(tableFromNormalizedGrid(rows, firstRow?.querySelector(':scope > th') != null));
+        const widths = Array.from(node.querySelectorAll(':scope > colgroup > col')).map((col) => {
+          const px = /^([0-9]+(?:\.[0-9]+)?)px$/.exec((col as HTMLElement).style.width)?.[1];
+          return px ? Math.max(TABLE_COLUMN_MIN_WIDTH, Math.round(Number(px))) : null;
+        });
+        out.push(tableFromNormalizedGrid(rows, firstRow?.querySelector(':scope > th') != null, widths));
       }
       // A cell holds only inline text, so an image in one would vanish — keep it
       // as a placeholder block after the table (importer path only).

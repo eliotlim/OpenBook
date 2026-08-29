@@ -1,7 +1,7 @@
 import {isSafeHref, type DatabaseFormReference, type FormField, type FormSchema} from '@book.dev/sdk';
 import {t} from '@/i18n';
 import type {BlockJSON, BlockType, CellRangeExportCell, InlineAttrs, TextRun} from './model';
-import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TEXT_BLOCKS} from './model';
+import {CONTAINER_BLOCKS, TABLE_COLBG_PREFIX, TABLE_COL_PREFIX, TABLE_COLW_PREFIX, TEXT_BLOCKS} from './model';
 import {describeUnknownBlock} from './unknownBlock';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
@@ -164,6 +164,10 @@ export function cellRangeExportToHtml(grid: CellRangeExportCell[][]): string {
 
 type Props = Record<string, unknown> | undefined;
 const strProp = (p: Props, k: string): string | null => (typeof p?.[k] === 'string' && (p[k] as string) ? (p[k] as string) : null);
+const exportedColumns = (props: Props): string[] => Object.entries(props ?? {})
+  .filter(([key, value]) => key.startsWith(TABLE_COL_PREFIX) && typeof value === 'string' && value)
+  .sort((a, b) => a[1] !== b[1] ? (String(a[1]) < String(b[1]) ? -1 : 1) : a[0] < b[0] ? -1 : 1)
+  .map(([key]) => key.slice(TABLE_COL_PREFIX.length));
 
 /**
  * The composited tint token for a table cell in an export projection (TBL-4 +
@@ -357,7 +361,11 @@ export function blocksToHtml(blocks: BlockJSON[], opts: DatabaseFormExportOption
           return `<tr>${cells}</tr>`;
         })
         .join('');
-      parts.push(`<table class="obe-x-table"><tbody>${body}</tbody></table>`);
+      const colgroup = exportedColumns(b.props).map((colId) => {
+        const width = b.props?.[TABLE_COLW_PREFIX + colId];
+        return `<col${typeof width === 'number' && Number.isInteger(width) && width >= 48 ? ` style="width:${width}px"` : ''}>`;
+      }).join('');
+      parts.push(`<table class="obe-x-table">${colgroup ? `<colgroup>${colgroup}</colgroup>` : ''}<tbody>${body}</tbody></table>`);
       i += 1;
       break;
     }

@@ -64,6 +64,29 @@ async function mergeTopLeft2x2(page: import('@playwright/test').Page): Promise<i
   return table;
 }
 
+test('column boundary resizes by pointer and stays clear of table chrome', {tag: ['@editor', '@p1']}, async ({page}) => {
+  const table = await freshTable(page);
+  const firstCell = table.locator('tbody > tr').first().locator('td').first();
+  const handle = page.getByRole('separator', {name: 'Resize column A'});
+  await expect(handle).toBeVisible();
+
+  const before = (await firstCell.boundingBox())!;
+  const handleBox = (await handle.boundingBox())!;
+  const rowGripBox = (await table.locator('tbody > tr').first().locator('.obe-table-row-grip').boundingBox())!;
+  const colGripBox = (await firstCell.locator('.obe-table-col-grip').boundingBox())!;
+  const addColBox = (await page.locator('.obe-table-add-col').boundingBox())!;
+  expect(rectanglesIntersect(handleBox, rowGripBox)).toBe(false);
+  expect(rectanglesIntersect(handleBox, colGripBox)).toBe(false);
+  expect(rectanglesIntersect(handleBox, addColBox)).toBe(false);
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width / 2 + 40, handleBox.y + handleBox.height / 2, {steps: 5});
+  await page.mouse.up();
+  await expect.poll(async () => (await firstCell.boundingBox())!.width).toBeGreaterThan(before.width + 36);
+  await expect.poll(async () => (await firstCell.boundingBox())!.width).toBeLessThan(before.width + 44);
+});
+
 test('table fills the content column without blocking the block drag handle', {tag: ['@editor', '@p1']}, async ({
   page,
 }) => {

@@ -46,6 +46,8 @@ export const TABLE_COL_PREFIX = 'col:';
 
 /** Prefix of the per-column colour entries (`colbg:<colId>` → palette token). */
 export const TABLE_COLBG_PREFIX = 'colbg:';
+export const TABLE_COLW_PREFIX = 'colw:';
+export const TABLE_COLUMN_MIN_WIDTH = 48;
 
 /**
  * The table order-contract PRIVATE keys (TBL-1): `row.props.ord`,
@@ -60,7 +62,7 @@ export const TABLE_COLBG_PREFIX = 'colbg:';
 export function tableOrderContractKey(props: Record<string, unknown>): string | null {
   return (
     Object.keys(props).find(
-      (k) => k === 'ord' || k === 'col' || k.startsWith(TABLE_COL_PREFIX) || k.startsWith(TABLE_COLBG_PREFIX),
+      (k) => k === 'ord' || k === 'col' || k.startsWith(TABLE_COL_PREFIX) || k.startsWith(TABLE_COLBG_PREFIX) || k.startsWith(TABLE_COLW_PREFIX),
     ) ?? null
   );
 }
@@ -96,7 +98,8 @@ export type TableOpKind =
   | 'table_move_column'
   | 'table_set_cell'
   | 'table_set_row_color'
-  | 'table_set_column_color';
+  | 'table_set_column_color'
+  | 'table_set_column_width';
 
 /** Every {@link TableOpKind}, for schema/description generation. */
 export const TABLE_OP_KINDS: readonly TableOpKind[] = [
@@ -110,6 +113,7 @@ export const TABLE_OP_KINDS: readonly TableOpKind[] = [
   'table_set_cell',
   'table_set_row_color',
   'table_set_column_color',
+  'table_set_column_width',
 ];
 
 /**
@@ -131,6 +135,8 @@ export interface TableOpRequest {
   text?: string;
   /** Palette token, or null to clear (`table_set_row_color` / `..._column_color`). */
   color?: string | null;
+  /** Integer pixel width, or null for auto (`table_set_column_width`). */
+  width?: number | null;
 }
 
 /** The dimensions an op is validated against (from the SORTED grid). */
@@ -188,6 +194,13 @@ export function tableOpError(shape: TableShape, op: TableOpRequest): string | nu
   case 'table_delete_column':
   case 'table_set_column_color':
     return int(op.colIndex, 'colIndex') ?? inRange(op.colIndex!, 'colIndex', cols - 1);
+  case 'table_set_column_width': {
+    const bad = int(op.colIndex, 'colIndex') ?? inRange(op.colIndex!, 'colIndex', cols - 1);
+    if (bad) return bad;
+    return op.width === null || (typeof op.width === 'number' && Number.isInteger(op.width) && op.width >= TABLE_COLUMN_MIN_WIDTH)
+      ? null
+      : `width must be null or an integer at least ${TABLE_COLUMN_MIN_WIDTH}.`;
+  }
   case 'table_move_row': {
     const bad =
       int(op.rowIndex, 'rowIndex') ??
@@ -527,6 +540,7 @@ export interface TableOpAddress {
   colId?: string;
   text?: string;
   color?: string | null;
+  width?: number | null;
 }
 
 /**
@@ -548,6 +562,7 @@ export function resolveTableOp(
   const op: TableOpRequest = {kind, rowIndex: address.rowIndex, colIndex: address.colIndex, toIndex: address.toIndex};
   if (address.text !== undefined) op.text = address.text;
   if (address.color !== undefined) op.color = address.color;
+  if (address.width !== undefined) op.width = address.width;
   const positional = kind === 'table_insert_row' || kind === 'table_insert_column';
 
   if (address.cellId !== undefined) {
@@ -698,6 +713,7 @@ export function applyTableOpToSnapshot(
     }
     setProp(table, TABLE_COL_PREFIX + grid.colIds[at], undefined);
     setProp(table, TABLE_COLBG_PREFIX + grid.colIds[at], undefined);
+    setProp(table, TABLE_COLW_PREFIX + grid.colIds[at], undefined);
     grid.rows.forEach((row, r) => {
       const cell = grid.cells[r][at];
       if (!cell) return;
@@ -766,6 +782,11 @@ export function applyTableOpToSnapshot(
   case 'table_set_column_color': {
     const colId = grid.colIds[op.colIndex ?? 0];
     if (colId) setProp(table, TABLE_COLBG_PREFIX + colId, op.color ?? undefined);
+    break;
+  }
+  case 'table_set_column_width': {
+    const colId = grid.colIds[op.colIndex ?? 0];
+    if (colId) setProp(table, TABLE_COLW_PREFIX + colId, op.width ?? undefined);
     break;
   }
   }

@@ -360,6 +360,8 @@ export {
 export {
   TABLE_COL_PREFIX,
   TABLE_COLBG_PREFIX,
+  TABLE_COLW_PREFIX,
+  TABLE_COLUMN_MIN_WIDTH,
   TABLE_OP_KINDS,
   applyTableOpToSnapshot,
   ensureSnapshotTableOrder,

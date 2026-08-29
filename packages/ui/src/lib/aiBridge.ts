@@ -31,6 +31,7 @@ import {
   replaceText,
   rootBlocks,
   setTableColumnColor,
+  setTableColumnWidth,
   setTableRowColor,
   tableDeleteColumn,
   tableDeleteRow,
@@ -241,6 +242,7 @@ const tableAddress = (payload: Record<string, unknown>): TableOpAddress => ({
   ...(typeof payload.colId === 'string' ? {colId: payload.colId} : {}),
   ...(typeof payload.text === 'string' ? {text: payload.text} : {}),
   ...('color' in payload ? {color: typeof payload.color === 'string' ? payload.color : null} : {}),
+  ...('width' in payload ? {width: typeof payload.width === 'number' ? payload.width : null} : {}),
 });
 
 /**
@@ -309,6 +311,9 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
     return;
   case 'table_set_column_color':
     setTableColumnColor(doc, table.id, view.colIds[op.colIndex!], op.color ?? null);
+    return;
+  case 'table_set_column_width':
+    setTableColumnWidth(doc, table.id, view.colIds[op.colIndex!], op.width ?? null);
     return;
   }
 };

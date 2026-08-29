@@ -5,6 +5,7 @@
  * placeholders are interpolated by `t(key, {var})`.
  */
 export const en = {
+  blockEditor: {resizeColumn: 'Resize column {column}'},
   common: {
     cancel: 'Cancel',
     close: 'Close',
