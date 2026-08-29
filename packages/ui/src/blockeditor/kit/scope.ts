@@ -107,7 +107,7 @@ export function inputValue(block: BlockMap): unknown {
   case 'location': {
     const lat = blockProp<number>(block, 'lat');
     const lng = blockProp<number>(block, 'lng');
-    return {lat: lat ?? null, lng: lng ?? null, label: blockProp<string>(block, 'label') ?? ''};
+    return {lat: lat ?? null, lng: lng ?? null, label: blockProp<string>(block, 'labeltext') ?? ''};
   }
   default:
     return undefined;
@@ -165,7 +165,12 @@ export function setInputValue(block: BlockMap, value: unknown): void {
     setBlockProp(block, 'runs', [{t: String(value ?? '')}]);
     break;
   case 'location':
-    // Composite value — left to its own controls for now.
+    if (value && typeof value === 'object') {
+      const location = value as {lat?: unknown; lng?: unknown; label?: unknown};
+      setBlockProp(block, 'lat', location.lat);
+      setBlockProp(block, 'lng', location.lng);
+      setBlockProp(block, 'labeltext', String(location.label ?? ''));
+    }
     break;
   default:
     setBlockProp(block, 'value', value);
