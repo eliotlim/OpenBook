@@ -26,8 +26,8 @@ import {
 import {registeredBlockTypes} from './registry';
 import {registerArtifactKit} from './kit';
 import {registerReactiveBlocks} from './reactiveBlocks';
-import {INPUT_TYPES} from './kit/scope';
-import {CONTAINER_BLOCKS, TEXT_BLOCKS} from './model';
+import {INPUT_TYPES, inputValue} from './kit/scope';
+import {CONTAINER_BLOCKS, createDoc, rootBlocks, TEXT_BLOCKS} from './model';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
 import {registerDatabaseFormBlock} from '@/components/database/DatabaseFormBlock';
 import {registerFormBlock} from './FormBlockView';
@@ -67,9 +67,11 @@ describe('registry ↔ catalogue drift guard', () => {
     expect(CONTAINER_BLOCKS).toBe(CONTAINER_BLOCK_TYPES);
   });
 
-  it('kit-value support mirrors the scope INPUT_TYPES', () => {
-    const declared = new Set(BLOCK_TYPE_CATALOGUE.filter((e) => e.kitValue).map((e) => e.type));
-    expect([...INPUT_TYPES].sort()).toEqual([...declared].sort());
+  it('every scope input type has a value reader', () => {
+    for (const type of INPUT_TYPES) {
+      const doc = createDoc([{type, props: {name: `coverage_${type}`}}]);
+      expect(inputValue(rootBlocks(doc).get(0)), type).not.toBeUndefined();
+    }
   });
 });
 

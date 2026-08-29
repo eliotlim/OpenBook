@@ -130,7 +130,8 @@ export const blockTypeInfo = (type: string): BlockTypeInfo | undefined => byType
 /** Every catalogued (core + kit) type id. */
 export const KNOWN_BLOCK_TYPE_IDS: ReadonlySet<string> = new Set(byType.keys());
 
-/** Every catalogue type that publishes a named value into the reactive kit scope. */
+/** Every catalogue type that publishes a named value into the reactive kit scope.
+ *  `progressbar` / `actionbutton` are deliberately not inputs: display/action blocks read scope but never publish. */
 export const KIT_VALUE_BLOCK_TYPES: ReadonlySet<string> = new Set(
   BLOCK_TYPE_CATALOGUE.filter((entry) => entry.kitValue === true).map((entry) => entry.type),
 );

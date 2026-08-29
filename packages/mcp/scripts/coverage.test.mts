@@ -159,8 +159,11 @@ async function main(): Promise<void> {
   try {
     for (const [index, info] of BLOCK_TYPE_CATALOGUE.entries()) {
       const marker = `${index}-${info.type}`;
-      await run(info.type, 'create', async () => { await callOk('append_blocks', {pageId: page.id, blocks: [wrappedBlock(info, marker)]}); });
-      const target = await findTarget(marker);
+      let target: StoredBlock;
+      await run(info.type, 'create', async () => {
+        await callOk('append_blocks', {pageId: page.id, blocks: [wrappedBlock(info, marker)]});
+        target = await findTarget(marker);
+      });
       await run(info.type, 'props', async () => {
         const declared = Object.entries(info.props ?? {}).find(([key]) =>
           !(info.type === 'form' && key === 'submissionKey') && !(info.kitValue && key === 'name'));
@@ -188,6 +191,13 @@ async function main(): Promise<void> {
         await callOk('set_kit_value', {pageId: page.id, name, value});
         const after = await callOk('get_kit_values', {pageId: page.id});
         assert.ok(after.includes(`${name} = ${JSON.stringify(value)}`), after);
+        if (info.type === 'choicecards' || info.type === 'searchselect') {
+          await callOk('update_block_props', {pageId: page.id, blockId: target.id, props: {multi: true}});
+          const multiValue = ['round-trip'];
+          await callOk('set_kit_value', {pageId: page.id, name, value: multiValue});
+          const multiAfter = await callOk('get_kit_values', {pageId: page.id});
+          assert.ok(multiAfter.includes(`${name} = ${JSON.stringify(multiValue)}`), multiAfter);
+        }
       });
       await run(info.type, 'delete', async () => {
         await callOk('delete_block', {pageId: page.id, blockId: target.id});
