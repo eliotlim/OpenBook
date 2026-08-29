@@ -597,7 +597,7 @@ test('table drag-reorder: after-last boundary — drop into bottom/right half la
   expect(await headRow()).toEqual(['X', 'Y', 'R1']);
 });
 
-test('multi-cell selection: drag-select highlights a rectangle, copy→paste makes a new table, delete clears + undo restores', {tag: ['@editor', '@p1']}, async ({page}) => {
+test('multi-cell selection: no-cell-focused paste still makes a new table, delete clears + undo restores', {tag: ['@editor', '@p1']}, async ({page}) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await freshLab(page);
   await caretAtEnd(page, 2);
@@ -666,6 +666,51 @@ test('multi-cell selection: drag-select highlights a rectangle, copy→paste mak
   expect(await origTexts()).toEqual(['', '', '', '']);
   await page.keyboard.press('ControlOrMeta+z'); // one undo restores all four
   expect(await origTexts()).toEqual(['A1', 'B1', 'A2', 'B2']);
+});
+
+test('table paste: a copied 2x2 range fills the selected 2x2 cells', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await page.locator('.obe-table-add-row').click();
+  await page.locator('.obe-table-add-col').click();
+
+  const cellText = page.locator('.obe-table .obe-text');
+  for (const [index, value] of [[0, 'A1'], [1, 'B1'], [4, 'A2'], [5, 'B2']] as const) {
+    await cellText.nth(index).click();
+    await page.keyboard.type(value);
+  }
+  const cells = page.locator('.obe-table td');
+  const dragCells = async (from: number, to: number) => {
+    const a = (await cells.nth(from).boundingBox())!;
+    const b = (await cells.nth(to).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, {steps: 10});
+    await page.mouse.up();
+  };
+
+  await dragCells(0, 5);
+  const clipboard = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    document.dispatchEvent(new ClipboardEvent('copy', {clipboardData: dt, bubbles: true, cancelable: true}));
+    return {html: dt.getData('text/html'), text: dt.getData('text/plain')};
+  });
+  await dragCells(10, 15);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(4);
+  await page.evaluate(({html, text}) => {
+    const dt = new DataTransfer();
+    dt.setData('text/html', html);
+    dt.setData('text/plain', text);
+    document.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+  }, clipboard);
+
+  await expect(cellText.nth(10)).toHaveText('A1');
+  await expect(cellText.nth(11)).toHaveText('B1');
+  await expect(cellText.nth(14)).toHaveText('A2');
+  await expect(cellText.nth(15)).toHaveText('B2');
 });
 
 test('cross-block selection becomes block selection and deletes cleanly', {tag: ['@editor']}, async ({page}) => {
