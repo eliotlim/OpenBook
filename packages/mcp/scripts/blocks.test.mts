@@ -133,6 +133,26 @@ async function main(): Promise<void> {
   console.log('\nAPI-1: tool catalogue exposes nested children + the new write tools');
   const tools = await mcp.client.listTools();
   const byName = new Map(tools.tools.map((t) => [t.name, t]));
+
+  console.log('\nAPI-8: rich text inputs materialize as editor runs');
+  await mcp.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: '**a** [b](https://x.test)'}});
+  let richPage = await seed.getPage(page.id);
+  let richRuns = ((richPage?.data.blockdoc as {blocks?: Array<{text?: unknown}>})?.blocks?.[0]?.text);
+  check('update_block parses mini-markdown into bold and link runs',
+    Array.isArray(richRuns) && richRuns[0]?.t === 'a' && richRuns[0]?.a?.b === true && richRuns[2]?.t === 'b' && richRuns[2]?.a?.a === 'https://x.test');
+  const explicit = [{t: 'one', a: {i: true}}, {t: ' two', a: {s: true}}];
+  await mcp.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: {runs: explicit}}});
+  richPage = await seed.getPage(page.id);
+  richRuns = ((richPage?.data.blockdoc as {blocks?: Array<{text?: unknown}>})?.blocks?.[0]?.text);
+  check('explicit runs round-trip exactly', Array.isArray(richRuns) && richRuns[0]?.t === 'one' && richRuns[0]?.a?.i === true && richRuns[1]?.t === ' two' && richRuns[1]?.a?.s === true);
+  await mcp.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: '**a**', plain: true}});
+  richPage = await seed.getPage(page.id);
+  richRuns = ((richPage?.data.blockdoc as {blocks?: Array<{text?: unknown}>})?.blocks?.[0]?.text);
+  check('plain true keeps marker bytes literal', JSON.stringify(richRuns) === JSON.stringify([{t: '**a**'}]));
+  await mcp.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'ordinary bytes'}});
+  richPage = await seed.getPage(page.id);
+  richRuns = ((richPage?.data.blockdoc as {blocks?: Array<{text?: unknown}>})?.blocks?.[0]?.text);
+  check('unmarked strings preserve existing plain behavior', JSON.stringify(richRuns) === JSON.stringify([{t: 'ordinary bytes'}]));
   check('the catalogue includes delete_block and update_block_props', byName.has('delete_block') && byName.has('update_block_props'));
   check('the catalogue includes move_block and insert_blocks', byName.has('move_block') && byName.has('insert_blocks'));
   const appendSchema = JSON.stringify(byName.get('append_blocks')?.inputSchema ?? {});

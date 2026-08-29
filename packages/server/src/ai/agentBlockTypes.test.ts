@@ -163,6 +163,21 @@ describe('add_blocks: catalogue-derived structure rules (shared with MCP)', () =
   });
 });
 
+describe('rich text agent parity', () => {
+  it('uses the shared parser for update_block and nested add_blocks text', async () => {
+    const page = await blockPage(`rich-${seq}`);
+    const update = await runTool('update_block', {pageId: page.id, blockId: 'b1', text: '**a** [b](https://x.test)'});
+    const updateEvent = update.events.find((event) => event.type === 'suggestions');
+    const updatePayload = updateEvent?.type === 'suggestions' ? updateEvent.suggestions[0]?.payload : undefined;
+    expect(updatePayload?.text).toEqual({runs: [{t: 'a', a: {b: true}}, {t: ' '}, {t: 'b', a: {a: 'https://x.test'}}]});
+
+    const append = await runTool('add_blocks', {pageId: page.id, blocks: [{type: 'group', children: [{type: 'paragraph', text: '*nested*'}]}]});
+    const appendEvent = append.events.find((event) => event.type === 'suggestions');
+    const appendPayload = appendEvent?.type === 'suggestions' ? appendEvent.suggestions[0]?.payload : undefined;
+    expect(appendPayload?.blocks).toEqual([{type: 'group', children: [{type: 'paragraph', text: {runs: [{t: 'nested', a: {i: true}}]}}]}]);
+  });
+});
+
 describe('update_block_props: catalogue-typed props and type changes', () => {
   it('rejects a declared prop with the wrong value type, names prop and type', async () => {
     const page = await blockPage(`props-${seq}`);
