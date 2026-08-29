@@ -1,6 +1,35 @@
+import type {APIRequestContext} from '@playwright/test';
 import {expect, test} from './fixtures';
+import {newPage} from './seed';
 
 test.describe.configure({mode: 'parallel'});
+
+type Rect = {x: number; y: number; width: number; height: number};
+
+function rectanglesIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+async function columnsPage(request: APIRequestContext): Promise<string> {
+  return newPage(request, `TABLE-2 columns ${Date.now()}`, {
+    editor: 'blocks',
+    blockdoc: {
+      blocks: [{
+        id: 'layout',
+        type: 'columns',
+        children: [0, 1].map((i) => ({
+          id: `col-${i}`,
+          type: 'column',
+          props: {span: 6},
+          children: [{id: `text-${i}`, type: 'paragraph', text: [{t: `Column ${i + 1}`}]}],
+        })),
+      }],
+    },
+    editorjs: {blocks: []},
+    values: [],
+    names: [],
+  });
+}
 
 async function freshTable(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
   await page.addInitScript(() => {
@@ -53,17 +82,65 @@ test('table fills the content column without blocking the block drag handle', {t
   const dragHandle = tableBlock.locator('.obe-gutter .obe-handle');
   const gripBox = (await rowGrip.boundingBox())!;
   const handleBox = (await dragHandle.boundingBox())!;
-  const horizontalOverlap = Math.max(
-    0,
-    Math.min(gripBox.x + gripBox.width, handleBox.x + handleBox.width) - Math.max(gripBox.x, handleBox.x),
-  );
-  expect(horizontalOverlap).toBeLessThanOrEqual(8);
+  expect(rectanglesIntersect(gripBox, handleBox)).toBe(false);
 
   const hitTargetIsHandle = await dragHandle.evaluate((handle) => {
     const box = handle.getBoundingClientRect();
     return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('.obe-handle') === handle;
   });
   expect(hitTargetIsHandle).toBe(true);
+});
+
+test.describe('in columns', () => {
+  test.use({freshWorkspace: true});
+
+  test('row grip stays outside the cells inside a column layout', {tag: ['@editor', '@p1']}, async ({
+    page,
+    request,
+  }) => {
+    const pageId = await columnsPage(request);
+    await page.goto(`/?page=${pageId}`);
+
+    const secondColumn = page.locator('.obe-columns > .obe-column').nth(1);
+    const paragraph = secondColumn.locator('.obe-text').first();
+    await paragraph.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/table');
+    await page.keyboard.press('Enter');
+
+    const table = secondColumn.locator('.obe-table');
+    await expect(table).toBeVisible();
+    const tableBlock = table.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " obe-row ")][1]');
+    const bodyRow = table.locator('tbody > tr').first();
+
+    await page.mouse.move(0, 0); // no row hovered: the grip is at rest
+    // At rest the grip sits UNDER the column-resize divider (stacking, not
+    // pointer-events — see index.css), so the divider stays grabbable.
+    const divider = secondColumn.locator('.obe-col-divider').first();
+    expect(await divider.evaluate((d) => {
+      const b = d.getBoundingClientRect();
+      return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.obe-col-divider') === d;
+    })).toBe(true);
+
+    await bodyRow.hover();
+
+    const rowGrip = bodyRow.locator('.obe-table-row-grip');
+    const firstCell = bodyRow.locator('td').first();
+    const blockHandle = tableBlock.locator('.obe-gutter .obe-handle');
+    await expect(rowGrip).toBeVisible();
+    await expect(blockHandle).toBeVisible();
+    expect(await rowGrip.evaluate((g) => {
+      const b = g.getBoundingClientRect();
+      return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.obe-table-row-grip') !== null;
+    })).toBe(true);
+
+    const gripBox = (await rowGrip.boundingBox())!;
+    const cellBox = (await firstCell.boundingBox())!;
+    const handleBox = (await blockHandle.boundingBox())!;
+    expect(rectanglesIntersect(gripBox, cellBox)).toBe(false);
+    expect(rectanglesIntersect(gripBox, handleBox)).toBe(false);
+  });
 });
 
 test('merged table rows keep grips bound to their own row payload', {tag: ['@editor', '@p1']}, async ({page}) => {

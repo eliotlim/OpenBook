@@ -75,12 +75,23 @@ describe('table grip geometry', () => {
     expect(CSS).not.toMatch(/\.obe-has-grips \.obe-table-add-row\s*{[^}]*left/);
   });
 
-  it('keeps the row grip overhang within half a rem', () => {
+  it('keeps the row grip fully outside the cells and aligns the table gutter', () => {
     const grip = ruleBody('.obe-table-row-grip');
-    const left = grip.match(/left:\s*(-?[\d.]+)rem/)?.[1];
-    expect(left, 'row grip needs a rem-based left edge').toBeDefined();
-    expect(Number(left)).toBeGreaterThanOrEqual(-0.5);
-    expect(Number(left)).toBeLessThan(0);
+    expect(grip).toMatch(/left:\s*-1\.25rem/);
+    expect(grip).toMatch(/width:\s*1\.25rem/);
+    // The grip yields the column gap to the resize divider by STACKING, never by
+    // `pointer-events: none` — an unhittable drag origin kills HTML5 dragstart
+    // once the pointer leaves the row and `tr:hover` drops (TABLE-2).
+    expect(grip).not.toMatch(/pointer-events/);
+    expect(ruleBody('.obe-table-row-grip,\n.obe-table-col-grip')).toMatch(
+      /z-index:\s*var\(--z-index-raised\)/,
+    );
+    const revealedGrip = ruleBody('.obe-table tr:hover .obe-table-row-grip');
+    expect(revealedGrip).not.toMatch(/pointer-events/);
+    expect(revealedGrip).toMatch(/z-index:\s*var\(--z-index-local-overlay\)/);
+    expect(ruleBody('.obe-row[data-block-type=\'table\']:has(.obe-has-grips) > .obe-gutter')).toMatch(
+      /top:\s*-0\.25rem/,
+    );
   });
 });
 
