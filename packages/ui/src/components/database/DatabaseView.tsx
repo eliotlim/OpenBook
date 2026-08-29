@@ -194,7 +194,7 @@ function quickFilter(property: DatabaseProperty, value: unknown): {operator: Fil
     const first = Array.isArray(value) ? (value[0] as string) : undefined;
     if (!first) return null;
     const opt = property.options?.find((o) => o.id === first);
-    return {operator: 'contains', value: first, phraseKey: 'database.cellMenu.phrases.contains', phraseValue: opt?.label ?? first};
+    return {operator: 'contains', value: first, phraseKey: 'database.cellMenu.phrases.has', phraseValue: opt?.label ?? first};
   }
   case 'number':
     return {operator: 'equals', value, phraseKey: 'database.cellMenu.phrases.is', phraseValue: String(value)};

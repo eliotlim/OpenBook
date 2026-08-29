@@ -42,7 +42,7 @@ function statusProperty(): DatabaseProperty {
   return {id: 'status', name: 'Name', type: 'status', options: [{id: 'foo', label: 'Foo', color: 'blue'}]};
 }
 
-function expectLocalizedMenu(locale: Locale, filterLabel: string, dateLabel: string): void {
+function expectLocalizedMenu(locale: Locale, filterLabel: string, dateLabel: string, datePreset: string): void {
   setLocale(locale);
   openMenu(statusProperty(), 'foo');
   expect(screen.getByText(filterLabel)).toBeTruthy();
@@ -52,6 +52,9 @@ function expectLocalizedMenu(locale: Locale, filterLabel: string, dateLabel: str
   openMenu({id: 'date', name: 'Date', type: 'date'}, '2026-08-29');
   expect(screen.getByText(dateLabel)).toBeTruthy();
   expect(screen.queryByText('Filter by date')).toBeNull();
+  fireEvent.click(screen.getByText(dateLabel));
+  expect(screen.queryByText('This week')).toBeNull();
+  expect(screen.getByText(datePreset)).toBeTruthy();
 }
 
 describe('DatabaseView cell context menu i18n', () => {
@@ -61,14 +64,14 @@ describe('DatabaseView cell context menu i18n', () => {
   });
 
   it('localizes the German quick-filter block without English labels', () => {
-    expectLocalizedMenu('de', 'Filtern: Name ist Foo', 'Nach Datum filtern');
+    expectLocalizedMenu('de', 'Filtern: Name ist Foo', 'Nach Datum filtern', 'Diese Woche');
   });
 
   it('localizes the Japanese quick-filter block', () => {
-    expectLocalizedMenu('ja', 'フィルター: Name がFoo', '日付でフィルター');
+    expectLocalizedMenu('ja', 'フィルター：NameがFoo', '日付でフィルター', '今週');
   });
 
   it('localizes the Chinese quick-filter block', () => {
-    expectLocalizedMenu('zh', '筛选：Name是Foo', '按日期筛选');
+    expectLocalizedMenu('zh', '筛选：Name是Foo', '按日期筛选', '本周');
   });
 });
