@@ -218,6 +218,7 @@ async function main(): Promise<void> {
   const tree = await client.callTool({name: 'inspect_page_structure', arguments: {pageId: artifactId!}});
   check('inspect_page_structure shows the block tree', resultText(tree).includes('heading') && resultText(tree).includes('number'));
   const headingId = /- \[([^\]]+)\] heading/.exec(resultText(tree))?.[1];
+  const numberId = /- \[([^\]]+)\] number/.exec(resultText(tree))?.[1];
   check('inspect_page_structure exposes block ids', Boolean(headingId));
 
   const kitVals = await client.callTool({name: 'get_kit_values', arguments: {pageId: artifactId!}});
@@ -255,12 +256,18 @@ async function main(): Promise<void> {
   check('append_blocks did not mutate the page', !resultText(readAppended).includes('Appended via MCP.'));
   const appendGuard = await client.callTool({name: 'append_blocks', arguments: {pageId: note.id, blocks: [{type: 'paragraph', text: 'x'}]}});
   check('append_blocks refuses legacy editor pages', appendGuard.isError === true);
+  const movedBlock = await client.callTool({name: 'move_block', arguments: {pageId: artifactId!, blockId: headingId!, afterId: numberId!}});
+  check('move_block queues a suggestion', resultText(movedBlock).includes('Suggested for review'));
+  const insertedBlocks = await client.callTool({name: 'insert_blocks', arguments: {pageId: artifactId!, afterId: headingId!, blocks: [{type: 'group', children: [{type: 'paragraph', text: 'Inserted via MCP.'}]}]}});
+  check('insert_blocks queues a nested suggestion', resultText(insertedBlocks).includes('Suggested for review'));
 
   const artifactSuggs = await seed.listSuggestions(artifactId!);
   check(
     'the artifact page collected the queued edit suggestions',
     artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'update_block') &&
       artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'append_blocks') &&
+      artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'move_block') &&
+      artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'insert_blocks') &&
       artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'set_kit_value'),
   );
 

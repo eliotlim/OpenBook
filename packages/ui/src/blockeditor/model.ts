@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import {
   CONTAINER_BLOCK_TYPES,
+  richTextRuns,
   shortId,
   TABLE_COLUMN_MIN_WIDTH,
   TABLE_COLW_PREFIX,
@@ -157,9 +158,16 @@ export function coerceNewBlock(value: unknown): NewBlock | null {
   const type = typeof v.type === 'string' && v.type ? v.type : 'paragraph';
   const block: NewBlock = {type};
   if (typeof v.id === 'string') block.id = v.id;
-  if (typeof v.text === 'string') {
-    block.text = v.text;
-  } else if (Array.isArray(v.text)) {
+  try {
+    if (typeof v.text === 'string') {
+      block.text = richTextRuns(v.text, v.plain === true);
+    } else if (v.text && typeof v.text === 'object' && !Array.isArray(v.text) && Array.isArray((v.text as {runs?: unknown}).runs)) {
+      block.text = richTextRuns(v.text as {runs: never[]});
+    }
+  } catch {
+    return null;
+  }
+  if (Array.isArray(v.text)) {
     const runs: TextRun[] = [];
     for (const r of v.text) {
       if (!r || typeof r !== 'object') continue;
@@ -319,7 +327,7 @@ export function removeBlock(doc: Y.Doc, id: string): void {
 /**
  * Move a block to `toIndex` of the array identified by `targetParentId`
  * (`null` = the root list). Clones under the hood (Yjs re-parent rule);
- * `toIndex` is interpreted against the array *without* the moved block.
+ * `toIndex` is interpreted against the array *before* removing the moved block.
  */
 export function moveBlock(doc: Y.Doc, id: string, targetParentId: string | null, toIndex: number): void {
   doc.transact(() => {

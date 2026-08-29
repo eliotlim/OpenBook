@@ -1,5 +1,9 @@
 import type * as Y from 'yjs';
+import {richTextRuns, type RichTextInput} from '@book.dev/sdk';
 import {
+  findBlock as findSnapshotBlock,
+  insertBlocks as insertSnapshotBlocks,
+  moveBlock as moveSnapshotBlock,
   resolveAgentEdits,
   resolveTableOp,
   tableOpError,
@@ -7,6 +11,7 @@ import {
   TABLE_OP_KINDS,
   type AgentEditsMode,
   type AgentProposal,
+  type AppendBlock,
   type DataClient,
   type DatabaseSchema,
   type DatabaseUpdate,
@@ -27,7 +32,9 @@ import {
   decodeSnapshot,
   encodeSnapshot,
   findBlock,
+  insertBlock,
   makeBlock,
+  moveBlock as moveEditorBlock,
   parentBlockOf,
   patchBlock,
   removeBlock,
@@ -292,6 +299,7 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
     // Re-read the grid: the ops above may have run earlier in this same
     // transaction, and `tableGrid` is only valid until the table changes.
     const grid = tableGrid(table.block);
+    const runs = richTextRuns(op.text ?? '', op.plain);
     const cell = grid.cells[op.rowIndex!]?.[op.colIndex!];
     if (!cell) {
       // A merge gap has no cell node — materialize one bound to that column, so
@@ -301,12 +309,17 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
       const row = grid.rows[op.rowIndex!];
       const colId = grid.colIds[op.colIndex!];
       const rowCells = row && blockChildren(row);
-      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: [{t: op.text ?? ''}]})]);
+      if (rowCells && colId) rowCells.push([makeBlock({type: 'cell', props: {col: colId}, text: runs})]);
       return;
     }
     const text = blockText(cell);
     if (!text) throw new Error(`row ${op.rowIndex} column ${op.colIndex} of table ${table.id} has no cell to write`);
-    replaceText(text, op.text ?? '');
+    text.delete(0, text.length);
+    let at = 0;
+    for (const run of runs) {
+      text.insert(at, run.t, run.a ?? {});
+      at += run.t.length;
+    }
     return;
   }
   case 'table_set_row_color':
@@ -326,6 +339,7 @@ export const applyTableProposalToDoc = (doc: Y.Doc, kind: TableOpKind, payload: 
 export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
   doc.transact(() => {
     const payload = p.payload;
+    const pageSnapshot = () => ({editor: 'blocks' as const, blockdoc: encodeSnapshot(doc), editorjs: {blocks: []}, values: [], names: []});
     if (p.kind === 'set_kit_value') {
       const block = findInput(doc, String(payload.name));
       if (block) setInputValue(block, payload.value);
@@ -333,14 +347,26 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
       const found = findBlock(doc, String(payload.blockId));
       const text = found && blockText(found.block);
       if (text) {
-        const theirs = String(payload.text ?? '');
+        const input = payload.text as RichTextInput;
+        const runs = richTextRuns(input, payload.plain === true);
+        const theirs = runs.map((run) => run.t).join('');
         // `payload.before` is the block text when the suggestion was made.
         // Merging against it (rather than replacing wholesale) means a second
         // suggestion accepted on the same block keeps the first one's edit
         // instead of clobbering it; with no base we fall back to a replace.
         const base = typeof payload.before === 'string' ? payload.before : null;
-        const next = base === null ? theirs : merge3(base, text.toString(), theirs);
-        replaceText(text, next);
+        const rich = typeof input !== 'string' || runs.some((run) => run.a);
+        if (rich) {
+          text.delete(0, text.length);
+          let at = 0;
+          for (const run of runs) {
+            text.insert(at, run.t, run.a ?? {});
+            at += run.t.length;
+          }
+        } else {
+          const next = base === null ? theirs : merge3(base, text.toString(), theirs);
+          replaceText(text, next);
+        }
       }
     } else if (p.kind === 'append_blocks') {
       const list = rootBlocks(doc);
@@ -350,6 +376,50 @@ export const applyProposalToDoc = (doc: Y.Doc, p: AgentProposal): void => {
         .filter((b): b is NewBlock => b !== null)
         .map(makeBlock);
       if (built.length > 0) list.push(built);
+    } else if (p.kind === 'move_block') {
+      const blockId = String(payload.blockId);
+      const parentId = typeof payload.parentId === 'string' ? payload.parentId : undefined;
+      const request = {
+        blockId,
+        ...(parentId === undefined ? {} : {parentId}),
+        ...(typeof payload.index === 'number' ? {index: payload.index} : {}),
+        ...(typeof payload.afterId === 'string' ? {afterId: payload.afterId} : {}),
+      };
+      // Let the shared snapshot twin validate table ownership, parent contracts,
+      // cycles, and addressing before touching the live CRDT.
+      const projected = moveSnapshotBlock(pageSnapshot(), request);
+      const destination = findSnapshotBlock(projected, blockId);
+      const source = findBlock(doc, blockId);
+      if (!destination || !source) throw new Error(`no block "${blockId}" on this page`);
+      const target = parentId === undefined ? rootBlocks(doc) : blockChildren(findBlock(doc, parentId)?.block as BlockMap);
+      if (!target) throw new Error(`no destination block "${parentId}" on this page`);
+      const anchorId = destination.index > 0 ? destination.siblings[destination.index - 1].id : null;
+      const anchorAt = anchorId === null ? -1 : target.toArray().findIndex((b) => b.get('id') === anchorId);
+      const modelIndex = anchorAt + 1;
+      moveEditorBlock(doc, blockId, parentId ?? null, modelIndex);
+    } else if (p.kind === 'insert_blocks') {
+      const parentId = typeof payload.parentId === 'string' ? payload.parentId : undefined;
+      const raw = Array.isArray(payload.blocks) ? payload.blocks as AppendBlock[] : [];
+      const built = raw.map(coerceNewBlock).filter((block): block is NewBlock => block !== null);
+      const request = {
+        ...(parentId === undefined ? {} : {parentId}),
+        ...(typeof payload.index === 'number' ? {index: payload.index} : {}),
+        ...(typeof payload.afterId === 'string' ? {afterId: payload.afterId} : {}),
+        blocks: raw,
+        idPrefix: '__ai_insert__',
+      };
+      const projected = insertSnapshotBlocks(pageSnapshot(), request);
+      const target = parentId === undefined ? rootBlocks(doc) : blockChildren(findBlock(doc, parentId)?.block as BlockMap);
+      if (!target) throw new Error(`no destination block "${parentId}" on this page`);
+      const beforeLength = target.length;
+      const projectedTarget = parentId === undefined
+        ? (projected.blockdoc as {blocks?: Array<{id?: string}>}).blocks ?? []
+        : findSnapshotBlock(projected, parentId)?.block.children ?? [];
+      const at = projectedTarget.length - beforeLength === built.length
+        ? projectedTarget.findIndex((block) => block.id?.startsWith('__ai_insert__-'))
+        : -1;
+      if (at < 0) throw new Error('could not resolve the insertion position');
+      built.forEach((block, offset) => insertBlock(doc, target, at + offset, block));
     } else if (p.kind === 'delete_block') {
       const id = String(payload.blockId);
       const found = findBlock(doc, id);
