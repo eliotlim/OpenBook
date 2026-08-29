@@ -73,8 +73,8 @@ const CATALOGUE_LITERAL = [
   {type: 'notes', category: 'core', nature: 'text', hint: 'speaker note — presenter view only, never exported'},
   {type: 'divider', category: 'core', nature: 'void'},
   // ── Core media leaves ──────────────────────────────────────────────────────
-  {type: 'image', category: 'core', nature: 'void', props: {assetId: 'string', src: 'string', alt: 'string', width: 'number'}, hint: '{assetId|src,alt?,width?} — width is CSS px'},
-  {type: 'htmlArtifact', category: 'core', nature: 'void', props: {assetId: 'string', name: 'string', height: 'number'}, hint: 'sandboxed HTML document {assetId,name?,height?}'},
+  {type: 'image', category: 'core', nature: 'void', props: {assetId: 'string', src: 'string', alt: 'string', caption: 'string', width: 'string'}, hint: '{assetId|src,alt?,caption?,width?} — width is a CSS length such as "60%"'},
+  {type: 'htmlArtifact', category: 'core', nature: 'void', props: {assetId: 'string', title: 'string', height: 'number'}, hint: 'sandboxed HTML document {assetId,title?,height?} — height is CSS px'},
   // ── Core containers (children hold ordinary blocks) ────────────────────────
   {type: 'columns', category: 'core', nature: 'container', hint: 'side-by-side layout → column children (spans sum to 12)'},
   {type: 'column', category: 'core', nature: 'container', parent: 'columns', props: {span: 'number'}, hint: '{span:1-12}'},

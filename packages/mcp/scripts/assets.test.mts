@@ -100,12 +100,12 @@ async function main(): Promise<void> {
   const png = await client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: PNG}});
   const pngResult = JSON.parse(text(png)) as {assetId: string; bytes: number; mime: string};
   check('PNG upload returns typed metadata without payload', Boolean(pngResult.assetId) && pngResult.bytes > 0 && pngResult.mime === 'image/png' && !text(png).includes(PNG));
-  await client.callTool({name: 'append_blocks', arguments: {pageId: page.id, blocks: [{type: 'image', props: {assetId: pngResult.assetId, alt: 'pixel', width: 400}}]}});
+  await client.callTool({name: 'append_blocks', arguments: {pageId: page.id, blocks: [{type: 'image', props: {assetId: pngResult.assetId, alt: 'pixel', width: '400px'}}]}});
   let image = blocks((await sdk.getPage(page.id))!.data).find((block) => block.type === 'image')!;
   check('image block round-trips its uploaded assetId', image.props?.assetId === pngResult.assetId);
-  await client.callTool({name: 'update_block_props', arguments: {pageId: page.id, blockId: image.id, props: {alt: 'updated pixel', width: 640}}});
+  await client.callTool({name: 'update_block_props', arguments: {pageId: page.id, blockId: image.id, props: {alt: 'updated pixel', width: '640px'}}});
   image = blocks((await sdk.getPage(page.id))!.data).find((block) => block.id === image.id)!;
-  check('image alt and width update round-trip', image.props?.alt === 'updated pixel' && image.props?.width === 640);
+  check('image alt and width update round-trip', image.props?.alt === 'updated pixel' && image.props?.width === '640px');
 
   const htmlBytes = Buffer.from('<!doctype html><p>tiny</p>').toString('base64');
   const html = await client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'application/octet-stream', base64: htmlBytes}});

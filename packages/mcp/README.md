@@ -45,7 +45,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 
 ## Block prop reference
 
-Call `list_block_types` for the machine-readable source of truth: every entry has `description` and a strict `propsSchema`. All props are optional when creating or patching a block; `null` removes a prop. Unknown keys are rejected. Every block also accepts `bg:string`.
+Call `list_block_types` for the machine-readable source of truth: every entry has `description` and a typed `propsSchema`. All props are optional when creating or patching a block; `null` removes a prop. Unknown keys pass through for forward compatibility. Every block also accepts `bg:string`.
 
 | Types | Props |
 | --- | --- |
@@ -55,8 +55,8 @@ Call `list_block_types` for the machine-readable source of truth: every entry ha
 | `todo` | `checked:boolean` |
 | `callout` | `variant:"info"\|"warn"\|"success"` |
 | `code` | `language:string`, `live:boolean`, `name:string`, `collapsed:boolean` |
-| `image` | `assetId:string` or `src:string`, `alt:string`, `width:number` (CSS px, 1–4096) |
-| `htmlArtifact` | `assetId:string`, `name:string`, `height:number` (CSS px, 80–4096) |
+| `image` | `assetId:string` or `src:string`, `alt:string`, `caption:string`, `width:string` (CSS length, e.g. `"60%"` or `"320px"`) |
+| `htmlArtifact` | `assetId:string`, `title:string`, `height:number` (CSS px, 80–4096) |
 | `column` | `span:number` (1–12) |
 | `row` | `header:boolean` |
 | `group` | `name:string`, `locked:boolean` |

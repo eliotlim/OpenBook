@@ -155,20 +155,29 @@ describe('structure validation (children-carrier + child-only + square tables)',
 });
 
 describe('typed prop schemas', () => {
-  it('checks declared props, refuses unknown props, permits null removals and plugin props', () => {
+  it('checks declared props, passes unknown props, null removals, and unknown types', () => {
     expect(invalidBlockProps('heading', {level: 2})).toBeNull();
     expect(invalidBlockProps('heading', {level: 'two'})).toContain('"level"');
     expect(invalidBlockProps('todo', {checked: 'yes'})).toContain('boolean');
     expect(invalidBlockProps('slider', {value: '50'})).toContain('number');
     expect(invalidBlockProps('checklist', {selected: 'a,b'})).toContain('array');
     expect(invalidBlockProps('column', {span: 6})).toBeNull();
-    expect(invalidBlockProps('heading', {mystery: {deep: true}})).toContain('mystery');
+    // Unknown props pass — the editor ignores what it doesn't know.
+    expect(invalidBlockProps('heading', {mystery: {deep: true}})).toBeNull();
     // null removes a key, so it always passes.
     expect(invalidBlockProps('heading', {level: null})).toBeNull();
     // Common block chrome is typed everywhere.
     expect(invalidBlockProps('paragraph', {bg: 42})).toContain('"bg"');
     // Plugin/unknown types pass entirely (their props are theirs).
     expect(invalidBlockProps('openbook.ledger/journal-entry', {ledgerRows: 7})).toBeNull();
+  });
+
+  it('image width is a CSS length STRING (the editor writes "30%"/"60%", never numbers)', () => {
+    expect(invalidBlockProps('image', {width: '60%'})).toBeNull();
+    expect(invalidBlockProps('image', {width: 60})).toContain('"width"');
+    expect(blockTypeInfo('image')?.hint).toContain('"60%"');
+    // htmlArtifact height stays numeric (CSS pixels from the resize handle).
+    expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
   });
 
   it('validates structured kit props, rich runs, and bounded pixel dimensions', () => {
@@ -178,8 +187,8 @@ describe('typed prop schemas', () => {
     expect(invalidBlockProps('checklist', {selected: [1]})).toContain('"selected"');
     expect(invalidBlockProps('richtext', {runs: [{t: 'bold', a: {b: true}}]})).toBeNull();
     expect(invalidBlockProps('richtext', {runs: [{text: 'wrong'}]})).toContain('"runs"');
-    expect(invalidBlockProps('image', {width: 640})).toBeNull();
-    expect(invalidBlockProps('image', {width: '100px'})).toContain('"width"');
+    expect(invalidBlockProps('image', {width: '640px'})).toBeNull();
+    expect(invalidBlockProps('image', {width: 640})).toContain('"width"');
     expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
     expect(invalidBlockProps('htmlArtifact', {height: 40})).toContain('"height"');
   });
@@ -191,14 +200,14 @@ describe('typed prop schemas', () => {
   });
 
   it('props named after Object.prototype members read as undeclared, not inherited', () => {
-    expect(invalidBlockProps('paragraph', {toString: 'x'})).toContain('toString');
-    expect(invalidBlockProps('heading', {constructor: 1, hasOwnProperty: true})).toContain('constructor');
+    expect(invalidBlockProps('paragraph', {toString: 'x'})).toBeNull();
+    expect(invalidBlockProps('heading', {constructor: 1, hasOwnProperty: true})).toBeNull();
   });
 
   it('registers a Zod and JSON schema for every catalogue entry', () => {
     for (const {type} of BLOCK_TYPE_CATALOGUE) {
       expect(BLOCK_PROP_SCHEMAS[type as keyof typeof BLOCK_PROP_SCHEMAS]).toBeDefined();
-      expect(BLOCK_PROP_JSON_SCHEMAS[type as keyof typeof BLOCK_PROP_JSON_SCHEMAS]?.additionalProperties).toBe(false);
+      expect(BLOCK_PROP_JSON_SCHEMAS[type as keyof typeof BLOCK_PROP_JSON_SCHEMAS]?.additionalProperties).toBe(true);
     }
   });
 });

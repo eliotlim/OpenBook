@@ -3,7 +3,7 @@ import {z} from 'zod';
 export type BlockPropsJsonSchema = {
   type: 'object';
   properties: Record<string, unknown>;
-  additionalProperties: false;
+  additionalProperties: boolean;
 };
 
 type Field = {schema: z.ZodTypeAny; json: Record<string, unknown>};
@@ -13,6 +13,10 @@ const string = (description?: string, constraints: Record<string, unknown> = {})
 const number = (description?: string, minimum?: number, maximum?: number): Field => ({
   schema: z.number().finite().refine((n) => minimum === undefined || n >= minimum).refine((n) => maximum === undefined || n <= maximum),
   json: {type: 'number', ...(minimum === undefined ? {} : {minimum}), ...(maximum === undefined ? {} : {maximum}), ...(description ? {description} : {})},
+});
+const cssLength = (description?: string): Field => ({
+  schema: z.string().regex(/^\d+(\.\d+)?(%|px)$/),
+  json: {type: 'string', pattern: '^\\d+(\\.\\d+)?(%|px)$', ...(description ? {description} : {})},
 });
 const boolean = (description?: string): Field => ({schema: z.boolean(), json: {type: 'boolean', ...(description ? {description} : {})}});
 const enumeration = (values: readonly [string, ...string[]], description?: string): Field => ({
@@ -48,8 +52,8 @@ const fields = {
   paragraph: {}, heading: {level: number('Heading level.', 1, 3)}, list: {kind: enumeration(['bullet', 'number'])},
   todo: {checked: boolean()}, quote: {}, callout: {variant: enumeration(['info', 'warn', 'success'])},
   code: {language: text, live: boolean(), name: text, collapsed: boolean()}, notes: {}, divider: {},
-  image: {assetId: id, src: text, alt: text, width: number('Rendered width in CSS pixels.', 1, 4096)},
-  htmlArtifact: {assetId: id, name: text, height: number('Sandbox height in CSS pixels.', 80, 4096)},
+  image: {assetId: id, src: text, alt: text, caption: text, width: cssLength('Rendered width as a CSS length such as "60%" or "320px".')},
+  htmlArtifact: {assetId: id, title: text, height: number('Sandbox height in CSS pixels.', 80, 4096)},
   columns: {}, column: {span: number('Grid columns.', 1, 12)}, table: {}, row: {header: boolean()}, cell: {},
   group: {name: text, locked: boolean()}, tabs: {}, tab: {label: text}, accordion: {name: text, gated: boolean()}, accordionsection: {label: text, collapsed: boolean()},
   slider: {...frame, value: number(), min: number(), max: number(), step: number(undefined, 0)},
@@ -75,10 +79,10 @@ export type CataloguedSchemaType = keyof typeof fields;
 const makeEntry = (own: Record<string, Field>): {schema: z.ZodObject<z.ZodRawShape>; jsonSchema: BlockPropsJsonSchema} => {
   const all = {...common, ...own};
   return {
-    // Patches are optional and nullable: null removes the prop. Strictness keeps
-    // misspellings from silently becoming inert document data.
-    schema: z.object(Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.schema.nullish()]))).strict(),
-    jsonSchema: {type: 'object', properties: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, {...v.json, nullable: true}])), additionalProperties: false},
+    // Patches are optional and nullable: null removes the prop. Declared props
+    // are typed; undeclared props pass through for editor/forward compatibility.
+    schema: z.object(Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.schema.nullish()]))).passthrough(),
+    jsonSchema: {type: 'object', properties: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, {...v.json, nullable: true}])), additionalProperties: true},
   };
 };
 
