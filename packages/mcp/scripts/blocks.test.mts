@@ -280,17 +280,15 @@ async function main(): Promise<void> {
       names: [],
     },
   });
-  // API-2: image `width` is a CSS length STRING (the editor writes '30%'/'60%'
-  // — never a bare number), so the canonical value passes and a numeric one is
-  // refused by the catalogue's typed prop check.
-  const imgUpd = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {alt: 'a chart', width: '60%'}}});
+  // API-11: media dimensions are bounded CSS-pixel numbers.
+  const imgUpd = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {alt: 'a chart', width: 640}}});
   check('update_block_props confirms a direct write on an image block', !isError(imgUpd) && resultText(imgUpd).includes('directly'));
   const imgLine = parseTree(resultText(await mcp.client.callTool({name: 'inspect_page_structure', arguments: {pageId: propsPage.id}}))).find((l) => l.id === 'img1')!;
   check('the passed props were merged and the untouched ones survived',
-    /"alt":"a chart"/.test(imgLine.raw) && /"width":"60%"/.test(imgLine.raw) && /"src":"data:image/.test(imgLine.raw));
-  const imgBadWidth = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {width: 640}}});
-  check('a numeric image width (a value the editor never writes) is refused as mistyped',
-    isError(imgBadWidth) && /"width"/.test(resultText(imgBadWidth)) && /must be a string/.test(resultText(imgBadWidth)));
+    /"alt":"a chart"/.test(imgLine.raw) && /"width":640/.test(imgLine.raw) && /"src":"data:image/.test(imgLine.raw));
+  const imgBadWidth = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'img1', props: {width: '100px'}}});
+  check('a CSS-length string image width is refused as mistyped',
+    isError(imgBadWidth) && /"width"/.test(resultText(imgBadWidth)) && /number/i.test(resultText(imgBadWidth)));
 
   const calloutUpd = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: propsPage.id, blockId: 'call1', props: {variant: 'warn', bg: null}}});
   check('update_block_props reaches a NESTED block (inside a group)', !isError(calloutUpd));

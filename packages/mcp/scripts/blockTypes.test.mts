@@ -14,8 +14,7 @@
  *    examples/plugins/ledger).
  *  - The table cell-count rule (square tables) is enforced on both
  *    append_blocks and create_artifact_page.
- *  - update_block_props validates declared prop VALUE types (permissive:
- *    unknown props pass).
+ *  - update_block_props validates strict per-type prop schemas.
  *
  * Boots a real OpenBook server and drives `src/bin.ts` over stdio (same
  * harness as blocks.test.mts). Run: pnpm --filter @book.dev/mcp test
@@ -146,16 +145,17 @@ async function main(): Promise<void> {
   }];
   const raggedArtifact = await mcp.client.callTool({name: 'create_artifact_page', arguments: {title: 'Ragged', blocks: ragged}});
   check('create_artifact_page refuses a ragged table', isError(raggedArtifact) && /same number of cells/.test(resultText(raggedArtifact)));
-  const target = await seed.savePage({name: 'Append target', data: {editor: 'blocks', blockdoc: {blocks: [{id: 'b1', type: 'heading', text: [{t: 'seed'}], props: {level: 1}}]}, editorjs: {blocks: []}, values: [], names: []}});
+  const target = await seed.savePage({name: 'Append target', data: {editor: 'blocks', blockdoc: {blocks: [{id: 'b1', type: 'heading', text: [{t: 'seed'}], props: {level: 1}}, {id: 'radio1', type: 'radio', props: {name: 'pick'}}]}, editorjs: {blocks: []}, values: [], names: []}});
   const raggedAppend = await mcp.client.callTool({name: 'append_blocks', arguments: {pageId: target.id, blocks: ragged}});
   check('append_blocks refuses a ragged table', isError(raggedAppend) && /same number of cells/.test(resultText(raggedAppend)));
 
   console.log('\nAPI-2: update_block_props validates declared prop VALUE types');
   const badProp = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: target.id, blockId: 'b1', props: {level: 'two'}}});
   check('a declared prop with the wrong value type is refused, naming prop and expectation',
-    isError(badProp) && /"level"/.test(resultText(badProp)) && /must be a number/.test(resultText(badProp)));
-  const okProp = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: target.id, blockId: 'b1', props: {level: 2, mystery: {x: 1}}}});
-  check('right-typed declared props plus unknown props pass', !isError(okProp));
+    isError(badProp) && /"level"/.test(resultText(badProp)) && /number/i.test(resultText(badProp)));
+  const badOpts = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: target.id, blockId: 'radio1', props: {opts: ['x']}}});
+  check('an invalid structured option is refused with a typed error naming opts',
+    isError(badOpts) && /"opts"/.test(resultText(badOpts)) && /object/i.test(resultText(badOpts)));
 
   console.log('\nAPI-2: plugin block types — rejected while uninstalled, accepted once installed');
   const uninstalled = await mcp.client.callTool({
@@ -165,19 +165,22 @@ async function main(): Promise<void> {
   check('an uninstalled plugin\'s type is refused as not installed',
     isError(uninstalled) && /not installed/.test(resultText(uninstalled)));
 
-  const before = resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}}));
+  const before = JSON.parse(resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}})));
   for (const e of BLOCK_TYPE_CATALOGUE) {
-    assert.ok(before.includes(`- ${e.type} (`), `FAILED: list_block_types lists ${e.type}`);
+    const listed = before.blocks.find((b: {type: string}) => b.type === e.type);
+    assert.ok(listed, `FAILED: list_block_types lists ${e.type}`);
+    assert.equal(typeof listed.description, 'string');
+    assert.equal(listed.propsSchema.type, 'object');
   }
   passed += 1;
   console.log('  ✓ list_block_types lists every catalogued core + kit type');
-  check('with no plugins installed, the plugin section says none', /Installed plugin blocks: none\./.test(before));
+  check('with no plugins installed, pluginBlocks is empty', before.pluginBlocks.length === 0);
 
   await ownerSeed.installPlugin(ledgerPackage());
-  const after = resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}}));
+  const after = JSON.parse(resultText(await mcp.client.callTool({name: 'list_block_types', arguments: {}})));
   check('after installing the bundled ledger plugin, its declared blocks are listed',
-    after.includes('openbook.ledger/journal-entry') && after.includes('openbook.ledger/beancount-export'));
-  check('plugin lines carry the plugin name', /\(plugin: Ledger/.test(after));
+    after.pluginBlocks.some((b: {type: string}) => b.type === 'openbook.ledger/journal-entry') && after.pluginBlocks.some((b: {type: string}) => b.type === 'openbook.ledger/beancount-export'));
+  check('plugin entries carry a description', after.pluginBlocks.every((b: {description: string}) => b.description.length > 0));
 
   const installedOk = await mcp.client.callTool({
     name: 'create_artifact_page',
