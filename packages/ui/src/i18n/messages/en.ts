@@ -341,6 +341,8 @@ export const en = {
     table: {
       sectionRow: 'Row',
       sectionColumn: 'Column',
+      rowOptions: 'Row {n} options',
+      columnOptions: 'Column {n} options',
       insertRowAbove: 'Insert row above',
       insertRowBelow: 'Insert row below',
       insertColumnLeft: 'Insert column left',

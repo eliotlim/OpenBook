@@ -93,6 +93,15 @@ describe('table grip geometry', () => {
       /top:\s*-0\.25rem/,
     );
   });
+
+  it('reveals both row and column grips on keyboard focus', () => {
+    const focusedGrip = ruleBody(
+      '.obe-table tr .obe-table-row-grip:focus-visible,\n.obe-table-col-grip:focus-visible',
+    );
+    expect(focusedGrip).toMatch(/opacity:\s*1/);
+    expect(focusedGrip).toMatch(/pointer-events:\s*auto/);
+    expect(focusedGrip).toMatch(/z-index:\s*var\(--z-index-local-overlay\)/);
+  });
 });
 
 describe('column resize styles', () => {
