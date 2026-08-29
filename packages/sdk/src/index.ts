@@ -88,6 +88,16 @@ export {
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient, IdentityRejectedError} from './client';
 export {
+  AGENT_ASSET_MIMES,
+  AssetUploadError,
+  decodeStrictBase64,
+  uploadAgentAsset,
+  type AgentAssetUploader,
+  type AgentAssetUploadInput,
+  type AgentAssetUploadResult,
+  type AssetUploadErrorCode,
+} from './assetUpload';
+export {
   ForwardingApiError,
   ForwardingClient,
   TunnelClient,

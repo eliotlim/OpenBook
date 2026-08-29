@@ -13,6 +13,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `search_notes` | Ranked search with snippets over every page's content. |
 | `create_page` | Create a page from a title and plain-text body. |
 | `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
+| `upload_asset` | Upload a raster image (or inert binary for `htmlArtifact`) and return its `assetId`. Requires direct-write policy; bytes never enter suggestions. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
 | `inspect_page_structure` | Show a page's block TREE — ids, types, short text, props — including nested blocks. Read this before editing blocks. |
 | `append_blocks` | Append typed blocks to a block-editor page. Blocks **nest**: a container carries its contents in `children`, so one call builds a whole table (`table → row → cell`) or a two-column layout (`columns → column`). Capped at 8 levels / 400 blocks per call. |
@@ -29,6 +30,15 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `table_set_row_color` / `table_set_column_color` | Tint a row or column (a palette token, or `null` to clear). A row tint wins over a column tint. |
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
+
+### Images via MCP
+
+1. On suggest-mode installs, call `request_edit_access` first; uploads apply immediately and cannot be queued as suggestions.
+2. Call `upload_asset` with `pageId`, an image `mime`, and `base64` bytes.
+3. Copy the returned `assetId`; the payload itself is never echoed.
+4. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
+5. Later use `update_block_props` to change `alt` or `width`.
+6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
 
 Table coordinates are **render order** (the sorted order you see), not positions in
 the stored array — a reordered table's arrays are not in display order. Tables built
