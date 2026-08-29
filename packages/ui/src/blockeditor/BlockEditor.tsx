@@ -11,8 +11,6 @@ import {
   ChevronRight,
   ChevronUp,
   Copy,
-  ClipboardPaste,
-  Eraser,
   EyeOff,
   GripHorizontal,
   GripVertical,
@@ -21,8 +19,6 @@ import {
   LockOpen,
   Plus,
   RefreshCw,
-  Scissors,
-  TableCellsMerge,
   TableCellsSplit,
   Trash2,
 } from 'lucide-react';
@@ -55,22 +51,15 @@ import {
   setBlockProp,
   tableCellColor,
   tableCellAt,
-  tableCellOwnColor,
   tableColumnColor,
   tableColumnWidth,
   tableColumns,
-  tableRangeCells,
-  tableRangeExport,
-  tableRangeRuns,
   tableDeleteColumn,
-  tableDeleteColumnRange,
   tableDeleteRow,
-  tableDeleteRowRange,
   tableDuplicateRow,
   tableGrid,
   tableInsertColumn,
   tableInsertRow,
-  tableMergeCells,
   tableMoveColumn,
   tableMoveRow,
   tablePasteGrid,
@@ -79,7 +68,6 @@ import {
   tableSpans,
   tableSplitCell,
   trailingColumnBoundaryFromPointer,
-  setTableCellRangeColor,
   setTableColumnColor,
   setTableColumnWidth,
   setTableRowColor,
@@ -93,7 +81,7 @@ import {
 import {TableColResizer} from './TableColResizer';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
-import {blocksToHtml, blocksToMarkdown, cellRangeExportToHtml, cellRangeToTsv} from './exportBlocks';
+import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock, getRegistrySnapshot, subscribeRegistry} from './registry';
 import {MissingPluginBlock} from './MissingPluginBlock';
 import {StaticKeepBlock, useStaticKeep} from './staticKeep';
@@ -151,6 +139,7 @@ import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/sugges
 import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelection, type SelectionReporter} from './localSelection';
 import {passEditableContextMenuToBrowser} from './nativeContextMenu';
 import {parseClipboardGrid} from './tablePaste';
+import {TableRangeMenuItems, tableRangeClipboardPayload} from './TableRangeMenuItems';
 
 // Re-exported so the page host can type its onSelectionChange handler. Collab T5.
 export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
@@ -164,13 +153,7 @@ export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
  */
 export type {CellSelection} from './model';
 
-/** Both native copy/cut events and range-menu clipboard commands use this payload. */
-export function tableRangeClipboardPayload(doc: Y.Doc, tableId: string, rect: CellRect): {text: string; html: string} {
-  return {
-    text: cellRangeToTsv(tableRangeRuns(doc, tableId, rect)),
-    html: cellRangeExportToHtml(tableRangeExport(doc, tableId, rect)),
-  };
-}
+export {tableRangeClipboardPayload} from './TableRangeMenuItems';
 
 interface CellSelectionCtx {
   sel: CellSelection | null;
@@ -2914,140 +2897,21 @@ const TableRangeMenuContent: React.FC<{
   editor: BlockEditorController;
   onClearRange?: () => void;
 }> = ({rect, tableId, editor, onClearRange}) => {
-  const doc = editor.doc;
-  const found = findBlock(doc, tableId);
+  const found = findBlock(editor.doc, tableId);
   if (!found || blockType(found.block) !== 'table') return null;
   const grid = tableGrid(found.block);
-  // A live remote edit can shrink the grid while this local rectangle/menu is
-  // still open. Labels describe the intersection that the range ops will
-  // actually touch, never stale coordinates beyond the current table.
   const rowFrom = Math.max(0, Math.min(rect.top, rect.bottom));
   const rowTo = Math.min(grid.rows.length - 1, Math.max(rect.top, rect.bottom));
   const colFrom = Math.max(0, Math.min(rect.left, rect.right));
   const colTo = Math.min(grid.width - 1, Math.max(rect.left, rect.right));
   const rowCount = Math.max(0, rowTo - rowFrom + 1);
   const colCount = Math.max(0, colTo - colFrom + 1);
-  const deletesAllRows = grid.rows.length > 0 && rowCount === grid.rows.length;
-  const deletesAllColumns = grid.width > 0 && colCount === grid.width;
-  // The swatch check is only meaningful when the WHOLE range shares one own-tint
-  // (a mixed range shows no check, and "Default" still clears all of it).
-  const cells = tableRangeCells(doc, tableId, rect).flat().filter((c): c is BlockMap => c !== null);
-  const first = cells.length > 0 ? tableCellOwnColor(cells[0]) : null;
-  const current = cells.length > 0 && cells.every((c) => tableCellOwnColor(c) === first) ? first : null;
-  const clipboard: Partial<Clipboard> | undefined = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
-  const canWriteClipboard = !!clipboard?.write && typeof ClipboardItem !== 'undefined';
-  const canPasteClipboard = !!clipboard && (!!clipboard.read || !!clipboard.readText);
-  const copyRange = async (cut: boolean): Promise<void> => {
-    if (!canWriteClipboard) return;
-    try {
-      const payload = tableRangeClipboardPayload(doc, tableId, rect);
-      await clipboard!.write!([new ClipboardItem({
-        'text/plain': new Blob([payload.text], {type: 'text/plain'}),
-        'text/html': new Blob([payload.html], {type: 'text/html'}),
-      })]);
-      if (cut) clearCellRange(doc, tableId, rect);
-    } catch {
-      // Clipboard permission can be denied between menu open and selection.
-    }
-  };
-  const pasteRange = async (): Promise<void> => {
-    if (!canPasteClipboard) return;
-    try {
-      let html = '';
-      let text = '';
-      if (clipboard!.read) {
-        const items = await clipboard!.read();
-        const item = items[0];
-        if (item?.types.includes('text/html')) html = await (await item.getType('text/html')).text();
-        if (item?.types.includes('text/plain')) text = await (await item.getType('text/plain')).text();
-      } else if (clipboard!.readText) text = await clipboard!.readText();
-      const source = parseClipboardGrid({html, text});
-      if (source) tablePasteGrid(doc, tableId, {row: rowFrom, col: colFrom}, source, {
-        range: {tableId, anchor: {row: rowFrom, col: colFrom}, focus: {row: rowTo, col: colTo}},
-      });
-    } catch {
-      // Unsupported/denied clipboard reads leave the document untouched.
-    }
-  };
-  const insertRows = (at: number): void => doc.transact(() => {
-    for (let i = 0; i < rowCount; i += 1) tableInsertRow(doc, tableId, at);
-  }, 'local');
-  const insertColumns = (at: number): void => doc.transact(() => {
-    for (let i = 0; i < colCount; i += 1) tableInsertColumn(doc, tableId, at);
-  }, 'local');
   return (
     <ContextMenuContent className={MENU_WIDTH_MD}>
       <ContextMenuLabel>
         {t('menu.table.sectionSelection')} · {rowCount} × {colCount}
       </ContextMenuLabel>
-      <ContextMenuItem disabled={!canWriteClipboard} onSelect={() => void copyRange(false)}>
-        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.copy')}
-      </ContextMenuItem>
-      <ContextMenuItem disabled={!canWriteClipboard} onSelect={() => void copyRange(true)}>
-        <Scissors className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.cut')}
-      </ContextMenuItem>
-      <ContextMenuItem disabled={!canPasteClipboard} onSelect={() => void pasteRange()}>
-        <ClipboardPaste className="mr-2 h-3.5 w-3.5" /> {t('menu.clipboard.paste')}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => insertRows(rowFrom)}>
-        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowAbove') : t('menu.table.insertRowsAboveN', {n: rowCount})}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => insertRows(rowTo + 1)}>
-        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowBelow') : t('menu.table.insertRowsBelowN', {n: rowCount})}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => insertColumns(colFrom)}>
-        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnLeft') : t('menu.table.insertColumnsLeftN', {n: colCount})}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => insertColumns(colTo + 1)}>
-        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnRight') : t('menu.table.insertColumnsRightN', {n: colCount})}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>
-        <Eraser className="mr-2 h-3.5 w-3.5" /> {t('menu.table.clearCells')}
-      </ContextMenuItem>
-      <ContextMenuItem
-        onSelect={() => {
-          tableMergeCells(doc, tableId, rect);
-          onClearRange?.();
-        }}
-      >
-        <TableCellsMerge className="mr-2 h-3.5 w-3.5" /> {t('menu.table.mergeCells')}
-      </ContextMenuItem>
-      <TableColorSubmenu
-        label={t('menu.table.tintCells')}
-        current={current}
-        onPick={(token) => setTableCellRangeColor(doc, tableId, rect, token)}
-      />
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => {
-          tableDeleteRowRange(doc, tableId, rect.top, rect.bottom);
-          onClearRange?.();
-        }}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" />{' '}
-        {deletesAllRows
-          ? t('menu.table.deleteTable')
-          : rowCount === 1
-            ? t('menu.table.deleteRow')
-            : t('menu.table.deleteRowsN', {n: rowCount})}
-      </ContextMenuItem>
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => {
-          tableDeleteColumnRange(doc, tableId, rect.left, rect.right);
-          onClearRange?.();
-        }}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" />{' '}
-        {deletesAllColumns
-          ? t('menu.table.deleteTable')
-          : colCount === 1
-            ? t('menu.table.deleteColumn')
-            : t('menu.table.deleteColumnsN', {n: colCount})}
-      </ContextMenuItem>
+      <TableRangeMenuItems rect={rect} tableId={tableId} editor={editor} onClearRange={onClearRange} />
     </ContextMenuContent>
   );
 };
