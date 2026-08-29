@@ -528,6 +528,12 @@ export {
   type PluginBlockSource,
 } from './blockCatalogue';
 export {
+  BLOCK_PROP_SCHEMAS,
+  BLOCK_PROP_JSON_SCHEMAS,
+  type BlockPropsJsonSchema,
+  type CataloguedSchemaType,
+} from './blockPropSchemas';
+export {
   RegistryClient,
   RegistryError,
   fetchRegistryDocument,
