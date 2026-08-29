@@ -8,6 +8,7 @@ import {
   findUnknownBlockType,
   invalidBlockProps,
   providerSettings,
+  richTextRuns,
   snapshotText,
   tableOrderContractKey,
   tableOrderContractRefusal,
@@ -175,6 +176,13 @@ const obj = (props: Record<string, unknown>, required: string[] = []): Record<st
   ...(required.length ? {required} : {}),
 });
 const str = (description: string) => ({type: 'string', description});
+const richTextSchema = {
+  oneOf: [
+    {type: 'string'},
+    {type: 'object', properties: {runs: {type: 'array', items: {type: 'object'}}}, required: ['runs'], additionalProperties: false},
+  ],
+  description: 'Mini-markdown string or {runs:[{t,a}]} editor runs.',
+};
 
 /** Display name for AI-authored suggestions. */
 const AI_AUTHOR_NAME = 'Assistant';
@@ -719,13 +727,19 @@ export class AgentRunner {
       {
         name: 'update_block',
         description: 'Propose replacing the text of one block on a page (find the block id via inspect_page_structure). User approves first.',
-        args: '{"pageId": string, "blockId": string, "text": string}',
-        schema: obj({pageId: str('The page id.'), blockId: str('The block id from inspect_page_structure.'), text: str('The new plain text for the block.')}, ['pageId', 'blockId', 'text']),
+        args: '{"pageId": string, "blockId": string, "text": string | {"runs": Run[]}, "plain"?: boolean}',
+        schema: obj({pageId: str('The page id.'), blockId: str('The block id from inspect_page_structure.'), text: richTextSchema, plain: {type: 'boolean', description: 'Keep a string literal.'}}, ['pageId', 'blockId', 'text']),
         write: true,
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
           const blockId = String(args.blockId ?? '');
-          const text = String(args.text ?? '');
+          let runs;
+          try {
+            runs = richTextRuns(args.text as never, args.plain === true);
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
+          const text = runs.map((run) => run.t).join('');
           const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const before = blockTextById(page.data, blockId);
@@ -739,7 +753,7 @@ export class AgentRunner {
             // The full prior text (not the clipped diff `before`) is the merge
             // base, so accepting this alongside another edit to the same block
             // combines them instead of clobbering. See the bridge's update_block.
-            payload: {pageId, blockId, text, before},
+            payload: {pageId, blockId, text: {runs}, before},
           });
         },
       },
@@ -915,7 +929,8 @@ export class AgentRunner {
     const blockSchema = obj(
       {
         type: {type: 'string', description: 'Block type — see the catalogue in this tool\'s description.'},
-        text: {description: 'For text blocks: a plain string, or rich runs like [{"t":"bold","a":{"b":true}}].'},
+        text: richTextSchema,
+        plain: {type: 'boolean', description: 'Keep string text literal instead of parsing mini-markdown.'},
         props: {type: 'object', description: 'Type-specific props (level, value, min/max, opts, source, …).'},
         children: {type: 'array', items: {type: 'object'}, description: `Child blocks, ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}).`},
       },
@@ -949,12 +964,27 @@ export class AgentRunner {
           if (structural) return structural;
           const bad = unknownBlockTypeMessage(findUnknownBlockType(blocks, {installedPluginIds: await this.installedPluginIds()}));
           if (bad) return bad;
+          const normalizeBlockText = (value: unknown): unknown => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+            const block = value as Record<string, unknown>;
+            return {
+              ...block,
+              ...(block.text === undefined ? {} : {text: {runs: richTextRuns(block.text as never, block.plain === true)}}),
+              ...(Array.isArray(block.children) ? {children: block.children.map(normalizeBlockText)} : {}),
+            };
+          };
+          let normalized: unknown[];
+          try {
+            normalized = blocks.map(normalizeBlockText);
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
           return this.propose({
             kind: 'append_blocks',
             summary: `Add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}": ${summarizeBlocks(blocks)}`,
             pageId,
             after: summarizeBlocks(blocks),
-            payload: {pageId, blocks},
+            payload: {pageId, blocks: normalized},
           });
         },
       },

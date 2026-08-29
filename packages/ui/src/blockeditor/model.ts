@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import {
   CONTAINER_BLOCK_TYPES,
+  richTextRuns,
   shortId,
   TABLE_COLUMN_MIN_WIDTH,
   TABLE_COLW_PREFIX,
@@ -158,7 +159,9 @@ export function coerceNewBlock(value: unknown): NewBlock | null {
   const block: NewBlock = {type};
   if (typeof v.id === 'string') block.id = v.id;
   if (typeof v.text === 'string') {
-    block.text = v.text;
+    block.text = richTextRuns(v.text, v.plain === true);
+  } else if (v.text && typeof v.text === 'object' && !Array.isArray(v.text) && Array.isArray((v.text as {runs?: unknown}).runs)) {
+    block.text = richTextRuns(v.text as {runs: never[]});
   } else if (Array.isArray(v.text)) {
     const runs: TextRun[] = [];
     for (const r of v.text) {

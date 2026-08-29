@@ -25,6 +25,7 @@ import {
   TEXT_BLOCK_TYPES,
   unknownBlockTypeMessage,
   projectAppendBlocks,
+  richTextRuns,
   resolveTableOp,
   setBlockProps,
   setBlockText,
@@ -49,6 +50,7 @@ import {
   type SuggestionTarget,
   type TableOpAddress,
   type TableOpKind,
+  type RichTextInput,
 } from '@book.dev/sdk';
 
 // ── Read helpers over the JSON projection (shared shape with the in-app agent) ─
@@ -508,7 +510,8 @@ const failure = (value: string) => ({content: [{type: 'text' as const, text: val
 /** A block a client may send to `append_blocks` / `create_artifact_page`. */
 export interface NestedBlockInput {
   type: string;
-  text?: string;
+  text?: RichTextInput;
+  plain?: boolean;
   props?: Record<string, unknown>;
   children?: NestedBlockInput[];
 }
@@ -532,6 +535,15 @@ export interface NestedBlockInput {
 // accepts.
 const BLOCK_TEXT_DESC = `Text content — for the text-carrying types: ${[...TEXT_BLOCK_TYPES].join(', ')}.`;
 
+const runAttrsSchema = z.object({
+  b: z.literal(true).optional(), i: z.literal(true).optional(), u: z.literal(true).optional(),
+  s: z.literal(true).optional(), c: z.literal(true).optional(), a: z.string().optional(),
+}).strict();
+const textInputSchema = z.union([
+  z.string(),
+  z.object({runs: z.array(z.object({t: z.string(), a: runAttrsSchema.optional()}).strict())}).strict(),
+]);
+
 const BLOCK_CHILDREN_DESC =
   `Nested blocks — ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}); child-only types sit directly inside their parent (columns→column, table→row→cell, tabs→tab, accordion→accordionsection). ` +
   `Nest to at most ${MAX_BLOCK_DEPTH} levels, ${MAX_BLOCK_NODES} blocks total per call.`;
@@ -541,7 +553,8 @@ function nestedBlockSchema(typeDesc: string, propsDesc: string): z.ZodType<Neste
   const schema: z.ZodType<NestedBlockInput> = z.lazy(() =>
     z.object({
       type: z.string().describe(typeDesc),
-      text: z.string().optional().describe(BLOCK_TEXT_DESC),
+      text: textInputSchema.optional().describe(BLOCK_TEXT_DESC + ' Strings use mini-markdown; {runs:[{t,a}]} supplies editor runs.'),
+      plain: z.boolean().optional().describe('For string text, keep markdown punctuation literal.'),
       props: z.record(z.unknown()).optional().describe(propsDesc),
       children: z.array(schema).optional().describe(BLOCK_CHILDREN_DESC),
     }),
@@ -1297,7 +1310,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         // nested payload rides in `payload.blocks` (the bridge's coerceNewBlock recurses),
         // so accepting the suggestion materializes the whole tree.
         const after = clip(
-          blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.children?.length ? `${b.type} (${b.children.length} children)` : b.type)).join('\n'),
+          blocks.map((b) => (b.text ? `${b.type}: ${richTextRuns(b.text, b.plain).map((run) => run.t).join('')}` : b.children?.length ? `${b.type} (${b.children.length} children)` : b.type)).join('\n'),
           200,
         );
         const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after, target: {}, payload: {pageId, blocks}});
@@ -1323,10 +1336,11 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         blockId: z.string().describe('The block id from inspect_page_structure.'),
-        text: z.string().describe('The new plain text for the block.'),
+        text: textInputSchema.describe('Mini-markdown string or explicit {runs:[{t,a}]} editor runs.'),
+        plain: z.boolean().optional().describe('For string text, keep markdown punctuation literal.'),
       },
     },
-    async ({pageId, blockId, text: newText}) => {
+    async ({pageId, blockId, text: newText, plain}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
@@ -1340,13 +1354,13 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
           pageId,
           summary,
           before: clip(before, 200),
-          after: clip(newText, 200),
+          after: clip(richTextRuns(newText, plain).map((run) => run.t).join(''), 200),
           target: {blockId},
-          payload: {pageId, blockId, text: newText, before},
+          payload: {pageId, blockId, text: newText, plain, before},
         });
         return suggested(summary, s);
       }
-      const data = setBlockText(page.data, blockId, newText);
+      const data = setBlockText(page.data, blockId, newText, plain);
       if (!data) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
       try {
         await client.savePage({id: page.id, name: page.name, data});
@@ -1552,7 +1566,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
           pageId,
           summary,
           target: parentId ? {blockId: parentId} : {},
-          after: clip(blocks.map((block) => block.text ? `${block.type}: ${block.text}` : block.type).join('\n'), 200),
+          after: clip(blocks.map((block) => block.text ? `${block.type}: ${richTextRuns(block.text, block.plain).map((run) => run.t).join('')}` : block.type).join('\n'), 200),
           payload: {pageId, ...position, blocks},
         });
         return suggested(summary, suggestion);
@@ -1691,7 +1705,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // `update_block_props` refuses those keys.
 
   /** The write-summary label for a table op (also the suggestion's summary). */
-  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): string => {
+  const tableText = (value: RichTextInput | undefined, plain?: boolean): string => value === undefined ? '' : richTextRuns(value, plain).map((run) => run.t).join('');
+  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: RichTextInput; plain?: boolean; color?: string | null; width?: number | null}): string => {
     const where = `table ${view.tableId}`;
     switch (kind) {
     case 'table_insert_row': return `Insert a row at position ${resolved.rowIndex} of ${where}`;
@@ -1701,7 +1716,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_delete_column': return `Delete column ${resolved.colIndex} of ${where}`;
     case 'table_move_row': return `Move row ${resolved.rowIndex} to position ${resolved.toIndex} of ${where}`;
     case 'table_move_column': return `Move column ${resolved.colIndex} to position ${resolved.toIndex} of ${where}`;
-    case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(resolved.text ?? '', 60)}"`;
+    case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(tableText(resolved.text, resolved.plain), 60)}"`;
     case 'table_set_row_color': return `${resolved.color ? `Tint row ${resolved.rowIndex} ${resolved.color}` : `Clear the tint on row ${resolved.rowIndex}`} of ${where}`;
     case 'table_set_column_color': return `${resolved.color ? `Tint column ${resolved.colIndex} ${resolved.color}` : `Clear the tint on column ${resolved.colIndex}`} of ${where}`;
     case 'table_set_column_width': return `${resolved.width === null ? 'Reset' : `Set ${resolved.width}px for`} column ${resolved.colIndex} of ${where}`;
@@ -1709,7 +1724,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   };
 
   /** The before→after pair the review card shows for a table op. */
-  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): {before: string; after: string} => {
+  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: RichTextInput; plain?: boolean; color?: string | null; width?: number | null}): {before: string; after: string} => {
     const row = (r: number | undefined): string => (r === undefined ? '' : (view.cells[r] ?? []).join(' | '));
     const column = (c: number | undefined): string => (c === undefined ? '' : view.cells.map((cells) => cells[c] ?? '').join(' | '));
     switch (kind) {
@@ -1720,7 +1735,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_duplicate_row': return {before: row(resolved.rowIndex), after: `${row(resolved.rowIndex)} (copied below)`};
     case 'table_move_row': return {before: `row ${resolved.rowIndex}: ${row(resolved.rowIndex)}`, after: `position ${resolved.toIndex}`};
     case 'table_move_column': return {before: `column ${resolved.colIndex}: ${column(resolved.colIndex)}`, after: `position ${resolved.toIndex}`};
-    case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: resolved.text ?? ''};
+    case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: tableText(resolved.text, resolved.plain)};
     case 'table_set_row_color': return {before: '(row tint)', after: resolved.color ?? '(none)'};
     case 'table_set_column_color': return {before: '(column tint)', after: resolved.color ?? '(none)'};
     case 'table_set_column_width': return {before: '(column width)', after: resolved.width === null ? '(auto)' : `${resolved.width}px`};
@@ -1996,11 +2011,12 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         rowIndex: ROW_INDEX('The cell\'s row.'),
         colIndex: COL_INDEX('The cell\'s column.'),
         cellId: z.string().optional().describe('The cell block id (from inspect_table) — resolves BOTH indices and names the table.'),
-        text: z.string().describe('The new plain text for the cell (empty string clears it).'),
+        text: textInputSchema.describe('Mini-markdown string or explicit runs (empty string clears it).'),
+        plain: z.boolean().optional().describe('Keep a string literal.'),
       },
     },
-    async ({pageId, tableId, rowIndex, colIndex, cellId, text: cellText}) =>
-      runTableOp('table_set_cell', pageId, {tableId, rowIndex, colIndex, cellId, text: cellText}),
+    async ({pageId, tableId, rowIndex, colIndex, cellId, text: cellText, plain}) =>
+      runTableOp('table_set_cell', pageId, {tableId, rowIndex, colIndex, cellId, text: cellText, plain}),
   );
 
   server.registerTool(

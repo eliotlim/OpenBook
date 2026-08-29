@@ -40,6 +40,7 @@
 import {shortId} from './database';
 import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 import type {PageSnapshot} from './types';
+import {richTextRuns, type RichTextInput} from './richTextInput';
 
 /** Prefix of the column-registry entries in a table block's props. */
 export const TABLE_COL_PREFIX = 'col:';
@@ -131,8 +132,9 @@ export interface TableOpRequest {
   colIndex?: number;
   /** Move target, a sorted index counted with the moved row/column REMOVED. */
   toIndex?: number;
-  /** New plain text (`table_set_cell`). */
-  text?: string;
+  /** New rich text (`table_set_cell`). */
+  text?: RichTextInput;
+  plain?: boolean;
   /** Palette token, or null to clear (`table_set_row_color` / `..._column_color`). */
   color?: string | null;
   /** Integer pixel width, or null for auto (`table_set_column_width`). */
@@ -223,7 +225,13 @@ export function tableOpError(shape: TableShape, op: TableOpRequest): string | nu
       int(op.colIndex, 'colIndex') ??
       inRange(op.colIndex!, 'colIndex', cols - 1);
     if (bad) return bad;
-    return typeof op.text === 'string' ? null : 'text must be a string.';
+    try {
+      if (op.text === undefined) return 'text is required.';
+      richTextRuns(op.text, op.plain);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
   }
   default:
     return `Unknown table op "${String((op as {kind?: unknown}).kind)}".`;
@@ -538,7 +546,8 @@ export interface TableOpAddress {
   rowId?: string;
   /** A column id (from `col:<id>` / a cell's `col` prop) — resolves `colIndex`. */
   colId?: string;
-  text?: string;
+  text?: RichTextInput;
+  plain?: boolean;
   color?: string | null;
   width?: number | null;
 }
@@ -762,16 +771,17 @@ export function applyTableOpToSnapshot(
     // the same trade the snapshot `update_block` path makes (a JSON projection
     // has no cursor or diff to preserve marks against; the live-editor path's
     // `replaceText` splices minimally and does keep marks on unchanged ends).
+    const runs = richTextRuns(op.text ?? '', op.plain);
     const cell = grid.cells[op.rowIndex ?? 0]?.[op.colIndex ?? 0];
     // A merge gap has no cell node — materialize one bound to that column, so
     // set_cell can fill a ragged/legacy table instead of failing on a hole.
     if (!cell) {
       const row = grid.rows[op.rowIndex ?? 0];
       const colId = grid.colIds[op.colIndex ?? 0];
-      if (row && colId) kids(row).push({...newCell(colId), text: [{t: op.text ?? ''}]});
+      if (row && colId) kids(row).push({...newCell(colId), text: runs});
       break;
     }
-    cell.text = [{t: op.text ?? ''}];
+    cell.text = runs;
     break;
   }
   case 'table_set_row_color': {

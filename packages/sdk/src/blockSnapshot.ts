@@ -1,6 +1,7 @@
 import {blockTypeInfo, CHILD_ONLY_PARENT} from './blockCatalogue';
 import {projectAppendBlocks, type AppendBlock, type ProjectedBlock} from './content';
 import type {PageSnapshot} from './types';
+import {richTextRuns, type RichTextInput} from './richTextInput';
 
 export type SnapshotBlock = ProjectedBlock & {children?: SnapshotBlock[]};
 
@@ -60,14 +61,14 @@ export function findBlock(data: PageSnapshot | null | undefined, blockId: string
   return found;
 }
 
-/** Replace one block's plain text. */
-export function setBlockText(data: PageSnapshot, blockId: string, text: string): PageSnapshot | null {
+/** Replace one block's rich text from mini-markdown or explicit runs. */
+export function setBlockText(data: PageSnapshot, blockId: string, text: RichTextInput, plain = false): PageSnapshot | null {
   const blocks = copiedBlocks(data);
   if (!blocks) return null;
   const draft = withBlocks(data, blocks);
   const found = findBlock(draft, blockId);
   if (!found) return null;
-  found.block.text = [{t: text}];
+  found.block.text = richTextRuns(text, plain);
   return draft;
 }
 

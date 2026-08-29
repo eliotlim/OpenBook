@@ -1,7 +1,7 @@
 import {z} from 'zod';
 
 /** Inline attributes supported by agent/MCP rich-text input. */
-export interface RunAttrs {
+export interface RunAttrs extends Record<string, unknown> {
   b?: true;
   i?: true;
   u?: true;
