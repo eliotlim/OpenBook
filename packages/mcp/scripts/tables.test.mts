@@ -153,13 +153,13 @@ async function main(): Promise<void> {
   /** A FRESH inspect_table report — never reuse ids across mutations. */
   const inspect = async (tableId: string): Promise<TableReport> => parseTable(resultText(await call('inspect_table', {pageId: page.id, tableId})));
 
-  console.log('\nCatalogue: the eleven table tools are exposed with descriptions');
+  console.log('\nCatalogue: the twelve table tools are exposed with descriptions');
   const tools = await mcp.client.listTools();
   const byName = new Map(tools.tools.map((t) => [t.name, t]));
   const TABLE_TOOLS = [
     'inspect_table', 'table_insert_row', 'table_delete_row', 'table_duplicate_row',
     'table_insert_column', 'table_delete_column', 'table_move_row', 'table_move_column',
-    'table_set_cell', 'table_set_row_color', 'table_set_column_color',
+    'table_set_cell', 'table_set_row_color', 'table_set_column_color', 'table_set_column_width',
   ];
   check('every table tool is registered', TABLE_TOOLS.every((n) => byName.has(n)));
   check('each documents that coordinates are RENDER order',
@@ -224,11 +224,16 @@ async function main(): Promise<void> {
   await call('table_set_column_color', {pageId: page.id, tableId, colId, color: 'blue'});
   check('a column tint is stored as colbg:<colId> on the table',
     new RegExp(`"colbg:${colId}":"blue"`).test(JSON.stringify((await seed.getPage(page.id))?.data)));
+  await call('table_set_column_width', {pageId: page.id, tableId, colId, width: 144});
+  check('a column width is stored as colw:<colId> on the table',
+    new RegExp(`"colw:${colId}":144`).test(JSON.stringify((await seed.getPage(page.id))?.data)));
   await call('table_delete_column', {pageId: page.id, tableId, colId});
   const colGone = await inspect(tableId);
   check('deleting a column by id removes its cells everywhere', colGone.cols === 3 && colGone.cells.every((r) => r.length === 3));
   check('the deleted column left no orphan colbg entry',
     !new RegExp(`"colbg:${colId}"`).test(JSON.stringify((await seed.getPage(page.id))?.data)));
+  check('the deleted column left no orphan colw entry',
+    !new RegExp(`"colw:${colId}"`).test(JSON.stringify((await seed.getPage(page.id))?.data)));
 
   console.log('\nRows: duplicate, move (by id), tint, delete');
   await call('table_duplicate_row', {pageId: page.id, tableId, rowIndex: 1});

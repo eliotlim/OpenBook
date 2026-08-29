@@ -2109,5 +2109,21 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     async ({pageId, tableId, colIndex, colId, color}) => runTableOp('table_set_column_color', pageId, {tableId, colIndex, colId, color}),
   );
 
+  server.registerTool(
+    'table_set_column_width',
+    {
+      title: 'Size a table column',
+      description: 'Set a table column\'s pixel width, or reset it to automatic sizing. ' + TABLE_POLICY_NOTE,
+      inputSchema: {
+        pageId: PAGE_ARG,
+        tableId: TABLE_ARG,
+        colIndex: COL_INDEX('The column to size.'),
+        colId: z.string().optional(),
+        width: z.number().int().min(48).nullable().describe('Pixel width, or null for auto.'),
+      },
+    },
+    async ({pageId, tableId, colIndex, colId, width}) => runTableOp('table_set_column_width', pageId, {tableId, colIndex, colId, width}),
+  );
+
   return server;
 }
