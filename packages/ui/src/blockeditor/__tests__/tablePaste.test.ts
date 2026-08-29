@@ -109,6 +109,14 @@ describe('tablePasteGrid', () => {
     expect(tableCellOwnColor(grid.cells[1][2]!)).toBe('red');
   });
 
+  it('clears a stale tint when pasting an untinted HTML cell', () => {
+    const doc = seededTable();
+    const cell = tableGrid(findBlock(doc, 'tbl')!.block).cells[1][1]!;
+    (cell.get('props') as Y.Map<unknown>).set('bg', 'blue');
+    tablePasteGrid(doc, 'tbl', {row: 1, col: 1}, [[{text: 'A'}]]);
+    expect(tableCellOwnColor(cell)).toBeNull();
+  });
+
   it('grows a 3x3 table to 5x5 when pasted at its last cell', () => {
     const doc = seededTable();
     tablePasteGrid(doc, 'tbl', {row: 2, col: 2}, [['A', 'B', 'C'], ['D', 'E', 'F'], ['G', 'H', 'I']]);

@@ -380,6 +380,12 @@ describe('TableCellMenu — range variant (TBL-6)', () => {
     }
   });
 
+  it('uses singular insert labels for a one-row range', () => {
+    openMenuWithRange(seedTableDoc(3, 3), 'r0c1', {top: 0, left: 0, bottom: 0, right: 2});
+    expect(screen.getByText('Insert row above')).toBeTruthy();
+    expect(screen.getByText('Insert 3 columns left')).toBeTruthy();
+  });
+
   it('inserts the selected row count in one undo step', () => {
     const doc = seedTableDoc(3, 3);
     const undo = new Y.UndoManager(blockChildren(findBlock(doc, 'tbl')!.block)!, {trackedOrigins: new Set(['local'])});

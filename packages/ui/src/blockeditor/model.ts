@@ -1644,6 +1644,7 @@ export type CellRangeExportCell =
  * this retains anchor spans and marks covered slots so the serializer omits
  * their `<td>` elements. The rectangle first snaps to whole merged cells.
  */
+// Composite (not own) tint: a pasted cell materialises the row/column tint it inherited, so the range looks identical at the destination.
 export function tableRangeExport(doc: Y.Doc, tableId: string, rect: CellRect): CellRangeExportCell[][] {
   const found = findBlock(doc, tableId);
   if (!found || blockType(found.block) !== 'table') return [];
@@ -1748,7 +1749,7 @@ export function tablePasteGrid(
         const value = source[r % sourceRows]?.[c % sourceCols] ?? '';
         const content = typeof value === 'string' ? value : value.text;
         if (content) text.insert(0, content, {});
-        if (typeof value !== 'string' && value.color) setBlockProp(cell, 'bg', value.color);
+        if (typeof value !== 'string') setBlockProp(cell, 'bg', value.color ?? undefined);
       }
     }
   }, 'local');

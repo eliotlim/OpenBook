@@ -2988,16 +2988,16 @@ const TableRangeMenuContent: React.FC<{
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => insertRows(rowFrom)}>
-        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowsAboveN', {n: rowCount})}
+        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowAbove') : t('menu.table.insertRowsAboveN', {n: rowCount})}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => insertRows(rowTo + 1)}>
-        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowsBelowN', {n: rowCount})}
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {rowCount === 1 ? t('menu.table.insertRowBelow') : t('menu.table.insertRowsBelowN', {n: rowCount})}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => insertColumns(colFrom)}>
-        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnsLeftN', {n: colCount})}
+        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnLeft') : t('menu.table.insertColumnsLeftN', {n: colCount})}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => insertColumns(colTo + 1)}>
-        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnsRightN', {n: colCount})}
+        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {colCount === 1 ? t('menu.table.insertColumnRight') : t('menu.table.insertColumnsRightN', {n: colCount})}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => clearCellRange(doc, tableId, rect)}>

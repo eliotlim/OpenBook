@@ -1,3 +1,5 @@
+import {COLOR_EXPORT_HEX} from './colors';
+
 export interface ClipboardGridData {
   html?: string;
   text?: string;
@@ -87,4 +89,3 @@ export function parseClipboardGrid(data: ClipboardGridData): ClipboardGrid | nul
   if (!text || (!text.includes('\t') && !text.includes('\n') && !text.includes('\r'))) return null;
   return parseTsv(text);
 }
-import {COLOR_EXPORT_HEX} from './colors';
