@@ -120,6 +120,10 @@ async function main(): Promise<void> {
   console.log('\nResolved suggest (instance suggest, page inherit) — writes create suggestions');
   const dflt = await connect(server.url);
 
+  const uploadSuggest = await dflt.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
+  check('upload_asset refuses suggest/read-only policy (bytes never become a suggestion)',
+    uploadSuggest.isError === true && resultText(uploadSuggest).includes('read-only'));
+
   const upd = await dflt.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'edited by mcp'}});
   check('update_block returns a "Suggested for review" result', resultText(upd).includes('Suggested for review'));
 
@@ -174,7 +178,6 @@ async function main(): Promise<void> {
   check('API-10 page writes suggest and get_page_properties remains a read',
     pageSuggestCalls.every((result) => resultText(result).includes('Suggested for review')) && pagePropertiesRead.isError !== true);
   check('suggested API-10 writes do not mutate', (await seed.getPage(page.id))?.parentId === null && !(await seed.getPage(page.id))?.properties.sys_owner);
-
   // Creation stays immediate regardless of policy (non-destructive, no target page).
   const created = await dflt.client.callTool({name: 'create_page', arguments: {title: 'New note', content: 'hi'}});
   const createdId = /id ([0-9a-f-]{36})/.exec(resultText(created))?.[1];
@@ -213,6 +216,8 @@ async function main(): Promise<void> {
     await direct.client.callTool({name: 'get_page_properties', arguments: {pageId: page.id}}),
   ];
   check('all four API-10 page tools succeed under direct policy', directPageCalls.every((result) => result.isError !== true));
+  const uploadDirect = await direct.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
+  check('upload_asset applies under direct policy', uploadDirect.isError !== true && resultText(uploadDirect).includes('assetId'));
 
   const updD = await direct.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'edited by instance direct'}});
   check('update_block confirms a direct write', resultText(updD).includes('Updated block') && resultText(updD).includes('directly'));

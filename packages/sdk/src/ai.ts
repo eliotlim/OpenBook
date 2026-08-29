@@ -274,6 +274,8 @@ export interface AgentProposal {
     | 'set_db_cell'
     | 'update_block'
     | 'append_blocks'
+    | 'insert_blocks'
+    | 'move_block'
     | 'set_page_theme'
     | 'set_page_appearance'
     | 'move_page'

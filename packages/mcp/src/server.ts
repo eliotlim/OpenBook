@@ -2,8 +2,12 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {z} from 'zod';
 import {
   appendBlocksToSnapshot,
+  AssetUploadError,
   appendTextToSnapshot,
   applyTableOpToSnapshot,
+  BlockSnapshotError,
+  deleteBlock,
+  findBlock as findSnapshotBlock,
   BLOCK_TYPE_CATALOGUE,
   blockCatalogueText,
   blockTreeError,
@@ -21,6 +25,7 @@ import {
   findUnknownBlockType,
   FORM_FIELD_KINDS,
   invalidBlockProps,
+  insertBlocks,
   isHttpUrl,
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
@@ -35,8 +40,12 @@ import {
   validatePageProperties,
   getPagePropertiesTool,
   projectAppendBlocks,
+  moveBlock,
+  richTextRuns,
   resolveDatabaseToolRowValues,
   resolveTableOp,
+  setBlockProps,
+  setBlockText,
   snapshotTableIdFor,
   snapshotTableView,
   snapshotTables,
@@ -52,6 +61,7 @@ import {
   updateDatabaseTool,
   updatePropertyTool,
   updateRowTool,
+  uploadAgentAsset,
   type AgentEditsMode,
   type DataClient,
   type DatabaseRow,
@@ -65,6 +75,7 @@ import {
   type SuggestionTarget,
   type TableOpAddress,
   type TableOpKind,
+  type RichTextInput,
 } from '@book.dev/sdk';
 
 // ── Read helpers over the JSON projection (shared shape with the in-app agent) ─
@@ -489,181 +500,6 @@ function blockTextInSnapshot(data: PageSnapshot | null | undefined, blockId: str
   return found;
 }
 
-/** Replace one block's text in the JSON projection. Returns null if absent. */
-function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: string): PageSnapshot | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let applied = false;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (!applied && b.id === blockId) {
-        b.text = [{t: text}];
-        applied = true;
-      }
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  if (!applied) return null;
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {...data, blockdoc: {...bd, update: undefined, blocks}};
-}
-
-/** One block's `{type, props}` from the JSON projection, at ANY depth. Null if absent. */
-function blockInfoInSnapshot(
-  data: PageSnapshot | null | undefined,
-  blockId: string,
-): {type: string; props: Record<string, unknown>} | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let found: {type: string; props: Record<string, unknown>} | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (found === null && b.id === blockId) found = {type: b.type ?? 'paragraph', props: {...(b.props ?? {})}};
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  return found;
-}
-
-/** Locate a block in the JSON tree with its containing list and parent block. */
-function locateBlock(
-  blocks: AnyJsonBlock[],
-  blockId: string,
-): {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null {
-  let found: {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null = null;
-  const walk = (list: AnyJsonBlock[], parent: AnyJsonBlock | null): void => {
-    for (const b of list) {
-      if (found) return;
-      if (b.id === blockId) {
-        found = {block: b, list, parent};
-        return;
-      }
-      if (b.children) walk(b.children, b);
-    }
-  };
-  walk(blocks, null);
-  return found;
-}
-
-/**
- * Mirror of the editor model's `pruneEmptyContainers` over the JSON projection:
- * drop an empty `column`, unwrap a single-`column` layout, drop an empty layout —
- * so deleting the only block in a column can't leave an orphan container behind.
- * Runs to a fixed point (an unwrap can expose the next empty parent).
- */
-function pruneEmptyContainersJson(blocks: AnyJsonBlock[]): void {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const walk = (list: AnyJsonBlock[]): boolean => {
-      for (let i = 0; i < list.length; i += 1) {
-        const b = list[i];
-        if (b.type === 'column' && (b.children?.length ?? 0) === 0) {
-          list.splice(i, 1);
-          return true;
-        }
-        if (b.type === 'columns') {
-          const cols = b.children ?? [];
-          if (cols.length === 0) {
-            list.splice(i, 1);
-            return true;
-          }
-          if (cols.length === 1) {
-            // Unwrap: hoist the lone column's blocks in place of the layout.
-            list.splice(i, 1, ...(cols[0].children ?? []));
-            return true;
-          }
-        }
-        if (b.children && walk(b.children)) return true;
-      }
-      return false;
-    };
-    changed = walk(blocks);
-  }
-}
-
-/**
- * Remove one block (with its whole subtree) from the JSON projection, at ANY
- * depth — a nested block, a table `row`, or a `cell` is as removable as a
- * top-level paragraph, because the model is uniformly recursive. Returns null
- * when the id isn't on the page.
- *
- * Two model rules are mirrored so a direct MCP delete self-heals exactly like the
- * editor (see removeBlock / tableDeleteRow / tableDeleteColumn in model.ts):
- *  - a table that would lose its LAST row (or the only cell of its only row) is
- *    removed WHOLE, not left as an empty table;
- *  - after the removal, empty columns are pruned and a document emptied to zero
- *    roots regains one paragraph (never a zero-root live editor).
- */
-function deleteBlockInSnapshot(data: PageSnapshot, blockId: string, idPrefix: string): PageSnapshot | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  const located = locateBlock(blocks, blockId);
-  if (!located) return null;
-
-  // Table last-row / last-cell rule: deleting the final row (or the only cell of
-  // the only row) empties the table, so remove the table itself instead.
-  let removeId = blockId;
-  const {block, parent} = located;
-  if (block.type === 'row' && parent?.type === 'table' && (parent.children?.length ?? 0) === 1) {
-    removeId = parent.id!;
-  } else if (block.type === 'cell' && parent?.type === 'row' && (parent.children?.length ?? 0) === 1) {
-    const rowLoc = locateBlock(blocks, parent.id!);
-    if (rowLoc?.parent?.type === 'table' && (rowLoc.parent.children?.length ?? 0) === 1) {
-      removeId = rowLoc.parent.id!;
-    }
-  }
-
-  const target = removeId === blockId ? located : locateBlock(blocks, removeId);
-  if (!target) return null;
-  const at = target.list.indexOf(target.block);
-  target.list.splice(at, 1);
-
-  pruneEmptyContainersJson(blocks);
-  if (blocks.length === 0) blocks.push({id: `${idPrefix}-p`, type: 'paragraph', text: [{t: ''}]});
-
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {...data, blockdoc: {...bd, update: undefined, blocks}};
-}
-
-/**
- * SHALLOW-MERGE props onto one block in the JSON projection, at ANY depth. An
- * explicit `null` REMOVES the key (JSON can't carry `undefined`, so `null` is the
- * only wire-level way to say "delete this prop"; `patchBlock` in the editor's
- * model applies the same rule, so a direct write and an accepted suggestion land
- * identically). Returns the new snapshot plus the merged props, or null when the
- * id isn't on the page.
- */
-function setBlockPropsInSnapshot(
-  data: PageSnapshot,
-  blockId: string,
-  props: Record<string, unknown>,
-): {data: PageSnapshot; props: Record<string, unknown>} | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let merged: Record<string, unknown> | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (merged === null && b.id === blockId) {
-        const next = {...(b.props ?? {})};
-        for (const [k, v] of Object.entries(props)) {
-          if (v === null) delete next[k];
-          else next[k] = v;
-        }
-        b.props = next;
-        merged = next;
-      }
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  if (merged === null) return null;
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {data: {...data, blockdoc: {...bd, update: undefined, blocks}}, props: merged};
-}
-
 /**
  * The OpenBook MCP server: exposes a library to any MCP client (Claude
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
@@ -699,7 +535,8 @@ const failure = (value: string) => ({content: [{type: 'text' as const, text: val
 /** A block a client may send to `append_blocks` / `create_artifact_page`. */
 export interface NestedBlockInput {
   type: string;
-  text?: string;
+  text?: RichTextInput;
+  plain?: boolean;
   props?: Record<string, unknown>;
   children?: NestedBlockInput[];
 }
@@ -723,6 +560,15 @@ export interface NestedBlockInput {
 // accepts.
 const BLOCK_TEXT_DESC = `Text content — for the text-carrying types: ${[...TEXT_BLOCK_TYPES].join(', ')}.`;
 
+const runAttrsSchema = z.object({
+  b: z.literal(true).optional(), i: z.literal(true).optional(), u: z.literal(true).optional(),
+  s: z.literal(true).optional(), c: z.literal(true).optional(), a: z.string().optional(),
+}).strict();
+const textInputSchema = z.union([
+  z.string(),
+  z.object({runs: z.array(z.object({t: z.string(), a: runAttrsSchema.optional()}).strict())}).strict(),
+]);
+
 const BLOCK_CHILDREN_DESC =
   `Nested blocks — ONLY for container types (${[...CONTAINER_BLOCK_TYPES].join(', ')}); child-only types sit directly inside their parent (columns→column, table→row→cell, tabs→tab, accordion→accordionsection). ` +
   `Nest to at most ${MAX_BLOCK_DEPTH} levels, ${MAX_BLOCK_NODES} blocks total per call.`;
@@ -732,7 +578,8 @@ function nestedBlockSchema(typeDesc: string, propsDesc: string): z.ZodType<Neste
   const schema: z.ZodType<NestedBlockInput> = z.lazy(() =>
     z.object({
       type: z.string().describe(typeDesc),
-      text: z.string().optional().describe(BLOCK_TEXT_DESC),
+      text: textInputSchema.optional().describe(BLOCK_TEXT_DESC + ' Strings use mini-markdown; {runs:[{t,a}]} supplies editor runs.'),
+      plain: z.boolean().optional().describe('For string text, keep markdown punctuation literal.'),
       props: z.record(z.unknown()).optional().describe(propsDesc),
       children: z.array(schema).optional().describe(BLOCK_CHILDREN_DESC),
     }),
@@ -767,13 +614,15 @@ const blockPayloadError = (blocks: NestedBlockInput[]): string | null =>
  * the identifier is the BRIDGE's, not the tool's). The SDK suggestion `kind` each
  * maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
  */
-type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props'
+type McpWriteKind = 'append_blocks' | 'insert_blocks' | 'move_block' | 'update_block' | 'set_kit_value' | 'set_db_cell' | 'delete_block' | 'set_block_props'
   | 'create_database' | 'update_database' | 'create_property' | 'update_property' | 'update_row' | 'delete_row'
   | 'set_page_appearance' | 'move_page' | 'set_page_properties'
   | TableOpKind;
 
 const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
   append_blocks: 'insert',
+  insert_blocks: 'insert',
+  move_block: 'move',
   update_block: 'replace-text',
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
@@ -924,7 +773,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       });
       return suggested(summary, suggestion);
     }
-    const applied = setBlockPropsInSnapshot(page.data, form.blockId, props);
+    const applied = setBlockProps(page.data, form.blockId, props);
     if (!applied) return failure(`No form block for "${form.formId}" on that page.`);
     try {
       await client.savePage({id: page.id, name: page.name, data: applied.data});
@@ -1150,6 +999,39 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return text(`Created artifact page "${name}" with id ${page.id} (${blocks.length} blocks).`);
       } catch (err) {
         return failure(`Could not create the page: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+
+  // Assets are immediate binary writes, never suggestions: suggestion payloads
+  // must not contain bytes. The same per-page policy gate as document writes is
+  // consulted, but only direct mode permits an upload; append_blocks remains
+  // independently gated and may still become a reviewable suggestion.
+  server.registerTool(
+    'upload_asset',
+    {
+      title: 'Upload asset',
+      description: 'Upload a raster image or inert binary asset and return its assetId for an image or htmlArtifact block. Requires direct-write policy; bytes are never put in a suggestion.',
+      inputSchema: {
+        pageId: z.string().describe('The existing page that will reference the asset.'),
+        mime: z.string().describe('An allowed raster image MIME, or application/octet-stream for htmlArtifact.'),
+        base64: z.string().describe('Base64-encoded bytes. Never echoed in the result.'),
+      },
+    },
+    async ({pageId, mime, base64}) => {
+      try {
+        const result = await uploadAgentAsset({pageId, mime, base64}, {
+          pageExists: async (id) => Boolean(await client.getPage(id)),
+          canWrite: (id) => resolveWritePolicy(id),
+          put: async (bytes, safeMime, id) => client.putAsset(bytes, safeMime, id),
+        });
+        return text(JSON.stringify(result));
+      } catch (err) {
+        if (err instanceof AssetUploadError) return failure(`${err.code}: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        if (/\(404\b/.test(message)) return failure('page-not-found: Page not found.');
+        if (/\(403\b/.test(message)) return failure('read-only: This page or instance is read-only.');
+        return failure(`Could not upload asset: ${message}`);
       }
     },
   );
@@ -1592,7 +1474,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         // nested payload rides in `payload.blocks` (the bridge's coerceNewBlock recurses),
         // so accepting the suggestion materializes the whole tree.
         const after = clip(
-          blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.children?.length ? `${b.type} (${b.children.length} children)` : b.type)).join('\n'),
+          blocks.map((b) => (b.text ? `${b.type}: ${richTextRuns(b.text, b.plain).map((run) => run.t).join('')}` : b.children?.length ? `${b.type} (${b.children.length} children)` : b.type)).join('\n'),
           200,
         );
         const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after, target: {}, payload: {pageId, blocks}});
@@ -1618,10 +1500,11 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         blockId: z.string().describe('The block id from inspect_page_structure.'),
-        text: z.string().describe('The new plain text for the block.'),
+        text: textInputSchema.describe('Mini-markdown string or explicit {runs:[{t,a}]} editor runs.'),
+        plain: z.boolean().optional().describe('For string text, keep markdown punctuation literal.'),
       },
     },
-    async ({pageId, blockId, text: newText}) => {
+    async ({pageId, blockId, text: newText, plain}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
@@ -1635,13 +1518,13 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
           pageId,
           summary,
           before: clip(before, 200),
-          after: clip(newText, 200),
+          after: clip(richTextRuns(newText, plain).map((run) => run.t).join(''), 200),
           target: {blockId},
-          payload: {pageId, blockId, text: newText, before},
+          payload: {pageId, blockId, text: newText, plain, before},
         });
         return suggested(summary, s);
       }
-      const data = setBlockTextInSnapshot(page.data, blockId, newText);
+      const data = setBlockText(page.data, blockId, newText, plain);
       if (!data) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
       try {
         await client.savePage({id: page.id, name: page.name, data});
@@ -1682,7 +1565,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         // they own these keys and maintain the order contract while writing them.
         return failure(tableOrderContractRefusal(tableKey));
       }
-      const info = blockInfoInSnapshot(page.data, blockId);
+      const found = findSnapshotBlock(page.data, blockId);
+      const info = found ? {type: found.block.type ?? 'paragraph', props: {...(found.block.props ?? {})}} : null;
       if (!info) return failure(missing);
       if (info.type === 'form' && containsSubmissionKey(props)) {
         return failure('submissionKey is author-managed; not editable via MCP.');
@@ -1708,7 +1592,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const applied = setBlockPropsInSnapshot(page.data, blockId, props);
+      const applied = setBlockProps(page.data, blockId, props);
       if (!applied) return failure(missing);
       try {
         await client.savePage({id: page.id, name: page.name, data: applied.data});
@@ -1738,7 +1622,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return failure('That page is a legacy editor page — it has no typed blocks to delete.');
       }
       const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
-      const info = blockInfoInSnapshot(page.data, blockId);
+      const found = findSnapshotBlock(page.data, blockId);
+      const info = found ? {type: found.block.type ?? 'paragraph', props: {...(found.block.props ?? {})}} : null;
       if (!info) return failure(missing);
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const summary = `Delete ${info.type} block ${blockId} on "${page.name ?? 'Untitled'}"`;
@@ -1754,7 +1639,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const data = deleteBlockInSnapshot(page.data, blockId, `mcp-${Date.now().toString(36)}`);
+      const data = deleteBlock(page.data, blockId, `mcp-${Date.now().toString(36)}`);
       if (!data) return failure(missing);
       try {
         await client.savePage({id: page.id, name: page.name, data});
@@ -1762,6 +1647,100 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return failure(`Could not delete the block (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
       return text(`Deleted ${info.type} block ${blockId} directly from "${page.name ?? 'Untitled'}".`);
+    },
+  );
+
+  server.registerTool(
+    'move_block',
+    {
+      title: 'Move a block',
+      description:
+        'Reorder or reparent one block. parentId omitted means the page root; provide exactly one of index (in the destination after removing the block) or afterId (a destination sibling). Generic moves refuse cycles and all table/row/cell structure; use table_* tools for tables. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION follows the page agent-edits policy.',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        blockId: z.string().describe('The block to move.'),
+        parentId: z.string().optional().describe('Destination container id; omit for the page root.'),
+        index: z.number().int().nonnegative().optional().describe('Destination index after removing the block. Mutually exclusive with afterId.'),
+        afterId: z.string().optional().describe('Insert after this destination sibling. Mutually exclusive with index.'),
+      },
+    },
+    async ({pageId, blockId, parentId, index, afterId}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      let data: PageSnapshot;
+      try {
+        data = moveBlock(page.data, {blockId, ...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})});
+      } catch (error) {
+        return failure(error instanceof BlockSnapshotError ? error.message : `Could not move the block: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const destination = parentId ? `inside ${parentId}` : 'at the page root';
+      const summary = `Move block ${blockId} ${destination}`;
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const suggestion = await recordSuggestion({
+          kind: 'move_block',
+          pageId,
+          summary,
+          target: {blockId},
+          before: blockId,
+          after: `${destination} ${afterId ? `after ${afterId}` : `at index ${index}`}`,
+          payload: {pageId, blockId, ...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})},
+        });
+        return suggested(summary, suggestion);
+      }
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (error) {
+        return failure(`Could not move the block (the server declined the direct write): ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return text(`Moved block ${blockId} directly ${destination} on "${page.name ?? 'Untitled'}".`);
+    },
+  );
+
+  server.registerTool(
+    'insert_blocks',
+    {
+      title: 'Insert blocks',
+      description:
+        'Insert nested typed blocks at a precise root or container position. parentId omitted means the page root; provide exactly one of index or afterId. The destination must accept children, and generic insertion into table/row/cell is refused in favour of table_* tools. Uses the same recursive validation and depth/node caps as append_blocks. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION follows the page agent-edits policy.',
+      inputSchema: {
+        pageId: z.string().describe('The page id.'),
+        parentId: z.string().optional().describe('Destination container id; omit for the page root.'),
+        index: z.number().int().nonnegative().optional().describe('Destination index. Mutually exclusive with afterId.'),
+        afterId: z.string().optional().describe('Insert after this destination sibling. Mutually exclusive with index.'),
+        blocks: z.array(appendBlock).min(1).describe('Nested blocks to insert.'),
+      },
+    },
+    async ({pageId, parentId, index, afterId, blocks}) => {
+      const page = await client.getPage(pageId);
+      if (!page) return failure('Page not found.');
+      const invalid = blockPayloadError(blocks);
+      if (invalid) return failure(invalid);
+      const position = {...(parentId === undefined ? {} : {parentId}), ...(index === undefined ? {} : {index}), ...(afterId === undefined ? {} : {afterId})};
+      let data: PageSnapshot;
+      try {
+        data = insertBlocks(page.data, {...position, blocks, idPrefix: `mcp-${Date.now().toString(36)}`});
+      } catch (error) {
+        return failure(error instanceof BlockSnapshotError ? error.message : `Could not insert blocks: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const destination = parentId ? `inside ${parentId}` : 'at the page root';
+      const summary = `Insert ${blockCountLabel(blocks)} ${destination}`;
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
+        const suggestion = await recordSuggestion({
+          kind: 'insert_blocks',
+          pageId,
+          summary,
+          target: parentId ? {blockId: parentId} : {},
+          after: clip(blocks.map((block) => block.text ? `${block.type}: ${richTextRuns(block.text, block.plain).map((run) => run.t).join('')}` : block.type).join('\n'), 200),
+          payload: {pageId, ...position, blocks},
+        });
+        return suggested(summary, suggestion);
+      }
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (error) {
+        return failure(`Could not insert blocks (the server declined the direct write): ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return text(`Inserted ${blockCountLabel(blocks)} directly ${destination} on "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -2044,7 +2023,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   // `update_block_props` refuses those keys.
 
   /** The write-summary label for a table op (also the suggestion's summary). */
-  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): string => {
+  const tableText = (value: RichTextInput | undefined, plain?: boolean): string => value === undefined ? '' : richTextRuns(value, plain).map((run) => run.t).join('');
+  const tableOpLabel = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: RichTextInput; plain?: boolean; color?: string | null; width?: number | null}): string => {
     const where = `table ${view.tableId}`;
     switch (kind) {
     case 'table_insert_row': return `Insert a row at position ${resolved.rowIndex} of ${where}`;
@@ -2054,7 +2034,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_delete_column': return `Delete column ${resolved.colIndex} of ${where}`;
     case 'table_move_row': return `Move row ${resolved.rowIndex} to position ${resolved.toIndex} of ${where}`;
     case 'table_move_column': return `Move column ${resolved.colIndex} to position ${resolved.toIndex} of ${where}`;
-    case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(resolved.text ?? '', 60)}"`;
+    case 'table_set_cell': return `Set row ${resolved.rowIndex}, column ${resolved.colIndex} of ${where} to "${clip(tableText(resolved.text, resolved.plain), 60)}"`;
     case 'table_set_row_color': return `${resolved.color ? `Tint row ${resolved.rowIndex} ${resolved.color}` : `Clear the tint on row ${resolved.rowIndex}`} of ${where}`;
     case 'table_set_column_color': return `${resolved.color ? `Tint column ${resolved.colIndex} ${resolved.color}` : `Clear the tint on column ${resolved.colIndex}`} of ${where}`;
     case 'table_set_column_width': return `${resolved.width === null ? 'Reset' : `Set ${resolved.width}px for`} column ${resolved.colIndex} of ${where}`;
@@ -2062,7 +2042,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
   };
 
   /** The before→after pair the review card shows for a table op. */
-  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: string; color?: string | null; width?: number | null}): {before: string; after: string} => {
+  const tableOpDiff = (kind: TableOpKind, view: SnapshotTableView, resolved: {rowIndex?: number; colIndex?: number; toIndex?: number; text?: RichTextInput; plain?: boolean; color?: string | null; width?: number | null}): {before: string; after: string} => {
     const row = (r: number | undefined): string => (r === undefined ? '' : (view.cells[r] ?? []).join(' | '));
     const column = (c: number | undefined): string => (c === undefined ? '' : view.cells.map((cells) => cells[c] ?? '').join(' | '));
     switch (kind) {
@@ -2073,7 +2053,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     case 'table_duplicate_row': return {before: row(resolved.rowIndex), after: `${row(resolved.rowIndex)} (copied below)`};
     case 'table_move_row': return {before: `row ${resolved.rowIndex}: ${row(resolved.rowIndex)}`, after: `position ${resolved.toIndex}`};
     case 'table_move_column': return {before: `column ${resolved.colIndex}: ${column(resolved.colIndex)}`, after: `position ${resolved.toIndex}`};
-    case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: resolved.text ?? ''};
+    case 'table_set_cell': return {before: view.cells[resolved.rowIndex ?? 0]?.[resolved.colIndex ?? 0] ?? '', after: tableText(resolved.text, resolved.plain)};
     case 'table_set_row_color': return {before: '(row tint)', after: resolved.color ?? '(none)'};
     case 'table_set_column_color': return {before: '(column tint)', after: resolved.color ?? '(none)'};
     case 'table_set_column_width': return {before: '(column width)', after: resolved.width === null ? '(auto)' : `${resolved.width}px`};
@@ -2349,11 +2329,12 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         rowIndex: ROW_INDEX('The cell\'s row.'),
         colIndex: COL_INDEX('The cell\'s column.'),
         cellId: z.string().optional().describe('The cell block id (from inspect_table) — resolves BOTH indices and names the table.'),
-        text: z.string().describe('The new plain text for the cell (empty string clears it).'),
+        text: textInputSchema.describe('Mini-markdown string or explicit runs (empty string clears it).'),
+        plain: z.boolean().optional().describe('Keep a string literal.'),
       },
     },
-    async ({pageId, tableId, rowIndex, colIndex, cellId, text: cellText}) =>
-      runTableOp('table_set_cell', pageId, {tableId, rowIndex, colIndex, cellId, text: cellText}),
+    async ({pageId, tableId, rowIndex, colIndex, cellId, text: cellText, plain}) =>
+      runTableOp('table_set_cell', pageId, {tableId, rowIndex, colIndex, cellId, text: cellText, plain}),
   );
 
   server.registerTool(

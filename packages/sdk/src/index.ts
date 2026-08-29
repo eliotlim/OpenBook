@@ -88,6 +88,16 @@ export {
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient, IdentityRejectedError} from './client';
 export {
+  AGENT_ASSET_MIMES,
+  AssetUploadError,
+  decodeStrictBase64,
+  uploadAgentAsset,
+  type AgentAssetUploader,
+  type AgentAssetUploadInput,
+  type AgentAssetUploadResult,
+  type AssetUploadErrorCode,
+} from './assetUpload';
+export {
   ForwardingApiError,
   ForwardingClient,
   TunnelClient,
@@ -385,6 +395,29 @@ export {
   type Decision,
 } from './authorize';
 export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, projectAppendBlocks, type AppendBlock, type ProjectedBlock, type SnapshotSegment} from './content';
+export {
+  RichTextInputError,
+  normalizeRuns,
+  parseMiniMarkdown,
+  richTextRuns,
+  type RichTextInput,
+  type RichTextInputErrorCode,
+  type Run,
+  type RunAttrs,
+} from './richTextInput';
+export {
+  BlockSnapshotError,
+  deleteBlock,
+  findBlock,
+  insertBlocks,
+  moveBlock,
+  setBlockProps,
+  setBlockText,
+  type BlockSnapshotErrorCode,
+  type FoundSnapshotBlock,
+  type InsertBlocksInput,
+  type MoveBlockInput,
+} from './blockSnapshot';
 export {
   ORDER_KEY_REBALANCE_LENGTH,
   isOrderKey,

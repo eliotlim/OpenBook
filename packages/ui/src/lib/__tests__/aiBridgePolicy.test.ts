@@ -116,7 +116,6 @@ describe('API-10 page suggestions: accept replays the recorded operation payload
     expect(client[method]).toHaveBeenCalledWith(...expectedArgs);
   });
 });
-
 describe('AGED-4 routeAiSuggestions: resolved-direct applies immediately', () => {
   it('OPEN editor → mutates the live doc and deletes the review row (no suggestion kept)', async () => {
     const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);

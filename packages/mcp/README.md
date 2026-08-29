@@ -17,9 +17,12 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `get_page_properties` | Read a page's structured metadata properties. |
 | `set_page_properties` | Set validated writable page metadata properties. |
 | `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
+| `upload_asset` | Upload a raster image (or inert binary for `htmlArtifact`) and return its `assetId`. Requires direct-write policy; bytes never enter suggestions. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
 | `inspect_page_structure` | Show a page's block TREE — ids, types, short text, props — including nested blocks. Read this before editing blocks. |
 | `append_blocks` | Append typed blocks to a block-editor page. Blocks **nest**: a container carries its contents in `children`, so one call builds a whole table (`table → row → cell`) or a two-column layout (`columns → column`). Capped at 8 levels / 400 blocks per call. |
+| `insert_blocks` | Insert recursive blocks at a precise root/container `index` or after a sibling id. The destination must accept children; insertion into `table` / `row` / `cell` is refused in favour of `table_*` tools. Uses the same 8-level / 400-block caps as `append_blocks`. |
+| `move_block` | Reorder or reparent a block by destination `index` or sibling id. Refuses unknown ids, cycles, invalid containers, and every move into/out of/within `table` / `row` / `cell` (use `table_*` tools). |
 | `update_block` | Replace one block's text (by id). |
 | `update_block_props` | Shallow-merge one block's props (heading level, todo checked, callout variant, code language, image alt, a kit input's value/min/max). A `null` value **removes** that prop. Works on nested blocks. |
 | `delete_block` | Remove one block and everything inside it, at any depth — including a table `row` or `cell`. |
@@ -39,6 +42,15 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `update_row` | Update a row title and validated cells while preserving other values. |
 | `delete_row` | Move a database row page to the recoverable trash. |
 
+### Images via MCP
+
+1. On suggest-mode installs, call `request_edit_access` first; uploads apply immediately and cannot be queued as suggestions.
+2. Call `upload_asset` with `pageId`, an image `mime`, and `base64` bytes.
+3. Copy the returned `assetId`; the payload itself is never echoed.
+4. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
+5. Later use `update_block_props` to change `alt` or `width`.
+6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
+
 Table coordinates are **render order** (the sorted order you see), not positions in
 the stored array — a reordered table's arrays are not in display order. Tables built
 by `append_blocks` carry no order keys (a client cannot invent them), so
@@ -46,6 +58,23 @@ by `append_blocks` carry no order keys (a client cannot invent them), so
 deterministically, matching what the editor would have assigned, without changing
 what you already saw. These tools are the only way to write those keys —
 `update_block_props` refuses `ord` / `col:` / `colbg:`.
+
+### Rich text input
+
+Every block-text write (`update_block`, block `text` in `append_blocks` and
+`insert_blocks`, and `table_set_cell`) accepts a string or explicit editor runs.
+Strings use a small markdown subset: `**bold**`, `*italic*` or `_italic_`,
+`` `code` ``, `~~strike~~`, and `[label](https://example.com)`. Backslash escapes
+marker punctuation. Unbalanced/unknown markers stay literal. Links allow only
+`https`, `http`, and `mailto`; `javascript:` and `data:` are rejected.
+
+Explicit runs use the blockdoc shape `{"runs":[{"t":"bold","a":{"b":true}}]}`.
+Allowed attributes are `b` (bold), `i` (italic), `u` (underline), `s` (strike),
+`c` (code), and `a` (safe link URL). Unknown attributes are rejected and adjacent
+equal-format runs are merged. Set `plain: true` beside `text` to store a string
+literally, for example `{"text":"**not bold**","plain":true}`. `[[Page Title]]`
+stays literal: mention runs need a page ID, which cannot be resolved from a title
+without a database lookup.
 
 ## Setup
 
@@ -94,7 +123,7 @@ At startup the connector performs a single `GET /api/instance` handshake (guest-
 
 ## Direct edits vs. reviewable suggestions
 
-Whether a write tool (`append_to_page`, `append_blocks`, `update_block`, `update_block_props`, `delete_block`, every `table_*` op, `set_kit_value`, `set_db_cell`, and the database schema/row tools above) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row through the legacy `create_database_row` tool remains immediate. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+Whether a write tool (`append_to_page`, `append_blocks`, `insert_blocks`, `move_block`, `update_block`, `update_block_props`, `delete_block`, `set_page_appearance`, `move_page`, `set_page_properties`, every `table_*` op, `set_kit_value`, `set_db_cell`, and the database schema/row tools above) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row through the legacy `create_database_row` tool remains immediate. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
 
 The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
 
