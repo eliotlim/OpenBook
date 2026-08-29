@@ -4,6 +4,8 @@ import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
   applyTableOpToSnapshot,
+  deleteBlock,
+  findBlock as findSnapshotBlock,
   BLOCK_TYPE_CATALOGUE,
   blockCatalogueText,
   blockTreeError,
@@ -21,6 +23,8 @@ import {
   unknownBlockTypeMessage,
   projectAppendBlocks,
   resolveTableOp,
+  setBlockProps,
+  setBlockText,
   snapshotTableIdFor,
   snapshotTableView,
   snapshotTables,
@@ -466,181 +470,6 @@ function blockTextInSnapshot(data: PageSnapshot | null | undefined, blockId: str
   return found;
 }
 
-/** Replace one block's text in the JSON projection. Returns null if absent. */
-function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: string): PageSnapshot | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let applied = false;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (!applied && b.id === blockId) {
-        b.text = [{t: text}];
-        applied = true;
-      }
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  if (!applied) return null;
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {...data, blockdoc: {...bd, update: undefined, blocks}};
-}
-
-/** One block's `{type, props}` from the JSON projection, at ANY depth. Null if absent. */
-function blockInfoInSnapshot(
-  data: PageSnapshot | null | undefined,
-  blockId: string,
-): {type: string; props: Record<string, unknown>} | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let found: {type: string; props: Record<string, unknown>} | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (found === null && b.id === blockId) found = {type: b.type ?? 'paragraph', props: {...(b.props ?? {})}};
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  return found;
-}
-
-/** Locate a block in the JSON tree with its containing list and parent block. */
-function locateBlock(
-  blocks: AnyJsonBlock[],
-  blockId: string,
-): {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null {
-  let found: {block: AnyJsonBlock; list: AnyJsonBlock[]; parent: AnyJsonBlock | null} | null = null;
-  const walk = (list: AnyJsonBlock[], parent: AnyJsonBlock | null): void => {
-    for (const b of list) {
-      if (found) return;
-      if (b.id === blockId) {
-        found = {block: b, list, parent};
-        return;
-      }
-      if (b.children) walk(b.children, b);
-    }
-  };
-  walk(blocks, null);
-  return found;
-}
-
-/**
- * Mirror of the editor model's `pruneEmptyContainers` over the JSON projection:
- * drop an empty `column`, unwrap a single-`column` layout, drop an empty layout —
- * so deleting the only block in a column can't leave an orphan container behind.
- * Runs to a fixed point (an unwrap can expose the next empty parent).
- */
-function pruneEmptyContainersJson(blocks: AnyJsonBlock[]): void {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const walk = (list: AnyJsonBlock[]): boolean => {
-      for (let i = 0; i < list.length; i += 1) {
-        const b = list[i];
-        if (b.type === 'column' && (b.children?.length ?? 0) === 0) {
-          list.splice(i, 1);
-          return true;
-        }
-        if (b.type === 'columns') {
-          const cols = b.children ?? [];
-          if (cols.length === 0) {
-            list.splice(i, 1);
-            return true;
-          }
-          if (cols.length === 1) {
-            // Unwrap: hoist the lone column's blocks in place of the layout.
-            list.splice(i, 1, ...(cols[0].children ?? []));
-            return true;
-          }
-        }
-        if (b.children && walk(b.children)) return true;
-      }
-      return false;
-    };
-    changed = walk(blocks);
-  }
-}
-
-/**
- * Remove one block (with its whole subtree) from the JSON projection, at ANY
- * depth — a nested block, a table `row`, or a `cell` is as removable as a
- * top-level paragraph, because the model is uniformly recursive. Returns null
- * when the id isn't on the page.
- *
- * Two model rules are mirrored so a direct MCP delete self-heals exactly like the
- * editor (see removeBlock / tableDeleteRow / tableDeleteColumn in model.ts):
- *  - a table that would lose its LAST row (or the only cell of its only row) is
- *    removed WHOLE, not left as an empty table;
- *  - after the removal, empty columns are pruned and a document emptied to zero
- *    roots regains one paragraph (never a zero-root live editor).
- */
-function deleteBlockInSnapshot(data: PageSnapshot, blockId: string, idPrefix: string): PageSnapshot | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  const located = locateBlock(blocks, blockId);
-  if (!located) return null;
-
-  // Table last-row / last-cell rule: deleting the final row (or the only cell of
-  // the only row) empties the table, so remove the table itself instead.
-  let removeId = blockId;
-  const {block, parent} = located;
-  if (block.type === 'row' && parent?.type === 'table' && (parent.children?.length ?? 0) === 1) {
-    removeId = parent.id!;
-  } else if (block.type === 'cell' && parent?.type === 'row' && (parent.children?.length ?? 0) === 1) {
-    const rowLoc = locateBlock(blocks, parent.id!);
-    if (rowLoc?.parent?.type === 'table' && (rowLoc.parent.children?.length ?? 0) === 1) {
-      removeId = rowLoc.parent.id!;
-    }
-  }
-
-  const target = removeId === blockId ? located : locateBlock(blocks, removeId);
-  if (!target) return null;
-  const at = target.list.indexOf(target.block);
-  target.list.splice(at, 1);
-
-  pruneEmptyContainersJson(blocks);
-  if (blocks.length === 0) blocks.push({id: `${idPrefix}-p`, type: 'paragraph', text: [{t: ''}]});
-
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {...data, blockdoc: {...bd, update: undefined, blocks}};
-}
-
-/**
- * SHALLOW-MERGE props onto one block in the JSON projection, at ANY depth. An
- * explicit `null` REMOVES the key (JSON can't carry `undefined`, so `null` is the
- * only wire-level way to say "delete this prop"; `patchBlock` in the editor's
- * model applies the same rule, so a direct write and an accepted suggestion land
- * identically). Returns the new snapshot plus the merged props, or null when the
- * id isn't on the page.
- */
-function setBlockPropsInSnapshot(
-  data: PageSnapshot,
-  blockId: string,
-  props: Record<string, unknown>,
-): {data: PageSnapshot; props: Record<string, unknown>} | null {
-  const blocks = blockdocBlocks(data);
-  if (!blocks) return null;
-  let merged: Record<string, unknown> | null = null;
-  const walk = (list: AnyJsonBlock[]): void => {
-    for (const b of list) {
-      if (merged === null && b.id === blockId) {
-        const next = {...(b.props ?? {})};
-        for (const [k, v] of Object.entries(props)) {
-          if (v === null) delete next[k];
-          else next[k] = v;
-        }
-        b.props = next;
-        merged = next;
-      }
-      if (b.children) walk(b.children);
-    }
-  };
-  walk(blocks);
-  if (merged === null) return null;
-  const bd = data.blockdoc as {blocks?: unknown[]; update?: string; v?: number};
-  return {data: {...data, blockdoc: {...bd, update: undefined, blocks}}, props: merged};
-}
-
 /**
  * The OpenBook MCP server: exposes a library to any MCP client (Claude
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
@@ -889,7 +718,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
       });
       return suggested(summary, suggestion);
     }
-    const applied = setBlockPropsInSnapshot(page.data, form.blockId, props);
+    const applied = setBlockProps(page.data, form.blockId, props);
     if (!applied) return failure(`No form block for "${form.formId}" on that page.`);
     try {
       await client.savePage({id: page.id, name: page.name, data: applied.data});
@@ -1512,7 +1341,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const data = setBlockTextInSnapshot(page.data, blockId, newText);
+      const data = setBlockText(page.data, blockId, newText);
       if (!data) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
       try {
         await client.savePage({id: page.id, name: page.name, data});
@@ -1553,7 +1382,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         // they own these keys and maintain the order contract while writing them.
         return failure(tableOrderContractRefusal(tableKey));
       }
-      const info = blockInfoInSnapshot(page.data, blockId);
+      const found = findSnapshotBlock(page.data, blockId);
+      const info = found ? {type: found.block.type ?? 'paragraph', props: {...(found.block.props ?? {})}} : null;
       if (!info) return failure(missing);
       if (info.type === 'form' && containsSubmissionKey(props)) {
         return failure('submissionKey is author-managed; not editable via MCP.');
@@ -1579,7 +1409,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const applied = setBlockPropsInSnapshot(page.data, blockId, props);
+      const applied = setBlockProps(page.data, blockId, props);
       if (!applied) return failure(missing);
       try {
         await client.savePage({id: page.id, name: page.name, data: applied.data});
@@ -1609,7 +1439,8 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         return failure('That page is a legacy editor page — it has no typed blocks to delete.');
       }
       const missing = `No block "${blockId}" on that block-editor page — use inspect_page_structure.`;
-      const info = blockInfoInSnapshot(page.data, blockId);
+      const found = findSnapshotBlock(page.data, blockId);
+      const info = found ? {type: found.block.type ?? 'paragraph', props: {...(found.block.props ?? {})}} : null;
       if (!info) return failure(missing);
       if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const summary = `Delete ${info.type} block ${blockId} on "${page.name ?? 'Untitled'}"`;
@@ -1625,7 +1456,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
         });
         return suggested(summary, s);
       }
-      const data = deleteBlockInSnapshot(page.data, blockId, `mcp-${Date.now().toString(36)}`);
+      const data = deleteBlock(page.data, blockId, `mcp-${Date.now().toString(36)}`);
       if (!data) return failure(missing);
       try {
         await client.savePage({id: page.id, name: page.name, data});
