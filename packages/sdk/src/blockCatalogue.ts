@@ -102,7 +102,6 @@ const CATALOGUE_LITERAL = [
   {type: 'searchselect', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', opts: 'array', multi: 'boolean'}, hint: '{name,label?,value,opts,multi?}'},
   {type: 'tagfield', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', selected: 'array', freeEntry: 'boolean'}, hint: '{name,label?,selected:[],freeEntry?}'},
   {type: 'location', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string'}, hint: '{name,label?}'},
-  {type: 'coverageprobe', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', value: 'string'}, hint: 'temporary API-6 red proof'},
   // ── Kit actions + reactive display (consume the scope via `source`) ────────
   {type: 'actionbutton', category: 'kit', nature: 'void', props: {btnlabel: 'string', action: 'string', target: 'string', amount: 'number', url: 'string'}, hint: '{btnlabel,action:"increment"|"set"|"toggle"|"link",target?,amount?,url?}'},
   {type: 'kitchart', category: 'kit', nature: 'void', props: {kind: 'string', title: 'string', labels: 'string', source: 'string'}, hint: '{kind:"line"|"area"|"bar"|"pie"|"donut"|"scatter"|"funnel",title?,labels?,source}'},
