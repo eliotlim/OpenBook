@@ -201,6 +201,23 @@ export type {
   RowTreeNode,
 } from './database';
 export {
+  DATABASE_TOOL_PROPERTY_TYPES,
+  DatabaseToolError,
+  buildDatabaseToolOptions,
+  buildDatabaseToolProperty,
+  resolveDatabaseToolRowValues,
+  describeDatabaseTool,
+  createDatabaseTool,
+  updateDatabaseTool,
+  createPropertyTool,
+  updatePropertyTool,
+  updateRowTool,
+  deleteRowTool,
+  type DatabaseDescription,
+  type DatabaseToolErrorCode,
+  type DatabaseToolStore,
+} from './databaseTools';
+export {
   TITLE_PROPERTY_ID,
   FORM_PROPERTY_TYPE_WRITABILITY,
   FORM_ROW_VALIDATION_ERROR_CODES,
