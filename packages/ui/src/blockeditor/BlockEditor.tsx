@@ -55,6 +55,7 @@ import {
   tableCellAt,
   tableCellOwnColor,
   tableColumnColor,
+  tableColumnWidth,
   tableColumns,
   tableRangeCells,
   tableRangeExport,
@@ -77,6 +78,7 @@ import {
   trailingColumnBoundaryFromPointer,
   setTableCellRangeColor,
   setTableColumnColor,
+  setTableColumnWidth,
   setTableRowColor,
   walkBlocks,
   TEXT_BLOCKS,
@@ -84,6 +86,7 @@ import {
   type BlockType,
   type CellRect,
 } from './model';
+import {TableColResizer} from './TableColResizer';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown, cellRangeExportToHtml, cellRangeToTsv} from './exportBlocks';
@@ -3055,6 +3058,10 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // Drag handles are chrome — hidden in readOnly and in a kit-locked / present
   // context (acceptance #4; also enumerated in the `.ob-present` CSS hide-list).
   const showHandles = !editor.readOnly && !lockText;
+  const storedWidths = columns.map((column) => tableColumnWidth(block, column.id));
+  const [previewWidths, setPreviewWidths] = useState<Record<string, number>>({});
+  const renderedWidths = columns.map((column, index) => previewWidths[column.id] ?? storedWidths[index]);
+  const hasWidths = renderedWidths.some((width) => width !== null);
 
   // Internal (grip) drag state — separate from the block-level `shared.drag`
   // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
@@ -3152,7 +3159,10 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   return (
     <div className={[showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap', activeCellSel && 'obe-cell-selecting'].filter(Boolean).join(' ')}>
-      <table className="obe-table">
+      <table className={hasWidths ? 'obe-table obe-table-fixed' : 'obe-table'}>
+        <colgroup>
+          {columns.map((column, c) => <col key={column.id} style={renderedWidths[c] === null ? undefined : {width: `${renderedWidths[c]}px`}} />)}
+        </colgroup>
         <tbody>
           {rows.map((row, r) => {
             const cells = grid.cells[r];
@@ -3233,27 +3243,45 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                         const gripColId = columns[from]?.id;
                         if (!gripColId) return null;
                         return (
-                          <span
-                            key={gripColId}
-                            className="obe-table-col-grip"
-                            contentEditable={false}
-                            data-drag-axis="col"
-                            data-drag-from={from}
-                            data-drag-id={gripColId}
-                            data-span-offset={offset}
-                            draggable
-                            aria-hidden="true"
-                            style={{
-                              left: `${(offset / slot.colspan) * 100}%`,
-                              right: 'auto',
-                              width: `${100 / slot.colspan}%`,
-                            }}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onDragStart={startDrag({axis: 'col', from, id: gripColId})}
-                            onDragEnd={clearDrag}
-                          >
-                            <GripHorizontal className="h-3.5 w-3.5" />
-                          </span>
+                          <React.Fragment key={gripColId}>
+                            <span
+                              className="obe-table-col-grip"
+                              contentEditable={false}
+                              data-drag-axis="col"
+                              data-drag-from={from}
+                              data-drag-id={gripColId}
+                              data-span-offset={offset}
+                              draggable
+                              aria-hidden="true"
+                              style={{
+                                left: `${(offset / slot.colspan) * 100}%`,
+                                right: 'auto',
+                                width: `${100 / slot.colspan}%`,
+                              }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDragStart={startDrag({axis: 'col', from, id: gripColId})}
+                              onDragEnd={clearDrag}
+                            >
+                              <GripHorizontal className="h-3.5 w-3.5" />
+                            </span>
+                            {from < cols - 1 && (
+                              <TableColResizer
+                                columnIndex={from}
+                                width={renderedWidths[from]}
+                                spanCount={slot.colspan}
+                                left={`${((offset + 1) / slot.colspan) * 100}%`}
+                                onPreview={(width) => setPreviewWidths((current) => ({...current, [gripColId]: width}))}
+                                onCommit={(width) => {
+                                  setPreviewWidths((current) => {
+                                    const next = {...current};
+                                    delete next[gripColId];
+                                    return next;
+                                  });
+                                  setTableColumnWidth(editor.doc, id, gripColId, width);
+                                }}
+                              />
+                            )}
+                          </React.Fragment>
                         );
                       })
                       : null;

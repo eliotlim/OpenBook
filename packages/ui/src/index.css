@@ -1941,6 +1941,27 @@ a.obe-mention {
   border-collapse: collapse;
   font-size: 0.92rem;
 }
+/* TBL-12 — fixed only after a width is stored; auto columns share the fluid remainder. */
+.obe-table-fixed { table-layout: fixed; width: 100%; }
+.obe-table td { position: relative; }
+.obe-table-col-resizer {
+  position: absolute;
+  z-index: calc(var(--z-index-local-overlay) - 1);
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  transform: translateX(-4px);
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.obe-table-col-resizer:focus-visible::after,
+.obe-table-col-resizer:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: hsl(var(--ring));
+}
 .obe-table td {
   border: 1px solid hsl(var(--border));
   padding: 0;

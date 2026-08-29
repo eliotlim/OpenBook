@@ -1,6 +1,7 @@
 import type {PartialMessages} from './en';
 
 export const de: PartialMessages = {
+  blockEditor: {resizeColumn: 'Spalte {column} vergrößern oder verkleinern'},
   navigation: {
     loadError: {
       title: 'Diese Bibliothek ist nicht erreichbar',
