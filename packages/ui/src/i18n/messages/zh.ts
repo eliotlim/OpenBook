@@ -201,6 +201,8 @@ export const zh: PartialMessages = {
     table: {
       sectionRow: '行',
       sectionColumn: '列',
+      rowOptions: '第 {n} 行选项',
+      columnOptions: '第 {n} 列选项',
       insertRowAbove: '在上方插入行',
       insertRowBelow: '在下方插入行',
       insertColumnLeft: '在左侧插入列',

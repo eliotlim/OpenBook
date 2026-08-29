@@ -201,6 +201,8 @@ export const ja: PartialMessages = {
     table: {
       sectionRow: '行',
       sectionColumn: '列',
+      rowOptions: '行 {n} のオプション',
+      columnOptions: '列 {n} のオプション',
       insertRowAbove: '上に行を挿入',
       insertRowBelow: '下に行を挿入',
       insertColumnLeft: '左に列を挿入',

@@ -162,6 +162,23 @@ describe('TableCellMenu', () => {
     }
   });
 
+  it('keeps column insert/delete actions for a legacy table without column ids', () => {
+    const doc = createDoc([
+      {
+        id: 'tbl',
+        type: 'table',
+        children: [{id: 'row', type: 'row', children: [{id: 'cell', type: 'cell', text: [{t: 'legacy'}]}]}],
+      },
+    ]);
+    openMenu(doc, 'cell');
+    expect(screen.getByText('Column')).toBeTruthy();
+    expect(screen.getByText('Insert column left')).toBeTruthy();
+    expect(screen.getByText('Insert column right')).toBeTruthy();
+    expect(screen.getByText('Delete column')).toBeTruthy();
+    expect(screen.getByText('Move column left').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText('Move column right').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
   it('suppressed (read-only / locked) cell shows no menu', () => {
     openMenu(seedTableDoc(), 'r1c1', true);
     expect(screen.queryByText('Insert row above')).toBeNull();

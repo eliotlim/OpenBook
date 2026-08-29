@@ -228,3 +228,23 @@ test('merged top-row anchor exposes one correctly bound grip segment per column'
   expect(Math.abs(first.width - second.width)).toBeLessThanOrEqual(1);
   expect(Math.abs(first.x + first.width - second.x)).toBeLessThanOrEqual(1);
 });
+
+test('table grip menus insert a row and delete a column', {tag: ['@editor', '@p1']}, async ({page}) => {
+  const table = await freshTable(page);
+  const rows = table.locator('tbody > tr');
+  const initialRows = await rows.count();
+  const initialColumns = await table.locator('.obe-table-col-grip').count();
+
+  const firstRow = rows.first();
+  await firstRow.hover();
+  await firstRow.getByRole('button', {name: 'Row 1 options'}).click();
+  await expect(page.getByRole('menuitem', {name: 'Insert row below'})).toBeVisible();
+  await page.getByRole('menuitem', {name: 'Insert row below'}).click();
+  await expect(rows).toHaveCount(initialRows + 1);
+
+  const firstColumnGrip = table.getByRole('button', {name: 'Column A options'});
+  await firstColumnGrip.click({button: 'right'});
+  await expect(page.getByRole('menuitem', {name: 'Delete column'})).toBeVisible();
+  await page.getByRole('menuitem', {name: 'Delete column'}).click();
+  await expect(table.locator('.obe-table-col-grip')).toHaveCount(initialColumns - 1);
+});

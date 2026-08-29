@@ -105,6 +105,8 @@ import {pageIconToText} from '@/lib/iconValue';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -113,9 +115,6 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {
@@ -123,6 +122,7 @@ import {
   MENU_DESTRUCTIVE_CLASS,
   MENU_WIDTH_MD,
   MENU_WIDTH_SM,
+  type MenuComponentSet,
 } from '@/components/ui/menu-components';
 import {formatShortcut, matchShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {suppressContextMenu} from '@/lib/suppressContextMenu';
@@ -2778,23 +2778,109 @@ const TableColorSubmenu: React.FC<{
   label: string;
   current: string | null;
   onPick: (token: string | null) => void;
-}> = ({label, current, onPick}) => (
-  <ContextMenuSub>
-    <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
-    <ContextMenuSubContent className={MENU_WIDTH_SM}>
-      {COLOR_MENU.map((c) => (
-        <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
-          <span
-            className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
-            aria-hidden
-          />
-          {c.label}
-          {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
-        </ContextMenuItem>
-      ))}
-    </ContextMenuSubContent>
-  </ContextMenuSub>
-);
+  menu?: MenuComponentSet;
+}> = ({label, current, onPick, menu = MENU_COMPONENTS.context}) => {
+  const {Item, Sub, SubContent, SubTrigger} = menu;
+  return (
+    <Sub>
+      <SubTrigger>{label}</SubTrigger>
+      <SubContent className={MENU_WIDTH_SM}>
+        {COLOR_MENU.map((c) => (
+          <Item key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
+            <span
+              className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
+              aria-hidden
+            />
+            {c.label}
+            {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
+          </Item>
+        ))}
+      </SubContent>
+    </Sub>
+  );
+};
+
+interface TableAxisMenuItemsProps {
+  tableId: string;
+  editor: BlockEditorController;
+  index: number;
+  id: string;
+  count: number;
+  header: boolean;
+  menu?: MenuComponentSet;
+}
+
+export const TableRowMenuItems: React.FC<TableAxisMenuItemsProps> = ({
+  tableId, editor, index: row, id: rowId, count: rowCount, header, menu = MENU_COMPONENTS.context,
+}) => {
+  const {Item} = menu;
+  const doc = editor.doc;
+  const found = findBlock(doc, tableId);
+  const rowBlock = found && blockType(found.block) === 'table' ? tableGrid(found.block).rows[row] : null;
+  if (!rowBlock) return null;
+  return (
+    <>
+      {!(header && row === 0) && (
+        <Item onSelect={() => tableInsertRow(doc, tableId, row)}>
+          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
+        </Item>
+      )}
+      <Item onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
+      </Item>
+      <Item onSelect={() => tableDuplicateRow(doc, tableId, row)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
+      </Item>
+      <Item disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
+        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
+      </Item>
+      <Item disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
+        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
+      </Item>
+      <TableColorSubmenu menu={menu} label={t('menu.table.rowColour')} current={tableRowColor(rowBlock)} onPick={(token) => setTableRowColor(doc, tableId, rowId, token)} />
+      <Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => tableDeleteRow(doc, tableId, row)}>
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
+      </Item>
+    </>
+  );
+};
+
+export const TableColumnMenuItems: React.FC<Omit<TableAxisMenuItemsProps, 'id'> & {id?: string}> = ({
+  tableId, editor, index: col, id: colId, count: colCount, menu = MENU_COMPONENTS.context,
+}) => {
+  const {Item} = menu;
+  const doc = editor.doc;
+  const found = findBlock(doc, tableId);
+  if (!found || blockType(found.block) !== 'table') return null;
+  const table = found.block;
+  return (
+    <>
+      <Item onSelect={() => tableInsertColumn(doc, tableId, col)}><ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}</Item>
+      <Item onSelect={() => tableInsertColumn(doc, tableId, col + 1)}><ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}</Item>
+      {colId && <TableColorSubmenu menu={menu} label={t('menu.table.columnColour')} current={tableColumnColor(table, colId)} onPick={(token) => setTableColumnColor(doc, tableId, colId, token)} />}
+      <Item disabled={col === 0 || !colId} onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}><ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}</Item>
+      <Item disabled={col >= colCount - 1 || !colId} onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}><ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}</Item>
+      <Item className={MENU_DESTRUCTIVE_CLASS} onSelect={() => tableDeleteColumn(doc, tableId, col)}><Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}</Item>
+    </>
+  );
+};
+
+const TableHeaderMenuItem: React.FC<{
+  menu: MenuComponentSet;
+  tableId: string;
+  editor: BlockEditorController;
+  header: boolean;
+}> = ({menu, tableId, editor, header}) => {
+  const {Item} = menu;
+  return (
+    <Item onSelect={() => {
+      const found = findBlock(editor.doc, tableId);
+      if (found) editor.doc.transact(() => setBlockProp(found.block, 'header', !header), 'local');
+    }}>
+      <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
+    </Item>
+  );
+};
 
 /**
  * The RANGE variant of the cell menu (TBL-6): shown when the right-clicked cell
@@ -2919,13 +3005,7 @@ const TableCellMenuContent: React.FC<{
   const merged = cellSlot?.kind === 'cell' && (cellSlot.colspan > 1 || cellSlot.rowspan > 1);
   const rowId = blockId(rowBlock);
   const colId = tableColumns(table)[col]?.id;
-  // Live colours for the swatch checks (TBL-4).
-  const rowColor = tableRowColor(rowBlock);
-  const colColor = colId ? tableColumnColor(table, colId) : null;
   const header = blockProp<boolean>(table, 'header') ?? false;
-  const toggleHeader = (): void => {
-    doc.transact(() => setBlockProp(table, 'header', !header), 'local');
-  };
   return (
     <ContextMenuContent className={MENU_WIDTH_MD}>
       {merged && (
@@ -2937,83 +3017,14 @@ const TableCellMenuContent: React.FC<{
         </>
       )}
       <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
-      {/* Rendering is positional: with `header`, sorted row 0 IS the header.
-          Inserting above it would make the blank new row the header and
-          silently demote the real one — so hide the item in that case. */}
-      {!(header && row === 0) && (
-        <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
-          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
-        </ContextMenuItem>
-      )}
-      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
-        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => tableDuplicateRow(doc, tableId, row)}>
-        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
-      </ContextMenuItem>
-      {/* TBL-2 anchor: Move row up / down. Disabled at the extremes; ops take the
-          row id + a sorted target index (moved row removed) per the contract. */}
-      <ContextMenuItem disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
-        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
-      </ContextMenuItem>
-      <ContextMenuItem disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
-        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
-      </ContextMenuItem>
-      {/* TBL-4: row tint = the row block's `bg` prop. */}
-      <TableColorSubmenu
-        label={t('menu.table.rowColour')}
-        current={rowColor}
-        onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
-      />
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => tableDeleteRow(doc, tableId, row)}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
-      </ContextMenuItem>
+      <TableRowMenuItems tableId={tableId} editor={editor} index={row} id={rowId} count={rowCount} header={header} />
 
       <ContextMenuSeparator />
       <ContextMenuLabel>{t('menu.table.sectionColumn')}</ContextMenuLabel>
-      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col)}>
-        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
-        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
-      </ContextMenuItem>
-      {/* TBL-4 anchor: column tint = the table-level `colbg:<colId>` prop, keyed
-          on the stable column id (survives reorder / concurrent inserts). */}
-      {colId && (
-        <TableColorSubmenu
-          label={t('menu.table.columnColour')}
-          current={colColor}
-          onPick={(token) => setTableColumnColor(doc, tableId, colId, token)}
-        />
-      )}
-      {/* TBL-2 anchor: Move column left / right. Disabled at the extremes; ops take
-          the column id + a sorted target index (moved column removed). */}
-      <ContextMenuItem
-        disabled={col === 0 || !colId}
-        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}
-      >
-        <ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={col >= colCount - 1 || !colId}
-        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}
-      >
-        <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
-      </ContextMenuItem>
-      <ContextMenuItem
-        className={MENU_DESTRUCTIVE_CLASS}
-        onSelect={() => tableDeleteColumn(doc, tableId, col)}
-      >
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}
-      </ContextMenuItem>
+      <TableColumnMenuItems tableId={tableId} editor={editor} index={col} id={colId} count={colCount} header={header} />
 
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={toggleHeader}>
-        <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
-      </ContextMenuItem>
+      <TableHeaderMenuItem menu={MENU_COMPONENTS.context} tableId={tableId} editor={editor} header={header} />
     </ContextMenuContent>
   );
 };
@@ -3083,6 +3094,123 @@ export function tableDropTarget(dropIndex: number, from: number): number | null 
   return dropIndex > from ? dropIndex - 1 : dropIndex;
 }
 
+const tableColumnName = (index: number): string => {
+  let value = index + 1;
+  let name = '';
+  while (value > 0) {
+    value -= 1;
+    name = String.fromCharCode(65 + (value % 26)) + name;
+    value = Math.floor(value / 26);
+  }
+  return name;
+};
+
+interface TableGripMenuProps {
+  axis: 'row' | 'col';
+  tableId: string;
+  index: number;
+  itemId: string;
+  count: number;
+  header: boolean;
+  editor: BlockEditorController;
+  style?: React.CSSProperties;
+  spanOffset?: number;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}
+
+const TableGripMenu: React.FC<TableGripMenuProps> = ({
+  axis, tableId, index, itemId, count, header, editor, style, spanOffset, onDragStart, onDragEnd,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const press = useRef<{x: number; y: number; moved: boolean} | null>(null);
+  const dragged = useRef(false);
+  const label = axis === 'row'
+    ? t('menu.table.rowOptions', {n: index + 1})
+    : t('menu.table.columnOptions', {n: tableColumnName(index)});
+  const items = (menu: MenuComponentSet): React.ReactNode => axis === 'row'
+    ? <TableRowMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />
+    : <TableColumnMenuItems tableId={tableId} editor={editor} index={index} id={itemId} count={count} header={header} menu={menu} />;
+  const openFromKeyboard = (e: React.KeyboardEvent): void => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    setOpen(true);
+  };
+  const refocus = (): void => {
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
+  const button = (
+    <button
+      ref={buttonRef}
+      type="button"
+      className={axis === 'row' ? 'obe-table-row-grip' : 'obe-table-col-grip'}
+      aria-label={label}
+      aria-haspopup="menu"
+      aria-expanded={open || ctxOpen}
+      contentEditable={false}
+      data-drag-axis={axis}
+      data-drag-from={index}
+      data-drag-id={itemId}
+      data-span-offset={spanOffset}
+      draggable
+      style={style}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        press.current = {x: e.clientX, y: e.clientY, moved: false};
+        dragged.current = false;
+      }}
+      onPointerMove={(e) => {
+        const p = press.current;
+        if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) >= 4) p.moved = true;
+      }}
+      onPointerUp={() => {
+        const p = press.current;
+        press.current = null;
+        if (p && !p.moved && !dragged.current) setOpen(true);
+      }}
+      onKeyDown={openFromKeyboard}
+      onDragStart={(e) => {
+        dragged.current = true;
+        setOpen(false);
+        onDragStart(e);
+      }}
+      onDragEnd={() => {
+        press.current = null;
+        onDragEnd();
+      }}
+    >
+      {axis === 'row' ? <GripVertical className="h-3.5 w-3.5" /> : <GripHorizontal className="h-3.5 w-3.5" />}
+    </button>
+  );
+  return (
+    <DropdownMenu open={open} onOpenChange={(next) => { setOpen(next); if (!next) refocus(); }}>
+      <DropdownMenuTrigger asChild><span className={`obe-table-grip-anchor obe-table-${axis}-grip-anchor`} style={style} aria-hidden /></DropdownMenuTrigger>
+      <ContextMenu onOpenChange={(next) => {
+        if (next) {
+          press.current = null;
+          setOpen(false);
+        }
+        setCtxOpen(next);
+      }}>
+        <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>{button}</ContextMenuTrigger>
+        <ContextMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
+          <ContextMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</ContextMenuLabel>
+          {items(MENU_COMPONENTS.context)}
+          {axis === 'col' && <><ContextMenuSeparator /><TableHeaderMenuItem menu={MENU_COMPONENTS.context} tableId={tableId} editor={editor} header={header} /></>}
+        </ContextMenuContent>
+      </ContextMenu>
+      <DropdownMenuContent className={MENU_WIDTH_MD} onCloseAutoFocus={(e) => { e.preventDefault(); refocus(); }}>
+        <DropdownMenuLabel>{axis === 'row' ? t('menu.table.sectionRow') : t('menu.table.sectionColumn')}</DropdownMenuLabel>
+        {items(MENU_COMPONENTS.dropdown)}
+        {axis === 'col' && <><DropdownMenuSeparator /><TableHeaderMenuItem menu={MENU_COMPONENTS.dropdown} tableId={tableId} editor={editor} header={header} /></>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
@@ -3125,9 +3253,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   }, []);
 
   // Internal (grip) drag state — separate from the block-level `shared.drag`
-  // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
-  // Radix trigger — that kills native drag; see BlockRow) so caret / cell edits
-  // and the block gutter are untouched (acceptance #5).
+  // that moves the whole table block.
   const [drag, setDrag] = useState<TableDrag | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const clearDrag = useCallback(() => {
@@ -3249,21 +3375,20 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   <th
                     className="obe-table-row-grip-host"
                     data-obe-chrome="row-grip-host"
-                    aria-hidden="true"
+                    role="presentation"
                     contentEditable={false}
                   >
-                    <span
-                      className="obe-table-row-grip"
-                      data-drag-axis="row"
-                      data-drag-from={r}
-                      data-drag-id={rowId}
-                      draggable
-                      onMouseDown={(e) => e.stopPropagation()}
+                    <TableGripMenu
+                      axis="row"
+                      tableId={id}
+                      index={r}
+                      itemId={rowId}
+                      count={rows.length}
+                      header={header}
+                      editor={editor}
                       onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
                       onDragEnd={clearDrag}
-                    >
-                      <GripVertical className="h-3.5 w-3.5" />
-                    </span>
+                    />
                   </th>
                 )}
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
@@ -3296,8 +3421,6 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   // model moves registry columns independently; its positional,
                   // self-healing spans contract if a move separates a column
                   // from its anchor instead of silently moving the anchor col.
-                  // aria-hidden: grips are mouse-only; the canonical a11y path
-                  // remains the context-menu "Move" items.
                   const colGrips =
                     showHandles && r === 0 && cell && slot?.kind === 'cell'
                       ? Array.from({length: slot.colspan}, (_, offset) => {
@@ -3306,28 +3429,27 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                         if (!gripColId) return null;
                         return (
                           <React.Fragment key={gripColId}>
-                            <span
-                              className="obe-table-col-grip"
-                              contentEditable={false}
-                              data-drag-axis="col"
-                              data-drag-from={from}
-                              data-drag-id={gripColId}
-                              data-span-offset={offset}
-                              draggable
-                              aria-hidden="true"
+                            <TableGripMenu
+                              key={`grip-${gripColId}`}
+                              axis="col"
+                              tableId={id}
+                              index={from}
+                              itemId={gripColId}
+                              count={cols}
+                              header={header}
+                              editor={editor}
+                              spanOffset={offset}
                               style={{
                                 left: `${(offset / slot.colspan) * 100}%`,
                                 right: 'auto',
                                 width: `${100 / slot.colspan}%`,
                               }}
-                              onMouseDown={(e) => e.stopPropagation()}
                               onDragStart={startDrag({axis: 'col', from, id: gripColId})}
                               onDragEnd={clearDrag}
-                            >
-                              <GripHorizontal className="h-3.5 w-3.5" />
-                            </span>
+                            />
                             {from < cols - 1 && (
                               <TableColResizer
+                                key={`resizer-${gripColId}`}
                                 columnIndex={from}
                                 width={renderedWidths[from]}
                                 spanCount={slot.colspan}
