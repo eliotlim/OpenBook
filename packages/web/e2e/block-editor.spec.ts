@@ -1025,6 +1025,27 @@ test('range-aware cell menu: right-click inside a selection tints/deletes the wh
   await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(0);
 });
 
+test('range menu inserts the selected row count below (TBL-10)', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  const table = page.locator('.obe-table');
+  await expect(table.locator('tr')).toHaveCount(3);
+  const cells = table.locator('td');
+  const first = (await cells.nth(0).boundingBox())!;
+  const last = (await cells.nth(4).boundingBox())!;
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, {steps: 10});
+  await page.mouse.up();
+  await expect(table.locator('td.obe-cell-selected')).toHaveCount(4);
+  await cells.nth(0).click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Insert 2 rows below'}).click();
+  await expect(table.locator('tr')).toHaveCount(5);
+});
+
 // ── Marquee (rubber-band) select + shift-click extension (SEL-1) ─────────────
 
 /** Grow the lab from its 3 seeded blocks to 5 top-level blocks. */
