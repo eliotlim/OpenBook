@@ -220,7 +220,8 @@ async function main(): Promise<void> {
     try { committed = readFileSync(DOC, 'utf8'); } catch { /* generated below */ }
     if (committed !== generated) {
       writeFileSync(DOC, generated);
-      throw new Error(`Coverage matrix was stale; regenerated ${relative(ROOT, DOC)}. Commit it and rerun.`);
+      const offender = BLOCK_TYPE_CATALOGUE.find((entry) => !committed.includes(`| ${entry.type} |`))?.type ?? 'coverage-matrix';
+      throw new Error(`API coverage gap: ${offender} — matrix failed: regenerated stale ${relative(ROOT, DOC)}; commit it and rerun`);
     }
     console.log(`\nAll ${BLOCK_TYPE_CATALOGUE.length} catalogue types + ${pluginTypes.length} plugin blocks have MCP API coverage; exemptions: ${Object.keys(EXEMPT).length || 'none'}.`);
   } finally {
