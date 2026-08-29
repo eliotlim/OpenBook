@@ -150,6 +150,25 @@ async function main(): Promise<void> {
   const rowAfter = await seed.listRows(database.id);
   check('the database cell was NOT mutated', (rowAfter.find((r) => r.id === row.id)?.properties?.[textProp.id] ?? null) === null);
 
+  const dbSuggestCalls = [
+    await dflt.client.callTool({name: 'create_database', arguments: {title: 'Suggested database'}}),
+    await dflt.client.callTool({name: 'update_database', arguments: {pageId: dbHost.id, name: 'Suggested rename'}}),
+    await dflt.client.callTool({name: 'create_property', arguments: {pageId: dbHost.id, name: 'Suggested property', type: 'number'}}),
+    await dflt.client.callTool({name: 'update_property', arguments: {pageId: dbHost.id, propertyId: textProp.id, name: 'Suggested text'}}),
+    await dflt.client.callTool({name: 'update_row', arguments: {pageId: dbHost.id, rowId: row.id, name: 'Suggested row'}}),
+    await dflt.client.callTool({name: 'delete_row', arguments: {pageId: dbHost.id, rowId: row.id}}),
+  ];
+  check('all six API-9 database writes suggest under suggest policy', dbSuggestCalls.every((result) => resultText(result).includes('Suggested for review')));
+  const suggestedDatabasePageId = /host page ([0-9a-f-]{36})/.exec(resultText(dbSuggestCalls[0]))?.[1];
+  check('create_database creates its host page immediately under suggest policy',
+    Boolean(suggestedDatabasePageId) && Boolean(await seed.getPage(suggestedDatabasePageId!)));
+  const suggestWhitespace = await dflt.client.callTool({name: 'update_property', arguments: {pageId: dbHost.id, propertyId: textProp.id, name: '   '}});
+  check('whitespace property name is refused under suggest policy',
+    suggestWhitespace.isError === true && resultText(suggestWhitespace).includes('[invalid_input]'));
+  const dbDescription = await dflt.client.callTool({name: 'describe_database', arguments: {pageId: dbHost.id}});
+  check('describe_database remains a read under suggest policy', resultText(dbDescription).includes(database.id));
+  check('suggested update/delete row did not mutate', (await seed.listRows(database.id)).some((candidate) => candidate.id === row.id && candidate.name === 'A task'));
+
   // Creation stays immediate regardless of policy (non-destructive, no target page).
   const created = await dflt.client.callTool({name: 'create_page', arguments: {title: 'New note', content: 'hi'}});
   const createdId = /id ([0-9a-f-]{36})/.exec(resultText(created))?.[1];
@@ -164,6 +183,23 @@ async function main(): Promise<void> {
   const suggestionsBeforeDirect = (await seed.listSuggestions(page.id)).length;
   const direct = await connect(server.url);
 
+  const directDbHost = await seed.savePage({name: 'Direct DB', data: {editorjs: {blocks: []}, values: [], names: []}});
+  const directDb = await seed.createDatabase({pageId: directDbHost.id, name: 'Direct DB', schema: defaultDatabaseSchema()});
+  const directRow = await seed.createRow(directDb.id, {name: 'Direct row'});
+  const directText = directDb.schema.properties.find((property) => property.type === 'text')!;
+  const directCalls = [
+    await direct.client.callTool({name: 'create_database', arguments: {title: 'Direct created DB'}}),
+    await direct.client.callTool({name: 'update_database', arguments: {pageId: directDbHost.id, name: 'Direct renamed DB'}}),
+    await direct.client.callTool({name: 'create_property', arguments: {pageId: directDbHost.id, name: 'Points', type: 'number'}}),
+    await direct.client.callTool({name: 'update_property', arguments: {pageId: directDbHost.id, propertyId: directText.id, name: 'Direct text'}}),
+    await direct.client.callTool({name: 'update_row', arguments: {pageId: directDbHost.id, rowId: directRow.id, name: 'Direct updated row'}}),
+    await direct.client.callTool({name: 'delete_row', arguments: {pageId: directDbHost.id, rowId: directRow.id}}),
+  ];
+  check('all six API-9 database writes apply under direct policy', directCalls.every((result) => result.isError !== true && !resultText(result).includes('Suggested for review')));
+  const directWhitespace = await direct.client.callTool({name: 'update_property', arguments: {pageId: directDbHost.id, propertyId: directText.id, name: '   '}});
+  check('whitespace property name is refused under direct policy',
+    directWhitespace.isError === true && resultText(directWhitespace).includes('[invalid_input]'));
+  check('direct delete_row moved the row to trash', (await seed.listRows(directDb.id)).length === 0 && (await seed.listTrash()).some((candidate) => candidate.id === directRow.id));
   const uploadDirect = await direct.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
   check('upload_asset applies under direct policy', uploadDirect.isError !== true && resultText(uploadDirect).includes('assetId'));
 
@@ -229,6 +265,20 @@ async function main(): Promise<void> {
   check('fail-safe recorded a suggestion', (await seed.listSuggestions(page.id)).length === suggestionsBeforeFs + 1);
   await fs.close();
   await proxy.close();
+
+  const readOnly = await connect(server.url);
+  await seed.setInstancePolicy({guestAccess: 'read'});
+  const readOnlyCalls = [
+    await readOnly.client.callTool({name: 'create_database', arguments: {title: 'Refused DB'}}),
+    await readOnly.client.callTool({name: 'update_database', arguments: {pageId: dbHost.id, name: 'Refused rename'}}),
+    await readOnly.client.callTool({name: 'create_property', arguments: {pageId: dbHost.id, name: 'Refused property', type: 'text'}}),
+    await readOnly.client.callTool({name: 'update_property', arguments: {pageId: dbHost.id, propertyId: textProp.id, name: 'Refused text'}}),
+    await readOnly.client.callTool({name: 'update_row', arguments: {pageId: dbHost.id, rowId: row.id, name: 'Refused row'}}),
+    await readOnly.client.callTool({name: 'delete_row', arguments: {pageId: dbHost.id, rowId: row.id}}),
+  ];
+  check('all six API-9 database writes return typed refusals on a read-only instance', readOnlyCalls.every((result) =>
+    result.isError === true && resultText(result).includes('[permission_denied]')));
+  await readOnly.close();
 
   await server.close();
   rmSync(DATA_DIR, {recursive: true, force: true});

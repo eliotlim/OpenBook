@@ -279,6 +279,12 @@ export interface AgentProposal {
     | 'set_page_theme'
     | 'delete_block'
     | 'set_block_props'
+    | 'create_database'
+    | 'update_database'
+    | 'create_property'
+    | 'update_property'
+    | 'update_row'
+    | 'delete_row'
     | TableOpKind;
   /** One-line human summary, e.g. `Set "budget" = 1200`. */
   summary: string;

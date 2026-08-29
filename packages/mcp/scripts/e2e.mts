@@ -188,6 +188,21 @@ async function main(): Promise<void> {
   check('unknown block types are rejected', badType.isError === true && resultText(badType).includes('iframe'));
 
   console.log('\nDatabase tools');
+  const describeDb = await client.callTool({name: 'describe_database', arguments: {pageId: dbHost.id}});
+  check('describe_database is callable in the handshake', resultText(describeDb).includes(database.id));
+  const createDb = await client.callTool({name: 'create_database', arguments: {title: 'Handshake database'}});
+  check('create_database is callable in the handshake', resultText(createDb).includes('Suggested for review'));
+  const updateDb = await client.callTool({name: 'update_database', arguments: {pageId: dbHost.id, name: 'Tasks renamed'}});
+  check('update_database is callable in the handshake', resultText(updateDb).includes('Suggested for review'));
+  const createProp = await client.callTool({name: 'create_property', arguments: {pageId: dbHost.id, name: 'Estimate', type: 'number'}});
+  check('create_property is callable in the handshake', resultText(createProp).includes('Suggested for review'));
+  const existingProperty = database.schema.properties[0];
+  const updateProp = await client.callTool({name: 'update_property', arguments: {pageId: dbHost.id, propertyId: existingProperty.id, name: 'Title text'}});
+  check('update_property is callable in the handshake', resultText(updateProp).includes('Suggested for review'));
+  const updateDbRow = await client.callTool({name: 'update_row', arguments: {pageId: dbHost.id, rowId: seededRow.id, name: 'Edited task'}});
+  check('update_row is callable in the handshake', resultText(updateDbRow).includes('Suggested for review'));
+  const deleteDbRow = await client.callTool({name: 'delete_row', arguments: {pageId: dbHost.id, rowId: seededRow.id}});
+  check('delete_row is callable in the handshake', resultText(deleteDbRow).includes('Suggested for review'));
   const rows = await client.callTool({name: 'list_database_rows', arguments: {pageId: dbHost.id}});
   check('list_database_rows lists the seeded row', resultText(rows).includes('Write the report'));
 

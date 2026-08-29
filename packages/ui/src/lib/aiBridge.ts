@@ -13,6 +13,9 @@ import {
   type AgentProposal,
   type AppendBlock,
   type DataClient,
+  type DatabaseSchema,
+  type DatabaseUpdate,
+  type RowUpdate,
   type SnapshotTableView,
   type StoredSuggestion,
   type TableOpAddress,
@@ -154,7 +157,7 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 // so the live-vs-stored branching is unit-testable against the doc registry.
 
 /** The subset of the data client the agent write path calls. */
-export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage'>;
+export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage'>;
 
 /**
  * When deleting `found` would empty its table, the id of the TABLE to delete
@@ -480,6 +483,26 @@ const applyToStoredPage = async (client: ApplyClient, pageId: string, p: AgentPr
  */
 export const applyProposal = async (client: ApplyClient, p: AgentProposal): Promise<void> => {
   const payload = p.payload;
+  if (p.kind === 'create_database') {
+    await client.createDatabase({
+      pageId: String(payload.pageId),
+      name: String(payload.title),
+      schema: payload.schema as DatabaseSchema,
+    });
+    return;
+  }
+  if (p.kind === 'update_database' || p.kind === 'create_property' || p.kind === 'update_property') {
+    await client.updateDatabase(String(payload.databaseId), payload.patch as DatabaseUpdate);
+    return;
+  }
+  if (p.kind === 'update_row') {
+    await client.updateRow(String(payload.databaseId), String(payload.rowId), payload.patch as RowUpdate);
+    return;
+  }
+  if (p.kind === 'delete_row') {
+    await client.deletePage(String(payload.rowId));
+    return;
+  }
   if (p.kind === 'set_db_cell') {
     // DB cells are manual page properties — never in the editor CRDT.
     await client.updateRow(String(payload.databaseId), String(payload.rowId), {
