@@ -1419,6 +1419,25 @@ export const ja: PartialMessages = {
       edit: 'プロパティを編集…',
       delete: 'プロパティを削除',
     },
+    cellMenu: {
+      filterValue: 'フィルター：{name}{phrase}',
+      filterByDate: '日付でフィルター',
+      phrases: {
+        is: 'が{value}',
+        isQuoted: 'が「{value}」',
+        has: 'に{value}を含む',
+        isEmpty: 'が空',
+        isChecked: 'がチェック済み',
+        isUnchecked: 'が未チェック',
+      },
+      datePresets: {
+        today: '今日',
+        thisWeek: '今週',
+        thisMonth: '今月',
+        pastWeek: '過去1週間',
+        nextWeek: '次の1週間',
+      },
+    },
     addView: {
       hints: {
         table: '行と列 — 定番のグリッド',

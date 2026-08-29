@@ -2252,6 +2252,25 @@ export const en = {
       edit: 'Edit property…',
       delete: 'Delete property',
     },
+    cellMenu: {
+      filterValue: 'Filter: {name} {phrase}',
+      filterByDate: 'Filter by date',
+      phrases: {
+        is: 'is {value}',
+        isQuoted: 'is "{value}"',
+        has: 'has {value}',
+        isEmpty: 'is empty',
+        isChecked: 'is checked',
+        isUnchecked: 'is unchecked',
+      },
+      datePresets: {
+        today: 'Today',
+        thisWeek: 'This week',
+        thisMonth: 'This month',
+        pastWeek: 'Past week',
+        nextWeek: 'Next week',
+      },
+    },
     addView: {
       hints: {
         table: 'Rows and columns — the classic grid',

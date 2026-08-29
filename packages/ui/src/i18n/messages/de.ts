@@ -1426,6 +1426,25 @@ export const de: PartialMessages = {
       edit: 'Eigenschaft bearbeiten…',
       delete: 'Eigenschaft löschen',
     },
+    cellMenu: {
+      filterValue: 'Filtern: {name} {phrase}',
+      filterByDate: 'Nach Datum filtern',
+      phrases: {
+        is: 'ist {value}',
+        isQuoted: 'ist „{value}“',
+        has: 'enthält {value}',
+        isEmpty: 'ist leer',
+        isChecked: 'ist angehakt',
+        isUnchecked: 'ist nicht angehakt',
+      },
+      datePresets: {
+        today: 'Heute',
+        thisWeek: 'Diese Woche',
+        thisMonth: 'Dieser Monat',
+        pastWeek: 'Letzte Woche',
+        nextWeek: 'Nächste Woche',
+      },
+    },
     addView: {
       hints: {
         table: 'Zeilen und Spalten — das klassische Raster',

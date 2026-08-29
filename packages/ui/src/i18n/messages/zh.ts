@@ -1412,6 +1412,25 @@ export const zh: PartialMessages = {
       edit: '编辑属性…',
       delete: '删除属性',
     },
+    cellMenu: {
+      filterValue: '筛选：{name}{phrase}',
+      filterByDate: '按日期筛选',
+      phrases: {
+        is: '是{value}',
+        isQuoted: '是“{value}”',
+        has: '包含{value}',
+        isEmpty: '为空',
+        isChecked: '已勾选',
+        isUnchecked: '未勾选',
+      },
+      datePresets: {
+        today: '今天',
+        thisWeek: '本周',
+        thisMonth: '本月',
+        pastWeek: '过去一周',
+        nextWeek: '未来一周',
+      },
+    },
     addView: {
       hints: {
         table: '行与列 — 经典表格',
