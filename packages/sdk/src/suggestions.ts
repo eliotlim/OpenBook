@@ -67,7 +67,7 @@ export interface AuthoredIdentity {
  * them into ten kinds would buy the reviewer nothing and force every
  * `Record<SuggestionKind, …>` in the UI to grow ten entries.
  */
-export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme' | 'table-op';
+export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme' | 'table-op' | 'database-op';
 
 /** Lifecycle of a suggestion. */
 export type SuggestionStatus = 'open' | 'accepted' | 'rejected';

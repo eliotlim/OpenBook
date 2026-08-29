@@ -8,6 +8,9 @@ import {
   type AgentEditsMode,
   type AgentProposal,
   type DataClient,
+  type DatabaseSchema,
+  type DatabaseUpdate,
+  type RowUpdate,
   type SnapshotTableView,
   type StoredSuggestion,
   type TableOpAddress,
@@ -410,6 +413,27 @@ const applyToStoredPage = async (client: ApplyClient, pageId: string, p: AgentPr
  */
 export const applyProposal = async (client: ApplyClient, p: AgentProposal): Promise<void> => {
   const payload = p.payload;
+  const databaseClient = client as DataClient;
+  if (p.kind === 'create_database') {
+    await databaseClient.createDatabase({
+      pageId: String(payload.pageId),
+      name: String(payload.title),
+      schema: payload.schema as DatabaseSchema,
+    });
+    return;
+  }
+  if (p.kind === 'update_database' || p.kind === 'create_property' || p.kind === 'update_property') {
+    await databaseClient.updateDatabase(String(payload.databaseId), payload.patch as DatabaseUpdate);
+    return;
+  }
+  if (p.kind === 'update_row') {
+    await client.updateRow(String(payload.databaseId), String(payload.rowId), payload.patch as RowUpdate);
+    return;
+  }
+  if (p.kind === 'delete_row') {
+    await databaseClient.deletePage(String(payload.rowId));
+    return;
+  }
   if (p.kind === 'set_db_cell') {
     // DB cells are manual page properties — never in the editor CRDT.
     await client.updateRow(String(payload.databaseId), String(payload.rowId), {
