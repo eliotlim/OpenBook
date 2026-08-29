@@ -120,6 +120,10 @@ async function main(): Promise<void> {
   console.log('\nResolved suggest (instance suggest, page inherit) — writes create suggestions');
   const dflt = await connect(server.url);
 
+  const uploadSuggest = await dflt.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
+  check('upload_asset refuses suggest/read-only policy (bytes never become a suggestion)',
+    uploadSuggest.isError === true && resultText(uploadSuggest).includes('read-only'));
+
   const upd = await dflt.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'edited by mcp'}});
   check('update_block returns a "Suggested for review" result', resultText(upd).includes('Suggested for review'));
 
@@ -159,6 +163,9 @@ async function main(): Promise<void> {
   await seed.setInstancePolicy({agentEdits: 'direct'});
   const suggestionsBeforeDirect = (await seed.listSuggestions(page.id)).length;
   const direct = await connect(server.url);
+
+  const uploadDirect = await direct.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
+  check('upload_asset applies under direct policy', uploadDirect.isError !== true && resultText(uploadDirect).includes('assetId'));
 
   const updD = await direct.client.callTool({name: 'update_block', arguments: {pageId: page.id, blockId: 'b1', text: 'edited by instance direct'}});
   check('update_block confirms a direct write', resultText(updD).includes('Updated block') && resultText(updD).includes('directly'));
