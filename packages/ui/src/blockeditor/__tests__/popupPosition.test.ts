@@ -154,6 +154,23 @@ describe('observePopupPosition', () => {
     cleanup();
   });
 
+  it('clamps a centred toolbar inside the horizontal clipping boundary', () => {
+    viewport(1000, 600);
+    const clip = document.createElement('div');
+    vi.spyOn(clip, 'getBoundingClientRect').mockReturnValue(new DOMRect(120, 20, 500, 500));
+    let position: PopupPosition | undefined;
+    const cleanup = observePopupPosition({
+      popup: () => popup(200, 36),
+      anchor: () => new DOMRect(80, 100, 40, 40),
+      boundary: () => clip,
+      onPosition: (next) => (position = next),
+      options: INLINE_TOOLBAR_POSITION_OPTIONS,
+    });
+
+    expect(position?.left).toBe(128);
+    cleanup();
+  });
+
   it('re-clamps against the new viewport width on resize', () => {
     viewport(500, 600);
     let position: PopupPosition | undefined;

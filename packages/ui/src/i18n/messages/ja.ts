@@ -232,6 +232,8 @@ export const ja: PartialMessages = {
       deleteTable: 'テーブルを削除',
       mergeCells: 'セルを結合',
       splitCell: 'セルを分割',
+      rangeToolbar: '選択したセルの操作',
+      rangeToolbarMore: '選択したセルのその他の操作',
       deleteRowsN: '{n} 行を削除',
       deleteColumnsN: '{n} 列を削除',
     },

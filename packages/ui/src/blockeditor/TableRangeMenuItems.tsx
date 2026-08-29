@@ -174,7 +174,7 @@ export function rangeMenuItems(ctx: TableRangeMenuContext): RangeMenuItem[] {
   ];
 }
 
-const COLOUR_MENU: Array<{id: string | null; label: TKey}> = [
+export const RANGE_COLOUR_MENU: Array<{id: string | null; label: TKey}> = [
   {id: null, label: 'menu.colour.default'},
   ...COLOR_TOKENS.map((colour) => ({id: colour.id, label: `menu.colour.${colour.id}` as TKey})),
 ];
@@ -187,7 +187,7 @@ export const TableRangeMenuItems: React.FC<TableRangeMenuContext & {menu?: MenuC
       <Sub key={item.id}>
         <SubTrigger>{item.label}</SubTrigger>
         <SubContent className={MENU_WIDTH_SM}>
-          {COLOUR_MENU.map((colour) => (
+          {RANGE_COLOUR_MENU.map((colour) => (
             <Item key={colour.id ?? 'default'} onSelect={() => item.onPick(colour.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${colour.id ? `obe-hl-${colour.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
               {t(colour.label)}

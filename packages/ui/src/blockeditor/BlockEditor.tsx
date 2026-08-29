@@ -79,6 +79,7 @@ import {
   type CellSelection,
 } from './model';
 import {TableColResizer} from './TableColResizer';
+import {TableRangeToolbar} from './TableRangeToolbar';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
@@ -3247,6 +3248,11 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // Drop the range (TBL-6): the row/column deletes in the range menu invalidate
   // its coordinates, so the highlight must not survive them.
   const clearCellRangeSel = useCallback(() => cellCtx?.setSel(null), [cellCtx]);
+  const rangeKey = activeCellSel
+    ? `${activeCellSel.anchor.row}:${activeCellSel.anchor.col}:${activeCellSel.focus.row}:${activeCellSel.focus.col}`
+    : '';
+  const [rangeToolbarDismissed, setRangeToolbarDismissed] = useState(false);
+  useEffect(() => setRangeToolbarDismissed(false), [rangeKey]);
   // Shift-click a cell extends the range from its anchor (the live range's
   // anchor, else the focused cell of this table, else the clicked cell).
   // preventDefault stops the browser laying its own cross-cell native range.
@@ -3284,7 +3290,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   return (
     <div className={[showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap', activeCellSel && 'obe-cell-selecting'].filter(Boolean).join(' ')}>
-      <table ref={tableRef} className={hasWidths ? 'obe-table obe-table-fixed' : 'obe-table'}>
+      <table ref={tableRef} tabIndex={-1} className={hasWidths ? 'obe-table obe-table-fixed' : 'obe-table'}>
         <colgroup>
           {showHandles && <col className="obe-table-grip-host-col" style={{width: 0}} />}
           {columns.map((column, c) => <col key={column.id} style={renderedWidths[c] === null ? undefined : {width: `${renderedWidths[c]}px`}} />)}
@@ -3485,6 +3491,16 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           })}
         </tbody>
       </table>
+      {cellRect && isMultiCellRect(cellRect) && !editor.readOnly && !lockText && !rangeToolbarDismissed && (
+        <TableRangeToolbar
+          rect={cellRect}
+          tableId={id}
+          editor={editor}
+          tableRef={tableRef}
+          onClearRange={clearCellRangeSel}
+          onDismiss={() => setRangeToolbarDismissed(true)}
+        />
+      )}
       {!editor.readOnly && (
         <>
           <button

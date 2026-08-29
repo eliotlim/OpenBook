@@ -233,6 +233,8 @@ export const de: PartialMessages = {
       deleteTable: 'Tabelle löschen',
       mergeCells: 'Zellen verbinden',
       splitCell: 'Zelle teilen',
+      rangeToolbar: 'Aktionen für ausgewählte Zellen',
+      rangeToolbarMore: 'Weitere Aktionen für ausgewählte Zellen',
       deleteRowsN: '{n} Zeilen löschen',
       deleteColumnsN: '{n} Spalten löschen',
     },

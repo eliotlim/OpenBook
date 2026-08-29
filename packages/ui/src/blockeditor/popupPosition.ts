@@ -132,6 +132,8 @@ export function observePopupPosition({
     const boundaryRect = boundary?.()?.getBoundingClientRect();
     const boundaryTop = Math.max(0, boundaryRect?.top ?? 0);
     const boundaryBottom = Math.min(window.innerHeight, boundaryRect?.bottom ?? window.innerHeight);
+    const boundaryLeft = Math.max(0, boundaryRect?.left ?? 0);
+    const boundaryRight = Math.min(window.innerWidth, boundaryRect?.right ?? window.innerWidth);
     const available = {
       above: rect!.top - boundaryTop - availableSpaceInset,
       below: boundaryBottom - rect!.bottom - availableSpaceInset,
@@ -156,7 +158,10 @@ export function observePopupPosition({
           ? Math.min(rect!.bottom + anchorGap, boundaryBottom - viewportMargin - shownHeight)
           : rect!.bottom + anchorGap;
     const anchorLeft = align === 'center' ? rect!.left + rect!.width / 2 - width / 2 : rect!.left;
-    const left = Math.max(viewportMargin, Math.min(anchorLeft, window.innerWidth - width - viewportMargin));
+    const left = Math.max(
+      boundaryLeft + viewportMargin,
+      Math.min(anchorLeft, boundaryRight - width - viewportMargin),
+    );
 
     onPosition({left, top, maxHeight, placement});
   };

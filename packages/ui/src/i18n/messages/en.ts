@@ -376,6 +376,8 @@ export const en = {
       deleteTable: 'Delete table',
       mergeCells: 'Merge cells',
       splitCell: 'Split cell',
+      rangeToolbar: 'Selected cells actions',
+      rangeToolbarMore: 'More selected cells actions',
       deleteRowsN: 'Delete {n} rows',
       deleteColumnsN: 'Delete {n} columns',
     },
