@@ -25,6 +25,7 @@ import {
   invalidBlockProps,
   insertBlocks,
   isHttpUrl,
+  KIT_VALUE_BLOCK_TYPES,
   KNOWN_BLOCK_TYPE_IDS,
   MAX_BLOCK_DEPTH,
   MAX_BLOCK_NODES,
@@ -397,7 +398,6 @@ function submissionMarker(row: DatabaseRow, formId: string): {formId: string; su
 }
 
 const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle']);
 
 function varNameFromLabel(label: string): string {
   const cleaned = label.trim().replace(/[^A-Za-z0-9]+(.)?/g, (_, c?: string) => (c ? c.toUpperCase() : ''));
@@ -418,14 +418,26 @@ function inputValueOf(b: AnyJsonBlock): unknown {
   case 'number':
     return Number(p.value ?? 0);
   case 'textfield':
+  case 'longtext':
     return String(p.value ?? '');
   case 'radio':
   case 'dropdown':
     return p.value ?? null;
   case 'checklist':
     return Array.isArray(p.selected) ? p.selected : [];
+  case 'choicecards':
+  case 'searchselect':
+    return p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null);
+  case 'tagfield':
+    return Array.isArray(p.selected) ? p.selected : [];
+  case 'richtext':
+    return Array.isArray(p.runs)
+      ? p.runs.map((run) => run && typeof run === 'object' ? String((run as {t?: unknown}).t ?? '') : '').join('')
+      : '';
   case 'toggle':
     return Boolean(p.value ?? false);
+  case 'location':
+    return {lat: p.lat ?? null, lng: p.lng ?? null, label: p.labeltext ?? ''};
   default:
     return undefined;
   }
@@ -437,7 +449,7 @@ function kitValues(data: PageSnapshot | null | undefined): Record<string, unknow
   const scope: Record<string, unknown> = {};
   const walk = (list: AnyJsonBlock[]): void => {
     for (const b of list) {
-      if (b.type && INPUT_TYPES.has(b.type)) {
+      if (b.type && KIT_VALUE_BLOCK_TYPES.has(b.type)) {
         const name = publishedName(b);
         if (name && !(name in scope)) scope[name] = inputValueOf(b);
       }
@@ -459,10 +471,19 @@ function setKitValueInSnapshot(data: PageSnapshot, name: string, value: unknown)
   let applied = false;
   const walk = (list: AnyJsonBlock[]): void => {
     for (const b of list) {
-      if (!applied && b.type && INPUT_TYPES.has(b.type) && publishedName(b) === name) {
+      if (!applied && b.type && KIT_VALUE_BLOCK_TYPES.has(b.type) && publishedName(b) === name) {
         b.props = b.props ?? {};
-        if (b.type === 'checklist') b.props.selected = Array.isArray(value) ? value : [];
-        else b.props.value = value;
+        if (b.type === 'checklist' || b.type === 'tagfield' ||
+          ((b.type === 'choicecards' || b.type === 'searchselect') && b.props.multi)) {
+          b.props.selected = Array.isArray(value) ? value : [];
+        } else if (b.type === 'richtext') {
+          b.props.runs = [{t: String(value ?? '')}];
+        } else if (b.type === 'location') {
+          const location = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+          b.props.lat = location.lat;
+          b.props.lng = location.lng;
+          b.props.labeltext = String(location.label ?? '');
+        } else b.props.value = value;
         applied = true;
       }
       if (b.children) walk(b.children);
@@ -1640,7 +1661,7 @@ export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookM
     {
       title: 'Set a kit value',
       description:
-        'Set a named reactive input on a page (slider/number/toggle/textfield/radio/dropdown/checklist). Find names via get_kit_values. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
+        'Set a named reactive kit input on a page. Find names and current value shapes via get_kit_values. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         name: z.string().describe('The published input name (from get_kit_values).'),
