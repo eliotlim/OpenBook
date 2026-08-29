@@ -688,8 +688,8 @@ test('table range toolbar clears a dragged 2x2 selection', {tag: ['@editor', '@p
   await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, {steps: 10});
   await page.mouse.up();
 
-  await expect(page.getByRole('toolbar', {name: 'Selected cells actions'})).toBeVisible();
-  await page.getByRole('toolbar', {name: 'Selected cells actions'}).getByRole('button', {name: 'Clear contents'}).click();
+  await expect(page.getByRole('toolbar', {name: 'Cell selection actions'})).toBeVisible();
+  await page.getByRole('toolbar', {name: 'Cell selection actions'}).getByRole('button', {name: 'Clear contents'}).click();
   await expect.poll(() => textCells.evaluateAll((elements) => [0, 1, 3, 4].map((index) => elements[index].textContent))).toEqual(['', '', '', '']);
 });
 
