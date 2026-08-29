@@ -218,6 +218,21 @@ export {
   type DatabaseToolStore,
 } from './databaseTools';
 export {
+  PAGE_THEME_IDS,
+  PAGE_BACKGROUND_TOKENS,
+  PAGE_COVER_GRADIENT_IDS,
+  PageToolError,
+  buildPageAppearancePatch,
+  validatePageProperties,
+  setPageAppearanceTool,
+  getPagePropertiesTool,
+  setPagePropertiesTool,
+  movePageTool,
+  type PageAppearanceInput,
+  type PageToolErrorCode,
+  type PageToolStore,
+} from './pageTools';
+export {
   TITLE_PROPERTY_ID,
   FORM_PROPERTY_TYPE_WRITABILITY,
   FORM_ROW_VALIDATION_ERROR_CODES,

@@ -4,6 +4,7 @@ import {
   blockTreeError,
   buildDatabaseToolOptions,
   buildDatabaseToolProperty,
+  buildPageAppearancePatch,
   createDatabaseTool,
   createPropertyTool,
   DATABASE_TOOL_PROPERTY_TYPES,
@@ -14,6 +15,7 @@ import {
   findUnknownBlockType,
   invalidBlockProps,
   providerSettings,
+  movePageTool,
   resolveDatabaseToolRowValues,
   snapshotText,
   shortId,
@@ -195,6 +197,9 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
   set_page_theme: 'set-theme',
+  set_page_appearance: 'set-theme',
+  move_page: 'page-op',
+  set_page_properties: 'page-op',
   delete_block: 'delete',
   set_block_props: 'replace-text',
   create_database: 'database-op',
@@ -1040,6 +1045,7 @@ export class AgentRunner {
           };
           if (level(args.controlIntensity) !== undefined) theme.controlIntensity = level(args.controlIntensity);
           if (level(args.interfaceIntensity) !== undefined) theme.interfaceIntensity = level(args.interfaceIntensity);
+          if (Object.keys(theme).length > 0) buildPageAppearancePatch({theme});
           const coverGradientId =
             typeof args.cover === 'string' && COVER_GRADIENT_IDS.has(args.cover) ? args.cover : undefined;
           if (Object.keys(theme).length === 0 && !coverGradientId) {
@@ -1069,6 +1075,12 @@ export class AgentRunner {
    * create_page / the database tools), so it applies immediately.
    */
   private pageTools(): ToolDef[] {
+    const pageStore = () => ({
+      listPages: () => this.store.listPages(),
+      getPage: (id: string) => this.store.getPage(id),
+      setPageProperties: (id: string, properties: Record<string, unknown>) => this.store.setPageProperties(id, properties),
+      movePage: (id: string, move: {parentId: string | null; orderedIds: string[]}) => this.store.movePage(id, move.parentId, move.orderedIds),
+    });
     return [
       {
         name: 'move_page',
@@ -1097,14 +1109,16 @@ export class AgentRunner {
           const parentId = args.parentId === undefined ? page.parentId ?? null : args.parentId === null ? null : String(args.parentId);
           if (parentId === pageId) return 'A page cannot be its own parent.';
           if (parentId && !pages.some((p) => p.id === parentId)) return `Parent page "${parentId}" not found.`;
-          // The target parent's children, in order, with the moved page inserted.
-          const siblings = pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId).map((p) => p.id);
           const before = typeof args.beforePageId === 'string' ? args.beforePageId : '';
-          const at = before ? siblings.indexOf(before) : -1;
-          if (at >= 0) siblings.splice(at, 0, pageId);
-          else siblings.push(pageId);
-          const moved = await this.store.movePage(pageId, parentId, siblings);
-          if (!moved) return 'Could not move the page (it would create a cycle — a page cannot nest under its own descendant).';
+          try {
+            await movePageTool(pageStore(), {
+              pageId,
+              parentId,
+              ...(before ? {position: {index: Math.max(0, pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId).findIndex((p) => p.id === before))}} : {}),
+            });
+          } catch (error) {
+            return error instanceof Error ? error.message : 'Could not move the page.';
+          }
           this.pagesTouched = true;
           const where = parentId ? `under "${pages.find((p) => p.id === parentId)?.name ?? parentId}"` : 'to the top level';
           return `Moved "${page.name ?? 'Untitled'}" ${where}${before ? `, before ${before}` : ''}.`;
