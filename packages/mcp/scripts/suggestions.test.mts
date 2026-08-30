@@ -169,6 +169,15 @@ async function main(): Promise<void> {
   check('describe_database remains a read under suggest policy', resultText(dbDescription).includes(database.id));
   check('suggested update/delete row did not mutate', (await seed.listRows(database.id)).some((candidate) => candidate.id === row.id && candidate.name === 'A task'));
 
+  const pageSuggestCalls = [
+    await dflt.client.callTool({name: 'set_page_appearance', arguments: {pageId: page.id, icon: '✨'}}),
+    await dflt.client.callTool({name: 'move_page', arguments: {pageId: page.id, parentId: dbHost.id}}),
+    await dflt.client.callTool({name: 'set_page_properties', arguments: {pageId: page.id, properties: {sys_owner: 'Suggested'}}}),
+  ];
+  const pagePropertiesRead = await dflt.client.callTool({name: 'get_page_properties', arguments: {pageId: page.id}});
+  check('API-10 page writes suggest and get_page_properties remains a read',
+    pageSuggestCalls.every((result) => resultText(result).includes('Suggested for review')) && pagePropertiesRead.isError !== true);
+  check('suggested API-10 writes do not mutate', (await seed.getPage(page.id))?.parentId === null && !(await seed.getPage(page.id))?.properties.sys_owner);
   // Creation stays immediate regardless of policy (non-destructive, no target page).
   const created = await dflt.client.callTool({name: 'create_page', arguments: {title: 'New note', content: 'hi'}});
   const createdId = /id ([0-9a-f-]{36})/.exec(resultText(created))?.[1];
@@ -200,6 +209,13 @@ async function main(): Promise<void> {
   check('whitespace property name is refused under direct policy',
     directWhitespace.isError === true && resultText(directWhitespace).includes('[invalid_input]'));
   check('direct delete_row moved the row to trash', (await seed.listRows(directDb.id)).length === 0 && (await seed.listTrash()).some((candidate) => candidate.id === directRow.id));
+  const directPageCalls = [
+    await direct.client.callTool({name: 'set_page_appearance', arguments: {pageId: page.id, icon: '✅'}}),
+    await direct.client.callTool({name: 'move_page', arguments: {pageId: page.id, parentId: directDbHost.id}}),
+    await direct.client.callTool({name: 'set_page_properties', arguments: {pageId: page.id, properties: {sys_owner: 'Direct'}}}),
+    await direct.client.callTool({name: 'get_page_properties', arguments: {pageId: page.id}}),
+  ];
+  check('all four API-10 page tools succeed under direct policy', directPageCalls.every((result) => result.isError !== true));
   const uploadDirect = await direct.client.callTool({name: 'upload_asset', arguments: {pageId: page.id, mime: 'image/png', base64: 'YQ=='}});
   check('upload_asset applies under direct policy', uploadDirect.isError !== true && resultText(uploadDirect).includes('assetId'));
 
@@ -278,6 +294,14 @@ async function main(): Promise<void> {
   ];
   check('all six API-9 database writes return typed refusals on a read-only instance', readOnlyCalls.every((result) =>
     result.isError === true && resultText(result).includes('[permission_denied]')));
+  const readOnlyPageCalls = [
+    await readOnly.client.callTool({name: 'set_page_appearance', arguments: {pageId: page.id, icon: '❌'}}),
+    await readOnly.client.callTool({name: 'move_page', arguments: {pageId: page.id, parentId: null}}),
+    await readOnly.client.callTool({name: 'set_page_properties', arguments: {pageId: page.id, properties: {sys_owner: 'Refused'}}}),
+  ];
+  const readOnlyGet = await readOnly.client.callTool({name: 'get_page_properties', arguments: {pageId: page.id}});
+  check('API-10 writes refuse read-only while get_page_properties remains readable', readOnlyPageCalls.every((result) =>
+    result.isError === true && resultText(result).includes('[permission_denied]')) && readOnlyGet.isError !== true);
   await readOnly.close();
 
   await server.close();

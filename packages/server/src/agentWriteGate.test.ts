@@ -147,6 +147,16 @@ describe('agent-PAT write gate — 403 under resolved suggest (AGED-2)', () => {
     expect(rowEdit.status).toBe(403);
   });
 
+  it('refuses a PAT-driven move on a suggest-mode page', async () => {
+    const {id} = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const res = await app().request(`/api/pages/${id}/move`, {
+      method: 'PUT',
+      headers: {...bearer(await mintPat()), 'Content-Type': 'application/json'},
+      body: JSON.stringify({parentId: null, orderedIds: [id]}),
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('gates the version-restore route — a restore is a direct content rollback (AGED-2 review)', async () => {
     // Two distinct saves so the pre-save state is captured as a version to target.
     const {id} = await store.upsertPage({name: `p-${seq}`, data: snapWith('blk1', 'v1')});

@@ -1,6 +1,7 @@
 import type * as Y from 'yjs';
 import {richTextRuns, type RichTextInput} from '@book.dev/sdk';
 import {
+  buildMovePlan,
   findBlock as findSnapshotBlock,
   insertBlocks as insertSnapshotBlocks,
   moveBlock as moveSnapshotBlock,
@@ -157,7 +158,7 @@ export const getPageIdForDoc = (doc: Y.Doc): string | null => {
 // so the live-vs-stored branching is unit-testable against the doc registry.
 
 /** The subset of the data client the agent write path calls. */
-export type ApplyClient = Pick<DataClient, 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage'>;
+export type ApplyClient = Pick<DataClient, 'listPages' | 'updateRow' | 'getPage' | 'savePage' | 'createDatabase' | 'updateDatabase' | 'deletePage' | 'setPageProperties' | 'movePage'>;
 
 /**
  * When deleting `found` would empty its table, the id of the TABLE to delete
@@ -518,6 +519,16 @@ export const applyProposal = async (client: ApplyClient, p: AgentProposal): Prom
     // Appearance is a per-page viewing preference (localStorage), not CRDT
     // content — apply it directly here on the client.
     applyPageAppearance(pageId, payload);
+    return;
+  }
+  if (p.kind === 'set_page_appearance' || p.kind === 'set_page_properties') {
+    await client.setPageProperties(pageId, payload.properties as Record<string, unknown>);
+    return;
+  }
+  if (p.kind === 'move_page') {
+    const move = payload.move as {parentId: string | null; afterId?: string; index?: number};
+    const position = move.afterId !== undefined ? {afterId: move.afterId} : move.index !== undefined ? {index: move.index} : undefined;
+    await client.movePage(pageId, buildMovePlan(await client.listPages(), {pageId, parentId: move.parentId, position}));
     return;
   }
 
