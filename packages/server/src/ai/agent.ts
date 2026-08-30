@@ -19,6 +19,7 @@ import {
   CONTAINER_BLOCK_TYPES,
   findUnknownBlockType,
   invalidBlockProps,
+  KIT_VALUE_BLOCK_TYPES,
   providerSettings,
   movePageTool,
   resolveDatabaseToolRowValues,
@@ -1898,7 +1899,6 @@ function blockInfoById(
  * server side (no Yjs needed for a read). Returns {} for non-block pages.
  */
 const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle']);
 
 function varNameFromLabel(label: string): string {
   const cleaned = label.trim().replace(/[^A-Za-z0-9]+(.)?/g, (_, c?: string) => (c ? c.toUpperCase() : ''));
@@ -1919,16 +1919,26 @@ function inputValueOf(b: AnyJsonBlock): unknown {
   case 'number':
     return Number(p.value ?? 0);
   case 'textfield':
+  case 'longtext':
     return String(p.value ?? '');
   case 'radio':
   case 'dropdown':
     return p.value ?? null;
   case 'checklist':
     return Array.isArray(p.selected) ? p.selected : [];
+  case 'choicecards':
+  case 'searchselect':
+    return p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null);
+  case 'tagfield':
+    return Array.isArray(p.selected) ? p.selected : [];
+  case 'richtext':
+    return Array.isArray(p.runs)
+      ? p.runs.map((run) => run && typeof run === 'object' ? String((run as {t?: unknown}).t ?? '') : '').join('')
+      : '';
   case 'toggle':
     return Boolean(p.value ?? false);
   case 'location':
-    return {lat: p.lat ?? null, lng: p.lng ?? null, label: p.label ?? ''};
+    return {lat: p.lat ?? null, lng: p.lng ?? null, label: p.labeltext ?? ''};
   default:
     return undefined;
   }
@@ -1940,7 +1950,7 @@ function kitValues(data: {editor?: string; blockdoc?: unknown} | null | undefine
   const scope: Record<string, unknown> = {};
   const walk = (list: AnyJsonBlock[]): void => {
     for (const b of list) {
-      if (b.type && INPUT_TYPES.has(b.type)) {
+      if (b.type && KIT_VALUE_BLOCK_TYPES.has(b.type)) {
         const name = publishedName(b);
         if (name && !(name in scope)) scope[name] = inputValueOf(b);
       }

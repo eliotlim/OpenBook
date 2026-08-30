@@ -53,8 +53,7 @@ export interface BlockTypeInfo {
   readonly parent?: string;
   /** Agent-facing coarse summary; validation uses BLOCK_PROP_SCHEMAS. */
   readonly props?: Readonly<Record<string, BlockPropType>>;
-  /** Publishes a named value into the page's reactive kit scope (mirrors
-   *  `INPUT_TYPES` in packages/ui/src/blockeditor/kit/scope.ts). */
+  /** Publishes a named value into the page's reactive kit scope. */
   readonly kitValue?: boolean;
   /** One-line usage hint surfaced in tool descriptions / list_block_types. */
   readonly hint?: string;
@@ -99,7 +98,7 @@ const CATALOGUE_LITERAL = [
   {type: 'choicecards', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', opts: 'array', multi: 'boolean'}, hint: '{name,label?,value,opts:[{label,value,icon?}],multi?}'},
   {type: 'searchselect', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', opts: 'array', multi: 'boolean'}, hint: '{name,label?,value,opts,multi?}'},
   {type: 'tagfield', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', selected: 'array', freeEntry: 'boolean'}, hint: '{name,label?,selected:[],freeEntry?}'},
-  {type: 'location', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string'}, hint: '{name,label?}'},
+  {type: 'location', category: 'kit', nature: 'void', kitValue: true, props: {name: 'string', label: 'string', lat: 'number', lng: 'number', labeltext: 'string'}, hint: '{name,label?,lat?,lng?,labeltext?}'},
   // ── Kit actions + reactive display (consume the scope via `source`) ────────
   {type: 'actionbutton', category: 'kit', nature: 'void', props: {btnlabel: 'string', action: 'string', target: 'string', amount: 'number', url: 'string'}, hint: '{btnlabel,action:"increment"|"set"|"toggle"|"link",target?,amount?,url?}'},
   {type: 'kitchart', category: 'kit', nature: 'void', props: {kind: 'string', title: 'string', labels: 'string', source: 'string'}, hint: '{kind:"line"|"area"|"bar"|"pie"|"donut"|"scatter"|"funnel",title?,labels?,source}'},
@@ -128,6 +127,12 @@ export const blockTypeInfo = (type: string): BlockTypeInfo | undefined => byType
 
 /** Every catalogued (core + kit) type id. */
 export const KNOWN_BLOCK_TYPE_IDS: ReadonlySet<string> = new Set(byType.keys());
+
+/** Every catalogue type that publishes a named value into the reactive kit scope.
+ *  `progressbar` / `actionbutton` are deliberately not inputs: display/action blocks read scope but never publish. */
+export const KIT_VALUE_BLOCK_TYPES: ReadonlySet<string> = new Set(
+  BLOCK_TYPE_CATALOGUE.filter((entry) => entry.kitValue === true).map((entry) => entry.type),
+);
 
 /** Core types whose `children` hold ordinary blocks. */
 export const CONTAINER_BLOCK_TYPES: ReadonlySet<CoreBlockType> = new Set(

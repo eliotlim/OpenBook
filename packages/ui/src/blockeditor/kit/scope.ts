@@ -1,4 +1,5 @@
 import type * as Y from 'yjs';
+import {KIT_VALUE_BLOCK_TYPES} from '@book.dev/sdk';
 import {blockChildren, blockId, blockProp, blockType, rootBlocks, setBlockProp, type TextRun, walkBlocks, type BlockMap} from '../model';
 import {varNameFromLabel} from './options';
 import {containerCompletions} from './completion';
@@ -31,17 +32,8 @@ export function publishedName(block: BlockMap): string {
   return derived && NAME_RE.test(derived) ? derived : '';
 }
 
-/** Block types that publish a named value into the scope. Deliberately NOT
- *  here despite looking input-ish in the slash menu: `progressbar` (displays a
- *  computed expression — a consumer, like charts/status lights) and
- *  `actionbutton` (mutates OTHER inputs; publishes nothing itself). */
-export const INPUT_TYPES = new Set([
-  'slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle',
-  // June-2026 additions (kit/inputs2.tsx). Choice cards publish single|multi like
-  // radio/checklist; the two long-text variants publish a plain string; the
-  // searchable select / tag field publish single|multi like dropdown/checklist.
-  'choicecards', 'longtext', 'richtext', 'searchselect', 'tagfield',
-]);
+/** Block types that publish a named value into the scope, derived from the SDK catalogue. */
+export const INPUT_TYPES = KIT_VALUE_BLOCK_TYPES;
 
 /**
  * The reactive namespace a group publishes under — a legal identifier derived
@@ -115,7 +107,7 @@ export function inputValue(block: BlockMap): unknown {
   case 'location': {
     const lat = blockProp<number>(block, 'lat');
     const lng = blockProp<number>(block, 'lng');
-    return {lat: lat ?? null, lng: lng ?? null, label: blockProp<string>(block, 'label') ?? ''};
+    return {lat: lat ?? null, lng: lng ?? null, label: blockProp<string>(block, 'labeltext') ?? ''};
   }
   default:
     return undefined;
@@ -173,7 +165,12 @@ export function setInputValue(block: BlockMap, value: unknown): void {
     setBlockProp(block, 'runs', [{t: String(value ?? '')}]);
     break;
   case 'location':
-    // Composite value — left to its own controls for now.
+    if (value && typeof value === 'object') {
+      const location = value as {lat?: unknown; lng?: unknown; label?: unknown};
+      setBlockProp(block, 'lat', location.lat);
+      setBlockProp(block, 'lng', location.lng);
+      setBlockProp(block, 'labeltext', String(location.label ?? ''));
+    }
     break;
   default:
     setBlockProp(block, 'value', value);
