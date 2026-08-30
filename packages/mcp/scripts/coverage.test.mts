@@ -9,6 +9,7 @@ import {join, relative, resolve} from 'node:path';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
+  BLOCK_PROP_JSON_SCHEMAS,
   BLOCK_TYPE_CATALOGUE,
   CHILD_ONLY_PARENT,
   HttpDataClient,
@@ -62,12 +63,82 @@ function ledgerPackage(): {manifest: PluginManifest; files: Record<string, strin
   return {manifest, files};
 }
 
-const validValue = (kind: BlockPropType): unknown => ({
+const fallbackValidValue = (kind: BlockPropType): unknown => ({
   string: 'coverage', number: 1, boolean: true, array: [], object: {},
 })[kind];
 const invalidValue = (kind: BlockPropType): unknown => ({
   string: 7, number: 'wrong', boolean: 'wrong', array: {}, object: [],
 })[kind];
+
+type JsonSchema = {
+  type?: string;
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  minItems?: number;
+  items?: JsonSchema;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+};
+
+function validSchemaValue(schema: JsonSchema, path: string): unknown {
+  if (schema.enum?.length) return schema.enum[0];
+  switch (schema.type) {
+    case 'number':
+    case 'integer': {
+      const ceiling = schema.maximum ?? Number.POSITIVE_INFINITY;
+      const preferred = schema.minimum ?? Math.min(1, ceiling);
+      const value = schema.type === 'integer' ? Math.ceil(preferred) : preferred;
+      const upperBound = schema.type === 'integer' ? Math.floor(ceiling) : ceiling;
+      assert.ok(value <= upperBound, `${path} has no value between minimum and maximum`);
+      return value;
+    }
+    case 'boolean': return true;
+    case 'string': {
+      const formatted: Record<string, string> = {
+        'openbook-expression': 'coverage',
+        email: 'coverage@example.com',
+        uri: 'https://example.com',
+        uuid: '00000000-0000-4000-8000-000000000000',
+        date: '2026-01-01',
+        'date-time': '2026-01-01T00:00:00Z',
+      };
+      if (schema.format && !formatted[schema.format]) throw new Error(`${path} uses unsupported string format ${schema.format}`);
+      const candidates = [schema.format ? formatted[schema.format] : undefined, 'coverage', '1px', '1%', '1', 'a'].filter((value): value is string => value !== undefined);
+      const pattern = schema.pattern ? new RegExp(schema.pattern) : undefined;
+      const value = candidates.find((candidate) =>
+        candidate.length >= (schema.minLength ?? 0)
+        && candidate.length <= (schema.maxLength ?? Number.POSITIVE_INFINITY)
+        && (!pattern || pattern.test(candidate)));
+      if (value === undefined) throw new Error(`${path} has no generically satisfiable string literal`);
+      return value;
+    }
+    case 'array': {
+      const count = schema.minItems ?? 0;
+      if (count > 0 && !schema.items) throw new Error(`${path} requires array items but declares no item schema`);
+      return Array.from({length: count}, (_, index) => validSchemaValue(schema.items!, `${path}[${index}]`));
+    }
+    case 'object':
+      return Object.fromEntries((schema.required ?? []).map((key) => {
+        const child = schema.properties?.[key];
+        if (!child) throw new Error(`${path} requires ${key} but declares no property schema`);
+        return [key, validSchemaValue(child, `${path}.${key}`)];
+      }));
+    default: throw new Error(`${path} uses unsupported schema type ${String(schema.type)}`);
+  }
+}
+
+function validPropValue(info: BlockTypeInfo, key: string, fallback: BlockPropType): unknown {
+  const schema = BLOCK_PROP_JSON_SCHEMAS[info.type as keyof typeof BLOCK_PROP_JSON_SCHEMAS];
+  if (!schema) return fallbackValidValue(fallback);
+  const propSchema = schema?.properties[key] as JsonSchema | undefined;
+  if (!propSchema) throw new Error(`${info.type}.${key} is missing from its typed prop schema`);
+  return validSchemaValue(propSchema, `${info.type}.${key}`);
+}
 
 type WireBlock = {type: string; text?: string; props?: Record<string, unknown>; children?: WireBlock[]};
 
@@ -75,7 +146,7 @@ function targetBlock(info: BlockTypeInfo, marker: string): WireBlock {
   const props: Record<string, unknown> = {_coverage: marker};
   if (info.kitValue) {
     props.name = `coverage_${info.type}`;
-    if (info.props?.value) props.value = validValue(info.props.value);
+    if (info.props?.value) props.value = validPropValue(info, 'value', info.props.value);
     if (info.props?.selected) props.selected = [];
     if (info.props?.runs) props.runs = [];
   }
@@ -167,7 +238,7 @@ async function main(): Promise<void> {
       await run(info.type, 'props', async () => {
         const declared = Object.entries(info.props ?? {}).find(([key]) =>
           !(info.type === 'form' && key === 'submissionKey') && !(info.kitValue && key === 'name'));
-        const props = declared ? {[declared[0]]: validValue(declared[1])} : {bg: 'coverage'};
+        const props = declared ? {[declared[0]]: validPropValue(info, declared[0], declared[1])} : {bg: validPropValue(info, 'bg', 'string')};
         await callOk('update_block_props', {pageId: page.id, blockId: target.id, props});
         if (declared) {
           const bad = await mcp.client.callTool({name: 'update_block_props', arguments: {pageId: page.id, blockId: target.id, props: {[declared[0]]: invalidValue(declared[1])}}});

@@ -67,6 +67,11 @@ describe('registry ↔ catalogue drift guard', () => {
     expect(CONTAINER_BLOCKS).toBe(CONTAINER_BLOCK_TYPES);
   });
 
+  it('kit-value support mirrors the scope INPUT_TYPES', () => {
+    const declared = new Set(BLOCK_TYPE_CATALOGUE.filter((e) => e.kitValue).map((e) => e.type));
+    expect([...INPUT_TYPES].sort()).toEqual([...declared].sort());
+  });
+
   it('every scope input type has a value reader', () => {
     for (const type of INPUT_TYPES) {
       const doc = createDoc([{type, props: {name: `coverage_${type}`}}]);
