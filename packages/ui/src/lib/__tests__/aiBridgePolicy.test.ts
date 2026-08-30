@@ -65,6 +65,13 @@ function makeClient(opts: {
     createDatabase: vi.fn(async () => ({}) as never),
     updateDatabase: vi.fn(async () => ({}) as never),
     deletePage: vi.fn(async () => true),
+    listPages: vi.fn(async () => [
+      {id: 'parent', name: 'Parent', parentId: null},
+      {id: 'existing', name: 'Existing', parentId: 'parent'},
+      {id: 'page-1', name: 'Page 1', parentId: null},
+    ] as never),
+    movePage: vi.fn(async () => ({} as never)),
+    setPageProperties: vi.fn(async () => ({} as never)),
     getPage: vi.fn(async () => opts.storedPage ?? null),
     savePage: vi.fn(async (input: PageInput) => {
       saved.push(input);
@@ -93,6 +100,22 @@ describe('database suggestions: accept replays the recorded operation payload', 
   });
 });
 
+describe('API-10 page suggestions: accept replays the recorded operation payload', () => {
+  const suggestion = (applyKind: string, payload: Record<string, unknown>): StoredSuggestion => ({
+    id: `s-${applyKind}`, pageId: 'page-1', authorKind: 'ai', authorName: 'MCP client', kind: applyKind === 'set_page_appearance' ? 'set-theme' : 'page-op',
+    target: {}, before: '', after: '', status: 'open', payload: {applyKind, pageId: 'page-1', ...payload}, createdAt: '', updatedAt: '',
+  });
+
+  it.each([
+    ['set_page_appearance', 'setPageProperties', {properties: {sys_icon: '✨'}}, ['page-1', {sys_icon: '✨'}]],
+    ['set_page_properties', 'setPageProperties', {properties: {sys_owner: 'Ada'}}, ['page-1', {sys_owner: 'Ada'}]],
+    ['move_page', 'movePage', {move: {parentId: 'parent', afterId: 'existing'}}, ['page-1', {parentId: 'parent', orderedIds: ['existing', 'page-1']}]],
+  ] as const)('%s calls %s with the recorded payload', async (kind, method, payload, expectedArgs) => {
+    const client = makeClient({pagePolicy: () => 'inherit'});
+    await applyProposal(client, suggestionToProposal(suggestion(kind, payload)));
+    expect(client[method]).toHaveBeenCalledWith(...expectedArgs);
+  });
+});
 describe('AGED-4 routeAiSuggestions: resolved-direct applies immediately', () => {
   it('OPEN editor → mutates the live doc and deletes the review row (no suggestion kept)', async () => {
     const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);

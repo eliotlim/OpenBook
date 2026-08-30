@@ -135,6 +135,15 @@ async function main(): Promise<void> {
   const createdId = /id ([0-9a-f-]{36})/.exec(resultText(created))?.[1];
   check('create_page returns the new id', Boolean(createdId));
 
+  const appearance = await client.callTool({name: 'set_page_appearance', arguments: {pageId: createdId!, icon: '📘', theme: {themeId: 'ocean'}}});
+  check('set_page_appearance is available through the handshake', resultText(appearance).includes('Suggested for review'));
+  const move = await client.callTool({name: 'move_page', arguments: {pageId: createdId!, parentId: note.id, position: {index: 0}}});
+  check('move_page is available through the handshake', resultText(move).includes('Suggested for review'));
+  const setProperties = await client.callTool({name: 'set_page_properties', arguments: {pageId: createdId!, properties: {sys_owner: 'MCP'}}});
+  check('set_page_properties is available through the handshake', resultText(setProperties).includes('Suggested for review'));
+  const getProperties = await client.callTool({name: 'get_page_properties', arguments: {pageId: createdId!}});
+  check('get_page_properties is available through the handshake', getProperties.isError !== true && resultText(getProperties).includes('properties'));
+
   // Write tools now route through the review layer by DEFAULT: append_to_page
   // records an `insert` suggestion (applyKind append_blocks) rather than mutating.
   const append = await client.callTool({name: 'append_to_page', arguments: {pageId: createdId!, content: 'Appended line.'}});

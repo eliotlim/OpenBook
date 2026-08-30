@@ -5,6 +5,11 @@ import {
   blockTreeError,
   buildDatabaseToolOptions,
   buildDatabaseToolProperty,
+  buildPageAppearancePatch,
+  PAGE_BACKGROUND_TOKENS,
+  PAGE_COVER_GRADIENT_IDS,
+  PAGE_THEME_IDS,
+  THEME_PROPERTY_ID,
   createDatabaseTool,
   createPropertyTool,
   DATABASE_TOOL_PROPERTY_TYPES,
@@ -15,6 +20,7 @@ import {
   findUnknownBlockType,
   invalidBlockProps,
   providerSettings,
+  movePageTool,
   resolveDatabaseToolRowValues,
   richTextRuns,
   snapshotText,
@@ -207,6 +213,9 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
   set_page_theme: 'set-theme',
+  set_page_appearance: 'set-theme',
+  move_page: 'page-op',
+  set_page_properties: 'page-op',
   delete_block: 'delete',
   set_block_props: 'replace-text',
   create_database: 'database-op',
@@ -1104,13 +1113,15 @@ export class AgentRunner {
           };
           if (level(args.controlIntensity) !== undefined) theme.controlIntensity = level(args.controlIntensity);
           if (level(args.interfaceIntensity) !== undefined) theme.interfaceIntensity = level(args.interfaceIntensity);
+          const patch = Object.keys(theme).length > 0 ? buildPageAppearancePatch({theme}) : {};
+          const proposalTheme = patch[THEME_PROPERTY_ID] as Record<string, unknown> | undefined;
           const coverGradientId =
             typeof args.cover === 'string' && COVER_GRADIENT_IDS.has(args.cover) ? args.cover : undefined;
           if (Object.keys(theme).length === 0 && !coverGradientId) {
             return `Nothing to set. Themes: ${[...THEME_IDS].join(', ')}. Backgrounds: ${[...BACKGROUND_TOKENS].join(', ')}. Covers: ${[...COVER_GRADIENT_IDS].join(', ')}.`;
           }
           const parts = [
-            ...Object.entries(theme).map(([k, v]) => `${k}=${v}`),
+            ...Object.entries(proposalTheme ?? {}).map(([k, v]) => `${k}=${v}`),
             ...(coverGradientId ? [`cover=${coverGradientId}`] : []),
           ];
           return this.propose({
@@ -1118,7 +1129,7 @@ export class AgentRunner {
             summary: `Restyle "${page.name ?? 'Untitled'}": ${parts.join(', ')}`,
             pageId,
             after: parts.join(', '),
-            payload: {pageId, ...(Object.keys(theme).length ? {theme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
+            payload: {pageId, ...(proposalTheme ? {theme: proposalTheme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
           });
         },
       },
@@ -1133,6 +1144,12 @@ export class AgentRunner {
    * create_page / the database tools), so it applies immediately.
    */
   private pageTools(): ToolDef[] {
+    const pageStore = () => ({
+      listPages: () => this.store.listPages(),
+      getPage: (id: string) => this.store.getPage(id),
+      setPageProperties: (id: string, properties: Record<string, unknown>) => this.store.setPageProperties(id, properties),
+      movePage: (id: string, move: {parentId: string | null; orderedIds: string[]}) => this.store.movePage(id, move.parentId, move.orderedIds),
+    });
     return [
       {
         name: 'move_page',
@@ -1161,14 +1178,18 @@ export class AgentRunner {
           const parentId = args.parentId === undefined ? page.parentId ?? null : args.parentId === null ? null : String(args.parentId);
           if (parentId === pageId) return 'A page cannot be its own parent.';
           if (parentId && !pages.some((p) => p.id === parentId)) return `Parent page "${parentId}" not found.`;
-          // The target parent's children, in order, with the moved page inserted.
-          const siblings = pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId).map((p) => p.id);
           const before = typeof args.beforePageId === 'string' ? args.beforePageId : '';
-          const at = before ? siblings.indexOf(before) : -1;
-          if (at >= 0) siblings.splice(at, 0, pageId);
-          else siblings.push(pageId);
-          const moved = await this.store.movePage(pageId, parentId, siblings);
-          if (!moved) return 'Could not move the page (it would create a cycle — a page cannot nest under its own descendant).';
+          const siblings = pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId);
+          const at = siblings.findIndex((p) => p.id === before);
+          try {
+            await movePageTool(pageStore(), {
+              pageId,
+              parentId,
+              ...(before && at >= 0 ? {position: {index: at}} : {}),
+            });
+          } catch (error) {
+            return error instanceof Error ? error.message : 'Could not move the page.';
+          }
           this.pagesTouched = true;
           const where = parentId ? `under "${pages.find((p) => p.id === parentId)?.name ?? parentId}"` : 'to the top level';
           return `Moved "${page.name ?? 'Untitled'}" ${where}${before ? `, before ${before}` : ''}.`;
@@ -1737,12 +1758,10 @@ const resolveRowValues = (schema: Parameters<typeof resolveDatabaseToolRowValues
 
 // ── Layout / rich-block + appearance helpers ─────────────────────────────────────
 
-/** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
-const THEME_IDS = new Set<string>([
-  'default', 'amber', 'forest', 'graphite', 'ocean', 'rose', 'sandstone', 'slate', 'sunset', 'teal', 'violet',
-]);
-const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
-const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);
+/** Per-page theme values the agent may set (shared with SDK consumers and UI). */
+const THEME_IDS = new Set<string>(PAGE_THEME_IDS);
+const BACKGROUND_TOKENS = new Set<string>(PAGE_BACKGROUND_TOKENS);
+const COVER_GRADIENT_IDS = new Set<string>(PAGE_COVER_GRADIENT_IDS);
 
 /** A short "type ×n" summary of a block list (for the review card). */
 function summarizeBlocks(blocks: unknown[]): string {
