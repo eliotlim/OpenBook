@@ -12,10 +12,16 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `read_page` | Read one page's title and full text. |
 | `search_notes` | Ranked search with snippets over every page's content. |
 | `create_page` | Create a page from a title and plain-text body. |
+| `set_page_appearance` | Set validated icon, cover, theme, and full-width page appearance. |
+| `move_page` | Reparent and reorder a page without allowing tree cycles. |
+| `get_page_properties` | Read a page's structured metadata properties. |
+| `set_page_properties` | Set validated writable page metadata properties. |
 | `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
 | `upload_asset` | Upload a raster image (or inert binary for `htmlArtifact`) and return its `assetId`. Requires direct-write policy; bytes never enter suggestions. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
 | `inspect_page_structure` | Show a page's block TREE — ids, types, short text, props — including nested blocks. Read this before editing blocks. |
+| `list_block_types` | Return every block type with a one-line description and strict JSON prop schema. |
+| `get_kit_values` | Read the current named values published by interactive kit inputs. |
 | `append_blocks` | Append typed blocks to a block-editor page. Blocks **nest**: a container carries its contents in `children`, so one call builds a whole table (`table → row → cell`) or a two-column layout (`columns → column`). Capped at 8 levels / 400 blocks per call. |
 | `insert_blocks` | Insert recursive blocks at a precise root/container `index` or after a sibling id. The destination must accept children; insertion into `table` / `row` / `cell` is refused in favour of `table_*` tools. Uses the same 8-level / 400-block caps as `append_blocks`. |
 | `move_block` | Reorder or reparent a block by destination `index` or sibling id. Refuses unknown ids, cycles, invalid containers, and every move into/out of/within `table` / `row` / `cell` (use `table_*` tools). |
@@ -31,13 +37,75 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |
 | `describe_database` | Return a database's schema, first 40 row identities, and total row count. |
-| `create_database` | Creates the host page immediately (like `create_page`); under Suggest the schema itself is queued for review. |
-| `update_database` | Rename a database by its host page id. |
-| `create_property` | Add a validated manual property and return its generated id. |
-| `update_property` | Rename a property and/or replace its select-style options. |
-| `update_row` | Update a row title and validated cells while preserving other values. |
+| `create_database` | Create a database on a new host page, optionally with initial manual properties. |
+| `update_database` | Rename the database hosted by a page. |
+| `create_property` | Add a validated manual property to a database schema. |
+| `update_property` | Rename a property and/or replace select-style options. |
+| `update_row` | Update a row title and/or validated property values without changing other cells. |
 | `delete_row` | Move a database row page to the recoverable trash. |
+| `list_db_views` | List a database's views and their identifiers. |
+| `get_db_row` | Read one database row and its properties/exports. |
+| `set_db_cell` | Set one database row property. |
+| `list_forms` | List readable form blocks without exposing submission keys. |
+| `get_form_schema` | Read a form's field schema and settings. |
+| `update_form_field` | Add, update, remove, or reorder a form field. |
+| `set_form_settings` | Change a form's enabled state, label, description, or database binding. |
+| `list_form_submissions` | List submissions for a form. |
+| `set_kit_value` | Set a named interactive-kit input value. |
+| `table_set_column_width` | Set or clear a table column's width in pixels. |
 
+## Block prop reference
+
+Call `list_block_types` for the machine-readable source of truth: every entry has `description` and a typed `propsSchema`. All props are optional when creating or patching a block; `null` removes a prop. Unknown keys pass through for forward compatibility. Every block also accepts `bg:string`.
+
+| Types | Props |
+| --- | --- |
+| `paragraph`, `quote`, `notes`, `divider`, `columns`, `table`, `cell`, `tabs` | No type-specific props. Text-nature blocks carry content in `text`, not props. |
+| `heading` | `level:number` (1–3) |
+| `list` | `kind:"bullet"\|"number"` |
+| `todo` | `checked:boolean` |
+| `callout` | `variant:"info"\|"warn"\|"success"` |
+| `code` | `language:string`, `live:boolean`, `name:string`, `collapsed:boolean` |
+| `image` | `assetId:string` or `src:string`, `alt:string`, `caption:string`, `width:string` (CSS length, e.g. `"60%"` or `"320px"`) |
+| `htmlArtifact` | `assetId:string`, `title:string`, `height:number` (CSS px, 120–1200) |
+| `column` | `span:number` (1–12) |
+| `row` | `header:boolean` |
+| `group` | `name:string`, `locked:boolean` |
+| `tab` | `label:string` |
+| `accordion` | `name:string`, `gated:boolean` |
+| `accordionsection` | `label:string`, `collapsed:boolean` |
+| `slider`, `number` | `name`, `label`, `description`: string; `value`, `min`, `max`, `step`: number; `compact`, `interactive`: boolean |
+| `textfield`, `longtext` | shared input strings plus `value:string`, `placeholder:string` |
+| `richtext` | shared input props, `placeholder:string`, `runs:[{t:string,a?:{b?,i?,u?,s?,c?:boolean,a?:string}}]` |
+| `toggle` | shared input props, `value:boolean` |
+| `radio`, `dropdown` | shared input props, `value:string`, `opts:[{label:string,value?,image?,icon?,color?:string}]`; legacy `options:string` is accepted |
+| `checklist` | radio props plus `selected:string[]` |
+| `choicecards` | option props plus `selected:string[]`, `multi:boolean` |
+| `searchselect` | option props plus `selected:string[]`, `multi:boolean`, `dynamic:expression` |
+| `tagfield` | shared input props, `selected:string[]`, options, `dynamic:expression`, `freeEntry:boolean` |
+| `location` | shared input props, `labeltext:string`, `lat:number` (-90–90), `lng:number` (-180–180) |
+| `actionbutton` | shared frame props; `btnlabel:string`, `action:"increment"\|"set"\|"toggle"\|"link"`, `target:string`, `amount:number`, `url:string` |
+| `kitchart` | shared frame props; `kind:"line"\|"area"\|"bar"\|"pie"\|"donut"\|"scatter"\|"funnel"`, `title:string`, `source:expression`, `labels:string`; database-source fields are in its returned schema |
+| `statuslight` | shared frame props; `source:expression`, `okAt:number`, `warnAt:number` |
+| `progressbar` | shared frame props; `source:expression`, `max:number`, `format:string` |
+| `formula` | shared frame props; `source:expression` |
+| `linkcard` | `title:string`, `url:string`, `description:string` |
+| `tooltipcard` | `term:string`, `tip:string` |
+| `dbview` | `pageId:string` |
+| `dbform` | `databaseId:string`, `viewId:string` |
+| `form` | `formId:string`, `submissionKey:string`, `enabled:boolean`, `databaseId:string`, `schema:object`, `label:string`, `description:string` |
+
+Shared input/frame props are `name`, `label`, and `description` strings plus `compact` and `interactive` booleans. A structured option's `value` defaults to a slug of its `label`; `selected` contains those string values.
+
+### Reactive expression grammar
+
+`source` and `dynamic` are expressions; `kitchart.labels` is a plain comma-separated string. Expressions are non-empty JavaScript expressions (maximum 4096 characters), evaluated in a QuickJS sandbox. Input names are identifiers matching `[A-Za-z_$][A-Za-z0-9_$]*` and are available as bare names or through `scope`; normal literals, arrays, objects, property access, arithmetic, comparisons, boolean/ternary operators, built-in array/string methods, and `Math`/`JSON`/`Number` idioms work. Named groups publish `group.field.value`. Expressions cannot access the browser/Node environment, and execution is time- and memory-limited. Use a single expression, not statements.
+
+- Kitchart: inputs `revenue` and `cost` → `{"source":"[revenue, cost]","labels":"Revenue, Cost"}`.
+- Status light: `{"source":"budget - spent","okAt":0,"warnAt":-20}`.
+- Formula: `{"source":"subtotal * (1 + taxRate)"}`.
+
+For media, follow [Images via MCP](#images-via-mcp) and upload the asset before appending `image` or `htmlArtifact`. For formatted content, see [Rich text input](#rich-text-input). For precise structure changes, inspect first, then use `insert_blocks` or `move_block`; tables must use the `table_*` tools.
 ### Images via MCP
 
 1. On suggest-mode installs, call `request_edit_access` first; uploads apply immediately and cannot be queued as suggestions.
@@ -45,7 +113,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@book.dev/
 3. Copy the returned `assetId`; the payload itself is never echoed.
 4. Call `append_blocks` with `{"type":"image","props":{"assetId":"…","alt":"…","width":"60%"}}`.
 5. Later use `update_block_props` to change `alt` or `width`.
-6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,name,height}`.
+6. For sandboxed HTML, upload as `application/octet-stream` and append `htmlArtifact` with `{assetId,title,height}`.
 
 Table coordinates are **render order** (the sorted order you see), not positions in
 the stored array — a reordered table's arrays are not in display order. Tables built
@@ -119,7 +187,7 @@ At startup the connector performs a single `GET /api/instance` handshake (guest-
 
 ## Direct edits vs. reviewable suggestions
 
-Whether a write tool (`append_to_page`, `append_blocks`, `insert_blocks`, `move_block`, `update_block`, `update_block_props`, `delete_block`, every `table_*` op, `set_kit_value`, `set_db_cell`, and the database schema/row tools above) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row through the legacy `create_database_row` tool remains immediate. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+Whether a write tool (`append_to_page`, `append_blocks`, `insert_blocks`, `move_block`, `update_block`, `update_block_props`, `delete_block`, `set_page_appearance`, `move_page`, `set_page_properties`, every `table_*` op, `set_kit_value`, `set_db_cell`, and the database schema/row tools above) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row through the legacy `create_database_row` tool remains immediate. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
 
 The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
 

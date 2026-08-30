@@ -8,6 +8,8 @@ import {describe, expect, it} from 'vitest';
 import {
   addBlocksGuidance,
   BLOCK_TYPE_CATALOGUE,
+  BLOCK_PROP_JSON_SCHEMAS,
+  BLOCK_PROP_SCHEMAS,
   blockCatalogueText,
   blockTreeError,
   blockTypeInfo,
@@ -173,9 +175,23 @@ describe('prop value validation (permissive but typed)', () => {
   it('image width is a CSS length STRING (the editor writes "30%"/"60%", never numbers)', () => {
     expect(invalidBlockProps('image', {width: '60%'})).toBeNull();
     expect(invalidBlockProps('image', {width: 60})).toContain('"width"');
+    expect(invalidBlockProps('image', {width: 'auto'})).toContain('CSS length');
     expect(blockTypeInfo('image')?.hint).toContain('"60%"');
     // htmlArtifact height stays numeric (CSS pixels from the resize handle).
     expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
+  });
+
+  it('validates structured kit props, rich runs, and bounded pixel dimensions', () => {
+    expect(invalidBlockProps('radio', {opts: [{label: 'One', value: 'one'}]})).toBeNull();
+    expect(invalidBlockProps('radio', {opts: ['x']})).toContain('"opts"');
+    expect(invalidBlockProps('checklist', {selected: ['one']})).toBeNull();
+    expect(invalidBlockProps('checklist', {selected: [1]})).toContain('"selected"');
+    expect(invalidBlockProps('richtext', {runs: [{t: 'bold', a: {b: true}}]})).toBeNull();
+    expect(invalidBlockProps('richtext', {runs: [{text: 'wrong'}]})).toContain('"runs"');
+    expect(invalidBlockProps('image', {width: '640px'})).toBeNull();
+    expect(invalidBlockProps('image', {width: 640})).toContain('"width"');
+    expect(invalidBlockProps('htmlArtifact', {height: 320})).toBeNull();
+    expect(invalidBlockProps('htmlArtifact', {height: 40})).toContain('"height"');
   });
 
   it('catalogues dbform as a plain database-form reference', () => {
@@ -187,6 +203,13 @@ describe('prop value validation (permissive but typed)', () => {
   it('props named after Object.prototype members read as undeclared, not inherited', () => {
     expect(invalidBlockProps('paragraph', {toString: 'x'})).toBeNull();
     expect(invalidBlockProps('heading', {constructor: 1, hasOwnProperty: true})).toBeNull();
+  });
+
+  it('registers a Zod and JSON schema for every catalogue entry', () => {
+    for (const {type} of BLOCK_TYPE_CATALOGUE) {
+      expect(BLOCK_PROP_SCHEMAS[type as keyof typeof BLOCK_PROP_SCHEMAS]).toBeDefined();
+      expect(BLOCK_PROP_JSON_SCHEMAS[type as keyof typeof BLOCK_PROP_JSON_SCHEMAS]?.additionalProperties).toBe(true);
+    }
   });
 });
 
@@ -201,15 +224,17 @@ describe('pathological depth (stack-exhaustion guards)', () => {
 
 describe('generated tool text', () => {
   it('list_block_types text covers every catalogued type and declared plugin blocks', () => {
-    const text = blockCatalogueText([
+    const catalogue = JSON.parse(blockCatalogueText([
       {manifest: {id: 'openbook.ledger', name: 'Ledger', blocks: [{type: 'journal-entry', description: 'Record a transaction'}]}, enabled: true},
-    ]);
-    for (const e of BLOCK_TYPE_CATALOGUE) expect(text).toContain(`- ${e.type} (`);
-    expect(text).toContain('openbook.ledger/journal-entry');
-    expect(text).toContain('Record a transaction');
-    // Without a listing, the plugin section says so instead of guessing.
-    expect(blockCatalogueText()).toContain('listing unavailable');
-    expect(blockCatalogueText([])).toContain('none.');
+    ]));
+    for (const e of BLOCK_TYPE_CATALOGUE) {
+      const item = catalogue.blocks.find((b: {type: string}) => b.type === e.type);
+      expect(item.description).toBeTruthy();
+      expect(item.propsSchema.type).toBe('object');
+    }
+    expect(catalogue.pluginBlocks[0].type).toBe('openbook.ledger/journal-entry');
+    expect(JSON.parse(blockCatalogueText()).pluginListingAvailable).toBe(false);
+    expect(JSON.parse(blockCatalogueText([])).pluginBlocks).toEqual([]);
   });
 
   it('add_blocks guidance names every catalogued type (the old prose drifted)', () => {
